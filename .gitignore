@@ -30,3 +30,29 @@
 *.exe
 *.out
 *.app
+
+# Build
+build/
+cmake-build-*/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+
+cars/*
+
+# macOS
+.DS_Store
+
+# Linux
+.vscode/
+.idea/
+*.swp
+
+# Windows
+*.swp
+
+.cache/
+/examples
