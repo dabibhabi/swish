@@ -16,12 +16,15 @@ find_library(COCOA_LIBRARY Cocoa REQUIRED)
 find_library(IOKIT_LIBRARY IOKit REQUIRED)
 find_library(OPENGL_LIBRARY OpenGL REQUIRED)
 
+# --- Vulkan ---
+find_package(Vulkan REQUIRED)
+
 # --- GLAD (compiled as part of the project) ---
 add_library(glad STATIC src/glad.c)
 target_include_directories(glad PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
 # --- Main executable ---
-add_executable(swish src/main.cpp src/core/Window/Window.cpp src/core/App/App.cpp)
+add_executable(swish src/main.cpp src/core/Window/Window.cpp src/core/App/App.cpp src/renderer/VulkanContext/VulkanContext.cpp src/renderer/Renderer/Renderer.cpp)
 
 target_include_directories(swish PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
@@ -32,4 +35,5 @@ target_link_libraries(swish PRIVATE
     ${OPENGL_LIBRARY}
     ${COCOA_LIBRARY}
     ${IOKIT_LIBRARY}
+    Vulkan::Vulkan
 )
