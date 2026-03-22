@@ -30,6 +30,23 @@ void Device::init(VkInstance instance, VkSurfaceKHR surface) {
     createInfo.pQueueCreateInfos    = &queueCreateInfo;
     VkPhysicalDeviceFeatures deviceFeatures{};
     createInfo.pEnabledFeatures = &deviceFeatures;
+
+    std::vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+    uint32_t extensionCount;
+    vkEnumerateDeviceExtensionProperties(m_physicalDevice, nullptr, &extensionCount, nullptr);
+    std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+    vkEnumerateDeviceExtensionProperties(m_physicalDevice, nullptr, &extensionCount, availableExtensions.data());
+
+    for (const auto& extension : availableExtensions) {
+        if (strcmp(extension.extensionName, "VK_KHR_portability_subset") == 0) {
+            deviceExtensions.push_back("VK_KHR_portability_subset");
+            break;
+        }
+    }
+
+    createInfo.enabledExtensionCount   = static_cast<uint32_t>(deviceExtensions.size());
+    createInfo.ppEnabledExtensionNames = deviceExtensions.data();
     if (vkCreateDevice(m_physicalDevice, &createInfo, nullptr, &m_device) != VK_SUCCESS) {
         throw std::runtime_error("failed to create logical device!");
     }

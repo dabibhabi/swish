@@ -1,0 +1,1 @@
+find src include -name "*.cpp" -o -name "*.h" | xargs clang-format -i --style=file

@@ -36,35 +36,13 @@ public:
     Renderer();
     ~Renderer();
 
-    // TODO: Initialize all Vulkan subsystems in dependency order:
-    //   1. VulkanContext::init(window)           — instance, debug, surface
-    //   2. Device::init(instance, surface)       — pick GPU, create device
-    //   3. Swapchain::init(device, surface, w, h) — swap chain + image views
-    //   4. Create depth resources                — depth image + view via
-    //   ResourceManager
-    //   5. RenderPass::init(device, colorFmt, depthFmt) — render pass
-    //   6. RenderPass::createFramebuffers(...)   — one per swap image
-    //   7. CommandManager::init(device, queueFamily, MAX_FRAMES_IN_FLIGHT)
-    //   8. SyncObjects::init(device, MAX_FRAMES_IN_FLIGHT)
-    //   9. (Later) Create pipeline, descriptor sets, etc.
+    // Initializes all Vulkan subsystems in dependency order.
     void init(Window& window);
 
-    // TODO: Destroy everything in REVERSE order of init.
-    // Must call vkDeviceWaitIdle() first to ensure GPU is done.
+    // Destroys everything in REVERSE order of init.
     void cleanup();
 
-    // TODO: Execute one frame of the draw loop:
-    //   1. syncObjects.waitForFence(currentFrame)
-    //   2. vkAcquireNextImageKHR → imageIndex
-    //      - If OUT_OF_DATE: recreateSwapchain(), return
-    //   3. syncObjects.resetFence(currentFrame)
-    //   4. commandManager.resetBuffer(currentFrame)
-    //   5. recordCommandBuffer(currentFrame, imageIndex)
-    //   6. vkQueueSubmit (wait=imageAvailable, signal=renderFinished,
-    //   fence=inFlight)
-    //   7. vkQueuePresentKHR (wait=renderFinished)
-    //      - If OUT_OF_DATE or SUBOPTIMAL: recreateSwapchain()
-    //   8. currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT
+    // Executes one frame of the draw loop:
     void drawFrame();
 
 private:
@@ -77,14 +55,15 @@ private:
     SyncObjects*    m_syncObjects    = nullptr;
 
     // ── Depth resources (shared between render passes) ─────────────
-    // TODO: Create via ResourceManager::createImage with DEPTH_STENCIL_ATTACHMENT
-    // usage
+    // Created via ResourceManager::createImage with DEPTH_STENCIL_ATTACHMENT
     VkImage        m_depthImage     = VK_NULL_HANDLE;
     VkDeviceMemory m_depthMemory    = VK_NULL_HANDLE;
     VkImageView    m_depthImageView = VK_NULL_HANDLE;
 
-    // ── Pipeline (will be set up in Part 14) ──────────────────────
-    // TODO: Add VkPipeline, VkPipelineLayout, VkDescriptorSetLayout here later
+    // ── Pipeline ─────────────────────────────────────────────────
+    VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
+    VkPipelineLayout      m_pipelineLayout      = VK_NULL_HANDLE;
+    VkPipeline            m_pipeline            = VK_NULL_HANDLE;
 
     // ── Frame tracking ─────────────────────────────────────────────
     uint32_t m_currentFrame = 0;
@@ -92,24 +71,23 @@ private:
     // ── Pointer back to window (for resize checks) ────────────────
     Window* m_window = nullptr;
 
-    // TODO: Record the command buffer for a single frame.
-    // For now: begin render pass → set clear color → end render pass.
-    // Later: bind pipeline, bind vertex buffers, draw geometry.
+    // Records the command buffer for a single frame.
     void recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex);
 
-    // TODO: Destroy old swap chain resources, recreate with new window size.
-    // Called when vkAcquireNextImageKHR or vkQueuePresentKHR returns OUT_OF_DATE.
-    // Steps:
-    //   1. vkDeviceWaitIdle()
-    //   2. Cleanup: framebuffers, depth resources, swapchain
-    //   3. Recreate: swapchain, depth resources, framebuffers
+    // Destroys old swap chain resources, recreates with new window size.
     void recreateSwapchain();
 
-    // TODO: Create depth image + view for the current swap chain extent
+    // Creates depth image + view for the current swap chain extent
     void createDepthResources();
 
-    // TODO: Destroy depth image, memory, and view
+    // Destroys depth image, memory, and view
     void destroyDepthResources();
+
+    // Creates descriptor set layout, pipeline layout, and graphics pipeline
+    void createPipeline();
+
+    // Destroys pipeline, pipeline layout, and descriptor set layout
+    void destroyPipeline();
 };
 
 }  // namespace swish

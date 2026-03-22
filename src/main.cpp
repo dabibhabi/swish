@@ -2,6 +2,6 @@
 #include "core/App/App.h"
 
 int main() {
-  swish::App app;
-  return app.run();
+    swish::App app;
+    return app.run();
 }

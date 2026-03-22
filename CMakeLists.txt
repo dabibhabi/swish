@@ -23,10 +23,57 @@ find_package(Vulkan REQUIRED)
 add_library(glad STATIC src/glad.c)
 target_include_directories(glad PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
+# --- Shader compilation ---
+find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/bin)
+if(NOT GLSLC)
+    message(FATAL_ERROR "glslc not found. Make sure Vulkan SDK is installed.")
+endif()
+
+set(SHADER_DIR ${CMAKE_SOURCE_DIR}/shaders)
+set(SHADER_OUTPUT_DIR ${CMAKE_BINARY_DIR}/shaders)
+file(MAKE_DIRECTORY ${SHADER_OUTPUT_DIR})
+
+set(SHADER_SOURCES
+    ${SHADER_DIR}/basic.vert
+    ${SHADER_DIR}/basic.frag
+)
+
+foreach(SHADER ${SHADER_SOURCES})
+    get_filename_component(SHADER_NAME ${SHADER} NAME)
+    set(SHADER_SPV ${SHADER_OUTPUT_DIR}/${SHADER_NAME}.spv)
+    add_custom_command(
+        OUTPUT ${SHADER_SPV}
+        COMMAND ${GLSLC} ${SHADER} -o ${SHADER_SPV}
+        DEPENDS ${SHADER}
+        COMMENT "Compiling shader ${SHADER_NAME}"
+    )
+    list(APPEND SHADER_SPV_FILES ${SHADER_SPV})
+endforeach()
+
+add_custom_target(shaders DEPENDS ${SHADER_SPV_FILES})
+
 # --- Main executable ---
-add_executable(swish src/main.cpp src/core/Window/Window.cpp src/core/App/App.cpp src/renderer/VulkanContext/VulkanContext.cpp src/renderer/Renderer/Renderer.cpp)
+add_executable(swish
+    src/main.cpp
+    src/core/Window/Window.cpp
+    src/core/App/App.cpp
+    src/renderer/VulkanContext/VulkanContext.cpp
+    src/renderer/Renderer/Renderer.cpp
+    src/renderer/Device/Device.cpp
+    src/renderer/Swapchain/Swapchain.cpp
+    src/renderer/RenderPass/RenderPass.cpp
+    src/renderer/CommandManager/CommandManager.cpp
+    src/renderer/SyncObjects/SyncObjects.cpp
+    src/renderer/ResourceManager/ResourceManager.cpp
+    src/renderer/Pipeline/Pipeline.cpp
+    src/utils/FileIO/FileIO.cpp
+)
+
+add_dependencies(swish shaders)
 
 target_include_directories(swish PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+target_compile_definitions(swish PRIVATE SHADER_DIR="${SHADER_OUTPUT_DIR}/")
 
 target_link_libraries(swish PRIVATE
     glad

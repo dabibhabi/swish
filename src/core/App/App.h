@@ -10,22 +10,22 @@ class Renderer;
 // This is the entry point for everything.
 class App {
 public:
-  App();
-  ~App();
+    App();
+    ~App();
 
-  // TODO: Main loop:
-  //   1. Create Window and Renderer
-  //   2. Init Window (GLFW)
-  //   3. Init Renderer (all Vulkan setup, passing the window)
-  //   4. Loop while !window.shouldClose():
-  //      a. window.pollEvents()
-  //      b. renderer.drawFrame()
-  //   5. Cleanup renderer, then window (reverse order)
-  int run();
+    // TODO: Main loop:
+    //   1. Create Window and Renderer
+    //   2. Init Window (GLFW)
+    //   3. Init Renderer (all Vulkan setup, passing the window)
+    //   4. Loop while !window.shouldClose():
+    //      a. window.pollEvents()
+    //      b. renderer.drawFrame()
+    //   5. Cleanup renderer, then window (reverse order)
+    int run();
 
 private:
-  Window *m_window = nullptr;
-  Renderer *m_renderer = nullptr;
+    Window*   m_window   = nullptr;
+    Renderer* m_renderer = nullptr;
 };
 
-} // namespace swish
+}  // namespace swish
