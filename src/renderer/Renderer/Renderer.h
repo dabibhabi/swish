@@ -2,11 +2,14 @@
 
 #include <vulkan/vulkan.h>
 
+#include "../../scene/SceneTypes.h"
+
 #include <cstdint>
+#include <vector>
 
 namespace swish {
 
-// Forward declarations — Renderer knows about these but doesn't #include them
+// Forward declarations
 class Window;
 class VulkanContext;
 class Device;
@@ -14,36 +17,66 @@ class Swapchain;
 class RenderPass;
 class CommandManager;
 class SyncObjects;
+class Camera;
+class TextureManager;
+class SceneManager;
+class ModelManager;
 
-// The Renderer orchestrates the entire Vulkan draw loop.
-// It OWNS all the Vulkan subsystems and coordinates them each frame.
+// The Renderer orchestrates the Vulkan draw loop and acts as a
+// central registry for managers (rind-style architecture).
 //
-// Architecture (DownPour-style — App owns Window + Renderer, Renderer owns
-// Vulkan):
+// Architecture:
 //   App
-//    ├── Window        (GLFW)
-//    └── Renderer      (this class)
-//         ├── VulkanContext   (instance, debug messenger, surface)
-//         ├── Device          (physical device, logical device, queues)
-//         ├── Swapchain       (swap images, image views)
-//         ├── RenderPass      (render pass, framebuffers)
-//         ├── Pipeline        (graphics pipeline — created later)
-//         ├── CommandManager  (command pool, command buffers)
-//         └── SyncObjects     (fences, semaphores)
+//    ├── Window
+//    ├── Renderer (Vulkan core + manager registry)
+//    │    ├── VulkanContext, Device, Swapchain, RenderPass
+//    │    ├── Pipeline, CommandManager, SyncObjects
+//    │    ├── UBOs, descriptors, scene geometry
+//    │    └── Camera* (set by scene)
+//    ├── TextureManager (owns all textures)
+//    ├── SceneManager (owns scenes, handles switching)
+//    └── ModelManager (placeholder for cars)
 //
 class Renderer {
 public:
     Renderer();
     ~Renderer();
 
-    // Initializes all Vulkan subsystems in dependency order.
+    // ── Core lifecycle ────────────────────────────────────────────────
     void init(Window& window);
-
-    // Destroys everything in REVERSE order of init.
     void cleanup();
-
-    // Executes one frame of the draw loop:
     void drawFrame();
+
+    // ── Manager registration (called by App after init) ───────────────
+    void register_texture_manager(TextureManager* mgr);
+    void register_scene_manager(SceneManager* mgr);
+    void register_model_manager(ModelManager* mgr);
+
+    // ── Manager getters ───────────────────────────────────────────────
+    TextureManager* get_texture_manager() const;
+    SceneManager*   get_scene_manager() const;
+    ModelManager*   get_model_manager() const;
+
+    // ── Vulkan handle getters (for managers) ──────────────────────────
+    VkDevice         get_vk_device() const;
+    VkPhysicalDevice get_vk_physical_device() const;
+    VkCommandPool    get_command_pool() const;
+    VkQueue          get_graphics_queue() const;
+    VkExtent2D       get_swapchain_extent() const;
+
+    // ── Scene geometry (called by Scene lambdas) ──────────────────────
+    void upload_scene_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws);
+    void destroy_scene_geometry();
+
+    // ── Material descriptors (called after TextureManager loads) ──────
+    void rebuild_material_descriptors();
+
+    // ── Camera (owned by Renderer, set by Scene) ──────────────────────
+    void    set_camera(Camera* camera);
+    Camera* get_camera() const;
+
+    // ── GPU synchronization ───────────────────────────────────────────
+    void wait_for_idle();
 
 private:
     // ── Owned subsystems ───────────────────────────────────────────
@@ -54,40 +87,63 @@ private:
     CommandManager* m_commandManager = nullptr;
     SyncObjects*    m_syncObjects    = nullptr;
 
-    // ── Depth resources (shared between render passes) ─────────────
-    // Created via ResourceManager::createImage with DEPTH_STENCIL_ATTACHMENT
+    // ── Manager pointers (NOT owned — App owns these) ─────────────
+    TextureManager* m_textureManager = nullptr;
+    SceneManager*   m_sceneManager   = nullptr;
+    ModelManager*   m_modelManager   = nullptr;
+
+    // ── Depth resources ───────────────────────────────────────────
     VkImage        m_depthImage     = VK_NULL_HANDLE;
     VkDeviceMemory m_depthMemory    = VK_NULL_HANDLE;
     VkImageView    m_depthImageView = VK_NULL_HANDLE;
 
-    // ── Pipeline ─────────────────────────────────────────────────
+    // ── Pipeline ──────────────────────────────────────────────────
     VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout m_materialSetLayout   = VK_NULL_HANDLE;
     VkPipelineLayout      m_pipelineLayout      = VK_NULL_HANDLE;
     VkPipeline            m_pipeline            = VK_NULL_HANDLE;
 
-    // ── Frame tracking ─────────────────────────────────────────────
+    // ── Uniform buffers (one per frame-in-flight) ─────────────────
+    std::vector<VkBuffer>       m_uniformBuffers;
+    std::vector<VkDeviceMemory> m_uniformBuffersMemory;
+    std::vector<void*>          m_uniformBuffersMapped;
+
+    // ── Descriptor pool + sets for camera UBOs ────────────────────
+    VkDescriptorPool             m_descriptorPool = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> m_descriptorSets;
+
+    // ── Material descriptor pool + sets (rebuilt on texture load) ──
+    VkDescriptorPool             m_materialPool = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> m_materialSets;
+
+    // ── Scene geometry ────────────────────────────────────────────
+    VkBuffer              m_vertexBuffer       = VK_NULL_HANDLE;
+    VkDeviceMemory        m_vertexBufferMemory = VK_NULL_HANDLE;
+    VkBuffer              m_indexBuffer        = VK_NULL_HANDLE;
+    VkDeviceMemory        m_indexBufferMemory  = VK_NULL_HANDLE;
+    std::vector<DrawCall> m_drawCalls;
+
+    // ── Camera ────────────────────────────────────────────────────
+    Camera* m_camera = nullptr;
+
+    // ── Frame tracking ────────────────────────────────────────────
     uint32_t m_currentFrame = 0;
 
-    // ── Pointer back to window (for resize checks) ────────────────
+    // ── Pointer back to window ────────────────────────────────────
     Window* m_window = nullptr;
 
-    // Records the command buffer for a single frame.
+    // ── Private helpers ───────────────────────────────────────────
     void recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex);
-
-    // Destroys old swap chain resources, recreates with new window size.
     void recreateSwapchain();
-
-    // Creates depth image + view for the current swap chain extent
     void createDepthResources();
-
-    // Destroys depth image, memory, and view
     void destroyDepthResources();
-
-    // Creates descriptor set layout, pipeline layout, and graphics pipeline
     void createPipeline();
-
-    // Destroys pipeline, pipeline layout, and descriptor set layout
     void destroyPipeline();
+    void createUniformBuffers();
+    void destroyUniformBuffers();
+    void createCameraDescriptorPool();
+    void createCameraDescriptorSets();
+    void updateUniformBuffer(uint32_t frameIndex);
 };
 
 }  // namespace swish

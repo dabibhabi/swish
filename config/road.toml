@@ -1,0 +1,75 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Road Scene Configuration — I-495 Long Island Expressway
+# Jericho, Nassau County defaults
+#
+# Units: distances in feet (ft) or meters (m) as labeled.
+# Tiling and y_offset are in world units (1 meter = 1000 world units).
+# Colors are linear RGBA floats.
+#
+# Edit this file, then run the baker to produce road.bin:
+#   ./toml_baker ../config/road.toml config/road.bin
+# ═══════════════════════════════════════════════════════════════════════
+
+[road]
+length_m            = 1000.0    # Road length in meters
+lane_width_ft       = 13.0      # ~13ft per lane (wider for visual match)
+lane_count          = 4         # Lanes per direction
+shoulder_width_wb_ft = 3.0      # Westbound shoulder width
+shoulder_width_eb_ft = 10.0     # Eastbound shoulder width
+grass_extent_ft     = 500.0     # Grass strip width on each side
+
+[barrier]
+width_ft            = 2.67      # Jersey barrier width (32 inches)
+height_ft           = 3.5       # Jersey barrier height (42 inches — taller LIE style)
+
+[guardrail]
+width_ft            = 0.5       # W-beam guardrail (6 inches)
+height_ft           = 2.25      # Rail height (27 inches)
+
+[curb]
+height_ft           = 0.5       # 6 inches
+width_ft            = 0.5       # 6 inches
+
+[tiling]
+asphalt             = 3000.0    # World units per texture repeat
+grass               = 4000.0
+concrete            = 1500.0
+metal               = 1000.0
+
+[markings]
+y_offset            = 5.0       # World units above crowned road surface (z-fighting fix)
+dash_length_ft      = 10.0      # Dashed lane divider dash length
+dash_gap_ft         = 30.0      # Gap between dashes
+
+# ── Tint Color Reference ──────────────────────────────────────────────
+# Tints are RGBA multipliers applied to the texture color in the fragment shader:
+#
+#   finalColor = textureRGB * tint.rgb
+#
+# [1.0, 1.0, 1.0, 1.0] = show texture at full brightness (no tinting)
+# [0.5, 0.5, 0.5, 1.0] = 50% darker (halves all channels)
+# [1.2, 1.0, 0.8, 1.0] = warm shift (boost red, cut blue)
+# [0.0, 0.0, 0.0, 1.0] = completely black (kills all texture color)
+#
+# "Flat color" surfaces (markings) have a 1x1 white texture, so the tint
+# IS the color. Textured surfaces (asphalt, grass, concrete, metal) use
+# the tint to shift the texture's appearance.
+# ──────────────────────────────────────────────────────────────────────
+
+[colors]
+# Surface-specific tints (used by generate methods for non-textured draws)
+shoulder_tint       = [1.20, 1.18, 1.15, 1.0]  # Lighter shoulder, slightly warm
+barrier_tint        = [0.90, 0.88, 0.84, 1.0]  # Weathered concrete, brighter
+rail_tint           = [1.10, 1.12, 1.10, 1.0]  # Galvanized steel, brighter
+white_marking       = [0.95, 0.95, 0.95, 1.0]  # Bright white lane markings
+yellow_marking      = [0.90, 0.80, 0.15, 1.0]  # Highway median yellow
+
+# Material texture tints (multiplied onto PBR textures)
+ground_tint         = [0.15, 0.15, 0.15, 1.0]  # Base ground color
+grass_tint          = [1.00, 1.00, 1.00, 1.0]  # Grass texture multiplier
+asphalt_tint        = [0.55, 0.55, 0.57, 1.0]  # Dark aged LIE asphalt
+concrete_tint       = [1.00, 1.00, 1.00, 1.0]  # Concrete texture multiplier
+metal_tint          = [1.00, 1.00, 1.00, 1.0]  # Metal texture multiplier
+white_tint          = [1.00, 1.00, 1.00, 1.0]  # Generic white
+yellow_tint         = [1.00, 1.00, 1.00, 1.0]  # Generic yellow
+black_tint          = [0.05, 0.05, 0.05, 1.0]  # Near-black

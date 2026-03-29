@@ -38,6 +38,15 @@ public:
     static uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter,
                                    VkMemoryPropertyFlags properties);
 
+    // Transitions a VkImage between layouts using a pipeline barrier.
+    // Used during texture upload: UNDEFINED → TRANSFER_DST → SHADER_READ_ONLY
+    static void transitionImageLayout(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkImage image,
+                                      VkImageLayout oldLayout, VkImageLayout newLayout);
+
+    // Copies pixel data from a staging buffer into a VkImage.
+    static void copyBufferToImage(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer buffer,
+                                  VkImage image, uint32_t width, uint32_t height);
+
     // Finds the best depth buffer format the GPU supports.
     // Try D32_SFLOAT first, then D32_SFLOAT_S8_UINT, then D24_UNORM_S8_UINT.
     static VkFormat findDepthFormat(VkPhysicalDevice physicalDevice);
