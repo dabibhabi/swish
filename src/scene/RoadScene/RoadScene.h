@@ -225,6 +225,8 @@ private:
     void generate_hov_diamonds(MeshBuilder& builder, float z_near, float z_far) const;
     void generate_sign_posts(MeshBuilder& builder, float z_near, float z_far) const;
     void generate_overpass(MeshBuilder& builder, float z_near, float z_far) const;
+    void generate_sound_barriers(MeshBuilder& builder, float z_near, float z_far) const;
+    void generate_exit_ramp(MeshBuilder& builder, float z_near, float z_far) const;
 };
 
 }  // namespace swish

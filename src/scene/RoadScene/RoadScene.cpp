@@ -501,6 +501,8 @@ RoadScene::SceneData RoadScene::generate() const {
     generate_hov_diamonds(builder, z_near, z_far);
     generate_sign_posts(builder, z_near, z_far);
     generate_overpass(builder, z_near, z_far);
+    generate_sound_barriers(builder, z_near, z_far);
+    generate_exit_ramp(builder, z_near, z_far);
 
     return scene;
 }
@@ -1031,6 +1033,277 @@ void RoadScene::generate_trees(MeshBuilder& builder, float z_near, float z_far) 
             builder.m_mesh.addIndex(base + 1); builder.m_mesh.addIndex(base + 2); builder.m_mesh.addIndex(base + 3);
             builder.pushDrawCall(idx, tree_tint, MAT_TREE);
         }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Sound Barriers — noise reduction panels along the roadside
+// ══════════════════════════════════════════════════════════════════════
+
+void RoadScene::generate_sound_barriers(MeshBuilder& builder, float z_near, float z_far) const {
+    float eb_start = m_barrier_width + 3.0f * kFt;
+    float eb_width = static_cast<float>(m_lane_count) * m_lane_width;
+    float wb_width = static_cast<float>(m_lane_count) * m_lane_width;
+
+    // EB sound barrier sits on top of the retaining wall
+    float wall_x     = eb_start + eb_width + m_shoulder_width_eb;
+    float wall_top   = 8.0f * kFt;      // retaining wall height
+    float panel_h    = 6.0f * kFt;      // 6ft tall panels on top of wall
+    float panel_top  = wall_top + panel_h;
+    float panel_w    = 0.5f * kFt;      // panel thickness
+
+    Vec4 panel_tint_front = {0.65f, 0.55f, 0.42f, 1.0f};  // weathered wood tone
+    Vec4 panel_tint_back  = {0.55f, 0.48f, 0.38f, 1.0f};  // darker backside
+    Vec4 panel_top_tint   = {0.60f, 0.52f, 0.40f, 1.0f};
+
+    // EB panels — concrete posts every 10ft with wood panels between
+    float post_spacing = 10.0f * kFt;
+    float post_w       = 0.75f * kFt;
+    Vec4  post_tint    = {0.65f, 0.63f, 0.60f, 1.0f};  // concrete post
+
+    // Continuous panel face (road side)
+    builder.addVerticalFace(wall_x, panel_top, z_far, z_near, kLeft,
+                            panel_tint_front, MAT_CONCRETE, m_concrete_tile);
+    // Back face
+    builder.addVerticalFace(wall_x + panel_w, panel_top, z_far, z_near, kRight,
+                            panel_tint_back, MAT_CONCRETE, m_concrete_tile);
+    // Top cap
+    builder.addHorizontalQuad(wall_x, wall_x + panel_w, panel_top, z_far, z_near, kUp,
+                              panel_top_tint, MAT_CONCRETE, m_concrete_tile);
+
+    // Concrete posts at intervals
+    for (float z = z_far + post_spacing; z < z_near; z += post_spacing) {
+        builder.addVerticalFace(wall_x - 0.1f * kFt, panel_top,
+                                z - post_w / 2.0f, z + post_w / 2.0f, kLeft,
+                                post_tint, MAT_CONCRETE, m_concrete_tile);
+    }
+
+    // WB sound barrier (on the grass side past WB guardrail)
+    float wb_rail_x = -(wb_width + m_shoulder_width_wb + m_rail_width);
+    float wb_wall_x = wb_rail_x - 2.0f * kFt;  // 2ft behind WB guardrail
+
+    builder.addVerticalFace(wb_wall_x, 10.0f * kFt, z_far, z_near, kRight,
+                            panel_tint_front, MAT_CONCRETE, m_concrete_tile);
+    builder.addVerticalFace(wb_wall_x - panel_w, 10.0f * kFt, z_far, z_near, kLeft,
+                            panel_tint_back, MAT_CONCRETE, m_concrete_tile);
+    builder.addHorizontalQuad(wb_wall_x - panel_w, wb_wall_x, 10.0f * kFt, z_far, z_near, kUp,
+                              panel_top_tint, MAT_CONCRETE, m_concrete_tile);
+
+    for (float z = z_far + post_spacing; z < z_near; z += post_spacing) {
+        builder.addVerticalFace(wb_wall_x + 0.1f * kFt, 10.0f * kFt,
+                                z - post_w / 2.0f, z + post_w / 2.0f, kRight,
+                                post_tint, MAT_CONCRETE, m_concrete_tile);
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Exit Ramp — EB exit to N Marginal Road
+//
+// The ramp branches off the rightmost EB lane, diverges at a shallow
+// angle, and connects to a 2-lane surface street (N Marginal Road)
+// that runs parallel to the expressway.
+// ══════════════════════════════════════════════════════════════════════
+
+void RoadScene::generate_exit_ramp(MeshBuilder& builder, float z_near, float z_far) const {
+    float eb_start   = m_barrier_width + 3.0f * kFt;
+    float eb_width   = static_cast<float>(m_lane_count) * m_lane_width;
+    float eb_right   = eb_start + eb_width + m_shoulder_width_eb;
+    float line_w     = 0.50f * kFt;
+
+    // ── Ramp geometry parameters ─────────────────────────────────
+    float ramp_start_z  = -650000.0f;   // ramp begins diverging (~650m)
+    float ramp_end_z    = -850000.0f;   // ramp fully separated (~850m)
+    float decel_start_z = -550000.0f;   // deceleration lane begins (~550m)
+
+    float ramp_offset   = 40.0f * kFt;  // how far right the ramp shifts at the end
+    float ramp_width    = 14.0f * kFt;  // single ramp lane width
+    float gore_len      = ramp_start_z - ramp_end_z;  // length of diverge
+
+    // ── Deceleration lane (extra lane width that tapers in) ──────
+    // From decel_start_z to ramp_start_z: shoulder widens into a full lane
+    int num_decel_segs = 8;
+    float decel_len    = decel_start_z - ramp_start_z;
+    float seg_len      = decel_len / static_cast<float>(num_decel_segs);
+
+    for (int i = 0; i < num_decel_segs; i++) {
+        float z0 = decel_start_z - static_cast<float>(i) * seg_len;
+        float z1 = z0 - seg_len;
+        float t0 = static_cast<float>(i) / static_cast<float>(num_decel_segs);
+        float t1 = static_cast<float>(i + 1) / static_cast<float>(num_decel_segs);
+
+        // Taper: left edge stays at road edge, right edge widens
+        float left  = eb_right;
+        float right0 = eb_right + t0 * ramp_width;
+        float right1 = eb_right + t1 * ramp_width;
+
+        // Approximate with a quad per segment (right edge shifts outward)
+        uint32_t base = builder.m_mesh.getVertexCount();
+        uint32_t idx  = builder.m_mesh.getIndexCount();
+        Vec4 hTan = Vec4(1.0f, 0.0f, 0.0f, 1.0f);
+
+        builder.m_mesh.addVertex({Vec3(left, 0.0f, z0), kUp,
+                                  Vec2(left / m_asphalt_tile, z0 / m_asphalt_tile), hTan});
+        builder.m_mesh.addVertex({Vec3(right0, 0.0f, z0), kUp,
+                                  Vec2(right0 / m_asphalt_tile, z0 / m_asphalt_tile), hTan});
+        builder.m_mesh.addVertex({Vec3(left, 0.0f, z1), kUp,
+                                  Vec2(left / m_asphalt_tile, z1 / m_asphalt_tile), hTan});
+        builder.m_mesh.addVertex({Vec3(right1, 0.0f, z1), kUp,
+                                  Vec2(right1 / m_asphalt_tile, z1 / m_asphalt_tile), hTan});
+
+        builder.m_mesh.addIndex(base + 0);  builder.m_mesh.addIndex(base + 2);  builder.m_mesh.addIndex(base + 1);
+        builder.m_mesh.addIndex(base + 1);  builder.m_mesh.addIndex(base + 2);  builder.m_mesh.addIndex(base + 3);
+        builder.pushDrawCall(idx, m_asphalt_tint, MAT_ASPHALT);
+    }
+
+    // ── Ramp diverging section ───────────────────────────────────
+    // From ramp_start_z to ramp_end_z: ramp curves away from mainline
+    int num_ramp_segs = 12;
+    float ramp_seg_len = gore_len / static_cast<float>(num_ramp_segs);
+
+    for (int i = 0; i < num_ramp_segs; i++) {
+        float z0 = ramp_start_z - static_cast<float>(i) * ramp_seg_len;
+        float z1 = z0 - ramp_seg_len;
+        float t0 = static_cast<float>(i) / static_cast<float>(num_ramp_segs);
+        float t1 = static_cast<float>(i + 1) / static_cast<float>(num_ramp_segs);
+
+        // Smooth ease-out curve for the offset
+        float off0 = ramp_offset * t0 * t0;  // quadratic ease-in
+        float off1 = ramp_offset * t1 * t1;
+
+        float left0  = eb_right + off0;
+        float right0 = left0 + ramp_width;
+        float left1  = eb_right + off1;
+        float right1 = left1 + ramp_width;
+
+        uint32_t base = builder.m_mesh.getVertexCount();
+        uint32_t idx  = builder.m_mesh.getIndexCount();
+        Vec4 hTan = Vec4(1.0f, 0.0f, 0.0f, 1.0f);
+
+        builder.m_mesh.addVertex({Vec3(left0, 0.0f, z0), kUp,
+                                  Vec2(left0 / m_asphalt_tile, z0 / m_asphalt_tile), hTan});
+        builder.m_mesh.addVertex({Vec3(right0, 0.0f, z0), kUp,
+                                  Vec2(right0 / m_asphalt_tile, z0 / m_asphalt_tile), hTan});
+        builder.m_mesh.addVertex({Vec3(left1, 0.0f, z1), kUp,
+                                  Vec2(left1 / m_asphalt_tile, z1 / m_asphalt_tile), hTan});
+        builder.m_mesh.addVertex({Vec3(right1, 0.0f, z1), kUp,
+                                  Vec2(right1 / m_asphalt_tile, z1 / m_asphalt_tile), hTan});
+
+        builder.m_mesh.addIndex(base + 0);  builder.m_mesh.addIndex(base + 2);  builder.m_mesh.addIndex(base + 1);
+        builder.m_mesh.addIndex(base + 1);  builder.m_mesh.addIndex(base + 2);  builder.m_mesh.addIndex(base + 3);
+        builder.pushDrawCall(idx, m_asphalt_tint, MAT_ASPHALT);
+
+        // White edge lines on ramp
+        builder.addHorizontalQuad(left0, left0 + line_w, m_marking_y_offset + 1.0f,
+                                  z1, z0, kUp, m_white_marking);
+        builder.addHorizontalQuad(right0 - line_w, right0, m_marking_y_offset + 1.0f,
+                                  z1, z0, kUp, m_white_marking);
+    }
+
+    // ── Gore area (triangular painted chevron zone) ──────────────
+    // White solid line separating ramp from mainline
+    for (int i = 0; i < num_ramp_segs; i++) {
+        float z0 = ramp_start_z - static_cast<float>(i) * ramp_seg_len;
+        float z1 = z0 - ramp_seg_len;
+        float t0 = static_cast<float>(i) / static_cast<float>(num_ramp_segs);
+        float off0 = ramp_offset * t0 * t0;
+
+        float gore_x = eb_right + off0;
+        builder.addHorizontalQuad(gore_x - line_w, gore_x, m_marking_y_offset + 2.0f,
+                                  z1, z0, kUp, m_white_marking);
+    }
+
+    // ── N Marginal Road (runs parallel to LIE, offset to the right) ──
+    // 2-lane local road from ramp_end_z continuing to z_far
+    float marginal_offset = ramp_offset + ramp_width + 10.0f * kFt;  // gap after ramp merges
+    float marginal_width  = 12.0f * kFt;  // one lane each direction
+    float marginal_left   = eb_right + marginal_offset;
+    float marginal_start_z = ramp_end_z;
+    float marginal_end_z   = z_far;
+
+    // Road surface — 2 lanes
+    builder.addHorizontalQuad(marginal_left, marginal_left + marginal_width,
+                              0.0f, marginal_end_z, marginal_start_z, kUp,
+                              m_asphalt_tint, MAT_ASPHALT, m_asphalt_tile);
+    builder.addHorizontalQuad(marginal_left + marginal_width, marginal_left + 2.0f * marginal_width,
+                              0.0f, marginal_end_z, marginal_start_z, kUp,
+                              m_asphalt_tint, MAT_ASPHALT, m_asphalt_tile);
+
+    // Double yellow center line
+    float center_x = marginal_left + marginal_width;
+    builder.addHorizontalQuad(center_x - line_w / 2.0f - 0.1f * kFt,
+                              center_x - 0.1f * kFt,
+                              m_marking_y_offset, marginal_end_z, marginal_start_z,
+                              kUp, m_yellow_marking);
+    builder.addHorizontalQuad(center_x + 0.1f * kFt,
+                              center_x + line_w / 2.0f + 0.1f * kFt,
+                              m_marking_y_offset, marginal_end_z, marginal_start_z,
+                              kUp, m_yellow_marking);
+
+    // White edge lines
+    builder.addHorizontalQuad(marginal_left, marginal_left + line_w,
+                              m_marking_y_offset, marginal_end_z, marginal_start_z,
+                              kUp, m_white_marking);
+    builder.addHorizontalQuad(marginal_left + 2.0f * marginal_width - line_w,
+                              marginal_left + 2.0f * marginal_width,
+                              m_marking_y_offset, marginal_end_z, marginal_start_z,
+                              kUp, m_white_marking);
+
+    // Grass between LIE and Marginal Road
+    builder.addHorizontalQuad(eb_right + m_rail_width, marginal_left,
+                              0.0f, marginal_end_z, marginal_start_z, kUp,
+                              m_grass_tint, MAT_GRASS, m_grass_tile);
+
+    // Grass on far side of Marginal Road
+    builder.addHorizontalQuad(marginal_left + 2.0f * marginal_width,
+                              marginal_left + 2.0f * marginal_width + 100.0f * kFt,
+                              0.0f, marginal_end_z, marginal_start_z, kUp,
+                              m_grass_tint, MAT_GRASS, m_grass_tile);
+
+    // Curb on Marginal Road right edge
+    float mr_curb_x = marginal_left + 2.0f * marginal_width;
+    builder.addHorizontalQuad(mr_curb_x, mr_curb_x + m_curb_width, m_curb_height,
+                              marginal_end_z, marginal_start_z, kUp,
+                              m_concrete_tint, MAT_CONCRETE, m_concrete_tile);
+    builder.addVerticalFace(mr_curb_x, m_curb_height, marginal_end_z, marginal_start_z, kLeft,
+                            m_concrete_tint, MAT_CONCRETE, m_concrete_tile);
+
+    // ── Connecting ramp to Marginal Road ─────────────────────────
+    // Short curved connection from ramp end to Marginal Road
+    float connect_start_z = ramp_end_z;
+    float connect_end_z   = ramp_end_z - 200.0f * kFt;  // 200ft merge
+    int num_connect = 6;
+    float connect_seg = (connect_start_z - connect_end_z) / static_cast<float>(num_connect);
+
+    float ramp_end_left = eb_right + ramp_offset;
+
+    for (int i = 0; i < num_connect; i++) {
+        float z0 = connect_start_z - static_cast<float>(i) * connect_seg;
+        float z1 = z0 - connect_seg;
+        float t0 = static_cast<float>(i) / static_cast<float>(num_connect);
+        float t1 = static_cast<float>(i + 1) / static_cast<float>(num_connect);
+
+        // Smooth transition from ramp right edge to marginal road left edge
+        float left0  = ramp_end_left + t0 * (marginal_left - ramp_end_left);
+        float right0 = left0 + ramp_width;
+        float left1  = ramp_end_left + t1 * (marginal_left - ramp_end_left);
+        float right1 = left1 + ramp_width;
+
+        uint32_t base = builder.m_mesh.getVertexCount();
+        uint32_t idx  = builder.m_mesh.getIndexCount();
+        Vec4 hTan = Vec4(1.0f, 0.0f, 0.0f, 1.0f);
+
+        builder.m_mesh.addVertex({Vec3(left0, 0.0f, z0), kUp,
+                                  Vec2(left0 / m_asphalt_tile, z0 / m_asphalt_tile), hTan});
+        builder.m_mesh.addVertex({Vec3(right0, 0.0f, z0), kUp,
+                                  Vec2(right0 / m_asphalt_tile, z0 / m_asphalt_tile), hTan});
+        builder.m_mesh.addVertex({Vec3(left1, 0.0f, z1), kUp,
+                                  Vec2(left1 / m_asphalt_tile, z1 / m_asphalt_tile), hTan});
+        builder.m_mesh.addVertex({Vec3(right1, 0.0f, z1), kUp,
+                                  Vec2(right1 / m_asphalt_tile, z1 / m_asphalt_tile), hTan});
+
+        builder.m_mesh.addIndex(base + 0);  builder.m_mesh.addIndex(base + 2);  builder.m_mesh.addIndex(base + 1);
+        builder.m_mesh.addIndex(base + 1);  builder.m_mesh.addIndex(base + 2);  builder.m_mesh.addIndex(base + 3);
+        builder.pushDrawCall(idx, m_asphalt_tint, MAT_ASPHALT);
     }
 }
 
