@@ -503,6 +503,7 @@ RoadScene::SceneData RoadScene::generate() const {
     generate_overpass(builder, z_near, z_far);
     generate_sound_barriers(builder, z_near, z_far);
     generate_exit_ramp(builder, z_near, z_far);
+    generate_street_lamps(builder, scene.lights, z_near, z_far);
 
     return scene;
 }
@@ -1304,6 +1305,99 @@ void RoadScene::generate_exit_ramp(MeshBuilder& builder, float z_near, float z_f
         builder.m_mesh.addIndex(base + 0);  builder.m_mesh.addIndex(base + 2);  builder.m_mesh.addIndex(base + 1);
         builder.m_mesh.addIndex(base + 1);  builder.m_mesh.addIndex(base + 2);  builder.m_mesh.addIndex(base + 3);
         builder.pushDrawCall(idx, m_asphalt_tint, MAT_ASPHALT);
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Street Lamps — highway light poles with point light sources
+// ══════════════════════════════════════════════════════════════════════
+
+void RoadScene::generate_street_lamps(MeshBuilder& builder, std::vector<LightDesc>& lights,
+                                      float z_near, float z_far) const {
+    float eb_start   = m_barrier_width + 3.0f * kFt;
+    float eb_width   = static_cast<float>(m_lane_count) * m_lane_width;
+    float wb_width   = static_cast<float>(m_lane_count) * m_lane_width;
+
+    // Lamp placement parameters
+    float lamp_spacing = 500.0f * kFt;   // every 500ft (typical highway)
+    float pole_height  = 30.0f * kFt;    // 30ft tall highway lamp
+    float pole_width   = 0.25f * kFt;    // 3-inch square pole
+    float arm_len      = 6.0f * kFt;     // 6ft arm reaching over road
+    float arm_h        = 0.20f * kFt;    // arm thickness
+    float fixture_w    = 2.0f * kFt;     // fixture width
+    float fixture_h    = 0.5f * kFt;     // fixture depth
+
+    Vec4 pole_tint    = {0.55f, 0.58f, 0.55f, 1.0f};  // galvanized steel
+    Vec4 fixture_tint = {0.70f, 0.72f, 0.70f, 1.0f};  // lighter fixture
+
+    // EB lamp positions (right side, past retaining wall)
+    float eb_pole_x = eb_start + eb_width + m_shoulder_width_eb + 2.0f * kFt;
+    // Light hangs over the road: arm reaches back toward lanes
+    float eb_light_x = eb_pole_x - arm_len;
+
+    // WB lamp positions (left side, past guardrail)
+    float wb_pole_x = -(wb_width + m_shoulder_width_wb + m_rail_width + 2.0f * kFt);
+    float wb_light_x = wb_pole_x + arm_len;
+
+    uint32_t light_count = 0;
+
+    for (float z = z_far + lamp_spacing; z < z_near; z += lamp_spacing) {
+        if (light_count >= MAX_POINT_LIGHTS) break;
+
+        // ── EB lamp pole ──
+        builder.addVerticalFace(eb_pole_x, pole_height,
+                                z - pole_width, z + pole_width, kRight,
+                                pole_tint, MAT_METAL, m_metal_tile);
+        builder.addVerticalFace(eb_pole_x, pole_height,
+                                z - pole_width, z + pole_width, kLeft,
+                                pole_tint, MAT_METAL, m_metal_tile);
+
+        // Horizontal arm (reaching back over road)
+        builder.addHorizontalQuad(eb_light_x, eb_pole_x, pole_height,
+                                  z - arm_h, z + arm_h, kUp,
+                                  pole_tint, MAT_METAL, m_metal_tile);
+
+        // Light fixture (box at end of arm)
+        builder.addHorizontalQuad(eb_light_x - fixture_w / 2.0f, eb_light_x + fixture_w / 2.0f,
+                                  pole_height - fixture_h,
+                                  z - fixture_w / 2.0f, z + fixture_w / 2.0f, kUp,
+                                  fixture_tint, MAT_DEFAULT, 0.0f);
+
+        // EB point light
+        lights.push_back({
+            Vec3(eb_light_x, pole_height - fixture_h, z),
+            Vec3(1.0f, 0.9f, 0.7f),   // warm sodium-vapor color
+            5.0f,                       // intensity
+            50000.0f                    // radius (~50m coverage)
+        });
+        light_count++;
+
+        // ── WB lamp pole (every other one to stay under MAX_POINT_LIGHTS) ──
+        if (light_count < MAX_POINT_LIGHTS) {
+            builder.addVerticalFace(wb_pole_x, pole_height,
+                                    z - pole_width, z + pole_width, kRight,
+                                    pole_tint, MAT_METAL, m_metal_tile);
+            builder.addVerticalFace(wb_pole_x, pole_height,
+                                    z - pole_width, z + pole_width, kLeft,
+                                    pole_tint, MAT_METAL, m_metal_tile);
+
+            builder.addHorizontalQuad(wb_pole_x, wb_light_x, pole_height,
+                                      z - arm_h, z + arm_h, kUp,
+                                      pole_tint, MAT_METAL, m_metal_tile);
+
+            builder.addHorizontalQuad(wb_light_x - fixture_w / 2.0f, wb_light_x + fixture_w / 2.0f,
+                                      pole_height - fixture_h,
+                                      z - fixture_w / 2.0f, z + fixture_w / 2.0f, kUp,
+                                      fixture_tint, MAT_DEFAULT, 0.0f);
+
+            lights.push_back({
+                Vec3(wb_light_x, pole_height - fixture_h, z),
+                Vec3(1.0f, 0.9f, 0.7f),
+                5.0f,
+                50000.0f
+            });
+            light_count++;
+        }
     }
 }
 

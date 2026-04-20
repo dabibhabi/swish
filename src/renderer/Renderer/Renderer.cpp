@@ -7,6 +7,7 @@
 #include "../CommandManager/CommandManager.h"
 #include "../Device/Device.h"
 #include "../Pipeline/Pipeline.h"
+#include "../PostProcessManager/PostProcessManager.h"
 #include "../RenderPass/RenderPass.h"
 #include "../ResourceManager/ResourceManager.h"
 #include "../Swapchain/Swapchain.h"
@@ -105,6 +106,17 @@ void Renderer::init(Window& window) {
     createUniformBuffers();
     createCameraDescriptorPool();
     createCameraDescriptorSets();
+
+    // ── Post-processing (HDR → bloom → SSAO → composite) ─────────
+    m_postProcess = new PostProcessManager();
+    m_postProcess->init(m_device->getDevice(), m_device->getPhysicalDevice(),
+                        m_commandManager->getPool(), m_device->getGraphicsQueue(),
+                        m_swapchain->getExtent(), m_swapchain->getImageFormat(),
+                        m_swapchain->getImageViews());
+
+    // Recreate scene pipeline targeting HDR render pass (not swapchain)
+    destroyPipeline();
+    createPipeline();
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -121,6 +133,13 @@ void Renderer::cleanup() {
     m_camera = nullptr;
 
     destroy_scene_geometry();
+
+    // Post-processing pipeline
+    if (m_postProcess) {
+        m_postProcess->cleanup();
+        delete m_postProcess;
+        m_postProcess = nullptr;
+    }
 
     // Material descriptor pool (if created)
     if (m_materialPool != VK_NULL_HANDLE) {
@@ -260,65 +279,263 @@ void Renderer::drawFrame() {
 
 void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
     m_commandManager->beginRecording(frameIndex);
-    VkCommandBuffer commandBuffer = m_commandManager->getBuffer(frameIndex);
+    VkCommandBuffer cmd = m_commandManager->getBuffer(frameIndex);
 
-    VkRenderPassBeginInfo renderPassInfo{};
-    renderPassInfo.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass        = m_renderPass->getRenderPass();
-    renderPassInfo.framebuffer       = m_renderPass->getFramebuffers()[imageIndex];
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = m_swapchain->getExtent();
+    VkExtent2D fullExtent  = m_postProcess->get_full_extent();
+    VkExtent2D bloomExtent = m_postProcess->get_bloom_extent();
+    VkExtent2D aoExtent    = m_postProcess->get_ao_extent();
 
-    std::array<VkClearValue, 2> clearValues{};
-    clearValues[0].color        = {{0.53f, 0.68f, 0.85f, 1.0f}};  // LIE clear sky blue
-    clearValues[1].depthStencil = {1.0f, 0};
+    // Helper: set viewport + scissor for a given extent
+    auto setViewport = [&](VkExtent2D ext) {
+        VkViewport vp{0.0f, 0.0f, static_cast<float>(ext.width), static_cast<float>(ext.height), 0.0f, 1.0f};
+        vkCmdSetViewport(cmd, 0, 1, &vp);
+        VkRect2D sc{{0, 0}, ext};
+        vkCmdSetScissor(cmd, 0, 1, &sc);
+    };
 
-    renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-    renderPassInfo.pClearValues    = clearValues.data();
+    // ═══════════════════════════════════════════════════════════════
+    // Pass 1: Scene → G-Buffer (3 MRT + depth)
+    // ═══════════════════════════════════════════════════════════════
+    {
+        std::array<VkClearValue, 4> clear{};
+        clear[0].color        = {{0.0f, 0.0f, 0.0f, 0.0f}};  // albedo
+        clear[1].color        = {{0.5f, 0.5f, 1.0f, 0.0f}};  // normal (up = 0,0,1 encoded)
+        clear[2].color        = {{0.0f, 0.0f, 0.0f, 0.0f}};  // material
+        clear[3].depthStencil = {1.0f, 0};
 
-    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+        VkRenderPassBeginInfo rp{};
+        rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rp.renderPass        = m_postProcess->get_gbuffer_render_pass();
+        rp.framebuffer       = m_postProcess->get_gbuffer_framebuffer(frameIndex);
+        rp.renderArea.extent = fullExtent;
+        rp.clearValueCount   = static_cast<uint32_t>(clear.size());
+        rp.pClearValues      = clear.data();
 
-    VkViewport viewport{};
-    viewport.x        = 0.0f;
-    viewport.y        = 0.0f;
-    viewport.width    = static_cast<float>(m_swapchain->getExtent().width);
-    viewport.height   = static_cast<float>(m_swapchain->getExtent().height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+        vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+        setViewport(fullExtent);
 
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = m_swapchain->getExtent();
-    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        if (m_vertexBuffer != VK_NULL_HANDLE) {
+            VkBuffer     vbs[] = {m_vertexBuffer};
+            VkDeviceSize off[] = {0};
+            vkCmdBindVertexBuffers(cmd, 0, 1, vbs, off);
+            vkCmdBindIndexBuffer(cmd, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-    if (m_vertexBuffer != VK_NULL_HANDLE) {
-        VkBuffer     vertexBuffers[] = {m_vertexBuffer};
-        VkDeviceSize offsets[]       = {0};
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-        vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout,
+                                    0, 1, &m_descriptorSets[frameIndex], 0, nullptr);
 
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout,
-                                0, 1, &m_descriptorSets[frameIndex], 0, nullptr);
+            for (const auto& dc : m_drawCalls) {
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout,
+                                        1, 1, &m_materialSets[dc.material], 0, nullptr);
 
-        for (const auto& dc : m_drawCalls) {
-            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout,
-                                    1, 1, &m_materialSets[dc.material], 0, nullptr);
-
-            PushConstantData pushData{};
-            pushData.model = dc.model;
-            pushData.color = dc.color;
-
-            vkCmdPushConstants(commandBuffer, m_pipelineLayout,
-                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                               0, sizeof(PushConstantData), &pushData);
-
-            vkCmdDrawIndexed(commandBuffer, dc.indexCount, 1, dc.indexOffset, 0, 0);
+                PushConstantData pushData{};
+                pushData.model = dc.model;
+                pushData.color = dc.color;
+                vkCmdPushConstants(cmd, m_pipelineLayout,
+                                   VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                                   0, sizeof(PushConstantData), &pushData);
+                vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, 0, 0);
+            }
         }
+        vkCmdEndRenderPass(cmd);
     }
 
-    vkCmdEndRenderPass(commandBuffer);
+    // Transition G-Buffer images → SHADER_READ_ONLY for lighting pass
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_gbuffer_albedo_image(frameIndex),
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_gbuffer_normal_image(frameIndex),
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_gbuffer_material_image(frameIndex),
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_hdr_depth_image(frameIndex),
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+        VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    // ═══════════════════════════════════════════════════════════════
+    // Pass 2: Deferred Lighting (G-Buffer → HDR)
+    // ═══════════════════════════════════════════════════════════════
+    {
+        VkClearValue clear{};
+        clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+
+        VkRenderPassBeginInfo rp{};
+        rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rp.renderPass        = m_postProcess->get_lighting_render_pass();
+        rp.framebuffer       = m_postProcess->get_lighting_framebuffer(frameIndex);
+        rp.renderArea.extent = fullExtent;
+        rp.clearValueCount   = 1;
+        rp.pClearValues      = &clear;
+
+        vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_lighting_pipeline());
+        setViewport(fullExtent);
+
+        // Set 0: camera + lights UBOs (from Renderer)
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_postProcess->get_lighting_layout(),
+                                0, 1, &m_descriptorSets[frameIndex], 0, nullptr);
+
+        // Set 1: G-buffer textures (from PostProcessManager)
+        VkDescriptorSet lightSet = m_postProcess->get_lighting_set(frameIndex);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_postProcess->get_lighting_layout(),
+                                1, 1, &lightSet, 0, nullptr);
+
+        // Push constants: inverse view + inverse projection for position reconstruction
+        struct { Mat4 invView; Mat4 invProj; } lightPC;
+        lightPC.invView = glm::inverse(m_camera->get_view_matrix());
+        lightPC.invProj = glm::inverse(m_camera->get_projection_matrix());
+        vkCmdPushConstants(cmd, m_postProcess->get_lighting_layout(),
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, 128, &lightPC);
+
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdEndRenderPass(cmd);
+    }
+
+    // Transition HDR → SHADER_READ_ONLY for bloom sampling
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_hdr_image(frameIndex),
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    // ═══════════════════════════════════════════════════════════════
+    // Pass 2a: Bloom Extract (HDR → 1/4 res bright pixels)
+    // ═══════════════════════════════════════════════════════════════
+    {
+        VkClearValue clear{};
+        clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+
+        VkRenderPassBeginInfo rp{};
+        rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rp.renderPass        = m_postProcess->get_bloom_render_pass();
+        rp.framebuffer       = m_postProcess->get_bloom_extract_framebuffer();
+        rp.renderArea.extent = bloomExtent;
+        rp.clearValueCount   = 1;
+        rp.pClearValues      = &clear;
+
+        vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_bloom_extract_pipeline());
+        setViewport(bloomExtent);
+
+        VkDescriptorSet bloomExtSet = m_postProcess->get_bloom_extract_set();
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_postProcess->get_postprocess_layout(),
+                                0, 1, &bloomExtSet, 0, nullptr);
+
+        PostProcessParams pp{};
+        pp.threshold       = 1.0f;
+        pp.bloom_intensity = 0.3f;
+        pp.exposure        = 1.0f;
+        vkCmdPushConstants(cmd, m_postProcess->get_postprocess_layout(),
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdEndRenderPass(cmd);
+    }
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_bloom_extract_image(),
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    // ═══════════════════════════════════════════════════════════════
+    // Pass 2b: Bloom Blur H
+    // ═══════════════════════════════════════════════════════════════
+    {
+        VkClearValue clear{};
+        clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+
+        VkRenderPassBeginInfo rp{};
+        rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rp.renderPass        = m_postProcess->get_bloom_render_pass();
+        rp.framebuffer       = m_postProcess->get_bloom_blur_h_framebuffer();
+        rp.renderArea.extent = bloomExtent;
+        rp.clearValueCount   = 1;
+        rp.pClearValues      = &clear;
+
+        vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_bloom_blur_pipeline());
+        setViewport(bloomExtent);
+
+        VkDescriptorSet blurHSet = m_postProcess->get_bloom_blur_h_set();
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_postProcess->get_postprocess_layout(),
+                                0, 1, &blurHSet, 0, nullptr);
+
+        PostProcessParams pp{};
+        pp.texel_x = 1.0f / static_cast<float>(bloomExtent.width);
+        pp.texel_y = 0.0f;
+        vkCmdPushConstants(cmd, m_postProcess->get_postprocess_layout(),
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdEndRenderPass(cmd);
+    }
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_bloom_blur_h_image(),
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    // ═══════════════════════════════════════════════════════════════
+    // Pass 2c: Bloom Blur V
+    // ═══════════════════════════════════════════════════════════════
+    {
+        VkClearValue clear{};
+        clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+
+        VkRenderPassBeginInfo rp{};
+        rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rp.renderPass        = m_postProcess->get_bloom_render_pass();
+        rp.framebuffer       = m_postProcess->get_bloom_blur_v_framebuffer();
+        rp.renderArea.extent = bloomExtent;
+        rp.clearValueCount   = 1;
+        rp.pClearValues      = &clear;
+
+        vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_bloom_blur_pipeline());
+        setViewport(bloomExtent);
+
+        VkDescriptorSet blurVSet = m_postProcess->get_bloom_blur_v_set();
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_postProcess->get_postprocess_layout(),
+                                0, 1, &blurVSet, 0, nullptr);
+
+        PostProcessParams pp{};
+        pp.texel_x = 0.0f;
+        pp.texel_y = 1.0f / static_cast<float>(bloomExtent.height);
+        vkCmdPushConstants(cmd, m_postProcess->get_postprocess_layout(),
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdEndRenderPass(cmd);
+    }
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_bloom_blur_v_image(),
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    // ═══════════════════════════════════════════════════════════════
+    // Pass 3: Composite (HDR + bloom → swapchain with ACES)
+    // (SSAO disabled for initial bring-up — AO texture is white/1.0)
+    // ═══════════════════════════════════════════════════════════════
+    {
+        VkClearValue clear{};
+        clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+
+        VkRenderPassBeginInfo rp{};
+        rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rp.renderPass        = m_postProcess->get_composite_render_pass();
+        rp.framebuffer       = m_postProcess->get_composite_framebuffer(imageIndex);
+        rp.renderArea.extent = fullExtent;
+        rp.clearValueCount   = 1;
+        rp.pClearValues      = &clear;
+
+        vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_composite_pipeline());
+        setViewport(fullExtent);
+
+        VkDescriptorSet compSet = m_postProcess->get_composite_set(frameIndex);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_postProcess->get_composite_layout(),
+                                0, 1, &compSet, 0, nullptr);
+
+        PostProcessParams pp{};
+        pp.bloom_intensity = 0.3f;
+        pp.exposure        = 1.0f;
+        vkCmdPushConstants(cmd, m_postProcess->get_composite_layout(),
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdEndRenderPass(cmd);
+    }
+
     m_commandManager->endRecording(frameIndex);
 }
 
@@ -397,17 +614,24 @@ void Renderer::destroyDepthResources() {
 // ══════════════════════════════════════════════════════════════════════
 
 void Renderer::createPipeline() {
-    VkDescriptorSetLayoutBinding uboBinding{};
-    uboBinding.binding            = 0;
-    uboBinding.descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uboBinding.descriptorCount    = 1;
-    uboBinding.stageFlags         = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    uboBinding.pImmutableSamplers = nullptr;
+    // Set 0: Camera UBO (binding 0) + Lights UBO (binding 1)
+    std::array<VkDescriptorSetLayoutBinding, 2> set0Bindings{};
+    set0Bindings[0].binding            = 0;
+    set0Bindings[0].descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    set0Bindings[0].descriptorCount    = 1;
+    set0Bindings[0].stageFlags         = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    set0Bindings[0].pImmutableSamplers = nullptr;
+
+    set0Bindings[1].binding            = 1;
+    set0Bindings[1].descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    set0Bindings[1].descriptorCount    = 1;
+    set0Bindings[1].stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+    set0Bindings[1].pImmutableSamplers = nullptr;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 1;
-    layoutInfo.pBindings    = &uboBinding;
+    layoutInfo.bindingCount = static_cast<uint32_t>(set0Bindings.size());
+    layoutInfo.pBindings    = set0Bindings.data();
 
     VK_CHECK(vkCreateDescriptorSetLayout(m_device->getDevice(), &layoutInfo, nullptr, &m_descriptorSetLayout));
 
@@ -442,14 +666,51 @@ void Renderer::createPipeline() {
 
     PipelineConfig config{};
     config.cullMode       = VK_CULL_MODE_BACK_BIT;
-    config.vertShaderPath = std::string(SHADER_DIR) + "basic.vert.spv";
-    config.fragShaderPath = std::string(SHADER_DIR) + "basic.frag.spv";
     config.vertexBindings.push_back(binding);
     config.vertexAttributes.assign(attributes.begin(), attributes.end());
     config.pipelineLayout = m_pipelineLayout;
 
-    m_pipeline = Pipeline::create(m_device->getDevice(), config,
-                                  m_renderPass->getRenderPass(), m_swapchain->getExtent());
+    if (m_postProcess) {
+        // Deferred: scene pipeline targets G-buffer (3 MRT + depth)
+        config.vertShaderPath       = std::string(SHADER_DIR) + "basic.vert.spv";
+        config.fragShaderPath       = std::string(SHADER_DIR) + "gbuffer.frag.spv";
+        config.colorAttachmentCount = 3;
+        m_pipeline = Pipeline::create(m_device->getDevice(), config,
+                                      m_postProcess->get_gbuffer_render_pass(),
+                                      m_swapchain->getExtent());
+
+        // Lighting pipeline: fullscreen quad reads G-buffer, outputs HDR
+        VkPushConstantRange lightPC{};
+        lightPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        lightPC.offset     = 0;
+        lightPC.size       = 128;  // invView + invProj = 2 × mat4
+
+        VkPipelineLayout lightLayout = Pipeline::createLayout(
+            m_device->getDevice(),
+            {m_descriptorSetLayout, m_postProcess->get_lighting_tex_layout()},
+            {lightPC});
+        m_postProcess->set_lighting_layout(lightLayout);
+
+        PipelineConfig lightCfg{};
+        lightCfg.vertShaderPath  = std::string(SHADER_DIR) + "fullscreen.vert.spv";
+        lightCfg.fragShaderPath  = std::string(SHADER_DIR) + "lighting.frag.spv";
+        lightCfg.noVertexInput   = true;
+        lightCfg.enableDepthTest = false;
+        lightCfg.enableDepthWrite = false;
+        lightCfg.cullMode        = VK_CULL_MODE_NONE;
+        lightCfg.pipelineLayout  = lightLayout;
+        m_postProcess->set_lighting_pipeline(
+            Pipeline::create(m_device->getDevice(), lightCfg,
+                             m_postProcess->get_lighting_render_pass(),
+                             m_swapchain->getExtent()));
+    } else {
+        // Fallback: forward rendering to swapchain
+        config.vertShaderPath = std::string(SHADER_DIR) + "basic.vert.spv";
+        config.fragShaderPath = std::string(SHADER_DIR) + "basic.frag.spv";
+        m_pipeline = Pipeline::create(m_device->getDevice(), config,
+                                      m_renderPass->getRenderPass(),
+                                      m_swapchain->getExtent());
+    }
 }
 
 void Renderer::destroyPipeline() {
@@ -476,20 +737,31 @@ void Renderer::destroyPipeline() {
 // ══════════════════════════════════════════════════════════════════════
 
 void Renderer::createUniformBuffers() {
-    VkDeviceSize bufferSize = sizeof(CameraUBO);
+    VkDeviceSize cameraSize = sizeof(CameraUBO);
+    VkDeviceSize lightsSize = sizeof(LightsUBO);
 
     m_uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
     m_uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
     m_uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
 
+    m_lightsBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+    m_lightsBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+    m_lightsBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        ResourceManager::createBuffer(m_device->getDevice(), m_device->getPhysicalDevice(), bufferSize,
+        ResourceManager::createBuffer(m_device->getDevice(), m_device->getPhysicalDevice(), cameraSize,
                                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                                       m_uniformBuffers[i], m_uniformBuffersMemory[i]);
-
-        vkMapMemory(m_device->getDevice(), m_uniformBuffersMemory[i], 0, bufferSize, 0,
+        vkMapMemory(m_device->getDevice(), m_uniformBuffersMemory[i], 0, cameraSize, 0,
                     &m_uniformBuffersMapped[i]);
+
+        ResourceManager::createBuffer(m_device->getDevice(), m_device->getPhysicalDevice(), lightsSize,
+                                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                      m_lightsBuffers[i], m_lightsBuffersMemory[i]);
+        vkMapMemory(m_device->getDevice(), m_lightsBuffersMemory[i], 0, lightsSize, 0,
+                    &m_lightsBuffersMapped[i]);
     }
 }
 
@@ -507,7 +779,25 @@ void Renderer::destroyUniformBuffers() {
             vkFreeMemory(m_device->getDevice(), m_uniformBuffersMemory[i], nullptr);
             m_uniformBuffersMemory[i] = VK_NULL_HANDLE;
         }
+
+        // Lights buffers
+        if (m_lightsBuffersMapped.size() > i && m_lightsBuffersMapped[i] != nullptr) {
+            vkUnmapMemory(m_device->getDevice(), m_lightsBuffersMemory[i]);
+            m_lightsBuffersMapped[i] = nullptr;
+        }
+        if (m_lightsBuffers.size() > i && m_lightsBuffers[i] != VK_NULL_HANDLE) {
+            vkDestroyBuffer(m_device->getDevice(), m_lightsBuffers[i], nullptr);
+            m_lightsBuffers[i] = VK_NULL_HANDLE;
+        }
+        if (m_lightsBuffersMemory.size() > i && m_lightsBuffersMemory[i] != VK_NULL_HANDLE) {
+            vkFreeMemory(m_device->getDevice(), m_lightsBuffersMemory[i], nullptr);
+            m_lightsBuffersMemory[i] = VK_NULL_HANDLE;
+        }
     }
+}
+
+void Renderer::set_scene_lights(const std::vector<LightDesc>& lights) {
+    m_sceneLights = lights;
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -517,7 +807,7 @@ void Renderer::destroyUniformBuffers() {
 void Renderer::createCameraDescriptorPool() {
     VkDescriptorPoolSize poolSize{};
     poolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;  // camera + lights UBOs
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -541,21 +831,37 @@ void Renderer::createCameraDescriptorSets() {
     VK_CHECK(vkAllocateDescriptorSets(m_device->getDevice(), &allocInfo, m_descriptorSets.data()));
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        VkDescriptorBufferInfo bufferInfo{};
-        bufferInfo.buffer = m_uniformBuffers[i];
-        bufferInfo.offset = 0;
-        bufferInfo.range  = sizeof(CameraUBO);
+        // Binding 0: CameraUBO
+        VkDescriptorBufferInfo cameraInfo{};
+        cameraInfo.buffer = m_uniformBuffers[i];
+        cameraInfo.offset = 0;
+        cameraInfo.range  = sizeof(CameraUBO);
 
-        VkWriteDescriptorSet descriptorWrite{};
-        descriptorWrite.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrite.dstSet          = m_descriptorSets[i];
-        descriptorWrite.dstBinding      = 0;
-        descriptorWrite.dstArrayElement = 0;
-        descriptorWrite.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        descriptorWrite.descriptorCount = 1;
-        descriptorWrite.pBufferInfo     = &bufferInfo;
+        // Binding 1: LightsUBO
+        VkDescriptorBufferInfo lightsInfo{};
+        lightsInfo.buffer = m_lightsBuffers[i];
+        lightsInfo.offset = 0;
+        lightsInfo.range  = sizeof(LightsUBO);
 
-        vkUpdateDescriptorSets(m_device->getDevice(), 1, &descriptorWrite, 0, nullptr);
+        std::array<VkWriteDescriptorSet, 2> writes{};
+        writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet          = m_descriptorSets[i];
+        writes[0].dstBinding      = 0;
+        writes[0].dstArrayElement = 0;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[0].descriptorCount = 1;
+        writes[0].pBufferInfo     = &cameraInfo;
+
+        writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet          = m_descriptorSets[i];
+        writes[1].dstBinding      = 1;
+        writes[1].dstArrayElement = 0;
+        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[1].descriptorCount = 1;
+        writes[1].pBufferInfo     = &lightsInfo;
+
+        vkUpdateDescriptorSets(m_device->getDevice(), static_cast<uint32_t>(writes.size()),
+                               writes.data(), 0, nullptr);
     }
 }
 
@@ -642,13 +948,24 @@ void Renderer::rebuild_material_descriptors() {
 // ══════════════════════════════════════════════════════════════════════
 
 void Renderer::updateUniformBuffer(uint32_t frameIndex) {
+    // Camera UBO (set 0, binding 0)
     CameraUBO ubo{};
     ubo.view     = m_camera->get_view_matrix();
     ubo.proj     = m_camera->get_projection_matrix();
     ubo.camPos   = Vec4(m_camera->get_position(), 1.0f);
-    ubo.sunDir   = Vec4(glm::normalize(Vec3(0.3f, 0.6f, 0.15f)), 1.0f);  // autumn afternoon
-    ubo.sunColor = Vec4(1.0f, 0.95f, 0.85f, 0.30f);  // warm white, a = ambient strength
+    ubo.sunDir   = Vec4(glm::normalize(Vec3(0.3f, 0.6f, 0.15f)), 1.0f);
+    ubo.sunColor = Vec4(1.0f, 0.95f, 0.85f, 0.30f);
     memcpy(m_uniformBuffersMapped[frameIndex], &ubo, sizeof(ubo));
+
+    // Lights UBO (set 0, binding 1)
+    LightsUBO lightsUbo{};
+    uint32_t count = std::min(static_cast<uint32_t>(m_sceneLights.size()), MAX_POINT_LIGHTS);
+    for (uint32_t i = 0; i < count; i++) {
+        lightsUbo.pointLights[i].positionRadius = Vec4(m_sceneLights[i].position, m_sceneLights[i].radius);
+        lightsUbo.pointLights[i].colorIntensity = Vec4(m_sceneLights[i].color, m_sceneLights[i].intensity);
+    }
+    lightsUbo.numPointLights = glm::uvec4(count, 0, 0, 0);
+    memcpy(m_lightsBuffersMapped[frameIndex], &lightsUbo, sizeof(lightsUbo));
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -729,6 +1046,7 @@ void Renderer::upload_scene_geometry(const MeshData& mesh, const std::vector<Dra
 
 void Renderer::destroy_scene_geometry() {
     m_drawCalls.clear();
+    m_sceneLights.clear();
 
     if (m_indexBuffer != VK_NULL_HANDLE) {
         vkDestroyBuffer(m_device->getDevice(), m_indexBuffer, nullptr);

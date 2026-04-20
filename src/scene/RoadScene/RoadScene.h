@@ -49,6 +49,7 @@ public:
     struct SceneData {
         MeshData              meshData;
         std::vector<DrawCall> drawCalls;
+        std::vector<LightDesc> lights;
     };
 
     RoadScene();
@@ -227,6 +228,8 @@ private:
     void generate_overpass(MeshBuilder& builder, float z_near, float z_far) const;
     void generate_sound_barriers(MeshBuilder& builder, float z_near, float z_far) const;
     void generate_exit_ramp(MeshBuilder& builder, float z_near, float z_far) const;
+    void generate_street_lamps(MeshBuilder& builder, std::vector<LightDesc>& lights,
+                               float z_near, float z_far) const;
 };
 
 }  // namespace swish

@@ -75,10 +75,16 @@ public:
     void    set_camera(Camera* camera);
     Camera* get_camera() const;
 
+    // ── Scene lights (called by Scene lambdas) ─────────────────────────
+    void set_scene_lights(const std::vector<LightDesc>& lights);
+
     // ── GPU synchronization ───────────────────────────────────────────
     void wait_for_idle();
 
 private:
+    // ── Post-processing (multi-pass HDR pipeline) ──────────────────
+    class PostProcessManager* m_postProcess = nullptr;
+
     // ── Owned subsystems ───────────────────────────────────────────
     VulkanContext*  m_context        = nullptr;
     Device*         m_device         = nullptr;
@@ -107,6 +113,14 @@ private:
     std::vector<VkBuffer>       m_uniformBuffers;
     std::vector<VkDeviceMemory> m_uniformBuffersMemory;
     std::vector<void*>          m_uniformBuffersMapped;
+
+    // ── Lights UBO buffers (one per frame-in-flight) ─────────────
+    std::vector<VkBuffer>       m_lightsBuffers;
+    std::vector<VkDeviceMemory> m_lightsBuffersMemory;
+    std::vector<void*>          m_lightsBuffersMapped;
+
+    // ── Scene lights ─────────────────────────────────────────────
+    std::vector<LightDesc> m_sceneLights;
 
     // ── Descriptor pool + sets for camera UBOs ────────────────────
     VkDescriptorPool             m_descriptorPool = VK_NULL_HANDLE;

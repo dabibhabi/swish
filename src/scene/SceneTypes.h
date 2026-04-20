@@ -37,6 +37,26 @@ struct CameraUBO {
     Vec4 sunColor;  // rgb = sun color, a = ambient strength
 };
 
+// ── Point Light System (inspired by rind/Light.cpp) ──────────────────
+static constexpr uint32_t MAX_POINT_LIGHTS = 16;
+
+struct PointLightData {
+    Vec4 positionRadius;    // xyz = world position, w = influence radius
+    Vec4 colorIntensity;    // rgb = color, a = intensity multiplier
+};
+
+struct LightsUBO {
+    PointLightData pointLights[MAX_POINT_LIGHTS];
+    glm::uvec4     numPointLights;  // x = count, yzw = 0
+};
+
+struct LightDesc {
+    Vec3  position;
+    Vec3  color;
+    float intensity;
+    float radius;
+};
+
 // ── MeshData ──────────────────────────────────────────────────────────
 // Encapsulates vertex and index buffers with controlled access.
 // Vertices and indices are only added through push methods, ensuring

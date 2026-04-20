@@ -47,6 +47,12 @@ public:
     static void copyBufferToImage(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer buffer,
                                   VkImage image, uint32_t width, uint32_t height);
 
+    // Records an inline image layout transition into an existing command buffer.
+    // Used for multi-pass rendering where transitions happen mid-frame.
+    static void insertImageBarrier(VkCommandBuffer cmd, VkImage image,
+                                   VkImageLayout oldLayout, VkImageLayout newLayout,
+                                   VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
+
     // Finds the best depth buffer format the GPU supports.
     // Try D32_SFLOAT first, then D32_SFLOAT_S8_UINT, then D24_UNORM_S8_UINT.
     static VkFormat findDepthFormat(VkPhysicalDevice physicalDevice);

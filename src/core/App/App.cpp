@@ -121,6 +121,7 @@ int App::run() {
         RoadScene road;
         auto scene = road.generate();
         renderer.upload_scene_geometry(scene.meshData, scene.drawCalls);
+        renderer.set_scene_lights(scene.lights);
 
         // Setup POV camera on the eastbound LIE
         auto* camera = new Camera();

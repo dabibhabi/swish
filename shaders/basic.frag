@@ -13,6 +13,17 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     vec4 sunColor;  // rgb = color, a = ambient strength
 } camera;
 
+// Point light system (inspired by rind/Light.cpp)
+struct PointLight {
+    vec4 positionRadius;    // xyz = position, w = radius
+    vec4 colorIntensity;    // rgb = color, a = intensity
+};
+
+layout(set = 0, binding = 1) uniform LightsUBO {
+    PointLight pointLights[16];
+    uvec4      numPointLights;  // x = count
+} lights;
+
 // PBR material textures
 layout(set = 1, binding = 0) uniform sampler2D albedoTex;
 layout(set = 1, binding = 1) uniform sampler2D normalTex;
@@ -86,6 +97,13 @@ void main() {
     // ── Normal mapping via TBN matrix ─────────────────────────────
     vec3 N = normalize(fragTBN * normalMap);
     vec3 V = normalize(camera.camPos.xyz - fragWorldPos);
+    float NdotV = max(dot(N, V), 0.001);
+
+    // ── Specular anti-aliasing (rind pattern: ddx/ddy roughness) ──
+    float filterWidth = length(fwidth(N));
+    roughness = max(roughness, sqrt(2.0 * filterWidth));
+
+    // ── Full Cook-Torrance PBR (GGX + Smith geometry + Schlick Fresnel) ──
     vec3 L = camera.sunDir.xyz;
     vec3 H = normalize(V + L);
 
@@ -93,21 +111,63 @@ void main() {
     float NdotH = max(dot(N, H), 0.0);
     float HdotV = max(dot(H, V), 0.0);
 
-    // ── GGX specular (simplified Cook-Torrance) ───────────────────
     float a  = roughness * roughness;
     float a2 = a * a;
+
+    // GGX distribution (D)
     float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
     float D = a2 / (3.14159265 * denom * denom + 0.0001);
 
+    // Smith-Schlick-GGX geometry term (G)
+    float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+    float G1_V = NdotV / (NdotV * (1.0 - k) + k);
+    float G1_L = NdotL / (NdotL * (1.0 - k) + k);
+    float G = G1_V * G1_L;
+
     // Fresnel (Schlick) — F0 = 0.04 for dielectric surfaces
     float F = 0.04 + 0.96 * pow(1.0 - HdotV, 5.0);
-    float specular = D * F * 0.25;
 
-    // ── Combine lighting ──────────────────────────────────────────
-    float ambient = camera.sunColor.a;  // ambient strength from UBO
+    // Full Cook-Torrance specular BRDF
+    float specular = (D * G * F) / max(4.0 * NdotV * NdotL, 0.001);
+
+    // ── Combine sun lighting (HDR — values can exceed 1.0) ────────
+    float ambient = camera.sunColor.a;
     float diffuse = NdotL * 0.70;
     vec3 lit_color = albedo * (ambient + diffuse) * camera.sunColor.rgb
                    + vec3(specular) * NdotL * camera.sunColor.rgb;
+
+    // ── Point light accumulation (rind pattern: quadratic falloff) ──
+    for (uint i = 0u; i < lights.numPointLights.x; ++i) {
+        vec3  lPos = lights.pointLights[i].positionRadius.xyz;
+        float lRad = lights.pointLights[i].positionRadius.w;
+        vec3  lCol = lights.pointLights[i].colorIntensity.rgb;
+        float lInt = lights.pointLights[i].colorIntensity.a;
+
+        vec3  toLight = lPos - fragWorldPos;
+        float dist    = length(toLight);
+        vec3  L_pt    = toLight / max(dist, 0.001);
+
+        float t   = clamp(1.0 - dist / lRad, 0.0, 1.0);
+        float att = t * t;
+        if (att < 0.001) continue;
+
+        vec3  H_pt     = normalize(V + L_pt);
+        float NdotL_pt = max(dot(N, L_pt), 0.0);
+        float NdotH_pt = max(dot(N, H_pt), 0.0);
+        float HdotV_pt = max(dot(H_pt, V), 0.0);
+
+        float denom_pt = NdotH_pt * NdotH_pt * (a2 - 1.0) + 1.0;
+        float D_pt     = a2 / (3.14159265 * denom_pt * denom_pt + 0.0001);
+        float G1_V_pt  = NdotV / (NdotV * (1.0 - k) + k);
+        float G1_L_pt  = NdotL_pt / (NdotL_pt * (1.0 - k) + k);
+        float G_pt     = G1_V_pt * G1_L_pt;
+        float F_pt     = 0.04 + 0.96 * pow(1.0 - HdotV_pt, 5.0);
+        float spec_pt  = (D_pt * G_pt * F_pt) / max(4.0 * NdotV * NdotL_pt, 0.001);
+
+        vec3 radiance = lCol * lInt * att;
+        lit_color += albedo * NdotL_pt * 0.70 * radiance
+                   + vec3(spec_pt) * NdotL_pt * radiance;
+    }
 
     // ── Fog with sky gradient blend ───────────────────────────────
     float dist = length(fragWorldPos - camera.camPos.xyz);
