@@ -45,6 +45,14 @@ file(MAKE_DIRECTORY ${SHADER_OUTPUT_DIR})
 set(SHADER_SOURCES
     ${SHADER_DIR}/basic.vert
     ${SHADER_DIR}/basic.frag
+    ${SHADER_DIR}/fullscreen.vert
+    ${SHADER_DIR}/bloom_extract.frag
+    ${SHADER_DIR}/bloom_blur.frag
+    ${SHADER_DIR}/ssao.frag
+    ${SHADER_DIR}/ao_blur.frag
+    ${SHADER_DIR}/composite.frag
+    ${SHADER_DIR}/gbuffer.frag
+    ${SHADER_DIR}/lighting.frag
 )
 
 foreach(SHADER ${SHADER_SOURCES})
@@ -101,6 +109,7 @@ add_executable(swish
     src/scene/SceneManager/SceneManager.cpp
     src/scene/ModelManager/ModelManager.cpp
     src/renderer/TextureManager/TextureManager.cpp
+    src/renderer/PostProcessManager/PostProcessManager.cpp
     src/utils/StbImage.cpp
 )
 
