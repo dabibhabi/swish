@@ -2,39 +2,60 @@
 
 #include "../../utils/VulkanCheck.h"
 
-// Implement GPU-GPU syncing via Semaphores and CPU-GPU syncing via Fences
-
 namespace swish {
 
-void SyncObjects::init(VkDevice device, uint32_t framesInFlight) {
-    m_imageAvailable.resize(framesInFlight);
-    m_renderFinished.resize(framesInFlight);
-    m_inFlightFences.resize(framesInFlight);
+namespace {
+VkSemaphore createBinarySemaphore(VkDevice device) {
+    VkSemaphoreCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    VkSemaphore sem = VK_NULL_HANDLE;
+    VK_CHECK(vkCreateSemaphore(device, &info, nullptr, &sem));
+    return sem;
+}
+}  // namespace
 
-    VkSemaphoreCreateInfo semaphoreInfo{};
-    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+void SyncObjects::init(VkDevice device, uint32_t framesInFlight, uint32_t swapchainImageCount) {
+    m_imageAvailable.resize(framesInFlight);
+    m_inFlightFences.resize(framesInFlight);
 
     VkFenceCreateInfo fenceInfo{};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    // Signaled by default so first frame doesn't wait infinitely
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     for (uint32_t i = 0; i < framesInFlight; i++) {
-        VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &m_imageAvailable[i]));
-        VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &m_renderFinished[i]));
+        m_imageAvailable[i] = createBinarySemaphore(device);
         VK_CHECK(vkCreateFence(device, &fenceInfo, nullptr, &m_inFlightFences[i]));
+    }
+
+    m_renderFinished.resize(swapchainImageCount);
+    for (uint32_t i = 0; i < swapchainImageCount; i++) {
+        m_renderFinished[i] = createBinarySemaphore(device);
     }
 }
 
 void SyncObjects::cleanup(VkDevice device) {
-    for (size_t i = 0; i < m_inFlightFences.size(); i++) {
-        vkDestroySemaphore(device, m_renderFinished[i], nullptr);
-        vkDestroySemaphore(device, m_imageAvailable[i], nullptr);
-        vkDestroyFence(device, m_inFlightFences[i], nullptr);
+    for (VkSemaphore sem : m_renderFinished) {
+        vkDestroySemaphore(device, sem, nullptr);
     }
-    m_inFlightFences.clear();
-    m_imageAvailable.clear();
+    for (VkSemaphore sem : m_imageAvailable) {
+        vkDestroySemaphore(device, sem, nullptr);
+    }
+    for (VkFence fence : m_inFlightFences) {
+        vkDestroyFence(device, fence, nullptr);
+    }
     m_renderFinished.clear();
+    m_imageAvailable.clear();
+    m_inFlightFences.clear();
+}
+
+void SyncObjects::recreateRenderFinishedSemaphores(VkDevice device, uint32_t swapchainImageCount) {
+    for (VkSemaphore sem : m_renderFinished) {
+        vkDestroySemaphore(device, sem, nullptr);
+    }
+    m_renderFinished.assign(swapchainImageCount, VK_NULL_HANDLE);
+    for (uint32_t i = 0; i < swapchainImageCount; i++) {
+        m_renderFinished[i] = createBinarySemaphore(device);
+    }
 }
 
 void SyncObjects::waitForFence(VkDevice device, uint32_t frameIndex) {
@@ -45,19 +66,12 @@ void SyncObjects::resetFence(VkDevice device, uint32_t frameIndex) {
     VK_CHECK(vkResetFences(device, 1, &m_inFlightFences[frameIndex]));
 }
 
-void SyncObjects::recreateRenderFinishedSemaphore(VkDevice device, uint32_t frameIndex) {
-    vkDestroySemaphore(device, m_renderFinished[frameIndex], nullptr);
-    VkSemaphoreCreateInfo semaphoreInfo{};
-    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &m_renderFinished[frameIndex]));
-}
-
 VkSemaphore SyncObjects::getImageAvailable(uint32_t frameIndex) const {
     return m_imageAvailable.empty() ? VK_NULL_HANDLE : m_imageAvailable[frameIndex];
 }
 
-VkSemaphore SyncObjects::getRenderFinished(uint32_t frameIndex) const {
-    return m_renderFinished.empty() ? VK_NULL_HANDLE : m_renderFinished[frameIndex];
+VkSemaphore SyncObjects::getRenderFinished(uint32_t imageIndex) const {
+    return m_renderFinished.empty() ? VK_NULL_HANDLE : m_renderFinished[imageIndex];
 }
 
 VkFence SyncObjects::getInFlightFence(uint32_t frameIndex) const {

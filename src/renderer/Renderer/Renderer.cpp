@@ -100,7 +100,8 @@ void Renderer::init(Window& window) {
     m_commandManager->init(m_device->getDevice(), queueFamilies.graphicsFamily.value(),
                            MAX_FRAMES_IN_FLIGHT);
 
-    m_syncObjects->init(m_device->getDevice(), MAX_FRAMES_IN_FLIGHT);
+    m_syncObjects->init(m_device->getDevice(), MAX_FRAMES_IN_FLIGHT,
+                        m_swapchain->getImageCount());
 
     // ── Camera UBO resources ──────────────────────────────────────
     createUniformBuffers();
@@ -243,7 +244,7 @@ void Renderer::drawFrame() {
     submitInfo.commandBufferCount    = 1;
     submitInfo.pCommandBuffers       = commandBuffers;
 
-    VkSemaphore signalSemaphores[]  = {m_syncObjects->getRenderFinished(m_currentFrame)};
+    VkSemaphore signalSemaphores[]  = {m_syncObjects->getRenderFinished(imageIndex)};
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores    = signalSemaphores;
 
@@ -265,7 +266,6 @@ void Renderer::drawFrame() {
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_window->wasResized()) {
         m_window->resetResizedFlag();
         recreateSwapchain();
-        m_syncObjects->recreateRenderFinishedSemaphore(m_device->getDevice(), m_currentFrame);
     } else if (result != VK_SUCCESS) {
         throw std::runtime_error("failed to present swap chain image!");
     }
@@ -559,6 +559,10 @@ void Renderer::recreateSwapchain() {
 
     m_swapchain->init(*m_device, m_context->getSurface(),
                       static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+
+    m_syncObjects->recreateRenderFinishedSemaphores(m_device->getDevice(),
+                                                    m_swapchain->getImageCount());
+
     createDepthResources();
 
     VkFormat depthFormat = ResourceManager::findDepthFormat(m_device->getPhysicalDevice());
