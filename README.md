@@ -22,3 +22,11 @@ We credit the authors here because they deserve it.
 | [GLFW](https://www.glfw.org/) | Windowing + input | Zlib |
 | [GLM](https://github.com/g-truc/glm) | Math (vectors, matrices) | MIT |
 | [Vulkan SDK](https://vulkan.lunarg.com/) | Graphics API | Apache 2.0 |
+
+## Investigations
+
+In-tree notes on non-obvious behavior found during development. See [`docs/investigations/`](docs/investigations/).
+
+| Date | Topic |
+|------|-------|
+| 2026-04-21 | [Vulkan validation: `pSignalSemaphores-00067` and dormant-SSAO image layout](docs/investigations/2026-04-21-vulkan-validation-errors.md) |
