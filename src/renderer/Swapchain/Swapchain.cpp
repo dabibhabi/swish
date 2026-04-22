@@ -4,6 +4,7 @@
 #include "../Device/Device.h"
 
 #include <algorithm>
+#include <limits>
 
 // Implemented swapchain creation, fetching images, formatting images views,
 // and handling cleanup gracefully.

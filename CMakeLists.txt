@@ -5,16 +5,32 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# --- GLFW (via Homebrew) ---
+# --- Platform detection ---
+# APPLE → needs Cocoa/IOKit/OpenGL frameworks for GLFW's internals.
+# Linux and Windows → GLFW's own package config pulls in the display-server
+# dependencies transitively, so no per-platform libs are needed here.
+if(APPLE)
+    message(STATUS "swish: target platform is macOS")
+elseif(UNIX)
+    message(STATUS "swish: target platform is Linux")
+elseif(WIN32)
+    message(STATUS "swish: target platform is Windows")
+else()
+    message(FATAL_ERROR "swish: unsupported platform")
+endif()
+
+# --- GLFW (Homebrew on macOS, system package on Linux) ---
 find_package(glfw3 3.3 REQUIRED)
 
-# --- GLM (via Homebrew, header-only) ---
+# --- GLM (header-only) ---
 find_package(glm REQUIRED)
 
 # --- macOS frameworks ---
-find_library(COCOA_LIBRARY Cocoa REQUIRED)
-find_library(IOKIT_LIBRARY IOKit REQUIRED)
-find_library(OPENGL_LIBRARY OpenGL REQUIRED)
+if(APPLE)
+    find_library(COCOA_LIBRARY Cocoa REQUIRED)
+    find_library(IOKIT_LIBRARY IOKit REQUIRED)
+    find_library(OPENGL_LIBRARY OpenGL REQUIRED)
+endif()
 
 # --- Vulkan ---
 find_package(Vulkan REQUIRED)
@@ -127,8 +143,13 @@ target_link_libraries(swish PRIVATE
     glad
     glfw
     glm::glm
-    ${OPENGL_LIBRARY}
-    ${COCOA_LIBRARY}
-    ${IOKIT_LIBRARY}
     Vulkan::Vulkan
 )
+
+if(APPLE)
+    target_link_libraries(swish PRIVATE
+        ${OPENGL_LIBRARY}
+        ${COCOA_LIBRARY}
+        ${IOKIT_LIBRARY}
+    )
+endif()

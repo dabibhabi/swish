@@ -1,5 +1,6 @@
 #include "Device.h"
 
+#include <cstring>
 #include <set>
 #include <stdexcept>
 #include <vector>
