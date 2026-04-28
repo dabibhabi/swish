@@ -5,7 +5,7 @@
 #include "../../utils/Types.h"
 #include "../../utils/VulkanCheck.h"
 #include "../CommandManager/CommandManager.h"
-#include "../Device/Device.h"
+#include "../Pipeline/Device/Device.h"
 #include "../Pipeline/Pipeline.h"
 #include "../PostProcessManager/PostProcessManager.h"
 #include "../RenderPass/RenderPass.h"
@@ -505,7 +505,7 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
     // ═══════════════════════════════════════════════════════════════
     // Pass 3: Composite (HDR + bloom → swapchain with ACES)
     // (SSAO disabled for initial bring-up — AO texture is white/1.0)
-    // ═══════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════f═══════════════════
     {
         VkClearValue clear{};
         clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -569,6 +569,51 @@ void Renderer::recreateSwapchain() {
     m_renderPass->init(m_device->getDevice(), m_swapchain->getImageFormat(), depthFormat);
     m_renderPass->createFramebuffers(m_device->getDevice(), m_swapchain->getImageViews(),
                                      m_depthImageView, m_swapchain->getExtent());
+
+    // The PostProcess chain is sized to the swapchain extent (HDR, g-buffer,
+    // bloom targets, composite framebuffers). Compositors often hand back a
+    // different extent on swapchain recreate (window-decoration accounting),
+    // so rebuild the whole size-dependent set. Render passes are kept (they
+    // depend on format only, which doesn't change here).
+    if (m_postProcess) {
+        m_postProcess->recreate(m_swapchain->getExtent(),
+                                m_swapchain->getImageFormat(),
+                                m_swapchain->getImageViews());
+
+        // PostProcessManager::recreate destroys m_lightingLayout (via
+        // destroyDescriptors) but never recreates it, since the lighting
+        // layout is built here in Renderer using m_descriptorSetLayout. The
+        // lighting pipeline that references the destroyed layout also
+        // becomes unusable for binding new descriptor sets. Rebuild both.
+        VkPipeline staleLightingPipeline = m_postProcess->get_lighting_pipeline();
+        if (staleLightingPipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(m_device->getDevice(), staleLightingPipeline, nullptr);
+        }
+
+        VkPushConstantRange lightPC{};
+        lightPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        lightPC.offset     = 0;
+        lightPC.size       = 128;
+
+        VkPipelineLayout lightLayout = Pipeline::createLayout(
+            m_device->getDevice(),
+            {m_descriptorSetLayout, m_postProcess->get_lighting_tex_layout()},
+            {lightPC});
+        m_postProcess->set_lighting_layout(lightLayout);
+
+        PipelineConfig lightCfg{};
+        lightCfg.vertShaderPath   = std::string(SHADER_DIR) + "fullscreen.vert.spv";
+        lightCfg.fragShaderPath   = std::string(SHADER_DIR) + "lighting.frag.spv";
+        lightCfg.noVertexInput    = true;
+        lightCfg.enableDepthTest  = false;
+        lightCfg.enableDepthWrite = false;
+        lightCfg.cullMode         = VK_CULL_MODE_NONE;
+        lightCfg.pipelineLayout   = lightLayout;
+        m_postProcess->set_lighting_pipeline(
+            Pipeline::create(m_device->getDevice(), lightCfg,
+                             m_postProcess->get_lighting_render_pass(),
+                             m_swapchain->getExtent()));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

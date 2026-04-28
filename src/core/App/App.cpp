@@ -53,6 +53,13 @@ void App::mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     }
 }
 
+void App::framebuffer_resize_callback(GLFWwindow* window, int /*width*/, int /*height*/) {
+    auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
+    if (app && app->m_window) {
+        app->m_window->mark_resized();
+    }
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // Main application loop
 // ══════════════════════════════════════════════════════════════════════
@@ -69,6 +76,10 @@ int App::run() {
     GLFWwindow* glfw_window = m_window->getHandle();
     glfwSetWindowUserPointer(glfw_window, this);  // override Window's user pointer for App
     glfwSetCursorPosCallback(glfw_window, mouse_callback);
+    // Replace Window's resize callback too. Window::init registered a static
+    // that reinterprets the user pointer as Window*; now that App owns the
+    // pointer, that callback would write through a wrong-typed pointer.
+    glfwSetFramebufferSizeCallback(glfw_window, framebuffer_resize_callback);
     glfwSetInputMode(glfw_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     // ── 3. TextureManager — load all material textures ────────────

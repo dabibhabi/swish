@@ -22,6 +22,10 @@ validation-layer messages appeared:
    `VK_IMAGE_LAYOUT_UNDEFINED` when the shader expected
    `VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL`.
 
+
+
+
+
 ## Root cause A — `renderFinished` semaphores were sized by frame-in-flight, not swapchain image
 
 `SyncObjects` keyed its `renderFinished` semaphore pool by frame-in-flight

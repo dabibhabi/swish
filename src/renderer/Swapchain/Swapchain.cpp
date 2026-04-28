@@ -1,7 +1,7 @@
 #include "Swapchain.h"
 
 #include "../../utils/VulkanCheck.h"
-#include "../Device/Device.h"
+#include "../Pipeline/Device/Device.h"
 
 #include <algorithm>
 #include <limits>

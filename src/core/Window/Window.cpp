@@ -75,6 +75,10 @@ void Window::resetResizedFlag() {
     m_resized = false;
 }
 
+void Window::mark_resized() {
+    m_resized = true;
+}
+
 void Window::framebufferResizeCallback(GLFWwindow* window, int width, int height) {
     auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
     if (self) {

@@ -64,8 +64,6 @@ set(SHADER_SOURCES
     ${SHADER_DIR}/fullscreen.vert
     ${SHADER_DIR}/bloom_extract.frag
     ${SHADER_DIR}/bloom_blur.frag
-    ${SHADER_DIR}/ssao.frag
-    ${SHADER_DIR}/ao_blur.frag
     ${SHADER_DIR}/composite.frag
     ${SHADER_DIR}/gbuffer.frag
     ${SHADER_DIR}/lighting.frag
@@ -112,7 +110,7 @@ add_executable(swish
     src/core/App/App.cpp
     src/renderer/VulkanContext/VulkanContext.cpp
     src/renderer/Renderer/Renderer.cpp
-    src/renderer/Device/Device.cpp
+    src/renderer/Pipeline/Device/Device.cpp
     src/renderer/Swapchain/Swapchain.cpp
     src/renderer/RenderPass/RenderPass.cpp
     src/renderer/CommandManager/CommandManager.cpp

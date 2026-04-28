@@ -31,6 +31,7 @@ void PostProcessManager::init(VkDevice device, VkPhysicalDevice physicalDevice,
     createFramebuffers(swapchainImageViews);
     createDescriptors();
     createPipelines();
+    primeAOTexture();
 }
 
 void PostProcessManager::cleanup() {
@@ -70,6 +71,7 @@ void PostProcessManager::recreate(VkExtent2D extent, VkFormat swapchainFormat,
     createFramebuffers(swapchainImageViews);
     createDescriptors();
     createPipelines();
+    primeAOTexture();
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -569,7 +571,7 @@ void PostProcessManager::createDescriptors() {
         gbInfos[0] = {m_sampler, m_gbAlbedoViews[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         gbInfos[1] = {m_sampler, m_gbNormalViews[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         gbInfos[2] = {m_sampler, m_gbMaterialViews[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        gbInfos[3] = {m_sampler, m_hdrDepthViews[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        gbInfos[3] = {m_sampler, m_hdrDepthViews[i], VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
 
         std::array<VkWriteDescriptorSet, 4> gbWrites{};
         for (uint32_t b = 0; b < 4; b++) {
@@ -637,10 +639,11 @@ void PostProcessManager::createPipelines() {
                                                      m_postProcessLayout, m_bloomExtent);
     m_bloomBlurPipeline    = makeFullscreenPipeline("bloom_blur.frag", m_bloomRenderPass,
                                                      m_postProcessLayout, m_bloomExtent);
-    m_aoPipeline           = makeFullscreenPipeline("ssao.frag", m_aoRenderPass,
-                                                     m_postProcessLayout, m_aoExtent);
-    m_aoBlurPipeline       = makeFullscreenPipeline("ao_blur.frag", m_aoRenderPass,
-                                                     m_postProcessLayout, m_aoExtent);
+    // SSAO + AO-blur pipelines intentionally not created. The shaders declare an
+    // 80-byte push block that doesn't fit m_postProcessLayout's 32-byte range
+    // (VUID-10069), and SSAO is bypassed for bring-up. The AO blur image is
+    // primed to white by primeAOTexture() so the composite shader's `hdr *= ao`
+    // is a no-op. Re-enable when SSAO is wired into the per-frame record path.
     m_compositePipeline    = makeFullscreenPipeline("composite.frag", m_compositeRenderPass,
                                                      m_compositeLayout, m_fullExtent);
 }
@@ -651,9 +654,55 @@ void PostProcessManager::destroyPipelines() {
     };
     destroy(m_bloomExtractPipeline);
     destroy(m_bloomBlurPipeline);
-    destroy(m_aoPipeline);
-    destroy(m_aoBlurPipeline);
     destroy(m_compositePipeline);
+}
+
+// SSAO is bypassed for bring-up; the composite shader still samples the AO
+// blur image every frame. Clear it to white once so `hdr *= ao` is a no-op
+// and leave it in SHADER_READ_ONLY_OPTIMAL for the lifetime of the image.
+void PostProcessManager::primeAOTexture() {
+    VkCommandBufferAllocateInfo ai{};
+    ai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    ai.commandPool        = m_commandPool;
+    ai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    ai.commandBufferCount = 1;
+
+    VkCommandBuffer cmd;
+    VK_CHECK(vkAllocateCommandBuffers(m_device, &ai, &cmd));
+
+    VkCommandBufferBeginInfo bi{};
+    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VK_CHECK(vkBeginCommandBuffer(cmd, &bi));
+
+    VkClearValue clear{};
+    clear.color = {{1.0f, 1.0f, 1.0f, 1.0f}};
+
+    VkRenderPassBeginInfo rp{};
+    rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rp.renderPass        = m_aoRenderPass;
+    rp.framebuffer       = m_aoBlurFB;
+    rp.renderArea.extent = m_aoExtent;
+    rp.clearValueCount   = 1;
+    rp.pClearValues      = &clear;
+
+    vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdEndRenderPass(cmd);
+
+    ResourceManager::insertImageBarrier(cmd, m_aoBlurImage,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    VK_CHECK(vkEndCommandBuffer(cmd));
+
+    VkSubmitInfo si{};
+    si.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    si.commandBufferCount = 1;
+    si.pCommandBuffers    = &cmd;
+    VK_CHECK(vkQueueSubmit(m_graphicsQueue, 1, &si, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueWaitIdle(m_graphicsQueue));
+
+    vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmd);
 }
 
 }  // namespace swish

@@ -32,6 +32,11 @@ private:
     bool  m_cursor_captured = true;
 
     static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
+    // Owns the GLFW user pointer once App::run sets it, so the framebuffer
+    // resize callback must also be App's — otherwise GLFW would still call
+    // Window::framebufferResizeCallback with an App* miscast as Window*,
+    // corrupting App fields. See git history for the segfault this fixed.
+    static void framebuffer_resize_callback(GLFWwindow* window, int width, int height);
 };
 
 }  // namespace swish

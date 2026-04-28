@@ -44,6 +44,7 @@ public:
     // TODO: Track whether the window was resized (set by the GLFW callback)
     bool wasResized() const;
     void resetResizedFlag();
+    void mark_resized();
 
 private:
     GLFWwindow* m_window  = nullptr;

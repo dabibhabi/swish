@@ -82,8 +82,6 @@ public:
     // ── Pipeline getters ─────────────────────────────────────────
     VkPipeline get_bloom_extract_pipeline() const { return m_bloomExtractPipeline; }
     VkPipeline get_bloom_blur_pipeline() const { return m_bloomBlurPipeline; }
-    VkPipeline get_ao_pipeline() const { return m_aoPipeline; }
-    VkPipeline get_ao_blur_pipeline() const { return m_aoBlurPipeline; }
     VkPipeline get_composite_pipeline() const { return m_compositePipeline; }
     VkPipelineLayout get_postprocess_layout() const { return m_postProcessLayout; }
     VkPipelineLayout get_composite_layout() const { return m_compositeLayout; }
@@ -197,8 +195,6 @@ private:
 
     VkPipeline m_bloomExtractPipeline = VK_NULL_HANDLE;
     VkPipeline m_bloomBlurPipeline    = VK_NULL_HANDLE;
-    VkPipeline m_aoPipeline           = VK_NULL_HANDLE;
-    VkPipeline m_aoBlurPipeline       = VK_NULL_HANDLE;
     VkPipeline m_compositePipeline    = VK_NULL_HANDLE;
 
     // ── Descriptor pool + sets ───────────────────────────────────
@@ -217,6 +213,7 @@ private:
     void createSampler();
     void createDescriptors();
     void createPipelines();
+    void primeAOTexture();
 
     void destroyImages();
     void destroyFramebuffers();
