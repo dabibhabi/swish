@@ -14,12 +14,11 @@ namespace swish {
 // Construction / Destruction
 // ══════════════════════════════════════════════════════════════════════
 
-TextureManager::TextureManager(VkDevice device, VkPhysicalDevice physicalDevice,
-                               VkCommandPool commandPool, VkQueue graphicsQueue)
-    : m_device(device)
-    , m_physicalDevice(physicalDevice)
-    , m_commandPool(commandPool)
-    , m_graphicsQueue(graphicsQueue) {
+TextureManager::TextureManager(const RendererServices& services)
+    : m_device(services.device)
+    , m_physicalDevice(services.physicalDevice)
+    , m_commandPool(services.commandPool)
+    , m_graphicsQueue(services.graphicsQueue) {
     create_sampler();
 }
 

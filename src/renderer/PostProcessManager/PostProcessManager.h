@@ -57,11 +57,7 @@ public:
 
     VkRenderPass get_lighting_render_pass() const { return m_lightingRenderPass; }
     VkFramebuffer get_lighting_framebuffer(uint32_t frameIndex) const { return m_lightingFramebuffers[frameIndex]; }
-    VkPipeline get_lighting_pipeline() const { return m_lightingPipeline; }
-    VkPipelineLayout get_lighting_layout() const { return m_lightingLayout; }
     VkDescriptorSetLayout get_lighting_tex_layout() const { return m_lightingTexLayout; }
-    void set_lighting_layout(VkPipelineLayout layout) { m_lightingLayout = layout; }
-    void set_lighting_pipeline(VkPipeline pipeline) { m_lightingPipeline = pipeline; }
     VkDescriptorSet get_lighting_set(uint32_t frameIndex) const { return m_lightingSets[frameIndex]; }
 
     // ── Render pass getters ──────────────────────────────────────
@@ -132,11 +128,13 @@ private:
     std::array<VkFramebuffer, PP_MAX_FRAMES>  m_gbufferFramebuffers{};
 
     // ── Deferred lighting ────────────────────────────────────────
+    // The lighting pipeline + layout live in DeferredLightingPipeline
+    // (Renderer-owned). Here we only own the render pass, framebuffers,
+    // descriptor-set layout for set 1 (G-buffer samplers), and the
+    // per-frame descriptor sets that bind G-buffer images.
     VkRenderPass m_lightingRenderPass = VK_NULL_HANDLE;
     std::array<VkFramebuffer, PP_MAX_FRAMES> m_lightingFramebuffers{};
-    VkPipelineLayout      m_lightingLayout     = VK_NULL_HANDLE;
     VkDescriptorSetLayout m_lightingTexLayout  = VK_NULL_HANDLE;
-    VkPipeline            m_lightingPipeline   = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, PP_MAX_FRAMES> m_lightingSets{};
 
     // ── Render passes ────────────────────────────────────────────

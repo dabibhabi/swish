@@ -124,6 +124,12 @@ add_executable(swish
     src/scene/ModelManager/ModelManager.cpp
     src/renderer/TextureManager/TextureManager.cpp
     src/renderer/PostProcessManager/PostProcessManager.cpp
+    src/renderer/CameraUniforms/CameraUniforms.cpp
+    src/renderer/MaterialDescriptors/MaterialDescriptors.cpp
+    src/renderer/DepthBuffer/DepthBuffer.cpp
+    src/renderer/SceneGeometry/SceneGeometry.cpp
+    src/renderer/ScenePipeline/ScenePipeline.cpp
+    src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.cpp
     src/utils/StbImage.cpp
 )
 

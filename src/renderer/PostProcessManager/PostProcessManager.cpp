@@ -611,10 +611,6 @@ void PostProcessManager::destroyDescriptors() {
         vkDestroyDescriptorSetLayout(m_device, m_lightingTexLayout, nullptr);
         m_lightingTexLayout = VK_NULL_HANDLE;
     }
-    if (m_lightingLayout != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(m_device, m_lightingLayout, nullptr);
-        m_lightingLayout = VK_NULL_HANDLE;
-    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

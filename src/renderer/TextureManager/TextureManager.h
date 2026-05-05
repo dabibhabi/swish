@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../Renderer/RendererServices.h"
+
 #include <vulkan/vulkan.h>
 
 #include <string>
@@ -30,8 +32,7 @@ struct Texture {
 
 class TextureManager {
 public:
-    TextureManager(VkDevice device, VkPhysicalDevice physicalDevice,
-                   VkCommandPool commandPool, VkQueue graphicsQueue);
+    explicit TextureManager(const RendererServices& services);
     ~TextureManager();
 
     // Recursively load all textures from a directory.

@@ -83,11 +83,7 @@ int App::run() {
     glfwSetInputMode(glfw_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     // ── 3. TextureManager — load all material textures ────────────
-    m_textureManager = new TextureManager(
-        m_renderer->get_vk_device(),
-        m_renderer->get_vk_physical_device(),
-        m_renderer->get_command_pool(),
-        m_renderer->get_graphics_queue());
+    m_textureManager = new TextureManager(m_renderer->services());
 
     m_textureManager->load_directory(TEXTURE_DIR);
 
@@ -150,7 +146,7 @@ int App::run() {
                                      500.0f, 5000.0f);
         camera->set_collision_enabled(true);
 
-        VkExtent2D extent = renderer.get_swapchain_extent();
+        VkExtent2D extent = renderer.services().swapchainExtent;
         float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
         camera->set_perspective(65.0f, aspect, 10.0f, 2000000.0f);
 

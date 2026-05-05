@@ -3,8 +3,13 @@
 #include <vulkan/vulkan.h>
 
 #include "../../scene/SceneTypes.h"
+#include "../DeferredLightingPipeline/DeferredLightingPipeline.h"
+#include "../SceneGeometry/SceneGeometry.h"
+#include "../ScenePipeline/ScenePipeline.h"
+#include "RendererServices.h"
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace swish {
@@ -14,13 +19,15 @@ class Window;
 class VulkanContext;
 class Device;
 class Swapchain;
-class RenderPass;
 class CommandManager;
 class SyncObjects;
 class Camera;
 class TextureManager;
 class SceneManager;
 class ModelManager;
+class PostProcessManager;
+class CameraUniforms;
+class MaterialDescriptors;
 
 // The Renderer orchestrates the Vulkan draw loop and acts as a
 // central registry for managers (rind-style architecture).
@@ -29,13 +36,17 @@ class ModelManager;
 //   App
 //    ├── Window
 //    ├── Renderer (Vulkan core + manager registry)
-//    │    ├── VulkanContext, Device, Swapchain, RenderPass
-//    │    ├── Pipeline, CommandManager, SyncObjects
-//    │    ├── UBOs, descriptors, scene geometry
-//    │    └── Camera* (set by scene)
-//    ├── TextureManager (owns all textures)
-//    ├── SceneManager (owns scenes, handles switching)
-//    └── ModelManager (placeholder for cars)
+//    │    ├── VulkanContext, Device, Swapchain, CommandManager, SyncObjects
+//    │    ├── CameraUniforms              (set 0 — camera + lights UBOs)
+//    │    ├── MaterialDescriptors         (set 1 — PBR textures)
+//    │    ├── PostProcessManager          (G-buffer + HDR + bloom + composite)
+//    │    ├── ScenePipeline               (deferred G-buffer pipeline)
+//    │    ├── DeferredLightingPipeline    (lighting pipeline + layout)
+//    │    ├── SceneGeometry               (vertex/index buffers, draw calls)
+//    │    └── Camera*                     (set by scene)
+//    ├── TextureManager (owns all textures, ctor takes RendererServices)
+//    ├── SceneManager   (owns scenes, handles switching)
+//    └── ModelManager   (placeholder for cars)
 //
 class Renderer {
 public:
@@ -57,12 +68,11 @@ public:
     SceneManager*   get_scene_manager() const;
     ModelManager*   get_model_manager() const;
 
-    // ── Vulkan handle getters (for managers) ──────────────────────────
-    VkDevice         get_vk_device() const;
-    VkPhysicalDevice get_vk_physical_device() const;
-    VkCommandPool    get_command_pool() const;
-    VkQueue          get_graphics_queue() const;
-    VkExtent2D       get_swapchain_extent() const;
+    // Bundles the raw Vulkan handles that subsystems need at init / upload
+    // time. Subsystems copy what they need; nothing should retain the bundle
+    // long-term (the swapchain extent in particular is invalidated on every
+    // recreate). See RendererServices.h.
+    RendererServices services() const;
 
     // ── Scene geometry (called by Scene lambdas) ──────────────────────
     void upload_scene_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws);
@@ -82,60 +92,33 @@ public:
     void wait_for_idle();
 
 private:
-    // ── Post-processing (multi-pass HDR pipeline) ──────────────────
-    class PostProcessManager* m_postProcess = nullptr;
+    // ── State predicates (named replacements for raw null/handle checks) ──
+    bool has_post_process() const { return m_postProcess != nullptr; }
+    // VkResult predicates moved to utils/VulkanInit.h (swish::vk namespace).
 
     // ── Owned subsystems ───────────────────────────────────────────
     VulkanContext*  m_context        = nullptr;
     Device*         m_device         = nullptr;
     Swapchain*      m_swapchain      = nullptr;
-    RenderPass*     m_renderPass     = nullptr;
     CommandManager* m_commandManager = nullptr;
     SyncObjects*    m_syncObjects    = nullptr;
+
+    PostProcessManager* m_postProcess = nullptr;
+
+    std::unique_ptr<CameraUniforms>      m_cameraUniforms;
+    std::unique_ptr<MaterialDescriptors> m_materialDescriptors;
 
     // ── Manager pointers (NOT owned — App owns these) ─────────────
     TextureManager* m_textureManager = nullptr;
     SceneManager*   m_sceneManager   = nullptr;
     ModelManager*   m_modelManager   = nullptr;
 
-    // ── Depth resources ───────────────────────────────────────────
-    VkImage        m_depthImage     = VK_NULL_HANDLE;
-    VkDeviceMemory m_depthMemory    = VK_NULL_HANDLE;
-    VkImageView    m_depthImageView = VK_NULL_HANDLE;
-
-    // ── Pipeline ──────────────────────────────────────────────────
-    VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorSetLayout m_materialSetLayout   = VK_NULL_HANDLE;
-    VkPipelineLayout      m_pipelineLayout      = VK_NULL_HANDLE;
-    VkPipeline            m_pipeline            = VK_NULL_HANDLE;
-
-    // ── Uniform buffers (one per frame-in-flight) ─────────────────
-    std::vector<VkBuffer>       m_uniformBuffers;
-    std::vector<VkDeviceMemory> m_uniformBuffersMemory;
-    std::vector<void*>          m_uniformBuffersMapped;
-
-    // ── Lights UBO buffers (one per frame-in-flight) ─────────────
-    std::vector<VkBuffer>       m_lightsBuffers;
-    std::vector<VkDeviceMemory> m_lightsBuffersMemory;
-    std::vector<void*>          m_lightsBuffersMapped;
-
-    // ── Scene lights ─────────────────────────────────────────────
-    std::vector<LightDesc> m_sceneLights;
-
-    // ── Descriptor pool + sets for camera UBOs ────────────────────
-    VkDescriptorPool             m_descriptorPool = VK_NULL_HANDLE;
-    std::vector<VkDescriptorSet> m_descriptorSets;
-
-    // ── Material descriptor pool + sets (rebuilt on texture load) ──
-    VkDescriptorPool             m_materialPool = VK_NULL_HANDLE;
-    std::vector<VkDescriptorSet> m_materialSets;
+    // ── Pipelines ─────────────────────────────────────────────────
+    ScenePipeline            m_scenePipeline;
+    DeferredLightingPipeline m_deferredLighting;
 
     // ── Scene geometry ────────────────────────────────────────────
-    VkBuffer              m_vertexBuffer       = VK_NULL_HANDLE;
-    VkDeviceMemory        m_vertexBufferMemory = VK_NULL_HANDLE;
-    VkBuffer              m_indexBuffer        = VK_NULL_HANDLE;
-    VkDeviceMemory        m_indexBufferMemory  = VK_NULL_HANDLE;
-    std::vector<DrawCall> m_drawCalls;
+    SceneGeometry m_sceneGeometry;
 
     // ── Camera ────────────────────────────────────────────────────
     Camera* m_camera = nullptr;
@@ -148,16 +131,17 @@ private:
 
     // ── Private helpers ───────────────────────────────────────────
     void recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex);
+
+    // Per-pass command recording (called by recordCommandBuffer)
+    void recordGBufferPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExtent2D extent);
+    void transitionGBufferForLighting(VkCommandBuffer cmd, uint32_t frameIndex);
+    void recordLightingPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExtent2D extent);
+    void recordBloomExtract(VkCommandBuffer cmd, VkExtent2D extent);
+    void recordBloomBlur(VkCommandBuffer cmd, VkExtent2D extent, bool horizontal);
+    void recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t imageIndex,
+                             VkExtent2D extent);
+
     void recreateSwapchain();
-    void createDepthResources();
-    void destroyDepthResources();
-    void createPipeline();
-    void destroyPipeline();
-    void createUniformBuffers();
-    void destroyUniformBuffers();
-    void createCameraDescriptorPool();
-    void createCameraDescriptorSets();
-    void updateUniformBuffer(uint32_t frameIndex);
 };
 
 }  // namespace swish

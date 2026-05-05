@@ -1,0 +1,55 @@
+#pragma once
+
+#include "../../scene/SceneTypes.h"
+
+#include <vulkan/vulkan.h>
+
+#include <cstdint>
+#include <vector>
+
+namespace swish {
+
+class Camera;
+
+// Owns the per-frame camera + lights uniform buffers, the descriptor set
+// layout (set 0 in scene + lighting pipelines), the pool, and the descriptor
+// sets that bind those buffers. Renderer-facing surface is intentionally
+// narrow: a layout, a per-frame descriptor set, and an update entry point.
+class CameraUniforms {
+public:
+    void init(VkDevice device, VkPhysicalDevice physicalDevice, uint32_t framesInFlight);
+    void cleanup(VkDevice device);
+
+    // Write this frame's camera matrices + sun + active lights into the
+    // mapped UBO memory. Must be called before binding the set for the frame.
+    void update(uint32_t frameIndex, const Camera& camera);
+
+    void set_lights(const std::vector<LightDesc>& lights) { m_lights = lights; }
+    bool has_lights() const { return !m_lights.empty(); }
+
+    VkDescriptorSetLayout get_layout() const { return m_setLayout; }
+    VkDescriptorSet       get_set(uint32_t frameIndex) const { return m_sets[frameIndex]; }
+
+private:
+    void createLayout(VkDevice device);
+    void createBuffers(VkDevice device, VkPhysicalDevice physicalDevice);
+    void createDescriptors(VkDevice device);
+
+    uint32_t m_frames = 0;
+
+    VkDescriptorSetLayout        m_setLayout = VK_NULL_HANDLE;
+    VkDescriptorPool             m_pool      = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> m_sets;
+
+    std::vector<VkBuffer>       m_cameraBuffers;
+    std::vector<VkDeviceMemory> m_cameraMemory;
+    std::vector<void*>          m_cameraMapped;
+
+    std::vector<VkBuffer>       m_lightsBuffers;
+    std::vector<VkDeviceMemory> m_lightsMemory;
+    std::vector<void*>          m_lightsMapped;
+
+    std::vector<LightDesc> m_lights;
+};
+
+}  // namespace swish
