@@ -1,0 +1,22 @@
+[project]
+name = "car-analyzer"
+version = "0.1.0"
+description = "Analyze GLB/GLTF car model node hierarchy using Blender's bpy"
+requires-python = ">=3.11"
+dependencies = []
+
+# Run via Blender (recommended — full GLTF importer pipeline):
+#   blender --background --python tools/car_analyzer/run.py -- <file.glb> [flags]
+#
+# Standalone bpy (installs the PyPI bpy wheel, no full Blender needed):
+#   uv sync --extra standalone
+#   uv run python -m car_analyzer <file.glb> [flags]
+[project.optional-dependencies]
+standalone = ["bpy>=4.0.0"]
+
+[project.scripts]
+car-analyzer = "car_analyzer.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

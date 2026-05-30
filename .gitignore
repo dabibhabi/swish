@@ -59,6 +59,11 @@ cars/*
 
 
 zip_files/
+*.pyc
 
+*.claude
+tomlplusplus-*/
+build-xcode/
 # Local-only Claude/agent notes (code-audit pack, not part of the shipped repo)
 claude_docs/
+uv.lock

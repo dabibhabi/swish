@@ -157,3 +157,7 @@ if(APPLE)
         ${IOKIT_LIBRARY}
     )
 endif()
+
+# --- Tests ---
+enable_testing()
+add_subdirectory(tests)
