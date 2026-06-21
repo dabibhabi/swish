@@ -25,6 +25,27 @@ enum MaterialId : uint32_t {
     MAT_SIGN_5   = 13,
     MAT_SIGN_6   = 14,
     MAT_SIGN_7   = 15,
+    // ── Car material slots (loaded from GLB, one per glTF material) ──
+    MAT_CAR_0    = 16,
+    MAT_CAR_1    = 17,
+    MAT_CAR_2    = 18,
+    MAT_CAR_3    = 19,
+    MAT_CAR_4    = 20,
+    MAT_CAR_5    = 21,
+    MAT_CAR_6    = 22,
+    MAT_CAR_7    = 23,
+    MAT_CAR_8    = 24,
+    MAT_CAR_9    = 25,
+    MAT_CAR_10   = 26,
+    MAT_CAR_11   = 27,
+    MAT_CAR_12   = 28,
+    MAT_CAR_13   = 29,
+    MAT_CAR_14   = 30,
+    MAT_CAR_15   = 31,
+    MAT_CAR_16   = 32,
+    MAT_CAR_17   = 33,
+    MAT_CAR_18   = 34,
+    MAT_CAR_19   = 35,
     MAT_COUNT
 };
 
@@ -41,8 +62,8 @@ struct CameraUBO {
 static constexpr uint32_t MAX_POINT_LIGHTS = 16;
 
 struct PointLightData {
-    Vec4 positionRadius;    // xyz = world position, w = influence radius
-    Vec4 colorIntensity;    // rgb = color, a = intensity multiplier
+    Vec4 positionRadius;  // xyz = world position, w = influence radius
+    Vec4 colorIntensity;  // rgb = color, a = intensity multiplier
 };
 
 struct LightsUBO {
@@ -69,6 +90,9 @@ public:
     const std::vector<Vertex>&   getVertices() const { return m_vertices; }
     const std::vector<uint32_t>& getIndices() const { return m_indices; }
 
+    // Mutable access for load-time mesh fixups (e.g. grounding a model).
+    std::vector<Vertex>& getVertices() { return m_vertices; }
+
     bool empty() const { return m_vertices.empty() || m_indices.empty(); }
 
     void addVertex(const Vertex& v) { m_vertices.push_back(v); }
@@ -77,6 +101,22 @@ public:
 private:
     std::vector<Vertex>   m_vertices;
     std::vector<uint32_t> m_indices;
+};
+
+// ── Submesh ───────────────────────────────────────────────────────────
+// One primitive within a ModelEntity. Like DrawCall but without the model
+// matrix — that is injected at draw-call generation time from the entity's
+// current transform.
+struct Submesh {
+    uint32_t   indexOffset;
+    uint32_t   indexCount;
+    MaterialId material  = MAT_DEFAULT;
+    Vec4       color     = Vec4(1.f, 1.f, 1.f, 1.f);
+
+    bool is_steering_wheel = false;
+    // Normalized SteeringWheel_Pivot frame (RootNode-rel, +90° Y, grounded).
+    // Steer = sw_pivot_frame * R_local(angle) * inverse(sw_pivot_frame).
+    Mat4 sw_pivot_frame = Mat4(1.f);
 };
 
 // ── DrawCall ──────────────────────────────────────────────────────────

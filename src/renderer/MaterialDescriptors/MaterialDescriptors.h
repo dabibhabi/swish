@@ -10,19 +10,14 @@ namespace swish {
 
 class TextureManager;
 
-// Owns the per-material descriptor set layout (set 1 — albedo, normal,
-// roughness combined image samplers), the pool, and one descriptor set per
-// MaterialId. rebuild() (re)points the sets at whatever textures are
-// currently loaded in TextureManager — call after textures load and on
-// scene switch.
 class MaterialDescriptors {
 public:
-    void init(VkDevice device);
-    void cleanup(VkDevice device);
+    void init(VkDevice device); // initialize the descriptor pool and sets
+    void cleanup(VkDevice device); // cleanup the descriptor pool and sets
 
-    void rebuild(VkDevice device, TextureManager& textures);
+    void rebuild(VkDevice device, TextureManager& textures); // rebuild the descriptor pool and sets
 
-    bool is_built() const { return m_pool != VK_NULL_HANDLE; }
+    bool is_built() const { return m_pool != VK_NULL_HANDLE; } // check if the descriptor pool is built
 
     VkDescriptorSetLayout get_layout() const { return m_setLayout; }
     VkDescriptorSet       get_set(MaterialId mat) const { return m_sets[mat]; }
@@ -33,4 +28,4 @@ private:
     std::vector<VkDescriptorSet> m_sets;
 };
 
-}  // namespace swish
+} 

@@ -3,12 +3,15 @@
 #include "../../renderer/Renderer/Renderer.h"
 #include "../../renderer/TextureManager/TextureManager.h"
 #include "../../scene/Camera/Camera.h"
+#include "../../scene/Entity/CarEntity.h"
 #include "../../scene/ModelManager/ModelManager.h"
 #include "../../scene/RoadScene/RoadScene.h"
 #include "../../scene/SceneManager/SceneManager.h"
 #include "../Window/Window.h"
 
 #include <GLFW/glfw3.h>
+
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -17,6 +20,7 @@ namespace swish {
 App::App() = default;
 
 App::~App() {
+    delete m_car;
     delete m_sceneManager;
     delete m_modelManager;
     delete m_textureManager;
@@ -30,7 +34,8 @@ App::~App() {
 
 void App::mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
-    if (!app || !app->m_cursor_captured) return;
+    if (!app || !app->m_cursor_captured)
+        return;
 
     float xf = static_cast<float>(xpos);
     float yf = static_cast<float>(ypos);
@@ -42,10 +47,19 @@ void App::mouse_callback(GLFWwindow* window, double xpos, double ypos) {
         return;
     }
 
-    float x_offset = xf - app->m_last_mouse_x;
-    float y_offset = app->m_last_mouse_y - yf;  // reversed: Y grows downward in screen coords
+    float x_offset      = xf - app->m_last_mouse_x;
+    float y_offset      = app->m_last_mouse_y - yf;  // reversed: Y grows downward in screen coords
     app->m_last_mouse_x = xf;
     app->m_last_mouse_y = yf;
+
+    if (app->m_cockpit) {
+        // Mouse look relative to the car heading, clamped so you can't
+        // look through the headrest or flip over the roof.
+        constexpr float kSens = 0.1f;
+        app->m_look_yaw   = std::clamp(app->m_look_yaw + x_offset * kSens, -150.f, 150.f);
+        app->m_look_pitch = std::clamp(app->m_look_pitch + y_offset * kSens, -60.f, 60.f);
+        return;
+    }
 
     Camera* camera = app->m_renderer->get_camera();
     if (camera) {
@@ -65,6 +79,22 @@ void App::framebuffer_resize_callback(GLFWwindow* window, int /*width*/, int /*h
 // ══════════════════════════════════════════════════════════════════════
 
 int App::run() {
+    // ── Road geometry constants (world units, must match road.bin) ───
+    constexpr float kFt           = 0.3048f * 1000.0f;
+    constexpr float kBarrierRight = (2.67f + 3.0f) * kFt;   // ~1728 WU
+    constexpr float kLaneWidth    = 13.0f * kFt;             // ~3962 WU
+    constexpr float kLaneCount    = 4.0f;
+    constexpr float kCrownSlope   = 0.02f;                   // RoadConfig::m_crown_slope
+    constexpr float kMarkingY     = 5.0f;                    // marking_y_offset from road.bin
+    constexpr float kEbRoadRight  = kBarrierRight + kLaneCount * kLaneWidth + 10.0f * kFt;
+
+    // Computes road surface Y at world X using the crown formula.
+    auto road_surface_y = [&](float x) -> float {
+        float lanes_from_inner = (x - kBarrierRight) / kLaneWidth;
+        float clamped          = std::max(0.f, std::min(kLaneCount, lanes_from_inner));
+        return kCrownSlope * (kLaneCount - clamped) * kLaneWidth + kMarkingY;
+    };
+
     // ── 1. Window + Renderer core ─────────────────────────────────
     m_window = new Window();
     m_window->init(800, 600, "swish");
@@ -94,14 +124,14 @@ int App::run() {
 
     // Generate procedural rumble strip texture (alternating dark/light bars)
     {
-        constexpr uint32_t rumble_w = 64, rumble_h = 64;
+        constexpr uint32_t   rumble_w = 64, rumble_h = 64;
         std::vector<uint8_t> rumble_pixels(rumble_w * rumble_h * 4);
         for (uint32_t y = 0; y < rumble_h; y++) {
             // Alternating 4px dark / 4px light bars along Y
-            bool dark = ((y / 4) % 2 == 0);
-            uint8_t val = dark ? 80 : 140;
+            bool    dark = ((y / 4) % 2 == 0);
+            uint8_t val  = dark ? 80 : 140;
             for (uint32_t x = 0; x < rumble_w; x++) {
-                size_t idx = (y * rumble_w + x) * 4;
+                size_t idx             = (y * rumble_w + x) * 4;
                 rumble_pixels[idx + 0] = val;
                 rumble_pixels[idx + 1] = val;
                 rumble_pixels[idx + 2] = val;
@@ -126,28 +156,22 @@ int App::run() {
     auto road_scene = std::make_unique<Scene>([](Renderer& renderer) {
         // Generate road geometry
         RoadScene road;
-        auto scene = road.generate();
+        auto      scene = road.generate();
         renderer.upload_scene_geometry(scene.meshData, scene.drawCalls);
         renderer.set_scene_lights(scene.lights);
 
         // Setup POV camera on the eastbound LIE
         auto* camera = new Camera();
         camera->set_position(Vec3(6501.0f, 1448.0f, -5000.0f));
-        camera->set_yaw(-90.0f);    // looking along -Z (down the road)
-        camera->set_pitch(-3.0f);   // slight downward driving angle
+        camera->set_yaw(-90.0f);   // looking along -Z (down the road)
+        camera->set_pitch(-3.0f);  // slight downward driving angle
 
         // Collision bounds: keep camera within EB roadway
-        // barrier right = barrier_width(2.67ft) + 3ft clearance = ~5.67ft * 304.8 = ~1728 wu
-        // EB right = 1728 + 4 * 12.17ft * 304.8 + 10ft * 304.8 = ~1728 + 14834 + 3048 = ~19610 wu
-        constexpr float kFt = 0.3048f * 1000.0f;
-        float barrier_right = 2.67f * kFt + 3.0f * kFt;
-        float eb_road_right = barrier_right + 4.0f * 13.0f * kFt + 10.0f * kFt;
-        camera->set_collision_bounds(barrier_right + 100.0f, eb_road_right - 100.0f,
-                                     500.0f, 5000.0f);
+        camera->set_collision_bounds(kBarrierRight + 100.0f, kEbRoadRight - 100.0f, 500.0f, 5000.0f);
         camera->set_collision_enabled(true);
 
         VkExtent2D extent = renderer.services().swapchainExtent;
-        float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
+        float      aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
         camera->set_perspective(65.0f, aspect, 10.0f, 2000000.0f);
 
         renderer.set_camera(camera);
@@ -162,7 +186,31 @@ int App::run() {
     // ── 7. Activate first scene ───────────────────────────────────
     m_sceneManager->set_active_scene(0);
 
-    // ── 8. Main loop with delta time ──────────────────────────────
+    // ── 8. Load the Porsche car ───────────────────────────────────
+    {
+        auto car_entity = m_modelManager->load_car(
+            std::string(ASSET_DIR) + "Porsche/porsche.glb");
+
+        // Place the car on the road ahead of the camera start position.
+        // Camera starts at (6501, 1448, -5000) facing -Z.
+        // Put the car 15m (~15000 WU) ahead; Y from crown formula so wheels sit on road.
+        // Scale converts glTF meters to world units (1m = 1000 WU).
+        constexpr float kCarX = 6501.0f;
+        car_entity->set_position(Vec3(kCarX, road_surface_y(kCarX), -20000.0f));
+        car_entity->set_rotation(Vec3(0.f, 90.f, 0.f));  // +90° = nose down -Z, same way the camera looks
+        car_entity->set_scale(Vec3(1000.f, 1000.f, 1000.f));
+        car_entity->set_road_bounds(kBarrierRight + 100.f, kEbRoadRight - 100.f);
+
+        m_car = car_entity.release();
+
+        // Rebuild material descriptors to include the car's textures.
+        m_renderer->rebuild_material_descriptors();
+
+        // Upload the car mesh as dynamic geometry.
+        m_renderer->upload_dynamic_geometry(m_car->get_mesh_data(), m_car->get_draw_calls());
+    }
+
+    // ── 9. Main loop with delta time ──────────────────────────────
     float last_frame_time = static_cast<float>(glfwGetTime());
 
     while (!m_window->shouldClose()) {
@@ -175,24 +223,64 @@ int App::run() {
         // Toggle cursor capture with Escape
         if (glfwGetKey(glfw_window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             m_cursor_captured = !m_cursor_captured;
-            glfwSetInputMode(glfw_window, GLFW_CURSOR,
-                             m_cursor_captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+            glfwSetInputMode(glfw_window, GLFW_CURSOR, m_cursor_captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
             m_first_mouse = true;
             // Small delay to avoid toggle spam
             glfwWaitEventsTimeout(0.2);
         }
 
-        // Process camera input
+        // Toggle cockpit / free-fly camera with C (edge-detected)
+        bool c_down = glfwGetKey(glfw_window, GLFW_KEY_C) == GLFW_PRESS;
+        if (c_down && !m_c_key_prev) {
+            m_cockpit    = !m_cockpit;
+            m_look_yaw   = 0.f;
+            m_look_pitch = 0.f;
+        }
+        m_c_key_prev = c_down;
+
+        // Process camera input (WASD) — free-fly mode only
         Camera* camera = m_renderer->get_camera();
-        if (camera && m_cursor_captured) {
+        if (camera && m_cursor_captured && !m_cockpit) {
             camera->process_keyboard(glfw_window, delta_time);
+        }
+
+        // Drive the car (arrow keys)
+        if (m_car) {
+            m_car->handle_input(glfw_window, delta_time);
+            m_car->update(delta_time);
+
+            // Snap Y to road crown so wheels sit on the surface as the car steers.
+            Vec3 pos = m_car->get_position();
+            pos.y    = road_surface_y(pos.x);
+            m_car->set_position(pos);
+
+            m_renderer->update_dynamic_draw_calls(m_car->get_draw_calls());
+        }
+
+        // Cockpit camera: the eye rides the car at the driver's seat.
+        // kSeatEye is authored in the car's normalized mesh space (meters,
+        // nose +X, ground y = 0, driver side -Z); the entity scale (1000)
+        // converts it to world units through the model matrix. The steering
+        // wheel center sits at (0.18, 0.76, -0.34) in that space; the eye
+        // goes behind and above it (roof tops out at 1.29).
+        if (camera && m_cockpit && m_car) {
+            const Vec3 kSeatEye(-0.32f, 1.05f, -0.34f);
+            Vec3 eye = Vec3(m_car->get_model_matrix() * Vec4(kSeatEye, 1.f));
+            camera->set_position(eye);
+            // Camera forward = (cos yaw, ·, sin yaw); car forward =
+            // (cos heading, 0, -sin heading) -> camera yaw = -heading.
+            camera->set_yaw(-m_car->get_rotation().y + m_look_yaw);
+            camera->set_pitch(m_look_pitch);
         }
 
         m_renderer->drawFrame();
     }
 
-    // ── 9. Cleanup (reverse order) ────────────────────────────────
+    // ── 10. Cleanup (reverse order) ───────────────────────────────
     m_renderer->wait_for_idle();
+    delete m_car;
+    m_car = nullptr;
+    m_renderer->destroy_dynamic_geometry();
     m_textureManager->cleanup();
     m_modelManager->cleanup();
     m_renderer->cleanup();

@@ -39,8 +39,8 @@ public:
     void load_directory(const std::string& dir);
 
     // Register a texture from raw RGBA pixels (e.g. 1x1 white default).
-    void register_from_pixels(const std::string& name, const std::vector<uint8_t>& pixels,
-                              uint32_t width, uint32_t height);
+    void register_from_pixels(const std::string& name, const std::vector<uint8_t>& pixels, uint32_t width,
+                              uint32_t height);
 
     // Retrieve a loaded texture by name. Returns nullptr if not found.
     Texture* get_texture(const std::string& name);
@@ -58,11 +58,11 @@ private:
     VkQueue          m_graphicsQueue;
 
     std::unordered_map<std::string, Texture> m_textures;
-    VkSampler m_sampler = VK_NULL_HANDLE;
+    VkSampler                                m_sampler = VK_NULL_HANDLE;
 
-    void upload_texture(const std::string& name, const std::vector<uint8_t>& pixels,
-                        uint32_t w, uint32_t h, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
-    void create_sampler();
+    void        upload_texture(const std::string& name, const std::vector<uint8_t>& pixels, uint32_t w, uint32_t h,
+                               VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
+    void        create_sampler();
     static bool is_linear_data(const std::string& name);
 };
 

@@ -11,29 +11,24 @@ namespace swish {
 
 class MeshBuilder {
 public:
-    MeshBuilder(MeshData& mesh, std::vector<DrawCall>& draws)
-        : m_mesh(mesh), m_draws(draws) {}
+    MeshBuilder(MeshData& mesh, std::vector<DrawCall>& draws) : m_mesh(mesh), m_draws(draws) {}
 
-    void addHorizontalQuad(float leftX, float rightX, float y, float zStart, float zEnd,
-                           const Vec3& normal, const Vec4& color,
-                           MaterialId material = MAT_DEFAULT, float tileSize = 0.0f);
+    void addHorizontalQuad(float leftX, float rightX, float y, float zStart, float zEnd, const Vec3& normal,
+                           const Vec4& color, MaterialId material = MAT_DEFAULT, float tileSize = 0.0f);
 
-    void addVerticalFace(float x, float height, float zStart, float zEnd,
-                         const Vec3& normal, const Vec4& color,
+    void addVerticalFace(float x, float height, float zStart, float zEnd, const Vec3& normal, const Vec4& color,
                          MaterialId material = MAT_DEFAULT, float tileSize = 0.0f);
 
-    void addDashedLine(float leftX, float rightX, float y, float zStart, float zEnd,
-                       float dashLen, float gapLen, const Vec3& normal, const Vec4& color,
-                       MaterialId material = MAT_DEFAULT, float tileSize = 0.0f);
+    void addDashedLine(float leftX, float rightX, float y, float zStart, float zEnd, float dashLen, float gapLen,
+                       const Vec3& normal, const Vec4& color, MaterialId material = MAT_DEFAULT, float tileSize = 0.0f);
 
     MeshData&              m_mesh;
     std::vector<DrawCall>& m_draws;
 
     void pushDrawCall(uint32_t indexOffset, const Vec4& color, MaterialId material);
 
-    void addSlopedQuad(float leftX, float rightX, float yLeft, float yRight,
-                       float zStart, float zEnd, const Vec3& normal,
-                       const Vec4& color, MaterialId material = MAT_DEFAULT, float tileSize = 0.0f);
+    void addSlopedQuad(float leftX, float rightX, float yLeft, float yRight, float zStart, float zEnd,
+                       const Vec3& normal, const Vec4& color, MaterialId material = MAT_DEFAULT, float tileSize = 0.0f);
 };
 
 // ══════════════════════════════════════════════════════════════════════
@@ -47,8 +42,8 @@ public:
 class RoadScene {
 public:
     struct SceneData {
-        MeshData              meshData;
-        std::vector<DrawCall> drawCalls;
+        MeshData               meshData;
+        std::vector<DrawCall>  drawCalls;
         std::vector<LightDesc> lights;
     };
 
@@ -170,7 +165,6 @@ private:
     float m_shoulder_width_wb;
     float m_shoulder_width_eb;
     float m_grass_extent;
-    
 
     // Barrier
     float m_barrier_width;
@@ -228,8 +222,7 @@ private:
     void generate_overpass(MeshBuilder& builder, float z_near, float z_far) const;
     void generate_sound_barriers(MeshBuilder& builder, float z_near, float z_far) const;
     void generate_exit_ramp(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_street_lamps(MeshBuilder& builder, std::vector<LightDesc>& lights,
-                               float z_near, float z_far) const;
+    void generate_street_lamps(MeshBuilder& builder, std::vector<LightDesc>& lights, float z_near, float z_far) const;
 };
 
 }  // namespace swish

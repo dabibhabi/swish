@@ -1,6 +1,7 @@
 #include "Camera.h"
 
 #include <GLFW/glfw3.h>
+
 #include <algorithm>
 #include <cmath>
 
@@ -10,26 +11,48 @@ namespace swish {
 // Position
 // ══════════════════════════════════════════════════════════════════════
 
-void        Camera::set_position(const Vec3& pos) { m_position = pos; }
-const Vec3& Camera::get_position() const { return m_position; }
+void Camera::set_position(const Vec3& pos) {
+    m_position = pos;
+}
+const Vec3& Camera::get_position() const {
+    return m_position;
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // Orientation
 // ══════════════════════════════════════════════════════════════════════
 
-void  Camera::set_yaw(float degrees)   { m_yaw = degrees; update_vectors(); }
-void  Camera::set_pitch(float degrees) { m_pitch = std::clamp(degrees, -89.0f, 89.0f); update_vectors(); }
-float Camera::get_yaw() const          { return m_yaw; }
-float Camera::get_pitch() const        { return m_pitch; }
+void Camera::set_yaw(float degrees) {
+    m_yaw = degrees;
+    update_vectors();
+}
+void Camera::set_pitch(float degrees) {
+    m_pitch = std::clamp(degrees, -89.0f, 89.0f);
+    update_vectors();
+}
+float Camera::get_yaw() const {
+    return m_yaw;
+}
+float Camera::get_pitch() const {
+    return m_pitch;
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // Speed / Sensitivity
 // ══════════════════════════════════════════════════════════════════════
 
-void  Camera::set_move_speed(float speed)       { m_move_speed = speed; }
-float Camera::get_move_speed() const             { return m_move_speed; }
-void  Camera::set_mouse_sensitivity(float sens)  { m_mouse_sensitivity = sens; }
-float Camera::get_mouse_sensitivity() const      { return m_mouse_sensitivity; }
+void Camera::set_move_speed(float speed) {
+    m_move_speed = speed;
+}
+float Camera::get_move_speed() const {
+    return m_move_speed;
+}
+void Camera::set_mouse_sensitivity(float sens) {
+    m_mouse_sensitivity = sens;
+}
+float Camera::get_mouse_sensitivity() const {
+    return m_mouse_sensitivity;
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // Legacy target-based API
@@ -40,13 +63,19 @@ void Camera::set_target(const Vec3& target) {
     // Compute yaw/pitch from position→target direction
     Vec3 dir = glm::normalize(target - m_position);
     m_yaw    = glm::degrees(std::atan2(-dir.x, -dir.z));  // -Z is forward at yaw=−90
-    m_yaw    = glm::degrees(std::atan2(dir.z, dir.x));     // standard atan2
+    m_yaw    = glm::degrees(std::atan2(dir.z, dir.x));    // standard atan2
     m_pitch  = glm::degrees(std::asin(dir.y));
 }
 
-const Vec3& Camera::get_target() const { return m_target; }
-void        Camera::set_up(const Vec3& up) { m_up = up; }
-const Vec3& Camera::get_up() const { return m_up; }
+const Vec3& Camera::get_target() const {
+    return m_target;
+}
+void Camera::set_up(const Vec3& up) {
+    m_up = up;
+}
+const Vec3& Camera::get_up() const {
+    return m_up;
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // Perspective
@@ -59,10 +88,18 @@ void Camera::set_perspective(float fov_deg, float aspect, float near_plane, floa
     m_far    = far_plane;
 }
 
-float Camera::get_fov() const    { return m_fov; }
-float Camera::get_aspect() const { return m_aspect; }
-float Camera::get_near() const   { return m_near; }
-float Camera::get_far() const    { return m_far; }
+float Camera::get_fov() const {
+    return m_fov;
+}
+float Camera::get_aspect() const {
+    return m_aspect;
+}
+float Camera::get_near() const {
+    return m_near;
+}
+float Camera::get_far() const {
+    return m_far;
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // Direction vectors from yaw/pitch
@@ -71,11 +108,8 @@ float Camera::get_far() const    { return m_far; }
 Vec3 Camera::get_forward() const {
     float yaw_rad   = glm::radians(m_yaw);
     float pitch_rad = glm::radians(m_pitch);
-    return glm::normalize(Vec3(
-        std::cos(yaw_rad) * std::cos(pitch_rad),
-        std::sin(pitch_rad),
-        std::sin(yaw_rad) * std::cos(pitch_rad)
-    ));
+    return glm::normalize(
+        Vec3(std::cos(yaw_rad) * std::cos(pitch_rad), std::sin(pitch_rad), std::sin(yaw_rad) * std::cos(pitch_rad)));
 }
 
 Vec3 Camera::get_right() const {
@@ -148,9 +182,9 @@ void Camera::set_collision_enabled(bool enabled) {
 }
 
 void Camera::process_mouse(float x_offset, float y_offset) {
-    m_yaw   += x_offset * m_mouse_sensitivity;
+    m_yaw += x_offset * m_mouse_sensitivity;
     m_pitch += y_offset * m_mouse_sensitivity;
-    m_pitch  = std::clamp(m_pitch, -89.0f, 89.0f);
+    m_pitch = std::clamp(m_pitch, -89.0f, 89.0f);
     update_vectors();
 }
 
@@ -163,7 +197,7 @@ Mat4 Camera::get_view_matrix() const {
 }
 
 Mat4 Camera::get_projection_matrix() const {
-    Mat4 proj  = glm::perspective(glm::radians(m_fov), m_aspect, m_near, m_far);
+    Mat4 proj = glm::perspective(glm::radians(m_fov), m_aspect, m_near, m_far);
     proj[1][1] *= -1.0f;  // Vulkan clip space Y is inverted vs OpenGL
     return proj;
 }

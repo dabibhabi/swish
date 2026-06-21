@@ -26,12 +26,12 @@ struct RoadConfig {
     uint32_t version;
 
     // ── Road geometry (world units) ───────────────────────────────────
-    float road_length;
-    float lane_width;
+    float   road_length;
+    float   lane_width;
     int32_t lane_count;
-    float shoulder_width_wb;
-    float shoulder_width_eb;
-    float grass_extent;
+    float   shoulder_width_wb;
+    float   shoulder_width_eb;
+    float   grass_extent;
 
     // ── Barrier ───────────────────────────────────────────────────────
     float barrier_width;
@@ -55,7 +55,7 @@ struct RoadConfig {
     float marking_y_offset;
     float dash_length;
     float dash_gap;
-    
+
     // ── Crown slope ──────────────────────────────────────────────────────
     static constexpr float m_crown_slope = 0.02f;
 
@@ -78,8 +78,7 @@ struct RoadConfig {
 };
 #pragma pack(pop)
 
-static_assert(std::is_trivially_copyable_v<RoadConfig>,
-              "RoadConfig must be trivially copyable for binary I/O");
+static_assert(std::is_trivially_copyable_v<RoadConfig>, "RoadConfig must be trivially copyable for binary I/O");
 
 // ── Load from binary file ─────────────────────────────────────────────
 
@@ -90,7 +89,7 @@ inline RoadConfig load_road_config(const std::string& path) {
     }
 
     RoadConfig cfg{};
-    size_t read = std::fread(&cfg, sizeof(RoadConfig), 1, f);
+    size_t     read = std::fread(&cfg, sizeof(RoadConfig), 1, f);
     std::fclose(f);
 
     if (read != 1) {
@@ -100,9 +99,8 @@ inline RoadConfig load_road_config(const std::string& path) {
         throw std::runtime_error("RoadConfig: bad magic in " + path);
     }
     if (cfg.version != RoadConfig::VERSION) {
-        throw std::runtime_error("RoadConfig: version mismatch in " + path +
-                                 " (expected " + std::to_string(RoadConfig::VERSION) +
-                                 ", got " + std::to_string(cfg.version) + ")");
+        throw std::runtime_error("RoadConfig: version mismatch in " + path + " (expected " +
+                                 std::to_string(RoadConfig::VERSION) + ", got " + std::to_string(cfg.version) + ")");
     }
 
     return cfg;

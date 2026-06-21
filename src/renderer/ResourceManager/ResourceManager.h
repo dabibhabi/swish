@@ -49,8 +49,7 @@ public:
 
     // Records an inline image layout transition into an existing command buffer.
     // Used for multi-pass rendering where transitions happen mid-frame.
-    static void insertImageBarrier(VkCommandBuffer cmd, VkImage image,
-                                   VkImageLayout oldLayout, VkImageLayout newLayout,
+    static void insertImageBarrier(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout,
                                    VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
 
     // Finds the best depth buffer format the GPU supports.

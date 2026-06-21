@@ -1,24 +1,19 @@
 #include "DepthBuffer.h"
 
-#include "../ResourceManager/ResourceManager.h"
 #include "../../utils/VulkanCheck.h"
 #include "../../utils/VulkanInit.h"
+#include "../ResourceManager/ResourceManager.h"
 
 namespace swish {
 
 void DepthBuffer::init(const RendererServices& s, VkFormat format) {
-    m_format = (format == VK_FORMAT_UNDEFINED)
-                   ? ResourceManager::findDepthFormat(s.physicalDevice)
-                   : format;
+    m_format = (format == VK_FORMAT_UNDEFINED) ? ResourceManager::findDepthFormat(s.physicalDevice) : format;
 
-    ResourceManager::createImage(s.device, s.physicalDevice,
-                                 s.swapchainExtent.width, s.swapchainExtent.height,
-                                 m_format, VK_IMAGE_TILING_OPTIMAL,
-                                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                                 m_image, m_memory);
+    ResourceManager::createImage(s.device, s.physicalDevice, s.swapchainExtent.width, s.swapchainExtent.height,
+                                 m_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_image, m_memory);
 
-    auto viewInfo = vk::makeImageViewCreateInfo();
+    auto viewInfo                            = vk::makeImageViewCreateInfo();
     viewInfo.image                           = m_image;
     viewInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
     viewInfo.format                          = m_format;

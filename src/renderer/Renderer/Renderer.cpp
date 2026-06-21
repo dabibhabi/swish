@@ -24,9 +24,7 @@ namespace swish {
 namespace {
 
 void setViewportAndScissor(VkCommandBuffer cmd, VkExtent2D ext) {
-    VkViewport vp{0.0f, 0.0f,
-                  static_cast<float>(ext.width), static_cast<float>(ext.height),
-                  0.0f, 1.0f};
+    VkViewport vp{0.0f, 0.0f, static_cast<float>(ext.width), static_cast<float>(ext.height), 0.0f, 1.0f};
     vkCmdSetViewport(cmd, 0, 1, &vp);
     VkRect2D sc{{0, 0}, ext};
     vkCmdSetScissor(cmd, 0, 1, &sc);
@@ -35,10 +33,10 @@ void setViewportAndScissor(VkCommandBuffer cmd, VkExtent2D ext) {
 struct ScopedRenderPass {
     VkCommandBuffer cmd;
 
-    ScopedRenderPass(VkCommandBuffer c, VkRenderPass rp, VkFramebuffer fb,
-                     VkExtent2D extent, const VkClearValue* clears, uint32_t clearCount)
+    ScopedRenderPass(VkCommandBuffer c, VkRenderPass rp, VkFramebuffer fb, VkExtent2D extent,
+                     const VkClearValue* clears, uint32_t clearCount)
         : cmd(c) {
-        auto info = vk::makeRenderPassBeginInfo();
+        auto info              = vk::makeRenderPassBeginInfo();
         info.renderPass        = rp;
         info.framebuffer       = fb;
         info.renderArea.extent = extent;
@@ -48,8 +46,7 @@ struct ScopedRenderPass {
     }
 
     // Convenience overload for the common single-clear case.
-    ScopedRenderPass(VkCommandBuffer c, VkRenderPass rp, VkFramebuffer fb,
-                     VkExtent2D extent, const VkClearValue& clear)
+    ScopedRenderPass(VkCommandBuffer c, VkRenderPass rp, VkFramebuffer fb, VkExtent2D extent, const VkClearValue& clear)
         : ScopedRenderPass(c, rp, fb, extent, &clear, 1) {}
 
     ~ScopedRenderPass() { vkCmdEndRenderPass(cmd); }
@@ -91,40 +88,34 @@ void Renderer::init(Window& window) {
 
     int width, height;
     m_window->getFramebufferSize(&width, &height);
-    m_swapchain->init(*m_device, m_context->getSurface(),
-                      static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    m_swapchain->init(*m_device, m_context->getSurface(), static_cast<uint32_t>(width), static_cast<uint32_t>(height));
 
-    m_cameraUniforms->init(m_device->getDevice(), m_device->getPhysicalDevice(),
-                           MAX_FRAMES_IN_FLIGHT);
+    m_cameraUniforms->init(m_device->getDevice(), m_device->getPhysicalDevice(), MAX_FRAMES_IN_FLIGHT);
     m_materialDescriptors->init(m_device->getDevice());
 
     QueueFamilyIndices queueFamilies =
         m_device->findQueueFamilies(m_device->getPhysicalDevice(), m_context->getSurface());
-    m_commandManager->init(m_device->getDevice(), queueFamilies.graphicsFamily.value(),
-                           MAX_FRAMES_IN_FLIGHT);
+    m_commandManager->init(m_device->getDevice(), queueFamilies.graphicsFamily.value(), MAX_FRAMES_IN_FLIGHT);
 
-    m_syncObjects->init(m_device->getDevice(), MAX_FRAMES_IN_FLIGHT,
-                        m_swapchain->getImageCount());
-
+    m_syncObjects->init(m_device->getDevice(), MAX_FRAMES_IN_FLIGHT, m_swapchain->getImageCount());
 
     m_postProcess = new PostProcessManager();
-    m_postProcess->init(m_device->getDevice(), m_device->getPhysicalDevice(),
-                        m_commandManager->getPool(), m_device->getGraphicsQueue(),
-                        m_swapchain->getExtent(), m_swapchain->getImageFormat(),
+    m_postProcess->init(m_device->getDevice(), m_device->getPhysicalDevice(), m_commandManager->getPool(),
+                        m_device->getGraphicsQueue(), m_swapchain->getExtent(), m_swapchain->getImageFormat(),
                         m_swapchain->getImageViews());
 
     m_scenePipeline.init(m_device->getDevice(), {
-        m_cameraUniforms->get_layout(),
-        m_materialDescriptors->get_layout(),
-        m_postProcess->get_gbuffer_render_pass(),
-        m_swapchain->getExtent(),
-    });
+                                                    m_cameraUniforms->get_layout(),
+                                                    m_materialDescriptors->get_layout(),
+                                                    m_postProcess->get_gbuffer_render_pass(),
+                                                    m_swapchain->getExtent(),
+                                                });
     m_deferredLighting.init(m_device->getDevice(), {
-        m_cameraUniforms->get_layout(),
-        m_postProcess->get_lighting_tex_layout(),
-        m_postProcess->get_lighting_render_pass(),
-        m_swapchain->getExtent(),
-    });
+                                                       m_cameraUniforms->get_layout(),
+                                                       m_postProcess->get_lighting_tex_layout(),
+                                                       m_postProcess->get_lighting_render_pass(),
+                                                       m_swapchain->getExtent(),
+                                                   });
 }
 
 void Renderer::cleanup() {
@@ -134,6 +125,7 @@ void Renderer::cleanup() {
     m_camera = nullptr;
 
     destroy_scene_geometry();
+    destroy_dynamic_geometry();
 
     if (has_post_process()) {
         m_postProcess->cleanup();
@@ -158,13 +150,21 @@ void Renderer::cleanup() {
 // Manager registration + getters
 // ══════════════════════════════════════════════════════════════════════
 
-void Renderer::register_texture_manager(TextureManager* mgr) { m_textureManager = mgr; }
-void Renderer::register_scene_manager(SceneManager* mgr)     { m_sceneManager = mgr; }
-void Renderer::register_model_manager(ModelManager* mgr)     { m_modelManager = mgr; }
+void Renderer::register_texture_manager(TextureManager* mgr) {
+    m_textureManager = mgr;
+}
+void Renderer::register_scene_manager(SceneManager* mgr) {
+    m_sceneManager = mgr;
+}
+void Renderer::register_model_manager(ModelManager* mgr) {
+    m_modelManager = mgr;
+}
 
-TextureManager* Renderer::get_texture_manager() const { return m_textureManager; }
-SceneManager*   Renderer::get_scene_manager() const   { return m_sceneManager; }
-ModelManager*   Renderer::get_model_manager() const   { return m_modelManager; }
+TextureManager* Renderer::get_texture_manager() const {
+    return m_textureManager;
+}
+SceneManager* Renderer::get_scene_manager() const { return m_sceneManager; }
+ModelManager* Renderer::get_model_manager() const { return m_modelManager; }
 
 // ══════════════════════════════════════════════════════════════════════
 // Vulkan handle getters (for managers that need raw handles)
@@ -172,11 +172,8 @@ ModelManager*   Renderer::get_model_manager() const   { return m_modelManager; }
 
 RendererServices Renderer::services() const {
     return RendererServices{
-        m_device->getDevice(),
-        m_device->getPhysicalDevice(),
-        m_commandManager->getPool(),
-        m_device->getGraphicsQueue(),
-        m_swapchain->getExtent(),
+        m_device->getDevice(),        m_device->getPhysicalDevice(), m_commandManager->getPool(),
+        m_device->getGraphicsQueue(), m_swapchain->getExtent(),
     };
 }
 
@@ -189,13 +186,17 @@ void Renderer::set_camera(Camera* camera) {
     m_camera = camera;
 }
 
-Camera* Renderer::get_camera() const { return m_camera; }
+Camera* Renderer::get_camera() const {
+    return m_camera;
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // GPU synchronization
 // ══════════════════════════════════════════════════════════════════════
 
-void Renderer::wait_for_idle() { vkDeviceWaitIdle(m_device->getDevice()); }
+void Renderer::wait_for_idle() {
+    vkDeviceWaitIdle(m_device->getDevice());
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // drawFrame() — ONE FRAME OF THE RENDER LOOP
@@ -208,10 +209,12 @@ void Renderer::drawFrame() {
     // (acquire) → record → (submit) → (present) → handlePresent.
     auto acquireImage = [&]() -> std::optional<uint32_t> {
         uint32_t idx;
-        VkResult r = vkAcquireNextImageKHR(
-            m_device->getDevice(), m_swapchain->getSwapchain(), UINT64_MAX,
-            m_syncObjects->getImageAvailable(m_currentFrame), VK_NULL_HANDLE, &idx);
-        if (vk::is_out_of_date(r)) { recreateSwapchain(); return std::nullopt; }
+        VkResult r = vkAcquireNextImageKHR(m_device->getDevice(), m_swapchain->getSwapchain(), UINT64_MAX,
+                                           m_syncObjects->getImageAvailable(m_currentFrame), VK_NULL_HANDLE, &idx);
+        if (vk::is_out_of_date(r)) {
+            recreateSwapchain();
+            return std::nullopt;
+        }
         if (!vk::is_presentable(r))
             throw std::runtime_error("failed to acquire swap chain image!");
         return idx;
@@ -223,7 +226,7 @@ void Renderer::drawFrame() {
         VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
         VkCommandBuffer      cmdBufs[]    = {m_commandManager->getBuffer(m_currentFrame)};
 
-        auto si = vk::makeSubmitInfo();
+        auto si                 = vk::makeSubmitInfo();
         si.waitSemaphoreCount   = 1;
         si.pWaitSemaphores      = waitSems;
         si.pWaitDstStageMask    = waitStages;
@@ -232,15 +235,14 @@ void Renderer::drawFrame() {
         si.signalSemaphoreCount = 1;
         si.pSignalSemaphores    = signalSems;
 
-        VK_CHECK(vkQueueSubmit(m_device->getGraphicsQueue(), 1, &si,
-                               m_syncObjects->getInFlightFence(m_currentFrame)));
+        VK_CHECK(vkQueueSubmit(m_device->getGraphicsQueue(), 1, &si, m_syncObjects->getInFlightFence(m_currentFrame)));
     };
 
     auto presentFrame = [&](uint32_t imageIndex) -> VkResult {
         VkSemaphore    waitSems[] = {m_syncObjects->getRenderFinished(imageIndex)};
         VkSwapchainKHR scs[]      = {m_swapchain->getSwapchain()};
 
-        auto pi = vk::makePresentInfo();
+        auto pi               = vk::makePresentInfo();
         pi.waitSemaphoreCount = 1;
         pi.pWaitSemaphores    = waitSems;
         pi.swapchainCount     = 1;
@@ -286,19 +288,23 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 
     recordLightingPass(cmd, frameIndex, fullExtent);
     ResourceManager::insertImageBarrier(cmd, m_postProcess->get_hdr_image(frameIndex),
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     recordBloomExtract(cmd, bloomExtent);
     ResourceManager::insertImageBarrier(cmd, m_postProcess->get_bloom_extract_image(),
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     recordBloomBlur(cmd, bloomExtent, /*horizontal=*/true);
     ResourceManager::insertImageBarrier(cmd, m_postProcess->get_bloom_blur_h_image(),
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     recordBloomBlur(cmd, bloomExtent, /*horizontal=*/false);
     ResourceManager::insertImageBarrier(cmd, m_postProcess->get_bloom_blur_v_image(),
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     recordCompositePass(cmd, frameIndex, imageIndex, fullExtent);
 
@@ -313,28 +319,30 @@ void Renderer::recordGBufferPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExt
     clear[2].color        = {{0.0f, 0.0f, 0.0f, 0.0f}};  // material
     clear[3].depthStencil = {1.0f, 0};
 
-    ScopedRenderPass pass(cmd,
-        m_postProcess->get_gbuffer_render_pass(),
-        m_postProcess->get_gbuffer_framebuffer(frameIndex),
-        extent, clear.data(), static_cast<uint32_t>(clear.size()));
+    ScopedRenderPass pass(cmd, m_postProcess->get_gbuffer_render_pass(),
+                          m_postProcess->get_gbuffer_framebuffer(frameIndex), extent, clear.data(),
+                          static_cast<uint32_t>(clear.size()));
 
     m_scenePipeline.bind(cmd, extent, m_cameraUniforms->get_set(frameIndex));
 
     m_sceneGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors);
+    m_dynamicGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors);
 }
 
 // ── G-buffer attachments → SHADER_READ_ONLY for the lighting pass ───
 void Renderer::transitionGBufferForLighting(VkCommandBuffer cmd, uint32_t frameIndex) {
     ResourceManager::insertImageBarrier(cmd, m_postProcess->get_gbuffer_albedo_image(frameIndex),
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     ResourceManager::insertImageBarrier(cmd, m_postProcess->get_gbuffer_normal_image(frameIndex),
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     ResourceManager::insertImageBarrier(cmd, m_postProcess->get_gbuffer_material_image(frameIndex),
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     ResourceManager::insertImageBarrier(cmd, m_postProcess->get_hdr_depth_image(frameIndex),
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-        VK_IMAGE_ASPECT_DEPTH_BIT);
+                                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
 }
 
 // ── Pass 2: deferred lighting (G-buffer → HDR) ───────────────────────
@@ -342,18 +350,14 @@ void Renderer::recordLightingPass(VkCommandBuffer cmd, uint32_t frameIndex, VkEx
     VkClearValue clear{};
     clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
 
-    ScopedRenderPass pass(cmd,
-        m_postProcess->get_lighting_render_pass(),
-        m_postProcess->get_lighting_framebuffer(frameIndex),
-        extent, clear);
+    ScopedRenderPass pass(cmd, m_postProcess->get_lighting_render_pass(),
+                          m_postProcess->get_lighting_framebuffer(frameIndex), extent, clear);
 
     Mat4 invView = glm::inverse(m_camera->get_view_matrix());
     Mat4 invProj = glm::inverse(m_camera->get_projection_matrix());
 
-    m_deferredLighting.bind_and_record(cmd,
-        m_cameraUniforms->get_set(frameIndex),
-        m_postProcess->get_lighting_set(frameIndex),
-        invView, invProj, extent);
+    m_deferredLighting.bind_and_record(cmd, m_cameraUniforms->get_set(frameIndex),
+                                       m_postProcess->get_lighting_set(frameIndex), invView, invProj, extent);
 }
 
 // ── Pass 2a: bloom extract (HDR → 1/4 res bright pixels) ─────────────
@@ -361,26 +365,21 @@ void Renderer::recordBloomExtract(VkCommandBuffer cmd, VkExtent2D extent) {
     VkClearValue clear{};
     clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
 
-    ScopedRenderPass pass(cmd,
-        m_postProcess->get_bloom_render_pass(),
-        m_postProcess->get_bloom_extract_framebuffer(),
-        extent, clear);
+    ScopedRenderPass pass(cmd, m_postProcess->get_bloom_render_pass(), m_postProcess->get_bloom_extract_framebuffer(),
+                          extent, clear);
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      m_postProcess->get_bloom_extract_pipeline());
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_bloom_extract_pipeline());
     setViewportAndScissor(cmd, extent);
 
     VkDescriptorSet bloomExtSet = m_postProcess->get_bloom_extract_set();
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_postProcess->get_postprocess_layout(),
-                            0, 1, &bloomExtSet, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_postprocess_layout(), 0, 1,
+                            &bloomExtSet, 0, nullptr);
 
     PostProcessParams pp{};
     pp.threshold       = 1.0f;
     pp.bloom_intensity = 0.3f;
     pp.exposure        = 1.0f;
-    vkCmdPushConstants(cmd, m_postProcess->get_postprocess_layout(),
-                       VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
+    vkCmdPushConstants(cmd, m_postProcess->get_postprocess_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
     vkCmdDraw(cmd, 3, 1, 0, 0);
 }
 
@@ -389,56 +388,45 @@ void Renderer::recordBloomBlur(VkCommandBuffer cmd, VkExtent2D extent, bool hori
     VkClearValue clear{};
     clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
 
-    VkFramebuffer fb = horizontal ? m_postProcess->get_bloom_blur_h_framebuffer()
-                                  : m_postProcess->get_bloom_blur_v_framebuffer();
+    VkFramebuffer fb =
+        horizontal ? m_postProcess->get_bloom_blur_h_framebuffer() : m_postProcess->get_bloom_blur_v_framebuffer();
 
-    ScopedRenderPass pass(cmd,
-        m_postProcess->get_bloom_render_pass(),
-        fb, extent, clear);
+    ScopedRenderPass pass(cmd, m_postProcess->get_bloom_render_pass(), fb, extent, clear);
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      m_postProcess->get_bloom_blur_pipeline());
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_bloom_blur_pipeline());
     setViewportAndScissor(cmd, extent);
 
-    VkDescriptorSet blurSet = horizontal ? m_postProcess->get_bloom_blur_h_set()
-                                         : m_postProcess->get_bloom_blur_v_set();
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_postProcess->get_postprocess_layout(),
-                            0, 1, &blurSet, 0, nullptr);
+    VkDescriptorSet blurSet =
+        horizontal ? m_postProcess->get_bloom_blur_h_set() : m_postProcess->get_bloom_blur_v_set();
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_postprocess_layout(), 0, 1,
+                            &blurSet, 0, nullptr);
 
     PostProcessParams pp{};
-    pp.texel_x = horizontal ? 1.0f / static_cast<float>(extent.width)  : 0.0f;
-    pp.texel_y = horizontal ? 0.0f                                     : 1.0f / static_cast<float>(extent.height);
-    vkCmdPushConstants(cmd, m_postProcess->get_postprocess_layout(),
-                       VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
+    pp.texel_x = horizontal ? 1.0f / static_cast<float>(extent.width) : 0.0f;
+    pp.texel_y = horizontal ? 0.0f : 1.0f / static_cast<float>(extent.height);
+    vkCmdPushConstants(cmd, m_postProcess->get_postprocess_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
     vkCmdDraw(cmd, 3, 1, 0, 0);
 }
 
 // ── Pass 3: composite (HDR + bloom → swapchain, ACES tonemap) ────────
-void Renderer::recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t imageIndex,
-                                   VkExtent2D extent) {
+void Renderer::recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t imageIndex, VkExtent2D extent) {
     VkClearValue clear{};
     clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
 
-    ScopedRenderPass pass(cmd,
-        m_postProcess->get_composite_render_pass(),
-        m_postProcess->get_composite_framebuffer(imageIndex),
-        extent, clear);
+    ScopedRenderPass pass(cmd, m_postProcess->get_composite_render_pass(),
+                          m_postProcess->get_composite_framebuffer(imageIndex), extent, clear);
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      m_postProcess->get_composite_pipeline());
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_composite_pipeline());
     setViewportAndScissor(cmd, extent);
 
     VkDescriptorSet compSet = m_postProcess->get_composite_set(frameIndex);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_postProcess->get_composite_layout(),
-                            0, 1, &compSet, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_composite_layout(), 0, 1, &compSet,
+                            0, nullptr);
 
     PostProcessParams pp{};
     pp.bloom_intensity = 0.3f;
     pp.exposure        = 1.0f;
-    vkCmdPushConstants(cmd, m_postProcess->get_composite_layout(),
-                       VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
+    vkCmdPushConstants(cmd, m_postProcess->get_composite_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
     vkCmdDraw(cmd, 3, 1, 0, 0);
 }
 
@@ -458,19 +446,14 @@ void Renderer::recreateSwapchain() {
 
     m_swapchain->cleanup(m_device->getDevice());
 
-    m_swapchain->init(*m_device, m_context->getSurface(),
-                      static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    m_swapchain->init(*m_device, m_context->getSurface(), static_cast<uint32_t>(width), static_cast<uint32_t>(height));
 
-    m_syncObjects->recreateRenderFinishedSemaphores(m_device->getDevice(),
-                                                    m_swapchain->getImageCount());
+    m_syncObjects->recreateRenderFinishedSemaphores(m_device->getDevice(), m_swapchain->getImageCount());
 
     if (has_post_process()) {
-        m_postProcess->recreate(m_swapchain->getExtent(),
-                                m_swapchain->getImageFormat(),
-                                m_swapchain->getImageViews());
+        m_postProcess->recreate(m_swapchain->getExtent(), m_swapchain->getImageFormat(), m_swapchain->getImageViews());
 
-        m_deferredLighting.recreate(m_device->getDevice(),
-                                    m_postProcess->get_lighting_render_pass(),
+        m_deferredLighting.recreate(m_device->getDevice(), m_postProcess->get_lighting_render_pass(),
                                     m_swapchain->getExtent());
     }
 }
@@ -499,6 +482,18 @@ void Renderer::upload_scene_geometry(const MeshData& mesh, const std::vector<Dra
 void Renderer::destroy_scene_geometry() {
     m_sceneGeometry.cleanup(m_device->getDevice());
     m_cameraUniforms->set_lights({});
+}
+
+void Renderer::upload_dynamic_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws) {
+    m_dynamicGeometry.upload(services(), mesh, draws);
+}
+
+void Renderer::update_dynamic_draw_calls(const std::vector<DrawCall>& draws) {
+    m_dynamicGeometry.update_draw_calls(draws);
+}
+
+void Renderer::destroy_dynamic_geometry() {
+    m_dynamicGeometry.cleanup(m_device->getDevice());
 }
 
 }  // namespace swish

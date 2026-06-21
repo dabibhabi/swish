@@ -10,8 +10,7 @@
 
 namespace swish {
 
-void CameraUniforms::init(VkDevice device, VkPhysicalDevice physicalDevice,
-                          uint32_t framesInFlight) {
+void CameraUniforms::init(VkDevice device, VkPhysicalDevice physicalDevice, uint32_t framesInFlight) {
     m_frames = framesInFlight;
     createLayout(device);
     createBuffers(device, physicalDevice);
@@ -103,19 +102,16 @@ void CameraUniforms::createBuffers(VkDevice device, VkPhysicalDevice physicalDev
     m_lightsMemory.resize(m_frames);
     m_lightsMapped.resize(m_frames);
 
-    const VkDeviceSize cameraSize = sizeof(CameraUBO);
-    const VkDeviceSize lightsSize = sizeof(LightsUBO);
-    const VkMemoryPropertyFlags hostFlags =
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    const VkDeviceSize          cameraSize = sizeof(CameraUBO);
+    const VkDeviceSize          lightsSize = sizeof(LightsUBO);
+    const VkMemoryPropertyFlags hostFlags  = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
     for (uint32_t i = 0; i < m_frames; i++) {
-        ResourceManager::createBuffer(device, physicalDevice, cameraSize,
-                                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostFlags,
+        ResourceManager::createBuffer(device, physicalDevice, cameraSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostFlags,
                                       m_cameraBuffers[i], m_cameraMemory[i]);
         vkMapMemory(device, m_cameraMemory[i], 0, cameraSize, 0, &m_cameraMapped[i]);
 
-        ResourceManager::createBuffer(device, physicalDevice, lightsSize,
-                                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostFlags,
+        ResourceManager::createBuffer(device, physicalDevice, lightsSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostFlags,
                                       m_lightsBuffers[i], m_lightsMemory[i]);
         vkMapMemory(device, m_lightsMemory[i], 0, lightsSize, 0, &m_lightsMapped[i]);
     }
@@ -134,7 +130,7 @@ void CameraUniforms::createDescriptors(VkDevice device) {
     VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_pool));
 
     std::vector<VkDescriptorSetLayout> layouts(m_frames, m_setLayout);
-    VkDescriptorSetAllocateInfo allocInfo{};
+    VkDescriptorSetAllocateInfo        allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     allocInfo.descriptorPool     = m_pool;
     allocInfo.descriptorSetCount = m_frames;
@@ -162,8 +158,7 @@ void CameraUniforms::createDescriptors(VkDevice device) {
         writes[1].descriptorCount = 1;
         writes[1].pBufferInfo     = &lightsInfo;
 
-        vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()),
-                               writes.data(), 0, nullptr);
+        vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
 }
 

@@ -24,16 +24,12 @@ void DeferredLightingPipeline::init(VkDevice device, const Config& cfg) {
     lightPC.offset     = 0;
     lightPC.size       = kLightingPushConstSize;
 
-    m_layout = Pipeline::createLayout(
-        device,
-        {cfg.cameraSetLayout, cfg.gbufferSetLayout},
-        {lightPC});
+    m_layout = Pipeline::createLayout(device, {cfg.cameraSetLayout, cfg.gbufferSetLayout}, {lightPC});
 
     buildPipeline(device, cfg.lightingRenderPass, cfg.extent);
 }
 
-void DeferredLightingPipeline::recreate(VkDevice device, VkRenderPass lightingRenderPass,
-                                        VkExtent2D extent) {
+void DeferredLightingPipeline::recreate(VkDevice device, VkRenderPass lightingRenderPass, VkExtent2D extent) {
     destroyPipelineOnly(device);
     buildPipeline(device, lightingRenderPass, extent);
 }
@@ -46,35 +42,26 @@ void DeferredLightingPipeline::cleanup(VkDevice device) {
     }
 }
 
-void DeferredLightingPipeline::bind_and_record(VkCommandBuffer cmd,
-                                               VkDescriptorSet cameraSet,
-                                               VkDescriptorSet gbufferSet,
-                                               const Mat4& invView,
-                                               const Mat4& invProj,
+void DeferredLightingPipeline::bind_and_record(VkCommandBuffer cmd, VkDescriptorSet cameraSet,
+                                               VkDescriptorSet gbufferSet, const Mat4& invView, const Mat4& invProj,
                                                VkExtent2D extent) const {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 
-    VkViewport vp{0.0f, 0.0f,
-                  static_cast<float>(extent.width), static_cast<float>(extent.height),
-                  0.0f, 1.0f};
+    VkViewport vp{0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height), 0.0f, 1.0f};
     vkCmdSetViewport(cmd, 0, 1, &vp);
     VkRect2D sc{{0, 0}, extent};
     vkCmdSetScissor(cmd, 0, 1, &sc);
 
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout,
-                            0, 1, &cameraSet, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout,
-                            1, 1, &gbufferSet, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout, 0, 1, &cameraSet, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout, 1, 1, &gbufferSet, 0, nullptr);
 
     LightingPushConstants pc{invView, invProj};
-    vkCmdPushConstants(cmd, m_layout, VK_SHADER_STAGE_FRAGMENT_BIT,
-                       0, kLightingPushConstSize, &pc);
+    vkCmdPushConstants(cmd, m_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, kLightingPushConstSize, &pc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
 }
 
-void DeferredLightingPipeline::buildPipeline(VkDevice device, VkRenderPass renderPass,
-                                             VkExtent2D extent) {
+void DeferredLightingPipeline::buildPipeline(VkDevice device, VkRenderPass renderPass, VkExtent2D extent) {
     PipelineConfig cfg{};
     cfg.vertShaderPath   = std::string(SHADER_DIR) + "fullscreen.vert.spv";
     cfg.fragShaderPath   = std::string(SHADER_DIR) + "lighting.frag.spv";

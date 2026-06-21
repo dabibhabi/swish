@@ -3,10 +3,11 @@
 #include "../../utils/VulkanCheck.h"
 #include "../ResourceManager/ResourceManager.h"
 
+#include <stb_image.h>
+
 #include <cstring>
 #include <filesystem>
 #include <stdexcept>
-#include <stb_image.h>
 
 namespace swish {
 
@@ -15,14 +16,16 @@ namespace swish {
 // ══════════════════════════════════════════════════════════════════════
 
 TextureManager::TextureManager(const RendererServices& services)
-    : m_device(services.device)
-    , m_physicalDevice(services.physicalDevice)
-    , m_commandPool(services.commandPool)
-    , m_graphicsQueue(services.graphicsQueue) {
+    : m_device(services.device),
+      m_physicalDevice(services.physicalDevice),
+      m_commandPool(services.commandPool),
+      m_graphicsQueue(services.graphicsQueue) {
     create_sampler();
 }
 
-TextureManager::~TextureManager() { cleanup(); }
+TextureManager::~TextureManager() {
+    cleanup();
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // load_directory — Scan a directory and load all image files.
@@ -36,10 +39,12 @@ void TextureManager::load_directory(const std::string& dir) {
     }
 
     for (const auto& entry : fs::directory_iterator(dir)) {
-        if (!entry.is_regular_file()) continue;
+        if (!entry.is_regular_file())
+            continue;
 
         std::string ext = entry.path().extension().string();
-        if (ext != ".jpg" && ext != ".jpeg" && ext != ".png") continue;
+        if (ext != ".jpg" && ext != ".jpeg" && ext != ".png")
+            continue;
 
         std::string name = entry.path().stem().string();
         std::string path = entry.path().string();
@@ -47,8 +52,7 @@ void TextureManager::load_directory(const std::string& dir) {
         int            w, h, channels;
         unsigned char* data = stbi_load(path.c_str(), &w, &h, &channels, 4);
         if (!data) {
-            throw std::runtime_error("TextureManager: failed to load " + path +
-                                     " (" + stbi_failure_reason() + ")");
+            throw std::runtime_error("TextureManager: failed to load " + path + " (" + stbi_failure_reason() + ")");
         }
 
         std::vector<uint8_t> pixels(data, data + (w * h * 4));
@@ -60,10 +64,8 @@ void TextureManager::load_directory(const std::string& dir) {
 }
 
 bool TextureManager::is_linear_data(const std::string& name) {
-    return name.find("normal") != std::string::npos ||
-           name.find("roughness") != std::string::npos ||
-           name.find("metallic") != std::string::npos ||
-           name.find("ao") != std::string::npos ||
+    return name.find("normal") != std::string::npos || name.find("roughness") != std::string::npos ||
+           name.find("metallic") != std::string::npos || name.find("ao") != std::string::npos ||
            name.find("height") != std::string::npos;
 }
 
@@ -71,9 +73,8 @@ bool TextureManager::is_linear_data(const std::string& name) {
 // register_from_pixels — Register a texture from raw RGBA data.
 // ══════════════════════════════════════════════════════════════════════
 
-void TextureManager::register_from_pixels(const std::string& name,
-                                          const std::vector<uint8_t>& pixels,
-                                          uint32_t width, uint32_t height) {
+void TextureManager::register_from_pixels(const std::string& name, const std::vector<uint8_t>& pixels, uint32_t width,
+                                          uint32_t height) {
     upload_texture(name, pixels, width, height, VK_FORMAT_R8G8B8A8_SRGB);
 }
 
@@ -86,7 +87,9 @@ Texture* TextureManager::get_texture(const std::string& name) {
     return (it != m_textures.end()) ? &it->second : nullptr;
 }
 
-VkSampler TextureManager::get_sampler() const { return m_sampler; }
+VkSampler TextureManager::get_sampler() const {
+    return m_sampler;
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // cleanup — Destroy all Vulkan resources.
@@ -94,9 +97,12 @@ VkSampler TextureManager::get_sampler() const { return m_sampler; }
 
 void TextureManager::cleanup() {
     for (auto& [name, tex] : m_textures) {
-        if (tex.view != VK_NULL_HANDLE) vkDestroyImageView(m_device, tex.view, nullptr);
-        if (tex.image != VK_NULL_HANDLE) vkDestroyImage(m_device, tex.image, nullptr);
-        if (tex.memory != VK_NULL_HANDLE) vkFreeMemory(m_device, tex.memory, nullptr);
+        if (tex.view != VK_NULL_HANDLE)
+            vkDestroyImageView(m_device, tex.view, nullptr);
+        if (tex.image != VK_NULL_HANDLE)
+            vkDestroyImage(m_device, tex.image, nullptr);
+        if (tex.memory != VK_NULL_HANDLE)
+            vkFreeMemory(m_device, tex.memory, nullptr);
     }
     m_textures.clear();
 
@@ -110,8 +116,8 @@ void TextureManager::cleanup() {
 // upload_texture — Upload RGBA pixels to a VkImage via staging buffer.
 // ══════════════════════════════════════════════════════════════════════
 
-void TextureManager::upload_texture(const std::string& name, const std::vector<uint8_t>& pixels,
-                                    uint32_t w, uint32_t h, VkFormat format) {
+void TextureManager::upload_texture(const std::string& name, const std::vector<uint8_t>& pixels, uint32_t w, uint32_t h,
+                                    VkFormat format) {
     Texture tex;
     tex.name   = name;
     tex.width  = static_cast<int>(w);
@@ -122,8 +128,7 @@ void TextureManager::upload_texture(const std::string& name, const std::vector<u
     // Staging buffer
     VkBuffer       stagingBuffer;
     VkDeviceMemory stagingMemory;
-    ResourceManager::createBuffer(m_device, m_physicalDevice, imageSize,
-                                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+    ResourceManager::createBuffer(m_device, m_physicalDevice, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                                   stagingBuffer, stagingMemory);
 
@@ -133,21 +138,18 @@ void TextureManager::upload_texture(const std::string& name, const std::vector<u
     vkUnmapMemory(m_device, stagingMemory);
 
     // Create VkImage in device-local memory
-    ResourceManager::createImage(m_device, m_physicalDevice, w, h,
-                                 format, VK_IMAGE_TILING_OPTIMAL,
+    ResourceManager::createImage(m_device, m_physicalDevice, w, h, format, VK_IMAGE_TILING_OPTIMAL,
                                  VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, tex.image, tex.memory);
 
     // Transitions + copy
-    ResourceManager::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue,
-                                           tex.image, VK_IMAGE_LAYOUT_UNDEFINED,
-                                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    ResourceManager::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue, tex.image,
+                                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    ResourceManager::copyBufferToImage(m_device, m_commandPool, m_graphicsQueue,
-                                       stagingBuffer, tex.image, w, h);
+    ResourceManager::copyBufferToImage(m_device, m_commandPool, m_graphicsQueue, stagingBuffer, tex.image, w, h);
 
-    ResourceManager::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue,
-                                           tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    ResourceManager::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue, tex.image,
+                                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     vkDestroyBuffer(m_device, stagingBuffer, nullptr);

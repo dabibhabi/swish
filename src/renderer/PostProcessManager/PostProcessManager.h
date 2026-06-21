@@ -1,9 +1,9 @@
 #pragma once
 
-#include <vulkan/vulkan.h>
-
-#include "../../utils/Types.h"
 #include "../../scene/SceneTypes.h"
+#include "../../utils/Types.h"
+
+#include <vulkan/vulkan.h>
 
 #include <array>
 #include <vector>
@@ -25,40 +25,37 @@ static constexpr uint32_t PP_MAX_FRAMES = 2;
 
 // Push constants shared by all post-process shaders
 struct PostProcessParams {
-    float threshold;       // bloom threshold (default 1.0)
-    float bloom_intensity; // bloom blend strength (default 0.3)
-    float exposure;        // tone mapping exposure (default 1.0)
+    float threshold;        // bloom threshold (default 1.0)
+    float bloom_intensity;  // bloom blend strength (default 0.3)
+    float exposure;         // tone mapping exposure (default 1.0)
     float _pad0;
-    float texel_x;         // 1.0/width for blur direction
-    float texel_y;         // 1.0/height for blur direction
+    float texel_x;  // 1.0/width for blur direction
+    float texel_y;  // 1.0/height for blur direction
     float _pad1;
     float _pad2;
 };
 
 class PostProcessManager {
 public:
-    PostProcessManager() = default;
+    PostProcessManager()  = default;
     ~PostProcessManager() = default;
 
-    void init(VkDevice device, VkPhysicalDevice physicalDevice,
-              VkCommandPool commandPool, VkQueue graphicsQueue,
-              VkExtent2D extent, VkFormat swapchainFormat,
-              const std::vector<VkImageView>& swapchainImageViews);
+    void init(VkDevice device, VkPhysicalDevice physicalDevice, VkCommandPool commandPool, VkQueue graphicsQueue,
+              VkExtent2D extent, VkFormat swapchainFormat, const std::vector<VkImageView>& swapchainImageViews);
     void cleanup();
-    void recreate(VkExtent2D extent, VkFormat swapchainFormat,
-                  const std::vector<VkImageView>& swapchainImageViews);
+    void recreate(VkExtent2D extent, VkFormat swapchainFormat, const std::vector<VkImageView>& swapchainImageViews);
 
     // ── G-Buffer + Lighting render pass getters ────────────────────
-    VkRenderPass get_gbuffer_render_pass() const { return m_gbufferRenderPass; }
+    VkRenderPass  get_gbuffer_render_pass() const { return m_gbufferRenderPass; }
     VkFramebuffer get_gbuffer_framebuffer(uint32_t frameIndex) const { return m_gbufferFramebuffers[frameIndex]; }
-    VkImage get_gbuffer_albedo_image(uint32_t frameIndex) const { return m_gbAlbedoImages[frameIndex]; }
-    VkImage get_gbuffer_normal_image(uint32_t frameIndex) const { return m_gbNormalImages[frameIndex]; }
-    VkImage get_gbuffer_material_image(uint32_t frameIndex) const { return m_gbMaterialImages[frameIndex]; }
+    VkImage       get_gbuffer_albedo_image(uint32_t frameIndex) const { return m_gbAlbedoImages[frameIndex]; }
+    VkImage       get_gbuffer_normal_image(uint32_t frameIndex) const { return m_gbNormalImages[frameIndex]; }
+    VkImage       get_gbuffer_material_image(uint32_t frameIndex) const { return m_gbMaterialImages[frameIndex]; }
 
-    VkRenderPass get_lighting_render_pass() const { return m_lightingRenderPass; }
+    VkRenderPass  get_lighting_render_pass() const { return m_lightingRenderPass; }
     VkFramebuffer get_lighting_framebuffer(uint32_t frameIndex) const { return m_lightingFramebuffers[frameIndex]; }
     VkDescriptorSetLayout get_lighting_tex_layout() const { return m_lightingTexLayout; }
-    VkDescriptorSet get_lighting_set(uint32_t frameIndex) const { return m_lightingSets[frameIndex]; }
+    VkDescriptorSet       get_lighting_set(uint32_t frameIndex) const { return m_lightingSets[frameIndex]; }
 
     // ── Render pass getters ──────────────────────────────────────
     VkRenderPass get_hdr_render_pass() const { return m_hdrRenderPass; }
@@ -76,9 +73,9 @@ public:
     VkFramebuffer get_composite_framebuffer(uint32_t imageIndex) const { return m_compositeFBs[imageIndex]; }
 
     // ── Pipeline getters ─────────────────────────────────────────
-    VkPipeline get_bloom_extract_pipeline() const { return m_bloomExtractPipeline; }
-    VkPipeline get_bloom_blur_pipeline() const { return m_bloomBlurPipeline; }
-    VkPipeline get_composite_pipeline() const { return m_compositePipeline; }
+    VkPipeline       get_bloom_extract_pipeline() const { return m_bloomExtractPipeline; }
+    VkPipeline       get_bloom_blur_pipeline() const { return m_bloomBlurPipeline; }
+    VkPipeline       get_composite_pipeline() const { return m_compositePipeline; }
     VkPipelineLayout get_postprocess_layout() const { return m_postProcessLayout; }
     VkPipelineLayout get_composite_layout() const { return m_compositeLayout; }
 
@@ -115,7 +112,7 @@ private:
     VkExtent2D m_aoExtent    = {};
 
     // ── G-Buffer (per frame-in-flight) ─────────────────────────────
-    VkRenderPass m_gbufferRenderPass = VK_NULL_HANDLE;
+    VkRenderPass                              m_gbufferRenderPass = VK_NULL_HANDLE;
     std::array<VkImage, PP_MAX_FRAMES>        m_gbAlbedoImages{};
     std::array<VkDeviceMemory, PP_MAX_FRAMES> m_gbAlbedoMemory{};
     std::array<VkImageView, PP_MAX_FRAMES>    m_gbAlbedoViews{};
@@ -132,9 +129,9 @@ private:
     // (Renderer-owned). Here we only own the render pass, framebuffers,
     // descriptor-set layout for set 1 (G-buffer samplers), and the
     // per-frame descriptor sets that bind G-buffer images.
-    VkRenderPass m_lightingRenderPass = VK_NULL_HANDLE;
-    std::array<VkFramebuffer, PP_MAX_FRAMES> m_lightingFramebuffers{};
-    VkDescriptorSetLayout m_lightingTexLayout  = VK_NULL_HANDLE;
+    VkRenderPass                               m_lightingRenderPass = VK_NULL_HANDLE;
+    std::array<VkFramebuffer, PP_MAX_FRAMES>   m_lightingFramebuffers{};
+    VkDescriptorSetLayout                      m_lightingTexLayout = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, PP_MAX_FRAMES> m_lightingSets{};
 
     // ── Render passes ────────────────────────────────────────────
@@ -186,22 +183,22 @@ private:
     VkSampler m_sampler = VK_NULL_HANDLE;
 
     // ── Pipelines ────────────────────────────────────────────────
-    VkPipelineLayout      m_postProcessLayout    = VK_NULL_HANDLE;
-    VkPipelineLayout      m_compositeLayout      = VK_NULL_HANDLE;
-    VkDescriptorSetLayout m_singleTexLayout      = VK_NULL_HANDLE;
-    VkDescriptorSetLayout m_compositeTexLayout   = VK_NULL_HANDLE;
+    VkPipelineLayout      m_postProcessLayout  = VK_NULL_HANDLE;
+    VkPipelineLayout      m_compositeLayout    = VK_NULL_HANDLE;
+    VkDescriptorSetLayout m_singleTexLayout    = VK_NULL_HANDLE;
+    VkDescriptorSetLayout m_compositeTexLayout = VK_NULL_HANDLE;
 
     VkPipeline m_bloomExtractPipeline = VK_NULL_HANDLE;
     VkPipeline m_bloomBlurPipeline    = VK_NULL_HANDLE;
     VkPipeline m_compositePipeline    = VK_NULL_HANDLE;
 
     // ── Descriptor pool + sets ───────────────────────────────────
-    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
-    VkDescriptorSet  m_bloomExtractSet = VK_NULL_HANDLE;
-    VkDescriptorSet  m_bloomBlurHSet   = VK_NULL_HANDLE;
-    VkDescriptorSet  m_bloomBlurVSet   = VK_NULL_HANDLE;
-    VkDescriptorSet  m_aoSet           = VK_NULL_HANDLE;
-    VkDescriptorSet  m_aoBlurSet       = VK_NULL_HANDLE;
+    VkDescriptorPool                           m_descriptorPool  = VK_NULL_HANDLE;
+    VkDescriptorSet                            m_bloomExtractSet = VK_NULL_HANDLE;
+    VkDescriptorSet                            m_bloomBlurHSet   = VK_NULL_HANDLE;
+    VkDescriptorSet                            m_bloomBlurVSet   = VK_NULL_HANDLE;
+    VkDescriptorSet                            m_aoSet           = VK_NULL_HANDLE;
+    VkDescriptorSet                            m_aoBlurSet       = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, PP_MAX_FRAMES> m_compositeSets{};
 
     // ── Private helpers ──────────────────────────────────────────
@@ -218,8 +215,7 @@ private:
     void destroyPipelines();
     void destroyDescriptors();
 
-    VkImageView createImageView(VkImage image, VkFormat format,
-                                VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
+    VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
 };
 
 }  // namespace swish

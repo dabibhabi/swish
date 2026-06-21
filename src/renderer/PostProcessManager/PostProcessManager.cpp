@@ -1,8 +1,8 @@
 #include "PostProcessManager.h"
 
+#include "../../utils/VulkanCheck.h"
 #include "../Pipeline/Pipeline.h"
 #include "../ResourceManager/ResourceManager.h"
-#include "../../utils/VulkanCheck.h"
 
 #include <array>
 #include <stdexcept>
@@ -13,9 +13,8 @@ namespace swish {
 // Public interface
 // ══════════════════════════════════════════════════════════════════════
 
-void PostProcessManager::init(VkDevice device, VkPhysicalDevice physicalDevice,
-                              VkCommandPool commandPool, VkQueue graphicsQueue,
-                              VkExtent2D extent, VkFormat swapchainFormat,
+void PostProcessManager::init(VkDevice device, VkPhysicalDevice physicalDevice, VkCommandPool commandPool,
+                              VkQueue graphicsQueue, VkExtent2D extent, VkFormat swapchainFormat,
                               const std::vector<VkImageView>& swapchainImageViews) {
     m_device         = device;
     m_physicalDevice = physicalDevice;
@@ -45,12 +44,18 @@ void PostProcessManager::cleanup() {
         m_sampler = VK_NULL_HANDLE;
     }
 
-    if (m_gbufferRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(m_device, m_gbufferRenderPass, nullptr);
-    if (m_lightingRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(m_device, m_lightingRenderPass, nullptr);
-    if (m_hdrRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(m_device, m_hdrRenderPass, nullptr);
-    if (m_bloomRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(m_device, m_bloomRenderPass, nullptr);
-    if (m_aoRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(m_device, m_aoRenderPass, nullptr);
-    if (m_compositeRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(m_device, m_compositeRenderPass, nullptr);
+    if (m_gbufferRenderPass != VK_NULL_HANDLE)
+        vkDestroyRenderPass(m_device, m_gbufferRenderPass, nullptr);
+    if (m_lightingRenderPass != VK_NULL_HANDLE)
+        vkDestroyRenderPass(m_device, m_lightingRenderPass, nullptr);
+    if (m_hdrRenderPass != VK_NULL_HANDLE)
+        vkDestroyRenderPass(m_device, m_hdrRenderPass, nullptr);
+    if (m_bloomRenderPass != VK_NULL_HANDLE)
+        vkDestroyRenderPass(m_device, m_bloomRenderPass, nullptr);
+    if (m_aoRenderPass != VK_NULL_HANDLE)
+        vkDestroyRenderPass(m_device, m_aoRenderPass, nullptr);
+    if (m_compositeRenderPass != VK_NULL_HANDLE)
+        vkDestroyRenderPass(m_device, m_compositeRenderPass, nullptr);
     m_gbufferRenderPass = m_lightingRenderPass = VK_NULL_HANDLE;
     m_hdrRenderPass = m_bloomRenderPass = m_aoRenderPass = m_compositeRenderPass = VK_NULL_HANDLE;
 }
@@ -113,7 +118,7 @@ void PostProcessManager::createRenderPasses(VkFormat swapchainFormat) {
         std::vector<VkAttachmentDescription> attachments = {colorAtt};
 
         VkAttachmentDescription depthAtt{};
-        VkAttachmentReference depthRef{};
+        VkAttachmentReference   depthRef{};
         if (hasDepth) {
             depthAtt.format         = ResourceManager::findDepthFormat(m_physicalDevice);
             depthAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
@@ -137,14 +142,14 @@ void PostProcessManager::createRenderPasses(VkFormat swapchainFormat) {
         subpass.pDepthStencilAttachment = hasDepth ? &depthRef : nullptr;
 
         VkSubpassDependency dep{};
-        dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
-        dep.dstSubpass    = 0;
-        dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                            (hasDepth ? VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT : 0);
+        dep.srcSubpass = VK_SUBPASS_EXTERNAL;
+        dep.dstSubpass = 0;
+        dep.srcStageMask =
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | (hasDepth ? VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT : 0);
         dep.dstStageMask  = dep.srcStageMask;
         dep.srcAccessMask = 0;
-        dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                            (hasDepth ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT : 0);
+        dep.dstAccessMask =
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | (hasDepth ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT : 0);
 
         VkRenderPassCreateInfo rpInfo{};
         rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -172,36 +177,36 @@ void PostProcessManager::createRenderPasses(VkFormat swapchainFormat) {
 
         std::array<VkAttachmentDescription, 4> atts{};
         // 0: Albedo (R8G8B8A8_UNORM)
-        atts[0].format = VK_FORMAT_R8G8B8A8_UNORM;
-        atts[0].samples = VK_SAMPLE_COUNT_1_BIT;
-        atts[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        atts[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        atts[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        atts[0].format         = VK_FORMAT_R8G8B8A8_UNORM;
+        atts[0].samples        = VK_SAMPLE_COUNT_1_BIT;
+        atts[0].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        atts[0].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+        atts[0].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         atts[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        atts[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        atts[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        atts[0].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+        atts[0].finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
         // 1: Normal (R16G16B16A16_SFLOAT)
-        atts[1] = atts[0];
+        atts[1]        = atts[0];
         atts[1].format = VK_FORMAT_R16G16B16A16_SFLOAT;
 
         // 2: Material (R8G8B8A8_UNORM)
         atts[2] = atts[0];
 
         // 3: Depth
-        atts[3].format = depthFmt;
-        atts[3].samples = VK_SAMPLE_COUNT_1_BIT;
-        atts[3].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        atts[3].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        atts[3].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        atts[3].format         = depthFmt;
+        atts[3].samples        = VK_SAMPLE_COUNT_1_BIT;
+        atts[3].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        atts[3].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+        atts[3].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         atts[3].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        atts[3].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        atts[3].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        atts[3].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+        atts[3].finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
         std::array<VkAttachmentReference, 3> colorRefs{};
-        colorRefs[0] = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-        colorRefs[1] = {1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-        colorRefs[2] = {2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+        colorRefs[0]                   = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+        colorRefs[1]                   = {1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+        colorRefs[2]                   = {2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
         VkAttachmentReference depthRef = {3, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
 
         VkSubpassDescription subpass{};
@@ -257,17 +262,16 @@ void PostProcessManager::createImages() {
     VkFormat depthFormat = ResourceManager::findDepthFormat(m_physicalDevice);
     VkFormat aoFormat    = VK_FORMAT_R8_UNORM;
 
-    auto makeColorImage = [&](uint32_t w, uint32_t h, VkFormat fmt, VkImage& img, VkDeviceMemory& mem, VkImageView& view) {
-        ResourceManager::createImage(m_device, m_physicalDevice, w, h, fmt,
-                                     VK_IMAGE_TILING_OPTIMAL,
+    auto makeColorImage = [&](uint32_t w, uint32_t h, VkFormat fmt, VkImage& img, VkDeviceMemory& mem,
+                              VkImageView& view) {
+        ResourceManager::createImage(m_device, m_physicalDevice, w, h, fmt, VK_IMAGE_TILING_OPTIMAL,
                                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, img, mem);
         view = createImageView(img, fmt);
     };
 
     auto makeDepthImage = [&](uint32_t w, uint32_t h, VkImage& img, VkDeviceMemory& mem, VkImageView& view) {
-        ResourceManager::createImage(m_device, m_physicalDevice, w, h, depthFormat,
-                                     VK_IMAGE_TILING_OPTIMAL,
+        ResourceManager::createImage(m_device, m_physicalDevice, w, h, depthFormat, VK_IMAGE_TILING_OPTIMAL,
                                      VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, img, mem);
         view = createImageView(img, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -275,40 +279,47 @@ void PostProcessManager::createImages() {
 
     // Per-frame HDR + depth
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
-        makeColorImage(m_fullExtent.width, m_fullExtent.height, hdrFormat,
-                       m_hdrImages[i], m_hdrMemory[i], m_hdrViews[i]);
-        makeDepthImage(m_fullExtent.width, m_fullExtent.height,
-                       m_hdrDepthImages[i], m_hdrDepthMemory[i], m_hdrDepthViews[i]);
+        makeColorImage(m_fullExtent.width, m_fullExtent.height, hdrFormat, m_hdrImages[i], m_hdrMemory[i],
+                       m_hdrViews[i]);
+        makeDepthImage(m_fullExtent.width, m_fullExtent.height, m_hdrDepthImages[i], m_hdrDepthMemory[i],
+                       m_hdrDepthViews[i]);
 
         // G-Buffer images (per-frame)
-        makeColorImage(m_fullExtent.width, m_fullExtent.height, VK_FORMAT_R8G8B8A8_UNORM,
-                       m_gbAlbedoImages[i], m_gbAlbedoMemory[i], m_gbAlbedoViews[i]);
-        makeColorImage(m_fullExtent.width, m_fullExtent.height, VK_FORMAT_R16G16B16A16_SFLOAT,
-                       m_gbNormalImages[i], m_gbNormalMemory[i], m_gbNormalViews[i]);
-        makeColorImage(m_fullExtent.width, m_fullExtent.height, VK_FORMAT_R8G8B8A8_UNORM,
-                       m_gbMaterialImages[i], m_gbMaterialMemory[i], m_gbMaterialViews[i]);
+        makeColorImage(m_fullExtent.width, m_fullExtent.height, VK_FORMAT_R8G8B8A8_UNORM, m_gbAlbedoImages[i],
+                       m_gbAlbedoMemory[i], m_gbAlbedoViews[i]);
+        makeColorImage(m_fullExtent.width, m_fullExtent.height, VK_FORMAT_R16G16B16A16_SFLOAT, m_gbNormalImages[i],
+                       m_gbNormalMemory[i], m_gbNormalViews[i]);
+        makeColorImage(m_fullExtent.width, m_fullExtent.height, VK_FORMAT_R8G8B8A8_UNORM, m_gbMaterialImages[i],
+                       m_gbMaterialMemory[i], m_gbMaterialViews[i]);
     }
 
     // Bloom (1/4 res)
-    makeColorImage(m_bloomExtent.width, m_bloomExtent.height, hdrFormat,
-                   m_bloomExtractImage, m_bloomExtractMemory, m_bloomExtractView);
-    makeColorImage(m_bloomExtent.width, m_bloomExtent.height, hdrFormat,
-                   m_bloomBlurHImage, m_bloomBlurHMemory, m_bloomBlurHView);
-    makeColorImage(m_bloomExtent.width, m_bloomExtent.height, hdrFormat,
-                   m_bloomBlurVImage, m_bloomBlurVMemory, m_bloomBlurVView);
+    makeColorImage(m_bloomExtent.width, m_bloomExtent.height, hdrFormat, m_bloomExtractImage, m_bloomExtractMemory,
+                   m_bloomExtractView);
+    makeColorImage(m_bloomExtent.width, m_bloomExtent.height, hdrFormat, m_bloomBlurHImage, m_bloomBlurHMemory,
+                   m_bloomBlurHView);
+    makeColorImage(m_bloomExtent.width, m_bloomExtent.height, hdrFormat, m_bloomBlurVImage, m_bloomBlurVMemory,
+                   m_bloomBlurVView);
 
     // AO (1/2 res)
-    makeColorImage(m_aoExtent.width, m_aoExtent.height, aoFormat,
-                   m_aoImage, m_aoMemory, m_aoView);
-    makeColorImage(m_aoExtent.width, m_aoExtent.height, aoFormat,
-                   m_aoBlurImage, m_aoBlurMemory, m_aoBlurView);
+    makeColorImage(m_aoExtent.width, m_aoExtent.height, aoFormat, m_aoImage, m_aoMemory, m_aoView);
+    makeColorImage(m_aoExtent.width, m_aoExtent.height, aoFormat, m_aoBlurImage, m_aoBlurMemory, m_aoBlurView);
 }
 
 void PostProcessManager::destroyImages() {
     auto destroy = [&](VkImage& img, VkDeviceMemory& mem, VkImageView& view) {
-        if (view != VK_NULL_HANDLE) { vkDestroyImageView(m_device, view, nullptr); view = VK_NULL_HANDLE; }
-        if (img != VK_NULL_HANDLE)  { vkDestroyImage(m_device, img, nullptr); img = VK_NULL_HANDLE; }
-        if (mem != VK_NULL_HANDLE)  { vkFreeMemory(m_device, mem, nullptr); mem = VK_NULL_HANDLE; }
+        if (view != VK_NULL_HANDLE) {
+            vkDestroyImageView(m_device, view, nullptr);
+            view = VK_NULL_HANDLE;
+        }
+        if (img != VK_NULL_HANDLE) {
+            vkDestroyImage(m_device, img, nullptr);
+            img = VK_NULL_HANDLE;
+        }
+        if (mem != VK_NULL_HANDLE) {
+            vkFreeMemory(m_device, mem, nullptr);
+            mem = VK_NULL_HANDLE;
+        }
     };
 
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
@@ -347,14 +358,14 @@ void PostProcessManager::createFramebuffers(const std::vector<VkImageView>& swap
 
     // G-Buffer framebuffers (3 color MRT + depth per frame)
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
-        m_gbufferFramebuffers[i] = makeFB(m_gbufferRenderPass,
-            {m_gbAlbedoViews[i], m_gbNormalViews[i], m_gbMaterialViews[i], m_hdrDepthViews[i]},
-            m_fullExtent);
+        m_gbufferFramebuffers[i] =
+            makeFB(m_gbufferRenderPass,
+                   {m_gbAlbedoViews[i], m_gbNormalViews[i], m_gbMaterialViews[i], m_hdrDepthViews[i]}, m_fullExtent);
     }
 
     // HDR framebuffers (lighting output, color only per frame)
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
-        m_hdrFramebuffers[i] = makeFB(m_hdrRenderPass, {m_hdrViews[i], m_hdrDepthViews[i]}, m_fullExtent);
+        m_hdrFramebuffers[i]      = makeFB(m_hdrRenderPass, {m_hdrViews[i], m_hdrDepthViews[i]}, m_fullExtent);
         m_lightingFramebuffers[i] = makeFB(m_lightingRenderPass, {m_hdrViews[i]}, m_fullExtent);
     }
 
@@ -376,7 +387,10 @@ void PostProcessManager::createFramebuffers(const std::vector<VkImageView>& swap
 
 void PostProcessManager::destroyFramebuffers() {
     auto destroy = [&](VkFramebuffer& fb) {
-        if (fb != VK_NULL_HANDLE) { vkDestroyFramebuffer(m_device, fb, nullptr); fb = VK_NULL_HANDLE; }
+        if (fb != VK_NULL_HANDLE) {
+            vkDestroyFramebuffer(m_device, fb, nullptr);
+            fb = VK_NULL_HANDLE;
+        }
     };
 
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
@@ -389,7 +403,8 @@ void PostProcessManager::destroyFramebuffers() {
     destroy(m_bloomBlurVFB);
     destroy(m_aoFB);
     destroy(m_aoBlurFB);
-    for (auto& fb : m_compositeFBs) destroy(fb);
+    for (auto& fb : m_compositeFBs)
+        destroy(fb);
     m_compositeFBs.clear();
 }
 
@@ -618,12 +633,12 @@ void PostProcessManager::destroyDescriptors() {
 // ══════════════════════════════════════════════════════════════════════
 
 void PostProcessManager::createPipelines() {
-    auto makeFullscreenPipeline = [&](const std::string& fragShader, VkRenderPass rp,
-                                     VkPipelineLayout layout, VkExtent2D ext) -> VkPipeline {
+    auto makeFullscreenPipeline = [&](const std::string& fragShader, VkRenderPass rp, VkPipelineLayout layout,
+                                      VkExtent2D ext) -> VkPipeline {
         PipelineConfig cfg{};
-        cfg.vertShaderPath = std::string(SHADER_DIR) + "/fullscreen.vert.spv";
-        cfg.fragShaderPath = std::string(SHADER_DIR) + "/" + fragShader + ".spv";
-        cfg.noVertexInput  = true;
+        cfg.vertShaderPath   = std::string(SHADER_DIR) + "/fullscreen.vert.spv";
+        cfg.fragShaderPath   = std::string(SHADER_DIR) + "/" + fragShader + ".spv";
+        cfg.noVertexInput    = true;
         cfg.enableDepthTest  = false;
         cfg.enableDepthWrite = false;
         cfg.cullMode         = VK_CULL_MODE_NONE;
@@ -631,22 +646,25 @@ void PostProcessManager::createPipelines() {
         return Pipeline::create(m_device, cfg, rp, ext);
     };
 
-    m_bloomExtractPipeline = makeFullscreenPipeline("bloom_extract.frag", m_bloomRenderPass,
-                                                     m_postProcessLayout, m_bloomExtent);
-    m_bloomBlurPipeline    = makeFullscreenPipeline("bloom_blur.frag", m_bloomRenderPass,
-                                                     m_postProcessLayout, m_bloomExtent);
+    m_bloomExtractPipeline =
+        makeFullscreenPipeline("bloom_extract.frag", m_bloomRenderPass, m_postProcessLayout, m_bloomExtent);
+    m_bloomBlurPipeline =
+        makeFullscreenPipeline("bloom_blur.frag", m_bloomRenderPass, m_postProcessLayout, m_bloomExtent);
     // SSAO + AO-blur pipelines intentionally not created. The shaders declare an
     // 80-byte push block that doesn't fit m_postProcessLayout's 32-byte range
     // (VUID-10069), and SSAO is bypassed for bring-up. The AO blur image is
     // primed to white by primeAOTexture() so the composite shader's `hdr *= ao`
     // is a no-op. Re-enable when SSAO is wired into the per-frame record path.
-    m_compositePipeline    = makeFullscreenPipeline("composite.frag", m_compositeRenderPass,
-                                                     m_compositeLayout, m_fullExtent);
+    m_compositePipeline =
+        makeFullscreenPipeline("composite.frag", m_compositeRenderPass, m_compositeLayout, m_fullExtent);
 }
 
 void PostProcessManager::destroyPipelines() {
     auto destroy = [&](VkPipeline& p) {
-        if (p != VK_NULL_HANDLE) { vkDestroyPipeline(m_device, p, nullptr); p = VK_NULL_HANDLE; }
+        if (p != VK_NULL_HANDLE) {
+            vkDestroyPipeline(m_device, p, nullptr);
+            p = VK_NULL_HANDLE;
+        }
     };
     destroy(m_bloomExtractPipeline);
     destroy(m_bloomBlurPipeline);
@@ -685,9 +703,8 @@ void PostProcessManager::primeAOTexture() {
     vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
     vkCmdEndRenderPass(cmd);
 
-    ResourceManager::insertImageBarrier(cmd, m_aoBlurImage,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    ResourceManager::insertImageBarrier(cmd, m_aoBlurImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     VK_CHECK(vkEndCommandBuffer(cmd));
 

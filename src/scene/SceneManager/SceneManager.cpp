@@ -10,18 +10,18 @@ namespace swish {
 // Scene
 // ══════════════════════════════════════════════════════════════════════
 
-Scene::Scene(std::function<void(Renderer&)> on_load)
-    : m_on_load(std::move(on_load)) {}
+Scene::Scene(std::function<void(Renderer&)> on_load) : m_on_load(std::move(on_load)) {}
 
-void Scene::run(Renderer& renderer) { m_on_load(renderer); }
+void Scene::run(Renderer& renderer) {
+    m_on_load(renderer);
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // SceneManager
 // ══════════════════════════════════════════════════════════════════════
 
 SceneManager::SceneManager(Renderer& renderer, std::vector<std::unique_ptr<Scene>> scenes)
-    : m_renderer(&renderer)
-    , m_scenes(std::move(scenes)) {}
+    : m_renderer(&renderer), m_scenes(std::move(scenes)) {}
 
 SceneManager::~SceneManager() = default;
 
@@ -41,6 +41,8 @@ void SceneManager::set_active_scene(int index) {
     m_active_scene = index;
 }
 
-int SceneManager::get_active_scene() const { return m_active_scene; }
+int SceneManager::get_active_scene() const {
+    return m_active_scene;
+}
 
 }  // namespace swish

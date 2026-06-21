@@ -30,11 +30,31 @@ constexpr const char* kMaterialNames[MAT_COUNT] = {
     "sign_05",      // MAT_SIGN_5
     "sign_06",      // MAT_SIGN_6
     "sign_07",      // MAT_SIGN_7
+    "car_0",        // MAT_CAR_0
+    "car_1",        // MAT_CAR_1
+    "car_2",        // MAT_CAR_2
+    "car_3",        // MAT_CAR_3
+    "car_4",        // MAT_CAR_4
+    "car_5",        // MAT_CAR_5
+    "car_6",        // MAT_CAR_6
+    "car_7",        // MAT_CAR_7
+    "car_8",        // MAT_CAR_8
+    "car_9",        // MAT_CAR_9
+    "car_10",       // MAT_CAR_10
+    "car_11",       // MAT_CAR_11
+    "car_12",       // MAT_CAR_12
+    "car_13",       // MAT_CAR_13
+    "car_14",       // MAT_CAR_14
+    "car_15",       // MAT_CAR_15
+    "car_16",       // MAT_CAR_16
+    "car_17",       // MAT_CAR_17
+    "car_18",       // MAT_CAR_18
+    "car_19",       // MAT_CAR_19
 };
 
 constexpr const char* kSuffixes[3] = {"", "_normal", "_roughness"};
 
-}  // namespace
+} 
 
 void MaterialDescriptors::init(VkDevice device) {
     std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
@@ -83,7 +103,7 @@ void MaterialDescriptors::rebuild(VkDevice device, TextureManager& textures) {
     VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_pool));
 
     std::vector<VkDescriptorSetLayout> layouts(MAT_COUNT, m_setLayout);
-    VkDescriptorSetAllocateInfo allocInfo{};
+    VkDescriptorSetAllocateInfo        allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     allocInfo.descriptorPool     = m_pool;
     allocInfo.descriptorSetCount = MAT_COUNT;
@@ -105,8 +125,7 @@ void MaterialDescriptors::rebuild(VkDevice device, TextureManager& textures) {
                 tex = textures.get_texture("default");
             }
             if (!tex) {
-                throw std::runtime_error("MaterialDescriptors::rebuild: missing texture '" +
-                                         texName + "'");
+                throw std::runtime_error("MaterialDescriptors::rebuild: missing texture '" + texName + "'");
             }
 
             imageInfos[b].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -121,9 +140,8 @@ void MaterialDescriptors::rebuild(VkDevice device, TextureManager& textures) {
             writes[b].pImageInfo      = &imageInfos[b];
         }
 
-        vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()),
-                               writes.data(), 0, nullptr);
+        vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
 }
 
-}  // namespace swish
+}  

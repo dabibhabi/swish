@@ -40,9 +40,9 @@ public:
     int  get_active_scene() const;
 
 private:
-    Renderer*                             m_renderer;
-    std::vector<std::unique_ptr<Scene>>   m_scenes;
-    int                                   m_active_scene = -1;
+    Renderer*                           m_renderer;
+    std::vector<std::unique_ptr<Scene>> m_scenes;
+    int                                 m_active_scene = -1;
 };
 
 }  // namespace swish

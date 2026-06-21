@@ -1,27 +1,33 @@
 #pragma once
 
+#include "../Entity/CarEntity.h"
+
 #include <memory>
 #include <string>
-#include <unordered_map>
 
 namespace swish {
 
 class Renderer;
 
 // ══════════════════════════════════════════════════════════════════════
-// ModelManager — Placeholder for future 3D model loading (glTF/glb).
+// ModelManager — Loads 3D models from GLB/glTF files.
 //
-// Will eventually load car models from the cars/ directory.
-// For now, provides the interface only.
+// Extracts vertex data, indices, and embedded PBR textures. Registers
+// textures in the Renderer's TextureManager under "car_N[_normal|
+// _roughness]" names (mapped to MAT_CAR_0..7 slots).
 // ══════════════════════════════════════════════════════════════════════
 
 class ModelManager {
 public:
     explicit ModelManager(Renderer& renderer);
-    ~ModelManager();
+    ~ModelManager() = default;
 
-    void load_directory(const std::string& dir);
-    void cleanup();
+    // Load a GLB file and return a CarEntity ready to be uploaded.
+    // Registers all embedded textures in the TextureManager. Call
+    // renderer.rebuild_material_descriptors() after this to bind them.
+    std::unique_ptr<CarEntity> load_car(const std::string& path);
+
+    void cleanup() {}
 
 private:
     Renderer* m_renderer;

@@ -113,7 +113,7 @@ void ResourceManager::createImage(VkDevice device, VkPhysicalDevice physicalDevi
 }
 
 void ResourceManager::transitionImageLayout(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkImage image,
-                                             VkImageLayout oldLayout, VkImageLayout newLayout) {
+                                            VkImageLayout oldLayout, VkImageLayout newLayout) {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -172,9 +172,8 @@ void ResourceManager::transitionImageLayout(VkDevice device, VkCommandPool comma
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
-void ResourceManager::insertImageBarrier(VkCommandBuffer cmd, VkImage image,
-                                          VkImageLayout oldLayout, VkImageLayout newLayout,
-                                          VkImageAspectFlags aspect) {
+void ResourceManager::insertImageBarrier(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout,
+                                         VkImageLayout newLayout, VkImageAspectFlags aspect) {
     VkImageMemoryBarrier barrier{};
     barrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.oldLayout                       = oldLayout;
@@ -194,31 +193,31 @@ void ResourceManager::insertImageBarrier(VkCommandBuffer cmd, VkImage image,
     // Source access/stage based on old layout
     if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
         barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        srcStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        srcStage              = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     } else if (oldLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
         barrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        srcStage = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        srcStage              = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
     } else if (oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
         barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        srcStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        srcStage              = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
         barrier.srcAccessMask = 0;
-        srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        srcStage              = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     }
 
     // Destination access/stage based on new layout
     if (newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        dstStage              = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     } else if (newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
         barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        dstStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dstStage              = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     } else if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
         barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        dstStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        dstStage              = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     } else if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL) {
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        dstStage              = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     }
 
     vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);

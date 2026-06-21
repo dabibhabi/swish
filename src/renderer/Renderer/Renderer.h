@@ -1,12 +1,12 @@
 #pragma once
 
-#include <vulkan/vulkan.h>
-
 #include "../../scene/SceneTypes.h"
 #include "../DeferredLightingPipeline/DeferredLightingPipeline.h"
 #include "../SceneGeometry/SceneGeometry.h"
 #include "../ScenePipeline/ScenePipeline.h"
 #include "RendererServices.h"
+
+#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <memory>
@@ -78,6 +78,11 @@ public:
     void upload_scene_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws);
     void destroy_scene_geometry();
 
+    // ── Dynamic geometry (moving objects — uploaded once, updated per frame) ──
+    void upload_dynamic_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws);
+    void update_dynamic_draw_calls(const std::vector<DrawCall>& draws);
+    void destroy_dynamic_geometry();
+
     // ── Material descriptors (called after TextureManager loads) ──────
     void rebuild_material_descriptors();
 
@@ -119,6 +124,7 @@ private:
 
     // ── Scene geometry ────────────────────────────────────────────
     SceneGeometry m_sceneGeometry;
+    SceneGeometry m_dynamicGeometry;
 
     // ── Camera ────────────────────────────────────────────────────
     Camera* m_camera = nullptr;
@@ -138,8 +144,7 @@ private:
     void recordLightingPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExtent2D extent);
     void recordBloomExtract(VkCommandBuffer cmd, VkExtent2D extent);
     void recordBloomBlur(VkCommandBuffer cmd, VkExtent2D extent, bool horizontal);
-    void recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t imageIndex,
-                             VkExtent2D extent);
+    void recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t imageIndex, VkExtent2D extent);
 
     void recreateSwapchain();
 };

@@ -29,19 +29,20 @@ public:
     // Uploads vertex + index data through staging buffers and stores the
     // draw list. Replaces any previously-uploaded geometry (cleanup is
     // called internally first).
-    void upload(const RendererServices& services,
-                const MeshData& mesh,
-                const std::vector<DrawCall>& draws);
+    void upload(const RendererServices& services, const MeshData& mesh, const std::vector<DrawCall>& draws);
 
     // Bind vertex/index buffers, then loop over draw calls binding set 1
     // (material) and pushing per-draw constants. Caller must have already
     // bound the pipeline + set 0 (camera) via ScenePipeline::bind. No-op
     // if no geometry has been uploaded.
-    void record_draws(VkCommandBuffer cmd,
-                      const ScenePipeline& pipeline,
-                      MaterialDescriptors& materials) const;
+    void record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials) const;
 
     bool has_geometry() const { return m_indexBuffer != VK_NULL_HANDLE; }
+
+    // Replace the stored draw-call list without re-uploading GPU buffers.
+    // Used every frame for dynamic objects (e.g. the car) whose vertex data
+    // is static but whose model matrices change.
+    void update_draw_calls(const std::vector<DrawCall>& draws) { m_drawCalls = draws; }
 
 private:
     VkBuffer              m_vertexBuffer       = VK_NULL_HANDLE;

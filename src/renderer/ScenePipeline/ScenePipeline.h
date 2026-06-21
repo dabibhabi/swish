@@ -4,7 +4,6 @@
 
 namespace swish {
 
-
 class ScenePipeline {
 public:
     struct Config {

@@ -7,7 +7,7 @@ namespace swish {
 namespace {
 VkSemaphore createBinarySemaphore(VkDevice device) {
     VkSemaphoreCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    info.sType      = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     VkSemaphore sem = VK_NULL_HANDLE;
     VK_CHECK(vkCreateSemaphore(device, &info, nullptr, &sem));
     return sem;

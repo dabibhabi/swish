@@ -84,15 +84,15 @@ private:
     float m_far    = 2000000.0f;
 
     // Control tuning
-    float m_move_speed       = 26800.0f;  // ~60 mph in world units/sec
+    float m_move_speed        = 26800.0f;  // ~60 mph in world units/sec
     float m_mouse_sensitivity = 0.1f;
 
     // Collision bounds
     bool  m_collision_enabled = false;
-    float m_bounds_min_x = 0.0f;
-    float m_bounds_max_x = 0.0f;
-    float m_bounds_min_y = 0.0f;
-    float m_bounds_max_y = 0.0f;
+    float m_bounds_min_x      = 0.0f;
+    float m_bounds_max_x      = 0.0f;
+    float m_bounds_min_y      = 0.0f;
+    float m_bounds_max_y      = 0.0f;
 
     // Internal: update direction vectors from yaw/pitch
     void update_vectors();
