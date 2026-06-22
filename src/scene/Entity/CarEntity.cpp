@@ -58,6 +58,9 @@ void CarEntity::update(float dt) {
     float steer_rad = glm::radians(m_steering_angle);
     float yaw_rate  = (m_forward_speed / kWheelbase) * std::tan(steer_rad);  // rad/s
     m_rotation.y -= glm::degrees(yaw_rate) * dt;
+    // Wrap heading to ±180° so cockpit camera yaw composition stays sane.
+    if (m_rotation.y >  180.f) m_rotation.y -= 360.f;
+    if (m_rotation.y < -180.f) m_rotation.y += 360.f;
 
     // Advance position along heading. forward = R_y(yaw)·(+X), the same
     // direction the mesh nose points, so body and velocity stay aligned.
@@ -78,7 +81,7 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
     constexpr float kSteerRatio = 450.f / kMaxSteer;
     float           sw_deg      = -m_steering_angle * kSteerRatio;
 
-    // Pivot-local Z matches the Blender steer empty on this asset.
+    // Spin around the Steering_Wheel node's local Y (steering column axis).
     constexpr Vec3 kSteerLocalAxis(0.f, 0.f, 1.f);
     Mat4           sw_steer_xform(1.f);
     bool           sw_steer_ready = false;

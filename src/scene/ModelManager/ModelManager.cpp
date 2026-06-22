@@ -191,20 +191,23 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     }
 
     // ── Steering wheel articulation ───────────────────────────────────
-    // Store the normalized SteeringWheel_Pivot frame; runtime steer is
-    // sw_pivot_frame * R_local(θ) * inverse(sw_pivot_frame) so the child
-    // offset baked into vertices stays rig-correct (no wobble).
-    int       steering_pivot_idx = -1;
+    // The Steering_Wheel node's origin sits at the hub center (confirmed in
+    // Blender). Use that matrix as the conjugation frame:
+    //   dc.model = car_model * (M * R_local(θ) * M^-1)
+    // This rotates the already-baked vertices around their own hub in local
+    // axis space. Scale is stripped before storing so M is a pure rotation +
+    // translation and glm::inverse stays numerically stable.
+    int       steering_wheel_idx = -1;
     glm::mat4 sw_pivot_frame(1.f);
     bool      found_sw_pivot = false;
     for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
-        if (gltf.nodes[ni].name == "SteeringWheel_Pivot") {
-            steering_pivot_idx = static_cast<int>(ni);
+        if (gltf.nodes[ni].name == "Steering_Wheel") {
+            steering_wheel_idx = static_cast<int>(ni);
             break;
         }
     }
-    if (steering_pivot_idx >= 0) {
-        sw_pivot_frame = ref_inverse * node_world[steering_pivot_idx];
+    if (steering_wheel_idx >= 0 && node_visited[steering_wheel_idx]) {
+        sw_pivot_frame = ref_inverse * node_world[steering_wheel_idx];
         found_sw_pivot = true;
     }
 
@@ -326,8 +329,13 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         v.position.y -= bb_min.y;
 
     if (found_sw_pivot) {
-        sw_pivot_frame           = norm_matrix_y90(sw_pivot_frame);
-        sw_pivot_frame[3].y     -= bb_min.y;
+        sw_pivot_frame       = norm_matrix_y90(sw_pivot_frame);
+        sw_pivot_frame[3].y -= bb_min.y;
+        // Strip accumulated scale from the pivot node so conjugation is
+        // a pure rotation (M * R * M^-1). The SteeringWheel_Pivot carries
+        // scale ≈ 0.1 which would make inverse(M) blow up to ≈ 10×.
+        for (int c = 0; c < 3; c++)
+            sw_pivot_frame[c] = glm::vec4(glm::normalize(glm::vec3(sw_pivot_frame[c])), 0.f);
         for (auto& sm : submeshes) {
             if (sm.is_steering_wheel)
                 sm.sw_pivot_frame = sw_pivot_frame;
