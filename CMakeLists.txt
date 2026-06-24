@@ -44,6 +44,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tomlplusplus)
 
+# --- tinygltf (header-only GLB/glTF loader) ---
+FetchContent_Declare(
+    tinygltf
+    GIT_REPOSITORY https://github.com/syoyo/tinygltf.git
+    GIT_TAG        v2.9.3
+)
+FetchContent_MakeAvailable(tinygltf)
+
 # --- GLAD (compiled as part of the project) ---
 add_library(glad STATIC src/glad.c)
 target_include_directories(glad PUBLIC ${CMAKE_SOURCE_DIR}/include)
@@ -122,6 +130,8 @@ add_executable(swish
     src/scene/RoadScene/RoadScene.cpp
     src/scene/SceneManager/SceneManager.cpp
     src/scene/ModelManager/ModelManager.cpp
+    src/scene/Entity/Entity.cpp
+    src/scene/Entity/CarEntity.cpp
     src/renderer/TextureManager/TextureManager.cpp
     src/renderer/PostProcessManager/PostProcessManager.cpp
     src/renderer/CameraUniforms/CameraUniforms.cpp
@@ -140,6 +150,7 @@ target_include_directories(swish PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_definitions(swish PRIVATE
     SHADER_DIR="${SHADER_OUTPUT_DIR}/"
     TEXTURE_DIR="${CMAKE_SOURCE_DIR}/textures/"
+    ASSET_DIR="${CMAKE_SOURCE_DIR}/assets/"
     CONFIG_DIR="${CONFIG_DIR}/"
 )
 
@@ -148,6 +159,7 @@ target_link_libraries(swish PRIVATE
     glfw
     glm::glm
     Vulkan::Vulkan
+    tinygltf
 )
 
 if(APPLE)

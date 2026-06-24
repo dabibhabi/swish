@@ -1,0 +1,48 @@
+# Swish — Cursor rules
+# These are example project rules. Edit or remove sections as your workflow evolves.
+
+## Project overview
+
+Swish is a C++17 Vulkan renderer with deferred lighting, bloom, and a modular scene system.
+Key areas: `src/renderer/` (Vulkan pipeline), `src/scene/` (camera, scenes, models), `src/core/` (app/window), `shaders/` (GLSL), `config/` (TOML baked to binary).
+
+## Code style
+
+- Follow Google C++ style as configured in `.clang-format` (4-space indent, 120 col limit, left pointer alignment).
+- Run `./scripts/format.sh` after editing C++ headers or sources.
+- All code lives in `namespace swish`.
+- Use type aliases from `src/utils/Types.h` (`Vec3`, `Mat4`, etc.) instead of raw `glm::` types in application code.
+- Prefer `#pragma once` guards; one class per header/source pair.
+
+## File and module layout
+
+- Place each component in its own folder: `ComponentName/ComponentName.h` and `ComponentName/ComponentName.cpp`.
+- Keep renderer managers registered through `Renderer` / `RendererServices` — do not create parallel global singletons.
+- Add new `.cpp` files to `CMakeLists.txt` under the `swish` executable target.
+- Use relative includes within a module (e.g. `../SceneGeometry/SceneGeometry.h`), not absolute paths.
+
+## Vulkan and rendering
+
+- Do not call Vulkan APIs directly from scene code; route through renderer managers (`TextureManager`, `ScenePipeline`, `PostProcessManager`, etc.).
+- When adding shaders: add the `.vert`/`.frag` under `shaders/`, register it in `SHADER_SOURCES` in `CMakeLists.txt`, and load the compiled `.spv` via `SHADER_DIR`.
+- Respect existing descriptor set layout: set 0 = camera/lights, set 1 = PBR material textures.
+- Check `VkResult` return values; use existing error-handling patterns in `VulkanContext` and `Device`.
+
+## Scenes and assets
+
+- Scene configuration goes in TOML under `config/` and is baked to binary at build time — do not hardcode scene parameters in C++ when a TOML field exists.
+- Textures live in `textures/` or `assets/`; reference them via `TEXTURE_DIR` or existing loader utilities (`StbImage`, `TextureManager`).
+- Preserve `WORLD_SCALE` (1000.0f) conventions when converting between scene units and world space.
+
+## Build and test
+
+- Build with CMake; macOS uses `build-xcode/` or an out-of-source build directory — never commit build artifacts.
+- Requires Vulkan SDK (`glslc` on PATH). Shaders compile automatically via the `shaders` custom target.
+- Run tests with `ctest` from the build directory after meaningful changes to `src/utils/` or shared logic.
+- Do not modify files under `build-xcode/`, `include/glad.c`, or vendored headers unless explicitly asked.
+
+## Change discipline
+
+- Keep diffs focused — match the scope of the request; avoid drive-by refactors.
+- Do not add comments that restate what the code already says; comment only non-obvious Vulkan lifetime, synchronization, or pipeline ordering details.
+- Do not create git commits or push unless explicitly requested.
