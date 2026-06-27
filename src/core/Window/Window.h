@@ -33,6 +33,9 @@ public:
     // TODO: Call glfwPollEvents()
     void pollEvents();
 
+    // Block until at least one GLFW event arrives (used in minimize spin).
+    void waitEvents();
+
     // TODO: Return the raw GLFWwindow* (needed by VulkanContext for surface
     // creation)
     GLFWwindow* getHandle() const;

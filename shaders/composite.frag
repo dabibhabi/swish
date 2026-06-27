@@ -17,14 +17,15 @@ layout(push_constant) uniform Params {
 
 layout(location = 0) out vec4 outColor;
 
-// ACES filmic tone mapping (rind pattern)
+// Narkowicz 2015 ACES filmic tone mapping approximation
+const float kAcesA = 2.51;
+const float kAcesB = 0.03;
+const float kAcesC = 2.43;
+const float kAcesD = 0.59;
+const float kAcesE = 0.14;
+
 vec3 ACESFilm(vec3 x) {
-    float a = 2.51;
-    float b = 0.03;
-    float c = 2.43;
-    float d = 0.59;
-    float e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+    return clamp((x * (kAcesA * x + kAcesB)) / (x * (kAcesC * x + kAcesD) + kAcesE), 0.0, 1.0);
 }
 
 void main() {

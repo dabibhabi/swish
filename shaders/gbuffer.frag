@@ -52,11 +52,11 @@ float fbm(vec2 p) {
 
 void main() {
     // ── Alpha test (billboard transparency) ───────────────────────
-    float alpha = texture(albedoTex, fragUV).a;
-    if (alpha < 0.5) discard;
+    vec4 albedoSample = texture(albedoTex, fragUV);
+    if (albedoSample.a < 0.5) discard;
 
     // ── Sample PBR textures ───────────────────────────────────────
-    vec3 albedo     = texture(albedoTex, fragUV).rgb * push.color.rgb;
+    vec3 albedo     = albedoSample.rgb * push.color.rgb;
     vec3 normalMap  = texture(normalTex, fragUV).rgb * 2.0 - 1.0;
     float roughness = texture(roughnessTex, fragUV).r;
 

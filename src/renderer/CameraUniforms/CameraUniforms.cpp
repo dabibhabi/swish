@@ -6,6 +6,7 @@
 #include "../ResourceManager/ResourceManager.h"
 
 #include <array>
+#include <cassert>
 #include <cstring>
 
 namespace swish {
@@ -18,33 +19,17 @@ void CameraUniforms::init(VkDevice device, VkPhysicalDevice physicalDevice, uint
 }
 
 void CameraUniforms::cleanup(VkDevice device) {
-    for (uint32_t i = 0; i < m_frames; i++) {
-        if (m_cameraMapped.size() > i && m_cameraMapped[i] != nullptr) {
-            vkUnmapMemory(device, m_cameraMemory[i]);
-            m_cameraMapped[i] = nullptr;
-        }
-        if (m_cameraBuffers.size() > i && m_cameraBuffers[i] != VK_NULL_HANDLE) {
-            vkDestroyBuffer(device, m_cameraBuffers[i], nullptr);
-            m_cameraBuffers[i] = VK_NULL_HANDLE;
-        }
-        if (m_cameraMemory.size() > i && m_cameraMemory[i] != VK_NULL_HANDLE) {
-            vkFreeMemory(device, m_cameraMemory[i], nullptr);
-            m_cameraMemory[i] = VK_NULL_HANDLE;
-        }
+    assert(m_cameraBuffers.size() == m_frames || m_frames == 0);
+    for (size_t i = 0; i < m_frames; i++) {
+        vkUnmapMemory(device, m_cameraMemory[i]);
+        vkDestroyBuffer(device, m_cameraBuffers[i], nullptr);
+        vkFreeMemory(device, m_cameraMemory[i], nullptr);
 
-        if (m_lightsMapped.size() > i && m_lightsMapped[i] != nullptr) {
-            vkUnmapMemory(device, m_lightsMemory[i]);
-            m_lightsMapped[i] = nullptr;
-        }
-        if (m_lightsBuffers.size() > i && m_lightsBuffers[i] != VK_NULL_HANDLE) {
-            vkDestroyBuffer(device, m_lightsBuffers[i], nullptr);
-            m_lightsBuffers[i] = VK_NULL_HANDLE;
-        }
-        if (m_lightsMemory.size() > i && m_lightsMemory[i] != VK_NULL_HANDLE) {
-            vkFreeMemory(device, m_lightsMemory[i], nullptr);
-            m_lightsMemory[i] = VK_NULL_HANDLE;
-        }
+        vkUnmapMemory(device, m_lightsMemory[i]);
+        vkDestroyBuffer(device, m_lightsBuffers[i], nullptr);
+        vkFreeMemory(device, m_lightsMemory[i], nullptr);
     }
+    m_frames = 0;
 
     if (m_pool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device, m_pool, nullptr);
@@ -65,14 +50,17 @@ void CameraUniforms::update(uint32_t frameIndex, const Camera& camera) {
     ubo.sunColor = Vec4(1.0f, 0.95f, 0.85f, 0.30f);
     std::memcpy(m_cameraMapped[frameIndex], &ubo, sizeof(ubo));
 
-    LightsUBO lightsUbo{};
-    uint32_t  count = std::min(static_cast<uint32_t>(m_lights.size()), MAX_POINT_LIGHTS);
-    for (uint32_t i = 0; i < count; i++) {
-        lightsUbo.pointLights[i].positionRadius = Vec4(m_lights[i].position, m_lights[i].radius);
-        lightsUbo.pointLights[i].colorIntensity = Vec4(m_lights[i].color, m_lights[i].intensity);
+    if (m_lightsDirty) {
+        LightsUBO lightsUbo{};
+        uint32_t  count = std::min(static_cast<uint32_t>(m_lights.size()), MAX_POINT_LIGHTS);
+        for (uint32_t i = 0; i < count; i++) {
+            lightsUbo.pointLights[i].positionRadius = Vec4(m_lights[i].position, m_lights[i].radius);
+            lightsUbo.pointLights[i].colorIntensity = Vec4(m_lights[i].color, m_lights[i].intensity);
+        }
+        lightsUbo.numPointLights = glm::uvec4(count, 0, 0, 0);
+        std::memcpy(m_lightsMapped[frameIndex], &lightsUbo, sizeof(lightsUbo));
+        m_lightsDirty = false;
     }
-    lightsUbo.numPointLights = glm::uvec4(count, 0, 0, 0);
-    std::memcpy(m_lightsMapped[frameIndex], &lightsUbo, sizeof(lightsUbo));
 }
 
 void CameraUniforms::createLayout(VkDevice device) {
@@ -109,11 +97,11 @@ void CameraUniforms::createBuffers(VkDevice device, VkPhysicalDevice physicalDev
     for (uint32_t i = 0; i < m_frames; i++) {
         ResourceManager::createBuffer(device, physicalDevice, cameraSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostFlags,
                                       m_cameraBuffers[i], m_cameraMemory[i]);
-        vkMapMemory(device, m_cameraMemory[i], 0, cameraSize, 0, &m_cameraMapped[i]);
+        VK_CHECK(vkMapMemory(device, m_cameraMemory[i], 0, cameraSize, 0, &m_cameraMapped[i]));
 
         ResourceManager::createBuffer(device, physicalDevice, lightsSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostFlags,
                                       m_lightsBuffers[i], m_lightsMemory[i]);
-        vkMapMemory(device, m_lightsMemory[i], 0, lightsSize, 0, &m_lightsMapped[i]);
+        VK_CHECK(vkMapMemory(device, m_lightsMemory[i], 0, lightsSize, 0, &m_lightsMapped[i]));
     }
 }
 

@@ -2,6 +2,8 @@
 
 #include "../../utils/VulkanCheck.h"
 
+#include <cassert>
+
 namespace swish {
 
 namespace {
@@ -52,14 +54,16 @@ void SyncObjects::recreateRenderFinishedSemaphores(VkDevice device, uint32_t swa
     for (VkSemaphore sem : m_renderFinished) {
         vkDestroySemaphore(device, sem, nullptr);
     }
-    m_renderFinished.assign(swapchainImageCount, VK_NULL_HANDLE);
+    m_renderFinished.clear();
+    m_renderFinished.reserve(swapchainImageCount);
     for (uint32_t i = 0; i < swapchainImageCount; i++) {
-        m_renderFinished[i] = createBinarySemaphore(device);
+        m_renderFinished.push_back(createBinarySemaphore(device));
     }
 }
 
 void SyncObjects::waitForFence(VkDevice device, uint32_t frameIndex) {
-    VK_CHECK(vkWaitForFences(device, 1, &m_inFlightFences[frameIndex], VK_TRUE, UINT64_MAX));
+    constexpr uint64_t kNoFenceTimeout = UINT64_MAX;  // disable timeout
+    VK_CHECK(vkWaitForFences(device, 1, &m_inFlightFences[frameIndex], VK_TRUE, kNoFenceTimeout));
 }
 
 void SyncObjects::resetFence(VkDevice device, uint32_t frameIndex) {
@@ -67,15 +71,18 @@ void SyncObjects::resetFence(VkDevice device, uint32_t frameIndex) {
 }
 
 VkSemaphore SyncObjects::getImageAvailable(uint32_t frameIndex) const {
-    return m_imageAvailable.empty() ? VK_NULL_HANDLE : m_imageAvailable[frameIndex];
+    assert(!m_imageAvailable.empty() && "SyncObjects::init not called");
+    return m_imageAvailable[frameIndex];
 }
 
 VkSemaphore SyncObjects::getRenderFinished(uint32_t imageIndex) const {
-    return m_renderFinished.empty() ? VK_NULL_HANDLE : m_renderFinished[imageIndex];
+    assert(!m_renderFinished.empty() && "SyncObjects::init not called");
+    return m_renderFinished[imageIndex];
 }
 
 VkFence SyncObjects::getInFlightFence(uint32_t frameIndex) const {
-    return m_inFlightFences.empty() ? VK_NULL_HANDLE : m_inFlightFences[frameIndex];
+    assert(!m_inFlightFences.empty() && "SyncObjects::init not called");
+    return m_inFlightFences[frameIndex];
 }
 
 }  // namespace swish

@@ -36,6 +36,8 @@ layout(push_constant) uniform PushConstants {
 
 layout(location = 0) out vec4 outColor;
 
+const float PI = 3.14159265359;
+
 // ── Procedural noise for surface variation ────────────────────────
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -80,8 +82,12 @@ vec3 compute_sky_color(vec3 view_dir) {
 }
 
 void main() {
+    // ── Alpha test — discard transparent fragments (for tree billboards)
+    vec4 albedoSample = texture(albedoTex, fragUV);
+    if (albedoSample.a < 0.5) discard;
+
     // ── Sample PBR textures ───────────────────────────────────────
-    vec3 albedo     = texture(albedoTex, fragUV).rgb * push.color.rgb;
+    vec3 albedo     = albedoSample.rgb * push.color.rgb;
     vec3 normalMap  = texture(normalTex, fragUV).rgb * 2.0 - 1.0;
     float roughness = texture(roughnessTex, fragUV).r;
 
@@ -116,7 +122,7 @@ void main() {
 
     // GGX distribution (D)
     float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
-    float D = a2 / (3.14159265 * denom * denom + 0.0001);
+    float D = a2 / (PI * denom * denom + 0.0001);
 
     // Smith-Schlick-GGX geometry term (G)
     float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
@@ -157,7 +163,7 @@ void main() {
         float HdotV_pt = max(dot(H_pt, V), 0.0);
 
         float denom_pt = NdotH_pt * NdotH_pt * (a2 - 1.0) + 1.0;
-        float D_pt     = a2 / (3.14159265 * denom_pt * denom_pt + 0.0001);
+        float D_pt     = a2 / (PI * denom_pt * denom_pt + 0.0001);
         float G1_V_pt  = NdotV / (NdotV * (1.0 - k) + k);
         float G1_L_pt  = NdotL_pt / (NdotL_pt * (1.0 - k) + k);
         float G_pt     = G1_V_pt * G1_L_pt;
@@ -169,20 +175,5 @@ void main() {
                    + vec3(spec_pt) * NdotL_pt * radiance;
     }
 
-    // ── Fog with sky gradient blend ───────────────────────────────
-    float dist = length(fragWorldPos - camera.camPos.xyz);
-    float fog_density = 0.00000008;
-    float fog_factor = exp(-pow(dist * fog_density, 2.0));
-    fog_factor = clamp(fog_factor, 0.0, 1.0);
-
-    // Fog blends toward the sky color in the view direction (not a flat color)
-    vec3 fog_dir = normalize(fragWorldPos - camera.camPos.xyz);
-    vec3 sky_color = compute_sky_color(fog_dir);
-    vec3 final_color = mix(sky_color, lit_color, fog_factor);
-
-    // Alpha test — discard transparent fragments (for tree billboards)
-    float alpha = texture(albedoTex, fragUV).a;
-    if (alpha < 0.5) discard;
-
-    outColor = vec4(final_color, 1.0);
+    outColor = vec4(lit_color, 1.0);
 }

@@ -8,9 +8,6 @@ layout(push_constant) uniform Params {
     float threshold;
     float intensity;
     float exposure;
-    float _pad0;
-    vec2  texelSize;
-    vec2  _pad1;
 } params;
 
 layout(location = 0) out vec4 outColor;

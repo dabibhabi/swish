@@ -50,7 +50,10 @@ private:
     static constexpr float kAccel           = 18'000.f;   // WU/s²
     static constexpr float kBrakeAccel      = 24'000.f;
     static constexpr float kDragCoeff       =      2.5f;  // per-second linear drag
+    static constexpr float kSpeedDeadZone  =      0.5f;
+    static constexpr float kWheelLockToDeg =    450.f;   // full lock-to-lock steering range
     static constexpr float kMaxSteer        =     35.f;   // degrees
+    static constexpr float kSteerRatio      = kWheelLockToDeg / kMaxSteer;
     static constexpr float kSteerRate       =     90.f;   // degrees/s
     static constexpr float kSteerReturn     =    120.f;   // return-to-center rate
     static constexpr float kWheelbase       =  2'800.f;   // ~2.8m wheelbase in WU

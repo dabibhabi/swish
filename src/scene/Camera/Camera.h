@@ -88,11 +88,12 @@ private:
     float m_mouse_sensitivity = 0.1f;
 
     // Collision bounds
-    bool  m_collision_enabled = false;
-    float m_bounds_min_x      = 0.0f;
-    float m_bounds_max_x      = 0.0f;
-    float m_bounds_min_y      = 0.0f;
-    float m_bounds_max_y      = 0.0f;
+    struct Bounds2D {
+        float min_x = -1e9f, max_x = 1e9f;
+        float min_y = -1e9f, max_y = 1e9f;
+    };
+    bool     m_collision_enabled = false;
+    Bounds2D m_bounds;
 
     // Internal: update direction vectors from yaw/pitch
     void update_vectors();

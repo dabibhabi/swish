@@ -3,6 +3,7 @@ Core domain objects. No bpy imports here — these are plain data.
 """
 
 from __future__ import annotations
+import functools
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -49,17 +50,18 @@ class CarNode:
     def is_leaf(self) -> bool:
         return len(self.children) == 0
 
+    # Intentionally not a @property — O(depth) traversal cost should be visible at call site.
     def depth(self) -> int:
         if not self.children:
             return 1
         return 1 + max(c.depth() for c in self.children)
 
-    def all_descendants(self) -> list[CarNode]:
-        result: list[CarNode] = []
-        for child in self.children:
-            result.append(child)
-            result.extend(child.all_descendants())
-        return result
+    def all_descendants(self) -> list["CarNode"]:
+        def _walk(node: "CarNode"):
+            for child in node.children:
+                yield child
+                yield from _walk(child)
+        return list(_walk(self))
 
 
 @dataclass
@@ -100,10 +102,10 @@ class CarModel:
         self.stats     = stats
         self.parts     = parts
 
-    @property
+    @functools.cached_property
     def mesh_nodes(self) -> list[CarNode]:
         return [n for n in self.all_nodes if n.is_mesh]
 
-    @property
+    @functools.cached_property
     def pivot_nodes(self) -> list[CarNode]:
         return [n for n in self.all_nodes if n.is_pivot]

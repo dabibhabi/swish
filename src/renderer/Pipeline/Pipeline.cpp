@@ -16,6 +16,17 @@ VkPipeline Pipeline::create(VkDevice device, const PipelineConfig& config, VkRen
     VkShaderModule vertModule = createShaderModule(device, vertCode);
     VkShaderModule fragModule = createShaderModule(device, fragCode);
 
+    struct ScopedShaderModule {
+        VkDevice      dev;
+        VkShaderModule mod;
+        ~ScopedShaderModule() { if (mod != VK_NULL_HANDLE) vkDestroyShaderModule(dev, mod, nullptr); }
+        ScopedShaderModule(VkDevice d, VkShaderModule m) : dev(d), mod(m) {}
+        ScopedShaderModule(const ScopedShaderModule&) = delete;
+        ScopedShaderModule& operator=(const ScopedShaderModule&) = delete;
+    };
+    ScopedShaderModule scopedVert{device, vertModule};
+    ScopedShaderModule scopedFrag{device, fragModule};
+
     // 3. Shader stage infos
     VkPipelineShaderStageCreateInfo vertStage{};
     vertStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -131,10 +142,6 @@ VkPipeline Pipeline::create(VkDevice device, const PipelineConfig& config, VkRen
 
     VkPipeline pipeline;
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline));
-
-    // 12. Destroy shader modules (only needed during pipeline creation)
-    vkDestroyShaderModule(device, fragModule, nullptr);
-    vkDestroyShaderModule(device, vertModule, nullptr);
 
     return pipeline;
 }

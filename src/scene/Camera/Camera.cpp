@@ -62,9 +62,8 @@ void Camera::set_target(const Vec3& target) {
     m_target = target;
     // Compute yaw/pitch from position→target direction
     Vec3 dir = glm::normalize(target - m_position);
-    m_yaw    = glm::degrees(std::atan2(-dir.x, -dir.z));  // -Z is forward at yaw=−90
-    m_yaw    = glm::degrees(std::atan2(dir.z, dir.x));    // standard atan2
-    m_pitch  = glm::degrees(std::asin(dir.y));
+    m_yaw    = glm::degrees(std::atan2(dir.z, dir.x));
+    m_pitch  = glm::degrees(std::asin(std::clamp(dir.y, -1.f, 1.f)));
 }
 
 const Vec3& Camera::get_target() const {
@@ -126,21 +125,20 @@ void Camera::update_vectors() {
 // ══════════════════════════════════════════════════════════════════════
 
 void Camera::process_keyboard(GLFWwindow* window, float delta_time) {
-    float velocity = m_move_speed * delta_time;
-    Vec3  forward  = get_forward();
-    Vec3  right    = get_right();
+    Vec3 forward = get_forward();
+    Vec3 right   = get_right();
 
     // Flatten forward to XZ plane for movement (don't fly up/down with pitch)
     Vec3 move_forward = glm::normalize(Vec3(forward.x, 0.0f, forward.z));
 
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        m_position += move_forward * velocity;
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        m_position -= move_forward * velocity;
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        m_position -= right * velocity;
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        m_position += right * velocity;
+    float velocity = m_move_speed * delta_time;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+        velocity *= 2.f;
+
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) m_position += move_forward * velocity;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) m_position -= move_forward * velocity;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) m_position -= right * velocity;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) m_position += right * velocity;
 
     // Vertical movement (Q/E for up/down)
     if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
@@ -148,33 +146,20 @@ void Camera::process_keyboard(GLFWwindow* window, float delta_time) {
     if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
         m_position.y -= velocity;
 
-    // Sprint with Shift
-    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
-        // Already applied velocity — double it by adding another round
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-            m_position += move_forward * velocity;
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-            m_position -= move_forward * velocity;
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-            m_position -= right * velocity;
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-            m_position += right * velocity;
-    }
-
     // Clamp position to collision bounds (barrier/guardrail)
     if (m_collision_enabled) {
-        m_position.x = std::clamp(m_position.x, m_bounds_min_x, m_bounds_max_x);
-        m_position.y = std::clamp(m_position.y, m_bounds_min_y, m_bounds_max_y);
+        m_position.x = std::clamp(m_position.x, m_bounds.min_x, m_bounds.max_x);
+        m_position.y = std::clamp(m_position.y, m_bounds.min_y, m_bounds.max_y);
     }
 
     update_vectors();
 }
 
 void Camera::set_collision_bounds(float min_x, float max_x, float min_y, float max_y) {
-    m_bounds_min_x = min_x;
-    m_bounds_max_x = max_x;
-    m_bounds_min_y = min_y;
-    m_bounds_max_y = max_y;
+    m_bounds.min_x = min_x;
+    m_bounds.max_x = max_x;
+    m_bounds.min_y = min_y;
+    m_bounds.max_y = max_y;
 }
 
 void Camera::set_collision_enabled(bool enabled) {

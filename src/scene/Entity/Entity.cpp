@@ -5,12 +5,11 @@
 namespace swish {
 
 Mat4 Entity::get_model_matrix() const {
-    Mat4 T  = glm::translate(Mat4(1.f), m_position);
-    Mat4 Ry = glm::rotate(Mat4(1.f), glm::radians(m_rotation.y), Vec3(0.f, 1.f, 0.f));
-    Mat4 Rx = glm::rotate(Mat4(1.f), glm::radians(m_rotation.x), Vec3(1.f, 0.f, 0.f));
-    Mat4 Rz = glm::rotate(Mat4(1.f), glm::radians(m_rotation.z), Vec3(0.f, 0.f, 1.f));
-    Mat4 S  = glm::scale(Mat4(1.f), m_scale);
-    return T * Ry * Rx * Rz * S;
+    Mat4 m = glm::translate(Mat4(1.f), m_position);
+    m       = glm::rotate(m, glm::radians(m_rotation.y), Vec3(0.f, 1.f, 0.f));
+    m       = glm::rotate(m, glm::radians(m_rotation.x), Vec3(1.f, 0.f, 0.f));
+    m       = glm::rotate(m, glm::radians(m_rotation.z), Vec3(0.f, 0.f, 1.f));
+    return glm::scale(m, m_scale);
 }
 
 std::vector<DrawCall> ModelEntity::get_draw_calls() const {

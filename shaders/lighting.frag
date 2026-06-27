@@ -38,6 +38,8 @@ layout(push_constant) uniform LightingPC {
 
 layout(location = 0) out vec4 outColor;
 
+const float PI = 3.14159265359;
+
 // ── Reconstruct world position from depth (rind pattern) ──────────
 vec3 reconstructWorldPos(vec2 uv, float depth) {
     vec4 ndc = vec4(uv * 2.0 - 1.0, depth, 1.0);
@@ -99,7 +101,7 @@ void main() {
 
     // GGX distribution
     float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
-    float D = a2 / (3.14159265 * denom * denom + 0.0001);
+    float D = a2 / (PI * denom * denom + 0.0001);
 
     // Smith-Schlick-GGX geometry
     float G1_V = NdotV / (NdotV * (1.0 - k) + k);
@@ -119,7 +121,7 @@ void main() {
     float ambient = camera.sunColor.a;
     vec3 sun_radiance = camera.sunColor.rgb;
     vec3 lit_color = albedo * ambient * sun_radiance
-                   + (kD * albedo / 3.14159265 + specular_sun) * NdotL * sun_radiance;
+                   + (kD * albedo / PI + specular_sun) * NdotL * sun_radiance;
 
     // ── Point light accumulation ──────────────────────────────────
     for (uint i = 0u; i < lights.numPointLights.x; ++i) {
@@ -143,7 +145,7 @@ void main() {
 
         // PBR per light
         float denom_pt = NdotH_pt * NdotH_pt * (a2 - 1.0) + 1.0;
-        float D_pt     = a2 / (3.14159265 * denom_pt * denom_pt + 0.0001);
+        float D_pt     = a2 / (PI * denom_pt * denom_pt + 0.0001);
         float G1_V_pt  = NdotV / (NdotV * (1.0 - k) + k);
         float G1_L_pt  = NdotL_pt / (NdotL_pt * (1.0 - k) + k);
         float G_pt     = G1_V_pt * G1_L_pt;
@@ -152,18 +154,8 @@ void main() {
 
         vec3 kD_pt = (vec3(1.0) - F_pt) * (1.0 - metallic);
         vec3 radiance = lCol * lInt * att;
-        lit_color += (kD_pt * albedo / 3.14159265 + spec_pt) * NdotL_pt * radiance;
+        lit_color += (kD_pt * albedo / PI + spec_pt) * NdotL_pt * radiance;
     }
 
-    // ── Fog with sky gradient blend ───────────────────────────────
-    float dist = length(fragWorldPos - camera.camPos.xyz);
-    float fog_density = 0.00000008;
-    float fog_factor = exp(-pow(dist * fog_density, 2.0));
-    fog_factor = clamp(fog_factor, 0.0, 1.0);
-
-    vec3 fog_dir = normalize(fragWorldPos - camera.camPos.xyz);
-    vec3 sky_color = compute_sky_color(fog_dir);
-    vec3 final_color = mix(sky_color, lit_color, fog_factor);
-
-    outColor = vec4(final_color, 1.0);
+    outColor = vec4(lit_color, 1.0);
 }

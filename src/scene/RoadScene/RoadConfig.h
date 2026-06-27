@@ -57,7 +57,7 @@ struct RoadConfig {
     float dash_gap;
 
     // ── Crown slope ──────────────────────────────────────────────────────
-    static constexpr float m_crown_slope = 0.02f;
+    static constexpr float kCrownSlope = 0.02f;
 
     // ── Colors [r, g, b, a] ──────────────────────────────────────────
     float shoulder_tint[4];
@@ -82,7 +82,7 @@ static_assert(std::is_trivially_copyable_v<RoadConfig>, "RoadConfig must be triv
 
 // ── Load from binary file ─────────────────────────────────────────────
 
-inline RoadConfig load_road_config(const std::string& path) {
+[[nodiscard]] inline RoadConfig load_road_config(const std::string& path) {
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) {
         throw std::runtime_error("RoadConfig: cannot open " + path);

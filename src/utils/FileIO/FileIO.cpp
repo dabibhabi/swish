@@ -15,6 +15,10 @@ std::vector<char> FileIO::readBinaryFile(const std::string& filepath) {
     std::vector<char> buffer(fileSize);
     file.seekg(0);
     file.read(buffer.data(), static_cast<std::streamsize>(fileSize));
+    if (file.gcount() != static_cast<std::streamsize>(fileSize)) {
+        throw std::runtime_error("FileIO: partial read of " + filepath +
+                                 " (expected " + std::to_string(fileSize) + " bytes)");
+    }
 
     return buffer;
 }

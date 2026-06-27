@@ -159,12 +159,22 @@ TEST_CASE("MeshBuilder dashed lines respect dash+gap cycle", "[roadscene][meshbu
     cfg.road_length      = 500.0f;
     cfg.dash_length      = 100.0f;
     cfg.dash_gap         = 400.0f;
+    // lane_count = 3 (from make_test_config)
 
     RoadScene scene(cfg);
     auto data = scene.generate();
     // The road is 500 units. dash=100, gap=400, cycle=500 → exactly 1 dash fits.
     // With 2 dashed marking lines (per lane separator), baseline is at least 1 group.
     REQUIRE(data.meshData.getVertexCount() > 0);
+
+    // Upper-bound check: num_dashes = floor(500 / (100+400)) = 1
+    // Each dash is a quad = 4 vertices; lanes = 3 separators at most = 3
+    // max_dash_vertices = 1 * 3 * 4 = 12; add generous overhead for road base geometry.
+    constexpr uint32_t num_dashes          = 1;
+    constexpr uint32_t lane_count          = 3;
+    constexpr uint32_t max_dash_vertices   = num_dashes * lane_count * 4;
+    constexpr uint32_t reasonable_overhead = 10000;  // road base, shoulders, barriers, etc.
+    REQUIRE(data.meshData.getVertexCount() <= max_dash_vertices + reasonable_overhead);
 }
 
 // ── Getter/setter round-trips ─────────────────────────────────────────
@@ -179,4 +189,24 @@ TEST_CASE("RoadScene set_road_length affects get_road_length", "[roadscene]") {
     RoadScene scene(make_test_config());
     scene.set_road_length(12345.0f);
     REQUIRE(scene.get_road_length() == 12345.0f);
+}
+
+// ── Degenerate input ──────────────────────────────────────────────────
+
+TEST_CASE("RoadScene zero-lane config produces no geometry", "[RoadScene]") {
+    RoadConfig cfg        = make_test_config();
+    cfg.lane_count        = 0;
+    cfg.road_length       = 1000.f;
+    RoadScene scene(cfg);
+    auto data = scene.generate();
+    REQUIRE(data.meshData.getIndexCount() == 0);
+}
+
+TEST_CASE("RoadScene zero-length config produces no geometry", "[RoadScene]") {
+    RoadConfig cfg        = make_test_config();
+    cfg.lane_count        = 2;
+    cfg.road_length       = 0.f;
+    RoadScene scene(cfg);
+    auto data = scene.generate();
+    REQUIRE(data.meshData.getVertexCount() == 0);
 }

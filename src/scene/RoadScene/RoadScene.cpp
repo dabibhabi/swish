@@ -1,5 +1,7 @@
 #include "RoadScene.h"
 
+#include <limits>
+
 namespace swish {
 
 // ══════════════════════════════════════════════════════════════════════
@@ -340,13 +342,12 @@ void RoadScene::set_yellow_marking(const Vec4& color) {
 // Section generators
 // ══════════════════════════════════════════════════════════════════════
 
-void RoadScene::generate_grass(MeshBuilder& builder, float z_near, float z_far) const {
+void RoadScene::generate_grass(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
     // WB road left edge is at X = -(lane_count * lane_width + shoulder_width_wb)
-    float wb_left = -(static_cast<float>(m_lane_count) * m_lane_width + m_shoulder_width_wb);
+    float wb_left = layout.wb_inner - m_shoulder_width_wb;
 
     // EB road right edge is at X = barrier_width + gap(3ft) + lane_count * lane_width + shoulder_width_eb
-    float eb_right =
-        m_barrier_width + 3.0f * kFt + static_cast<float>(m_lane_count) * m_lane_width + m_shoulder_width_eb;
+    float eb_right = layout.eb_start + layout.road_width + m_shoulder_width_eb;
 
     builder.addHorizontalQuad(-m_grass_extent, wb_left, 0.0f, z_far, z_near, kUp, m_grass_tint, MAT_GRASS,
                               m_grass_tile);
@@ -354,9 +355,9 @@ void RoadScene::generate_grass(MeshBuilder& builder, float z_near, float z_far) 
                               MAT_GRASS, m_grass_tile);
 }
 
-void RoadScene::generate_road_surfaces(MeshBuilder& builder, float z_near, float z_far) const {
-    float eb_start    = m_barrier_width + 3.0f * kFt;  // 3ft clearance after barrier
-    float crown_slope = RoadConfig::m_crown_slope;
+void RoadScene::generate_road_surfaces(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+    float eb_start    = layout.eb_start;
+    float crown_slope = RoadConfig::kCrownSlope;
 
     // HOV lane (i=0) has lighter asphalt (newer repaving) vs darker GP lanes
     Vec4 hov_tint = {m_asphalt_tint.x * 1.25f, m_asphalt_tint.y * 1.25f, m_asphalt_tint.z * 1.25f, 1.0f};
@@ -386,14 +387,13 @@ void RoadScene::generate_road_surfaces(MeshBuilder& builder, float z_near, float
     }
 }
 
-void RoadScene::generate_shoulders(MeshBuilder& builder, float z_near, float z_far) const {
-    float wb_width    = static_cast<float>(m_lane_count) * m_lane_width;
-    float eb_start    = m_barrier_width + 3.0f * kFt;
-    float eb_width    = static_cast<float>(m_lane_count) * m_lane_width;
-    float crown_slope = RoadConfig::m_crown_slope;
+void RoadScene::generate_shoulders(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+    float eb_start    = layout.eb_start;
+    float eb_width    = layout.road_width;
+    float crown_slope = RoadConfig::kCrownSlope;
 
     // WB outer shoulder — slopes away from road
-    float wb_inner = -wb_width;
+    float wb_inner = layout.wb_inner;
     float wb_outer = wb_inner - m_shoulder_width_wb;
     builder.addSlopedQuad(wb_outer, wb_inner, -crown_slope * m_shoulder_width_wb, 0.0f, z_far, z_near, kUp,
                           m_shoulder_tint, MAT_ASPHALT, m_asphalt_tile);
@@ -465,10 +465,8 @@ void RoadScene::generate_jersey_barrier(MeshBuilder& builder, float z_near, floa
                           stain_tint, MAT_CONCRETE, m_concrete_tile);
 }
 
-void RoadScene::generate_guardrail(MeshBuilder& builder, float z_near, float z_far) const {
-    float eb_start = m_barrier_width + 3.0f * kFt;
-    float eb_width = static_cast<float>(m_lane_count) * m_lane_width;
-    float rail_x   = eb_start + eb_width + m_shoulder_width_eb;
+void RoadScene::generate_guardrail(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+    float rail_x   = layout.eb_start + layout.road_width + m_shoulder_width_eb;
 
     // ── EB retaining wall (tall concrete wall like in LIE reference photo) ──
     float wall_height = 8.0f * kFt;                   // ~8ft tall retaining wall
@@ -491,8 +489,7 @@ void RoadScene::generate_guardrail(MeshBuilder& builder, float z_near, float z_f
     builder.addVerticalFace(rail_x, fence_h, z_far, z_near, kLeft, fence_tint, MAT_METAL, m_metal_tile);
 
     // ── WB guardrail (standard metal W-beam) ──────────────────────
-    float wb_width  = static_cast<float>(m_lane_count) * m_lane_width;
-    float wb_rail_x = -(wb_width + m_shoulder_width_wb + m_rail_width);
+    float wb_rail_x = layout.wb_inner - m_shoulder_width_wb - m_rail_width;
 
     builder.addHorizontalQuad(wb_rail_x, wb_rail_x + m_rail_width, m_rail_height, z_far, z_near, kUp, m_rail_tint,
                               MAT_METAL, m_metal_tile);
@@ -501,12 +498,11 @@ void RoadScene::generate_guardrail(MeshBuilder& builder, float z_near, float z_f
                             m_metal_tile);
 }
 
-void RoadScene::generate_solid_markings(MeshBuilder& builder, float z_near, float z_far) const {
-    float eb_start    = m_barrier_width + 3.0f * kFt;
-    float eb_width    = static_cast<float>(m_lane_count) * m_lane_width;
-    float wb_width    = static_cast<float>(m_lane_count) * m_lane_width;
+void RoadScene::generate_solid_markings(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+    float eb_start    = layout.eb_start;
+    float eb_width    = layout.road_width;
     float line_w      = 0.50f * kFt;  // 6-inch marking width
-    float crown_slope = RoadConfig::m_crown_slope;
+    float crown_slope = RoadConfig::kCrownSlope;
 
     // Crown height at each edge
     float eb_inner_y = crown_slope * static_cast<float>(m_lane_count) * m_lane_width + m_marking_y_offset;
@@ -524,7 +520,7 @@ void RoadScene::generate_solid_markings(MeshBuilder& builder, float z_near, floa
                               m_white_marking);
 
     // WB white edge lines
-    builder.addHorizontalQuad(-wb_width, -wb_width + line_w, eb_outer_y, z_far, z_near, kUp, m_white_marking);
+    builder.addHorizontalQuad(layout.wb_inner, layout.wb_inner + line_w, eb_outer_y, z_far, z_near, kUp, m_white_marking);
     builder.addHorizontalQuad(-line_w, 0.0f, wb_inner_y, z_far, z_near, kUp, m_white_marking);
 
     // ── HOV double solid white lines (lane 0 / lane 1 boundary) ──
@@ -547,11 +543,10 @@ void RoadScene::generate_solid_markings(MeshBuilder& builder, float z_near, floa
                               kUp, m_white_marking);
 }
 
-void RoadScene::generate_dashed_markings(MeshBuilder& builder, float z_near, float z_far) const {
-    float eb_start    = m_barrier_width + 3.0f * kFt;
-    float wb_width    = static_cast<float>(m_lane_count) * m_lane_width;
+void RoadScene::generate_dashed_markings(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+    float eb_start    = layout.eb_start;
     float line_w      = 0.33f * kFt;
-    float crown_slope = RoadConfig::m_crown_slope;
+    float crown_slope = RoadConfig::kCrownSlope;
 
     // EB lane dividers — skip i=1 (HOV boundary is now solid double white)
     for (int i = 2; i < m_lane_count; i++) {
@@ -581,34 +576,39 @@ RoadScene::SceneData RoadScene::generate() const {
     float z_near = 0.0f;
     float z_far  = -m_road_length;
 
-    generate_grass(builder, z_near, z_far);
-    generate_road_surfaces(builder, z_near, z_far);
-    generate_shoulders(builder, z_near, z_far);
+    RoadLayout layout{
+        m_barrier_width + 3.0f * kFt,
+        static_cast<float>(m_lane_count) * m_lane_width,
+        -(static_cast<float>(m_lane_count) * m_lane_width),
+    };
+
+    generate_grass(builder, layout, z_near, z_far);
+    generate_road_surfaces(builder, layout, z_near, z_far);
+    generate_shoulders(builder, layout, z_near, z_far);
     generate_jersey_barrier(builder, z_near, z_far);
-    generate_guardrail(builder, z_near, z_far);
-    generate_solid_markings(builder, z_near, z_far);
-    generate_dashed_markings(builder, z_near, z_far);
-    generate_curbs(builder, z_near, z_far);
-    generate_rumble_strips(builder, z_near, z_far);
-    generate_dirt_strips(builder, z_near, z_far);
-    generate_ambient_occlusion(builder, z_near, z_far);
-    generate_hov_diamonds(builder, z_near, z_far);
-    generate_sign_posts(builder, z_near, z_far);
-    generate_overpass(builder, z_near, z_far);
-    generate_sound_barriers(builder, z_near, z_far);
-    generate_exit_ramp(builder, z_near, z_far);
-    generate_street_lamps(builder, scene.lights, z_near, z_far);
+    generate_guardrail(builder, layout, z_near, z_far);
+    generate_solid_markings(builder, layout, z_near, z_far);
+    generate_dashed_markings(builder, layout, z_near, z_far);
+    generate_curbs(builder, layout, z_near, z_far);
+    generate_rumble_strips(builder, layout, z_near, z_far);
+    generate_dirt_strips(builder, layout, z_near, z_far);
+    generate_ambient_occlusion(builder, layout, z_near, z_far);
+    generate_hov_diamonds(builder, layout, z_near, z_far);
+    generate_sign_posts(builder, layout, z_near, z_far);
+    generate_overpass(builder, layout, z_near, z_far);
+    generate_sound_barriers(builder, layout, z_near, z_far);
+    generate_exit_ramp(builder, layout, z_near, z_far);
+    generate_street_lamps(builder, layout, scene.lights, z_near, z_far);
 
     return scene;
 }
 
-void RoadScene::generate_curbs(MeshBuilder& builder, float z_near, float z_far) const {
+void RoadScene::generate_curbs(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
     float curb_height = m_curb_height;
     float curb_width  = m_curb_width;
 
     // ── WB outer curb (at shoulder-grass boundary) ────────────────
-    float wb_width  = static_cast<float>(m_lane_count) * m_lane_width;
-    float wb_curb_x = -(wb_width + m_shoulder_width_wb);
+    float wb_curb_x = layout.wb_inner - m_shoulder_width_wb;
 
     builder.addHorizontalQuad(wb_curb_x - curb_width, wb_curb_x, curb_height, z_far, z_near, kUp, m_concrete_tint,
                               MAT_CONCRETE, m_concrete_tile);
@@ -618,9 +618,7 @@ void RoadScene::generate_curbs(MeshBuilder& builder, float z_near, float z_far) 
                             m_concrete_tile);
 
     // ── EB outer curb (at shoulder-grass boundary, positive X) ────
-    float eb_start  = m_barrier_width + 3.0f * kFt;
-    float eb_width  = static_cast<float>(m_lane_count) * m_lane_width;
-    float eb_curb_x = eb_start + eb_width + m_shoulder_width_eb;
+    float eb_curb_x = layout.eb_start + layout.road_width + m_shoulder_width_eb;
 
     builder.addHorizontalQuad(eb_curb_x, eb_curb_x + curb_width, curb_height, z_far, z_near, kUp, m_concrete_tint,
                               MAT_CONCRETE, m_concrete_tile);
@@ -630,19 +628,17 @@ void RoadScene::generate_curbs(MeshBuilder& builder, float z_near, float z_far) 
                             m_concrete_tile);
 }
 
-void RoadScene::generate_rumble_strips(MeshBuilder& builder, float z_near, float z_far) const {
+void RoadScene::generate_rumble_strips(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
     float strip_width = 1.0f * kFt;                   // 1 ft wide
     float y_offset    = 1.0f;                         // tiny Y raise for z-fighting
     Vec4  rumble_tint = {0.85f, 0.85f, 0.85f, 1.0f};  // slightly dark
 
     // WB rumble strip (at inner edge of WB shoulder, next to travel lane)
-    float wb_width = static_cast<float>(m_lane_count) * m_lane_width;
-    float wb_x     = -wb_width;
+    float wb_x = layout.wb_inner;
     builder.addHorizontalQuad(wb_x - strip_width, wb_x, y_offset, z_far, z_near, kUp, rumble_tint, MAT_RUMBLE, 300.0f);
 
     // EB rumble strip (at inner edge of EB shoulder, next to travel lane)
-    float eb_start = m_barrier_width + 3.0f * kFt;
-    float eb_right = eb_start + static_cast<float>(m_lane_count) * m_lane_width;
+    float eb_right = layout.eb_start + layout.road_width;
     builder.addHorizontalQuad(eb_right, eb_right + strip_width, y_offset, z_far, z_near, kUp, rumble_tint, MAT_RUMBLE,
                               300.0f);
 }
@@ -651,7 +647,7 @@ void RoadScene::generate_rumble_strips(MeshBuilder& builder, float z_near, float
 // Ambient Occlusion — dark shadow strips at base of vertical structures
 // ══════════════════════════════════════════════════════════════════════
 
-void RoadScene::generate_ambient_occlusion(MeshBuilder& builder, float z_near, float z_far) const {
+void RoadScene::generate_ambient_occlusion(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
     float ao_width = 0.5f * kFt;                   // 6 inches wide shadow strip
     float ao_y     = 0.5f;                         // tiny Y raise
     Vec4  ao_tint  = {0.15f, 0.15f, 0.18f, 1.0f};  // very dark blue-black
@@ -662,14 +658,11 @@ void RoadScene::generate_ambient_occlusion(MeshBuilder& builder, float z_near, f
                               MAT_DEFAULT, 0.0f);
 
     // AO at base of EB guardrail
-    float eb_start = m_barrier_width + 3.0f * kFt;
-    float eb_width = static_cast<float>(m_lane_count) * m_lane_width;
-    float eb_rail  = eb_start + eb_width + m_shoulder_width_eb;
+    float eb_rail  = layout.eb_start + layout.road_width + m_shoulder_width_eb;
     builder.addHorizontalQuad(eb_rail - ao_width, eb_rail, ao_y, z_far, z_near, kUp, ao_tint, MAT_DEFAULT, 0.0f);
 
     // AO at base of WB guardrail
-    float wb_width  = static_cast<float>(m_lane_count) * m_lane_width;
-    float wb_rail_x = -(wb_width + m_shoulder_width_wb);
+    float wb_rail_x = layout.wb_inner - m_shoulder_width_wb;
     builder.addHorizontalQuad(wb_rail_x, wb_rail_x + ao_width, ao_y, z_far, z_near, kUp, ao_tint, MAT_DEFAULT, 0.0f);
 
     // AO at base of WB curb (inner side)
@@ -677,7 +670,7 @@ void RoadScene::generate_ambient_occlusion(MeshBuilder& builder, float z_near, f
                               ao_tint, MAT_DEFAULT, 0.0f);
 
     // AO at base of EB curb (inner side)
-    float eb_curb_x = eb_start + eb_width + m_shoulder_width_eb;
+    float eb_curb_x = layout.eb_start + layout.road_width + m_shoulder_width_eb;
     builder.addHorizontalQuad(eb_curb_x - ao_width, eb_curb_x, ao_y, z_far, z_near, kUp, ao_tint, MAT_DEFAULT, 0.0f);
 }
 
@@ -685,9 +678,9 @@ void RoadScene::generate_ambient_occlusion(MeshBuilder& builder, float z_near, f
 // HOV Diamond Markings — white diamonds on HOV lane pavement
 // ══════════════════════════════════════════════════════════════════════
 
-void RoadScene::generate_hov_diamonds(MeshBuilder& builder, float z_near, float z_far) const {
-    float eb_start    = m_barrier_width + 3.0f * kFt;
-    float crown_slope = RoadConfig::m_crown_slope;
+void RoadScene::generate_hov_diamonds(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+    float eb_start    = layout.eb_start;
+    float crown_slope = RoadConfig::kCrownSlope;
 
     // Diamond dimensions (MUTCD: ~12ft long x ~4ft wide)
     float diamond_len = 12.0f * kFt;
@@ -750,10 +743,9 @@ void RoadScene::generate_hov_diamonds(MeshBuilder& builder, float z_near, float 
 // Sign Posts — Textured highway signs with FHWA text
 // ══════════════════════════════════════════════════════════════════════
 
-void RoadScene::generate_sign_posts(MeshBuilder& builder, float z_near, float z_far) const {
-    float eb_start   = m_barrier_width + 3.0f * kFt;
-    float eb_width   = static_cast<float>(m_lane_count) * m_lane_width;
-    float wb_width   = static_cast<float>(m_lane_count) * m_lane_width;
+void RoadScene::generate_sign_posts(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+    float eb_start   = layout.eb_start;
+    float eb_width   = layout.road_width;
     float roadside_x = eb_start + eb_width + m_shoulder_width_eb + 5.0f * kFt;
 
     float post_width = 0.25f * kFt;
@@ -787,7 +779,7 @@ void RoadScene::generate_sign_posts(MeshBuilder& builder, float z_near, float z_
 
     float gantry_height = 20.0f * kFt;
     float gantry_depth  = 1.0f * kFt;
-    float gantry_left   = -(wb_width + m_shoulder_width_wb + 3.0f * kFt);
+    float gantry_left   = layout.wb_inner - m_shoulder_width_wb - 3.0f * kFt;
     float gantry_right  = eb_start + eb_width + m_shoulder_width_eb + 3.0f * kFt;
     Vec4  gantry_tint   = {0.50f, 0.52f, 0.50f, 1.0f};
 
@@ -918,16 +910,12 @@ void RoadScene::generate_sign_posts(MeshBuilder& builder, float z_near, float z_
 // Places a concrete bridge slab every ~3000ft (roughly every 0.5 mile)
 // ══════════════════════════════════════════════════════════════════════
 
-void RoadScene::generate_overpass(MeshBuilder& builder, float z_near, float z_far) const {
-    float eb_start = m_barrier_width + 3.0f * kFt;
-    float eb_width = static_cast<float>(m_lane_count) * m_lane_width;
-    float wb_width = static_cast<float>(m_lane_count) * m_lane_width;
-
+void RoadScene::generate_overpass(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
     float bridge_clearance  = 16.5f * kFt;  // 16.5ft clearance (FHWA minimum)
     float bridge_depth      = 3.0f * kFt;   // 3ft thick deck slab
     float bridge_width      = 30.0f * kFt;  // 30ft wide bridge road
-    float bridge_span_left  = -(wb_width + m_shoulder_width_wb + 10.0f * kFt);
-    float bridge_span_right = eb_start + eb_width + m_shoulder_width_eb + 10.0f * kFt;
+    float bridge_span_left  = layout.wb_inner - m_shoulder_width_wb - 10.0f * kFt;
+    float bridge_span_right = layout.eb_start + layout.road_width + m_shoulder_width_eb + 10.0f * kFt;
     float bridge_spacing    = 3000.0f * kFt;  // every ~0.5 mile
 
     Vec4 bridge_top_tint    = {0.75f, 0.73f, 0.70f, 1.0f};  // light concrete
@@ -969,21 +957,18 @@ void RoadScene::generate_overpass(MeshBuilder& builder, float z_near, float z_fa
     }
 }
 
-void RoadScene::generate_dirt_strips(MeshBuilder& builder, float z_near, float z_far) const {
+void RoadScene::generate_dirt_strips(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
     // Brown dirt/gravel strip between the shoulder curb and grass (like the real LIE)
     float dirt_width = 5.0f * kFt;                   // 5 ft wide
     Vec4  dirt_tint  = {0.85f, 0.75f, 0.60f, 1.0f};  // warm gravel tint
 
     // WB dirt strip (between curb and grass)
-    float wb_width  = static_cast<float>(m_lane_count) * m_lane_width;
-    float wb_curb_x = -(wb_width + m_shoulder_width_wb);
+    float wb_curb_x = layout.wb_inner - m_shoulder_width_wb;
     builder.addHorizontalQuad(wb_curb_x - dirt_width, wb_curb_x, 0.0f, z_far, z_near, kUp, dirt_tint, MAT_DIRT,
                               2000.0f);
 
     // EB dirt strip (between curb and grass)
-    float eb_start  = m_barrier_width + 3.0f * kFt;
-    float eb_width  = static_cast<float>(m_lane_count) * m_lane_width;
-    float eb_curb_x = eb_start + eb_width + m_shoulder_width_eb;
+    float eb_curb_x = layout.eb_start + layout.road_width + m_shoulder_width_eb;
     builder.addHorizontalQuad(eb_curb_x, eb_curb_x + dirt_width, 0.0f, z_far, z_near, kUp, dirt_tint, MAT_DIRT,
                               2000.0f);
 }
@@ -996,15 +981,14 @@ void RoadScene::generate_dirt_strips(MeshBuilder& builder, float z_near, float z
 // discards transparent pixels.
 // ══════════════════════════════════════════════════════════════════════
 
-// Simple hash for pseudo-random variation per tree
-static float tree_hash(float z) {
-    return std::fmod(std::abs(std::sin(z * 0.0001f) * 43758.5453f), 1.0f);
+// Simple hash for pseudo-random variation per tree (Wang integer hash)
+static float tree_hash(int slot) {
+    uint32_t x = static_cast<uint32_t>(slot) * 2654435761u;
+    x ^= x >> 16;
+    return static_cast<float>(x) / static_cast<float>(std::numeric_limits<uint32_t>::max());
 }
 
-void RoadScene::generate_trees(MeshBuilder& builder, float z_near, float z_far) const {
-    float eb_start = m_barrier_width + 3.0f * kFt;
-    float eb_width = static_cast<float>(m_lane_count) * m_lane_width;
-    float wb_width = static_cast<float>(m_lane_count) * m_lane_width;
+void RoadScene::generate_trees(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
 
     // Tree placement parameters
     float tree_spacing = 20.0f * kFt;  // every 20 feet
@@ -1015,104 +999,68 @@ void RoadScene::generate_trees(MeshBuilder& builder, float z_near, float z_far) 
     float width_var    = 8.0f * kFt;   // ±8ft width variation
 
     // EB tree line position (right side of road)
-    float eb_rail_x = eb_start + eb_width + m_shoulder_width_eb + m_rail_width;
+    float eb_rail_x = layout.eb_start + layout.road_width + m_shoulder_width_eb + m_rail_width;
     float eb_tree_x = eb_rail_x + tree_setback;
 
     // WB tree line position (left side of road)
-    float wb_rail_x = -(wb_width + m_shoulder_width_wb + m_rail_width);
+    float wb_rail_x = layout.wb_inner - m_shoulder_width_wb - m_rail_width;
     float wb_tree_x = wb_rail_x - tree_setback;
 
     Vec4 tree_tint   = {1.0f, 1.0f, 1.0f, 1.0f};  // full texture color
     Vec3 face_normal = Vec3(0.0f, 0.0f, 1.0f);
 
-    for (float z = z_far + tree_spacing; z < z_near - tree_spacing; z += tree_spacing) {
-        float rnd = tree_hash(z);
+    int slot = 0;
+    for (float z = z_far + tree_spacing; z < z_near - tree_spacing; z += tree_spacing, ++slot) {
+        float rnd = tree_hash(slot);
         float h   = base_height + height_var * (rnd - 0.5f) * 2.0f;
         float w   = base_width + width_var * (rnd * 0.7f - 0.35f) * 2.0f;
 
         // Slight X jitter so trees don't look grid-aligned
-        float x_jitter = (tree_hash(z + 1000.0f) - 0.5f) * 10.0f * kFt;
+        float x_jitter = (tree_hash(slot + 10000) - 0.5f) * 10.0f * kFt;
 
-        // ── EB side tree (cross-billboard: 2 perpendicular quads) ──
-        float ex = eb_tree_x + x_jitter;
+        // Emit two crossed billboard quads centered at (cx, 0, z_pos)
+        auto emit_billboard_tree = [&](float cx, float tree_h, float tree_w, float z_pos) {
+            // Quad 1: facing along Z axis (visible from road)
+            {
+                uint32_t base = builder.m_mesh.getVertexCount();
+                uint32_t idx  = builder.m_mesh.getIndexCount();
+                Vec4     tan  = Vec4(1.0f, 0.0f, 0.0f, 1.0f);
+                builder.m_mesh.addVertex({Vec3(cx - tree_w / 2.0f, 0.0f, z_pos), face_normal, Vec2(0.0f, 1.0f), tan});
+                builder.m_mesh.addVertex({Vec3(cx + tree_w / 2.0f, 0.0f, z_pos), face_normal, Vec2(1.0f, 1.0f), tan});
+                builder.m_mesh.addVertex({Vec3(cx - tree_w / 2.0f, tree_h, z_pos), face_normal, Vec2(0.0f, 0.0f), tan});
+                builder.m_mesh.addVertex({Vec3(cx + tree_w / 2.0f, tree_h, z_pos), face_normal, Vec2(1.0f, 0.0f), tan});
+                // Both winding orders so visible from both sides
+                builder.m_mesh.addIndex(base + 0);
+                builder.m_mesh.addIndex(base + 2);
+                builder.m_mesh.addIndex(base + 1);
+                builder.m_mesh.addIndex(base + 1);
+                builder.m_mesh.addIndex(base + 2);
+                builder.m_mesh.addIndex(base + 3);
+                builder.pushDrawCall(idx, tree_tint, MAT_TREE);
+            }
 
-        // Quad 1: facing along Z axis (visible from road)
-        {
-            uint32_t base = builder.m_mesh.getVertexCount();
-            uint32_t idx  = builder.m_mesh.getIndexCount();
-            Vec4     tan  = Vec4(1.0f, 0.0f, 0.0f, 1.0f);
-            builder.m_mesh.addVertex({Vec3(ex - w / 2.0f, 0.0f, z), face_normal, Vec2(0.0f, 1.0f), tan});
-            builder.m_mesh.addVertex({Vec3(ex + w / 2.0f, 0.0f, z), face_normal, Vec2(1.0f, 1.0f), tan});
-            builder.m_mesh.addVertex({Vec3(ex - w / 2.0f, h, z), face_normal, Vec2(0.0f, 0.0f), tan});
-            builder.m_mesh.addVertex({Vec3(ex + w / 2.0f, h, z), face_normal, Vec2(1.0f, 0.0f), tan});
-            // Both winding orders so visible from both sides
-            builder.m_mesh.addIndex(base + 0);
-            builder.m_mesh.addIndex(base + 2);
-            builder.m_mesh.addIndex(base + 1);
-            builder.m_mesh.addIndex(base + 1);
-            builder.m_mesh.addIndex(base + 2);
-            builder.m_mesh.addIndex(base + 3);
-            builder.pushDrawCall(idx, tree_tint, MAT_TREE);
-        }
+            // Quad 2: perpendicular (facing along X axis)
+            {
+                uint32_t base        = builder.m_mesh.getVertexCount();
+                uint32_t idx         = builder.m_mesh.getIndexCount();
+                Vec3     side_normal = Vec3(1.0f, 0.0f, 0.0f);
+                Vec4     tan         = Vec4(0.0f, 0.0f, 1.0f, 1.0f);
+                builder.m_mesh.addVertex({Vec3(cx, 0.0f, z_pos - tree_w / 2.0f), side_normal, Vec2(0.0f, 1.0f), tan});
+                builder.m_mesh.addVertex({Vec3(cx, 0.0f, z_pos + tree_w / 2.0f), side_normal, Vec2(1.0f, 1.0f), tan});
+                builder.m_mesh.addVertex({Vec3(cx, tree_h, z_pos - tree_w / 2.0f), side_normal, Vec2(0.0f, 0.0f), tan});
+                builder.m_mesh.addVertex({Vec3(cx, tree_h, z_pos + tree_w / 2.0f), side_normal, Vec2(1.0f, 0.0f), tan});
+                builder.m_mesh.addIndex(base + 0);
+                builder.m_mesh.addIndex(base + 2);
+                builder.m_mesh.addIndex(base + 1);
+                builder.m_mesh.addIndex(base + 1);
+                builder.m_mesh.addIndex(base + 2);
+                builder.m_mesh.addIndex(base + 3);
+                builder.pushDrawCall(idx, tree_tint, MAT_TREE);
+            }
+        };
 
-        // Quad 2: perpendicular (facing along X axis)
-        {
-            uint32_t base        = builder.m_mesh.getVertexCount();
-            uint32_t idx         = builder.m_mesh.getIndexCount();
-            Vec3     side_normal = Vec3(1.0f, 0.0f, 0.0f);
-            Vec4     tan         = Vec4(0.0f, 0.0f, 1.0f, 1.0f);
-            builder.m_mesh.addVertex({Vec3(ex, 0.0f, z - w / 2.0f), side_normal, Vec2(0.0f, 1.0f), tan});
-            builder.m_mesh.addVertex({Vec3(ex, 0.0f, z + w / 2.0f), side_normal, Vec2(1.0f, 1.0f), tan});
-            builder.m_mesh.addVertex({Vec3(ex, h, z - w / 2.0f), side_normal, Vec2(0.0f, 0.0f), tan});
-            builder.m_mesh.addVertex({Vec3(ex, h, z + w / 2.0f), side_normal, Vec2(1.0f, 0.0f), tan});
-            builder.m_mesh.addIndex(base + 0);
-            builder.m_mesh.addIndex(base + 2);
-            builder.m_mesh.addIndex(base + 1);
-            builder.m_mesh.addIndex(base + 1);
-            builder.m_mesh.addIndex(base + 2);
-            builder.m_mesh.addIndex(base + 3);
-            builder.pushDrawCall(idx, tree_tint, MAT_TREE);
-        }
-
-        // ── WB side tree ──
-        float wx = wb_tree_x + x_jitter;
-
-        // Quad 1
-        {
-            uint32_t base = builder.m_mesh.getVertexCount();
-            uint32_t idx  = builder.m_mesh.getIndexCount();
-            Vec4     tan  = Vec4(1.0f, 0.0f, 0.0f, 1.0f);
-            builder.m_mesh.addVertex({Vec3(wx - w / 2.0f, 0.0f, z), face_normal, Vec2(0.0f, 1.0f), tan});
-            builder.m_mesh.addVertex({Vec3(wx + w / 2.0f, 0.0f, z), face_normal, Vec2(1.0f, 1.0f), tan});
-            builder.m_mesh.addVertex({Vec3(wx - w / 2.0f, h, z), face_normal, Vec2(0.0f, 0.0f), tan});
-            builder.m_mesh.addVertex({Vec3(wx + w / 2.0f, h, z), face_normal, Vec2(1.0f, 0.0f), tan});
-            builder.m_mesh.addIndex(base + 0);
-            builder.m_mesh.addIndex(base + 2);
-            builder.m_mesh.addIndex(base + 1);
-            builder.m_mesh.addIndex(base + 1);
-            builder.m_mesh.addIndex(base + 2);
-            builder.m_mesh.addIndex(base + 3);
-            builder.pushDrawCall(idx, tree_tint, MAT_TREE);
-        }
-
-        // Quad 2
-        {
-            uint32_t base        = builder.m_mesh.getVertexCount();
-            uint32_t idx         = builder.m_mesh.getIndexCount();
-            Vec3     side_normal = Vec3(1.0f, 0.0f, 0.0f);
-            Vec4     tan         = Vec4(0.0f, 0.0f, 1.0f, 1.0f);
-            builder.m_mesh.addVertex({Vec3(wx, 0.0f, z - w / 2.0f), side_normal, Vec2(0.0f, 1.0f), tan});
-            builder.m_mesh.addVertex({Vec3(wx, 0.0f, z + w / 2.0f), side_normal, Vec2(1.0f, 1.0f), tan});
-            builder.m_mesh.addVertex({Vec3(wx, h, z - w / 2.0f), side_normal, Vec2(0.0f, 0.0f), tan});
-            builder.m_mesh.addVertex({Vec3(wx, h, z + w / 2.0f), side_normal, Vec2(1.0f, 0.0f), tan});
-            builder.m_mesh.addIndex(base + 0);
-            builder.m_mesh.addIndex(base + 2);
-            builder.m_mesh.addIndex(base + 1);
-            builder.m_mesh.addIndex(base + 1);
-            builder.m_mesh.addIndex(base + 2);
-            builder.m_mesh.addIndex(base + 3);
-            builder.pushDrawCall(idx, tree_tint, MAT_TREE);
-        }
+        emit_billboard_tree(eb_tree_x + x_jitter, h, w, z);
+        emit_billboard_tree(wb_tree_x + x_jitter, h, w, z);
     }
 }
 
@@ -1120,13 +1068,9 @@ void RoadScene::generate_trees(MeshBuilder& builder, float z_near, float z_far) 
 // Sound Barriers — noise reduction panels along the roadside
 // ══════════════════════════════════════════════════════════════════════
 
-void RoadScene::generate_sound_barriers(MeshBuilder& builder, float z_near, float z_far) const {
-    float eb_start = m_barrier_width + 3.0f * kFt;
-    float eb_width = static_cast<float>(m_lane_count) * m_lane_width;
-    float wb_width = static_cast<float>(m_lane_count) * m_lane_width;
-
+void RoadScene::generate_sound_barriers(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
     // EB sound barrier sits on top of the retaining wall
-    float wall_x    = eb_start + eb_width + m_shoulder_width_eb;
+    float wall_x    = layout.eb_start + layout.road_width + m_shoulder_width_eb;
     float wall_top  = 8.0f * kFt;  // retaining wall height
     float panel_h   = 6.0f * kFt;  // 6ft tall panels on top of wall
     float panel_top = wall_top + panel_h;
@@ -1157,18 +1101,19 @@ void RoadScene::generate_sound_barriers(MeshBuilder& builder, float z_near, floa
     }
 
     // WB sound barrier (on the grass side past WB guardrail)
-    float wb_rail_x = -(wb_width + m_shoulder_width_wb + m_rail_width);
-    float wb_wall_x = wb_rail_x - 2.0f * kFt;  // 2ft behind WB guardrail
+    float wb_rail_x   = layout.wb_inner - m_shoulder_width_wb - m_rail_width;
+    float wb_wall_x   = wb_rail_x - 2.0f * kFt;  // 2ft behind WB guardrail
+    float wb_wall_top = 10.0f * kFt;
 
-    builder.addVerticalFace(wb_wall_x, 10.0f * kFt, z_far, z_near, kRight, panel_tint_front, MAT_CONCRETE,
+    builder.addVerticalFace(wb_wall_x, wb_wall_top, z_far, z_near, kRight, panel_tint_front, MAT_CONCRETE,
                             m_concrete_tile);
-    builder.addVerticalFace(wb_wall_x - panel_w, 10.0f * kFt, z_far, z_near, kLeft, panel_tint_back, MAT_CONCRETE,
+    builder.addVerticalFace(wb_wall_x - panel_w, wb_wall_top, z_far, z_near, kLeft, panel_tint_back, MAT_CONCRETE,
                             m_concrete_tile);
-    builder.addHorizontalQuad(wb_wall_x - panel_w, wb_wall_x, 10.0f * kFt, z_far, z_near, kUp, panel_top_tint,
+    builder.addHorizontalQuad(wb_wall_x - panel_w, wb_wall_x, wb_wall_top, z_far, z_near, kUp, panel_top_tint,
                               MAT_CONCRETE, m_concrete_tile);
 
     for (float z = z_far + post_spacing; z < z_near; z += post_spacing) {
-        builder.addVerticalFace(wb_wall_x + 0.1f * kFt, 10.0f * kFt, z - post_w / 2.0f, z + post_w / 2.0f, kRight,
+        builder.addVerticalFace(wb_wall_x + 0.1f * kFt, wb_wall_top, z - post_w / 2.0f, z + post_w / 2.0f, kRight,
                                 post_tint, MAT_CONCRETE, m_concrete_tile);
     }
 }
@@ -1181,16 +1126,14 @@ void RoadScene::generate_sound_barriers(MeshBuilder& builder, float z_near, floa
 // that runs parallel to the expressway.
 // ══════════════════════════════════════════════════════════════════════
 
-void RoadScene::generate_exit_ramp(MeshBuilder& builder, float z_near, float z_far) const {
-    float eb_start = m_barrier_width + 3.0f * kFt;
-    float eb_width = static_cast<float>(m_lane_count) * m_lane_width;
-    float eb_right = eb_start + eb_width + m_shoulder_width_eb;
+void RoadScene::generate_exit_ramp(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+    float eb_right = layout.eb_start + layout.road_width + m_shoulder_width_eb;
     float line_w   = 0.50f * kFt;
 
     // ── Ramp geometry parameters ─────────────────────────────────
-    float ramp_start_z  = -650000.0f;  // ramp begins diverging (~650m)
-    float ramp_end_z    = -850000.0f;  // ramp fully separated (~850m)
-    float decel_start_z = -550000.0f;  // deceleration lane begins (~550m)
+    float ramp_start_z  = -2132.5f * kFt;   // ramp begins diverging (~650m)
+    float ramp_end_z    = -2804.0f * kFt;   // ramp fully separated (~855m)
+    float decel_start_z = -1804.0f * kFt;   // deceleration lane begins (~550m)
 
     float ramp_offset = 40.0f * kFt;                // how far right the ramp shifts at the end
     float ramp_width  = 14.0f * kFt;                // single ramp lane width
@@ -1276,16 +1219,9 @@ void RoadScene::generate_exit_ramp(MeshBuilder& builder, float z_near, float z_f
         // White edge lines on ramp
         builder.addHorizontalQuad(left0, left0 + line_w, m_marking_y_offset + 1.0f, z1, z0, kUp, m_white_marking);
         builder.addHorizontalQuad(right0 - line_w, right0, m_marking_y_offset + 1.0f, z1, z0, kUp, m_white_marking);
-    }
 
-    // ── Gore area (triangular painted chevron zone) ──────────────
-    // White solid line separating ramp from mainline
-    for (int i = 0; i < num_ramp_segs; i++) {
-        float z0   = ramp_start_z - static_cast<float>(i) * ramp_seg_len;
-        float z1   = z0 - ramp_seg_len;
-        float t0   = static_cast<float>(i) / static_cast<float>(num_ramp_segs);
-        float off0 = ramp_offset * t0 * t0;
-
+        // ── Gore area (triangular painted chevron zone) ──────────
+        // White solid line separating ramp from mainline
         float gore_x = eb_right + off0;
         builder.addHorizontalQuad(gore_x - line_w, gore_x, m_marking_y_offset + 2.0f, z1, z0, kUp, m_white_marking);
     }
@@ -1379,11 +1315,8 @@ void RoadScene::generate_exit_ramp(MeshBuilder& builder, float z_near, float z_f
 // Street Lamps — highway light poles with point light sources
 // ══════════════════════════════════════════════════════════════════════
 
-void RoadScene::generate_street_lamps(MeshBuilder& builder, std::vector<LightDesc>& lights, float z_near,
-                                      float z_far) const {
-    float eb_start = m_barrier_width + 3.0f * kFt;
-    float eb_width = static_cast<float>(m_lane_count) * m_lane_width;
-    float wb_width = static_cast<float>(m_lane_count) * m_lane_width;
+void RoadScene::generate_street_lamps(MeshBuilder& builder, const RoadLayout& layout, std::vector<LightDesc>& lights,
+                                      float z_near, float z_far) const {
 
     // Lamp placement parameters
     float lamp_spacing = 500.0f * kFt;  // every 500ft (typical highway)
@@ -1398,12 +1331,12 @@ void RoadScene::generate_street_lamps(MeshBuilder& builder, std::vector<LightDes
     Vec4 fixture_tint = {0.70f, 0.72f, 0.70f, 1.0f};  // lighter fixture
 
     // EB lamp positions (right side, past retaining wall)
-    float eb_pole_x = eb_start + eb_width + m_shoulder_width_eb + 2.0f * kFt;
+    float eb_pole_x = layout.eb_start + layout.road_width + m_shoulder_width_eb + 2.0f * kFt;
     // Light hangs over the road: arm reaches back toward lanes
     float eb_light_x = eb_pole_x - arm_len;
 
     // WB lamp positions (left side, past guardrail)
-    float wb_pole_x  = -(wb_width + m_shoulder_width_wb + m_rail_width + 2.0f * kFt);
+    float wb_pole_x  = layout.wb_inner - m_shoulder_width_wb - m_rail_width - 2.0f * kFt;
     float wb_light_x = wb_pole_x + arm_len;
 
     uint32_t light_count = 0;

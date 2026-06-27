@@ -22,7 +22,7 @@ void ScenePipeline::init(VkDevice device, const Config& cfg) {
     PipelineConfig config{};
     config.vertShaderPath       = std::string(SHADER_DIR) + "basic.vert.spv";
     config.fragShaderPath       = std::string(SHADER_DIR) + "gbuffer.frag.spv";
-    config.cullMode             = VK_CULL_MODE_NONE;
+    config.cullMode             = VK_CULL_MODE_BACK_BIT;
     config.colorAttachmentCount = 3;
     config.vertexBindings.push_back(binding);
     config.vertexAttributes.assign(attributes.begin(), attributes.end());

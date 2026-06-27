@@ -2,25 +2,28 @@
 #include "utils/FileIO/FileIO.h"
 
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <string>
 
 using namespace swish;
 
-static const std::string kTmpPath = "/tmp/swish_fileio_test.bin";
+static const std::filesystem::path kTmpPath =
+    std::filesystem::temp_directory_path() /
+    ("swish_fileio_test_" + std::to_string(std::hash<std::string>{}(__FILE__)) + ".bin");
 
 TEST_CASE("FileIO reads a valid binary file", "[fileio]") {
     {
         std::ofstream f(kTmpPath, std::ios::binary);
         f.write("SWSH", 4);
     }
-    auto data = FileIO::readBinaryFile(kTmpPath);
+    auto data = FileIO::readBinaryFile(kTmpPath.string());
     REQUIRE(data.size() == 4);
     REQUIRE(data[0] == 'S');
     REQUIRE(data[1] == 'W');
     REQUIRE(data[2] == 'S');
     REQUIRE(data[3] == 'H');
-    std::remove(kTmpPath.c_str());
+    std::remove(kTmpPath.string().c_str());
 }
 
 TEST_CASE("FileIO preserves all bytes including nulls", "[fileio]") {
@@ -29,13 +32,13 @@ TEST_CASE("FileIO preserves all bytes including nulls", "[fileio]") {
         char buf[4] = {0x00, static_cast<char>(0xFF), 0x0A, 0x7F};
         f.write(buf, 4);
     }
-    auto data = FileIO::readBinaryFile(kTmpPath);
+    auto data = FileIO::readBinaryFile(kTmpPath.string());
     REQUIRE(data.size() == 4);
     REQUIRE(static_cast<unsigned char>(data[0]) == 0x00);
     REQUIRE(static_cast<unsigned char>(data[1]) == 0xFF);
     REQUIRE(static_cast<unsigned char>(data[2]) == 0x0A);
     REQUIRE(static_cast<unsigned char>(data[3]) == 0x7F);
-    std::remove(kTmpPath.c_str());
+    std::remove(kTmpPath.string().c_str());
 }
 
 TEST_CASE("FileIO throws on missing file", "[fileio]") {
@@ -47,14 +50,8 @@ TEST_CASE("FileIO reads an empty file without error", "[fileio]") {
         std::ofstream f(kTmpPath, std::ios::binary);
         // write nothing
     }
-    // Either returns empty vector or throws — both are acceptable;
-    // this test just ensures no crash or undefined behavior.
-    try {
-        auto data = FileIO::readBinaryFile(kTmpPath);
-        REQUIRE(data.size() == 0);
-    } catch (const std::exception&) {
-        // acceptable if implementation rejects empty files
-        SUCCEED();
-    }
-    std::remove(kTmpPath.c_str());
+    // readBinaryFile opens with std::ios::ate, reads size 0, returns empty vector.
+    auto data = FileIO::readBinaryFile(kTmpPath.string());
+    REQUIRE(data.empty());
+    std::remove(kTmpPath.string().c_str());
 }

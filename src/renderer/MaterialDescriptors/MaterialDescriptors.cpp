@@ -4,6 +4,7 @@
 #include "../TextureManager/TextureManager.h"
 
 #include <array>
+#include <cassert>
 #include <stdexcept>
 #include <string>
 
@@ -52,13 +53,14 @@ constexpr const char* kMaterialNames[MAT_COUNT] = {
     "car_19",       // MAT_CAR_19
 };
 
-constexpr const char* kSuffixes[3] = {"", "_normal", "_roughness"};
+constexpr uint32_t    kTexturesPerMaterial = 3;
+constexpr const char* kSuffixes[kTexturesPerMaterial] = {"", "_normal", "_roughness"};
 
 } 
 
 void MaterialDescriptors::init(VkDevice device) {
-    std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
-    for (uint32_t i = 0; i < 3; i++) {
+    std::array<VkDescriptorSetLayoutBinding, kTexturesPerMaterial> bindings{};
+    for (uint32_t i = 0; i < kTexturesPerMaterial; i++) {
         bindings[i].binding         = i;
         bindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[i].descriptorCount = 1;
@@ -84,6 +86,11 @@ void MaterialDescriptors::cleanup(VkDevice device) {
     }
 }
 
+VkDescriptorSet MaterialDescriptors::get_set(MaterialId mat) const {
+    assert(mat < m_sets.size() && "MaterialId out of range");
+    return m_sets[mat];
+}
+
 void MaterialDescriptors::rebuild(VkDevice device, TextureManager& textures) {
     if (m_pool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device, m_pool, nullptr);
@@ -93,7 +100,7 @@ void MaterialDescriptors::rebuild(VkDevice device, TextureManager& textures) {
 
     VkDescriptorPoolSize poolSize{};
     poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = MAT_COUNT * 3;  // albedo + normal + roughness per material
+    poolSize.descriptorCount = MAT_COUNT * kTexturesPerMaterial;  // albedo + normal + roughness per material
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -112,13 +119,16 @@ void MaterialDescriptors::rebuild(VkDevice device, TextureManager& textures) {
     m_sets.resize(MAT_COUNT);
     VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, m_sets.data()));
 
-    for (uint32_t i = 0; i < MAT_COUNT; i++) {
-        std::array<VkDescriptorImageInfo, 3> imageInfos{};
-        std::array<VkWriteDescriptorSet, 3>  writes{};
+    std::vector<VkDescriptorImageInfo> imageInfos;
+    std::vector<VkWriteDescriptorSet>  writes;
+    imageInfos.reserve(MAT_COUNT * kTexturesPerMaterial);
+    writes.reserve(MAT_COUNT * kTexturesPerMaterial);
 
-        for (uint32_t b = 0; b < 3; b++) {
-            std::string texName = std::string(kMaterialNames[i]) + kSuffixes[b];
-            Texture*    tex     = textures.get_texture(texName);
+    for (uint32_t i = 0; i < MAT_COUNT; i++) {
+        for (uint32_t b = 0; b < kTexturesPerMaterial; b++) {
+            std::string texName = kMaterialNames[i];
+            texName += kSuffixes[b];
+            Texture* tex = textures.get_texture(texName);
 
             // Fall back to the 1×1 white "default" if a normal/roughness map is missing.
             if (!tex) {
@@ -128,20 +138,24 @@ void MaterialDescriptors::rebuild(VkDevice device, TextureManager& textures) {
                 throw std::runtime_error("MaterialDescriptors::rebuild: missing texture '" + texName + "'");
             }
 
-            imageInfos[b].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfos[b].imageView   = tex->view;
-            imageInfos[b].sampler     = textures.get_sampler();
+            VkDescriptorImageInfo imgInfo{};
+            imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imgInfo.imageView   = tex->view;
+            imgInfo.sampler     = textures.get_sampler();
+            imageInfos.push_back(imgInfo);
 
-            writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[b].dstSet          = m_sets[i];
-            writes[b].dstBinding      = b;
-            writes[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[b].descriptorCount = 1;
-            writes[b].pImageInfo      = &imageInfos[b];
+            VkWriteDescriptorSet w{};
+            w.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            w.dstSet          = m_sets[i];
+            w.dstBinding      = b;
+            w.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            w.descriptorCount = 1;
+            w.pImageInfo      = &imageInfos.back();
+            writes.push_back(w);
         }
-
-        vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
 }  

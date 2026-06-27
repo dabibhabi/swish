@@ -102,14 +102,13 @@ private:
     // VkResult predicates moved to utils/VulkanInit.h (swish::vk namespace).
 
     // ── Owned subsystems ───────────────────────────────────────────
-    VulkanContext*  m_context        = nullptr;
-    Device*         m_device         = nullptr;
-    Swapchain*      m_swapchain      = nullptr;
-    CommandManager* m_commandManager = nullptr;
-    SyncObjects*    m_syncObjects    = nullptr;
+    std::unique_ptr<VulkanContext>  m_context;
+    std::unique_ptr<Device>         m_device;
+    std::unique_ptr<Swapchain>      m_swapchain;
+    std::unique_ptr<CommandManager> m_commandManager;
+    std::unique_ptr<SyncObjects>    m_syncObjects;
 
-    PostProcessManager* m_postProcess = nullptr;
-
+    std::unique_ptr<PostProcessManager>  m_postProcess;
     std::unique_ptr<CameraUniforms>      m_cameraUniforms;
     std::unique_ptr<MaterialDescriptors> m_materialDescriptors;
 
@@ -127,7 +126,7 @@ private:
     SceneGeometry m_dynamicGeometry;
 
     // ── Camera ────────────────────────────────────────────────────
-    Camera* m_camera = nullptr;
+    std::unique_ptr<Camera> m_camera;
 
     // ── Frame tracking ────────────────────────────────────────────
     uint32_t m_currentFrame = 0;

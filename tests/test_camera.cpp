@@ -87,16 +87,24 @@ TEST_CASE("Camera pitch clamps at -89 on downward mouse input", "[camera]") {
 
 TEST_CASE("Camera process_mouse updates yaw", "[camera]") {
     Camera cam;
-    float before = cam.get_yaw();
-    cam.process_mouse(10.0f, 0.0f);
-    REQUIRE(cam.get_yaw() != before);
+    float before_yaw = cam.get_yaw();
+    constexpr float mouse_dx = 10.0f;
+    cam.process_mouse(mouse_dx, 0.0f);
+    // process_mouse: m_yaw += x_offset * m_mouse_sensitivity (0.1f)
+    // expected delta = mouse_dx * 0.1f = 1.0f
+    float expected_yaw = before_yaw + mouse_dx * 0.1f;
+    REQUIRE_THAT(cam.get_yaw(), WithinAbs(expected_yaw, 0.01f));
 }
 
 TEST_CASE("Camera process_mouse updates pitch", "[camera]") {
     Camera cam;
-    float before = cam.get_pitch();
-    cam.process_mouse(0.0f, 5.0f);
-    REQUIRE(cam.get_pitch() != before);
+    float before_pitch = cam.get_pitch();
+    constexpr float mouse_dy = 5.0f;
+    cam.process_mouse(0.0f, mouse_dy);
+    // process_mouse: m_pitch += y_offset * m_mouse_sensitivity (0.1f)
+    // expected delta = mouse_dy * 0.1f = 0.5f; default pitch is -5.0f so result is -4.5f (within clamp)
+    float expected_pitch = before_pitch + mouse_dy * 0.1f;
+    REQUIRE_THAT(cam.get_pitch(), WithinAbs(expected_pitch, 0.01f));
 }
 
 // ── Projection matrix ─────────────────────────────────────────────────

@@ -32,6 +32,7 @@ private:
     float m_last_mouse_x    = 0.0f;
     float m_last_mouse_y    = 0.0f;
     bool  m_cursor_captured = true;
+    bool  m_esc_key_prev    = false;
 
     // Camera mode: cockpit (eye follows the car) vs free-fly. C toggles.
     bool  m_cockpit      = true;

@@ -47,6 +47,13 @@ void Window::pollEvents() {
     glfwPollEvents();
 }
 
+void Window::waitEvents() {
+    if (!m_window) {
+        throw std::runtime_error("Window not initialized");
+    }
+    glfwWaitEvents();
+}
+
 GLFWwindow* Window::getHandle() const {
     if (!m_window) {
         throw std::runtime_error("Window not initialized");
@@ -76,6 +83,7 @@ void Window::resetResizedFlag() {
 }
 
 void Window::mark_resized() {
+    if (!m_window) return;
     m_resized = true;
 }
 

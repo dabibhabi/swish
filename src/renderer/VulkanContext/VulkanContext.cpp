@@ -10,12 +10,12 @@
 namespace swish {
 
 #ifdef NDEBUG
-const bool enableValidationLayers = false;
+constexpr bool kEnableValidationLayers = false;
 #else
-const bool enableValidationLayers = true;
+constexpr bool kEnableValidationLayers = true;
 #endif
 
-const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
+constexpr const char* kValidationLayer = "VK_LAYER_KHRONOS_validation";
 
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
                                       const VkAllocationCallbacks* pAllocator,
@@ -36,6 +36,18 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
     }
 }
 
+static void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& info) {
+    info        = {};
+    info.sType  = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                           VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                       VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                       VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    info.pfnUserCallback = VulkanContext::debugCallback;
+    info.pUserData       = nullptr;
+}
+
 void VulkanContext::init(GLFWwindow* window) {
     createInstance();
     setupDebugMessenger();
@@ -44,7 +56,7 @@ void VulkanContext::init(GLFWwindow* window) {
 
 void VulkanContext::cleanup() {
     vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
-    if (enableValidationLayers) {
+    if (kEnableValidationLayers) {
         DestroyDebugUtilsMessengerEXT(m_instance, m_debugMessenger, nullptr);
     }
     vkDestroyInstance(m_instance, nullptr);
@@ -76,11 +88,12 @@ void VulkanContext::createInstance() {
 
     std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
 
-    if (enableValidationLayers) {
+    if (kEnableValidationLayers) {
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
-#ifdef __APPLE__
+    // MoltenVK on macOS requires the portability enumeration extension
+#ifdef SWISH_BACKEND_APPLE
     extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
     createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 #endif
@@ -89,20 +102,11 @@ void VulkanContext::createInstance() {
     createInfo.ppEnabledExtensionNames = extensions.data();
 
     VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
-    if (enableValidationLayers) {
-        createInfo.enabledLayerCount   = static_cast<uint32_t>(validationLayers.size());
-        createInfo.ppEnabledLayerNames = validationLayers.data();
+    if (kEnableValidationLayers) {
+        createInfo.enabledLayerCount   = 1;
+        createInfo.ppEnabledLayerNames = &kValidationLayer;
 
-        debugCreateInfo.sType           = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-        debugCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-                                          VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                          VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-        debugCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                                      VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                                      VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-        debugCreateInfo.pfnUserCallback = debugCallback;
-        debugCreateInfo.pUserData       = nullptr;
-
+        populateDebugMessengerCreateInfo(debugCreateInfo);
         createInfo.pNext = &debugCreateInfo;
     } else {
         createInfo.enabledLayerCount = 0;
@@ -110,24 +114,16 @@ void VulkanContext::createInstance() {
     }
 
     if (vkCreateInstance(&createInfo, nullptr, &m_instance) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create instance!");
+        throw std::runtime_error("failed to create Vulkan instance!");
     }
 }
 
 void VulkanContext::setupDebugMessenger() {
-    if (!enableValidationLayers)
+    if (!kEnableValidationLayers)
         return;
 
     VkDebugUtilsMessengerCreateInfoEXT createInfo{};
-    createInfo.sType           = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-    createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-                                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-    createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                             VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                             VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-    createInfo.pfnUserCallback = debugCallback;
-    createInfo.pUserData       = nullptr;
+    populateDebugMessengerCreateInfo(createInfo);
 
     if (CreateDebugUtilsMessengerEXT(m_instance, &createInfo, nullptr, &m_debugMessenger) != VK_SUCCESS) {
         throw std::runtime_error("failed to create debug messenger!");
@@ -140,11 +136,12 @@ void VulkanContext::createSurface(GLFWwindow* window) {
     }
 }
 
-VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT      messageSeverity,
-                                                            VkDebugUtilsMessageTypeFlagsEXT             messageType,
-                                                            const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-                                                            void*                                       pUserData) {
-    std::cerr << "Validation layer: " << pCallbackData->pMessage << std::endl;
+VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::debugCallback(
+    [[maybe_unused]] VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+    [[maybe_unused]] VkDebugUtilsMessageTypeFlagsEXT        messageType,
+    const VkDebugUtilsMessengerCallbackDataEXT*             pCallbackData,
+    [[maybe_unused]] void*                                  pUserData) {
+    std::cerr << "Validation: " << pCallbackData->pMessage << '\n';
     return VK_FALSE;
 }
 

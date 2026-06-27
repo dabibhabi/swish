@@ -16,7 +16,9 @@
 
 #include <toml++/toml.hpp>
 
-// Must match the struct in RoadConfig.h exactly
+// IMPORTANT: This struct layout MUST match src/scene/RoadScene/RoadConfig.h exactly.
+// If fields are added/removed/reordered in RoadConfig.h, update this file in lockstep.
+// A layout mismatch silently corrupts road.bin with no compile-time error.
 #pragma pack(push, 1)
 struct RoadConfig {
     uint32_t magic;
@@ -69,14 +71,15 @@ static constexpr float kFt         = 0.3048f * WORLD_SCALE;
 static constexpr uint32_t MAGIC    = 0x53575243;
 static constexpr uint32_t VERSION  = 3;
 
-static void read_color(const toml::array* arr, float out[4]) {
+static bool read_color(const toml::array* arr, float out[4]) {
     if (!arr || arr->size() != 4) {
         std::cerr << "Error: color array must have exactly 4 elements\n";
-        std::exit(1);
+        return false;
     }
     for (int i = 0; i < 4; i++) {
         out[i] = static_cast<float>(arr->get(i)->value_or(0.0));
     }
+    return true;
 }
 
 int main(int argc, char* argv[]) {
@@ -132,21 +135,47 @@ int main(int argc, char* argv[]) {
     cfg.dash_gap         = tbl["markings"]["dash_gap_ft"].value_or(30.0) * kFt;
 
     // ── Colors ────────────────────────────────────────────────────────
-    read_color(tbl["colors"]["shoulder_tint"].as_array(), cfg.shoulder_tint);
-    read_color(tbl["colors"]["barrier_tint"].as_array(), cfg.barrier_tint);
-    read_color(tbl["colors"]["rail_tint"].as_array(), cfg.rail_tint);
-    read_color(tbl["colors"]["white_marking"].as_array(), cfg.white_marking);
-    read_color(tbl["colors"]["yellow_marking"].as_array(), cfg.yellow_marking);
+    if (!read_color(tbl["colors"]["shoulder_tint"].as_array(), cfg.shoulder_tint)) {
+        std::cerr << "Error: invalid colors.shoulder_tint\n"; return 1;
+    }
+    if (!read_color(tbl["colors"]["barrier_tint"].as_array(), cfg.barrier_tint)) {
+        std::cerr << "Error: invalid colors.barrier_tint\n"; return 1;
+    }
+    if (!read_color(tbl["colors"]["rail_tint"].as_array(), cfg.rail_tint)) {
+        std::cerr << "Error: invalid colors.rail_tint\n"; return 1;
+    }
+    if (!read_color(tbl["colors"]["white_marking"].as_array(), cfg.white_marking)) {
+        std::cerr << "Error: invalid colors.white_marking\n"; return 1;
+    }
+    if (!read_color(tbl["colors"]["yellow_marking"].as_array(), cfg.yellow_marking)) {
+        std::cerr << "Error: invalid colors.yellow_marking\n"; return 1;
+    }
 
     // ── Material texture tints ────────────────────────────────────────
-    read_color(tbl["colors"]["ground_tint"].as_array(), cfg.ground_tint);
-    read_color(tbl["colors"]["grass_tint"].as_array(), cfg.grass_tint);
-    read_color(tbl["colors"]["asphalt_tint"].as_array(), cfg.asphalt_tint);
-    read_color(tbl["colors"]["concrete_tint"].as_array(), cfg.concrete_tint);
-    read_color(tbl["colors"]["metal_tint"].as_array(), cfg.metal_tint);
-    read_color(tbl["colors"]["white_tint"].as_array(), cfg.white_tint);
-    read_color(tbl["colors"]["yellow_tint"].as_array(), cfg.yellow_tint);
-    read_color(tbl["colors"]["black_tint"].as_array(), cfg.black_tint);
+    if (!read_color(tbl["colors"]["ground_tint"].as_array(), cfg.ground_tint)) {
+        std::cerr << "Error: invalid colors.ground_tint\n"; return 1;
+    }
+    if (!read_color(tbl["colors"]["grass_tint"].as_array(), cfg.grass_tint)) {
+        std::cerr << "Error: invalid colors.grass_tint\n"; return 1;
+    }
+    if (!read_color(tbl["colors"]["asphalt_tint"].as_array(), cfg.asphalt_tint)) {
+        std::cerr << "Error: invalid colors.asphalt_tint\n"; return 1;
+    }
+    if (!read_color(tbl["colors"]["concrete_tint"].as_array(), cfg.concrete_tint)) {
+        std::cerr << "Error: invalid colors.concrete_tint\n"; return 1;
+    }
+    if (!read_color(tbl["colors"]["metal_tint"].as_array(), cfg.metal_tint)) {
+        std::cerr << "Error: invalid colors.metal_tint\n"; return 1;
+    }
+    if (!read_color(tbl["colors"]["white_tint"].as_array(), cfg.white_tint)) {
+        std::cerr << "Error: invalid colors.white_tint\n"; return 1;
+    }
+    if (!read_color(tbl["colors"]["yellow_tint"].as_array(), cfg.yellow_tint)) {
+        std::cerr << "Error: invalid colors.yellow_tint\n"; return 1;
+    }
+    if (!read_color(tbl["colors"]["black_tint"].as_array(), cfg.black_tint)) {
+        std::cerr << "Error: invalid colors.black_tint\n"; return 1;
+    }
 
     // ── Write binary ──────────────────────────────────────────────────
     FILE* f = std::fopen(output_path, "wb");

@@ -29,11 +29,11 @@ class _NameCleaner:
     # Matches a trailing material token like "_EXT_0", "_CarPaint_0", "_INT_Metal_0"
     _MAT_SUF = re.compile(r"_[A-Za-z][A-Za-z0-9_]*_\d+$")
 
-    def __init__(self, objects: list) -> None:
+    def __init__(self, objects: list[bpy.types.Object]) -> None:
         self._prefixes = self._detect_prefixes(objects)
 
     @staticmethod
-    def _detect_prefixes(objects: list) -> list[str]:
+    def _detect_prefixes(objects: list[bpy.types.Object]) -> list[str]:
         """
         Find all "LABEL:LABEL_" prefix patterns present in the scene.
         A model exported from Sketchfab with multiple LOD groups will have
@@ -44,7 +44,7 @@ class _NameCleaner:
             if ":" in obj.name:
                 lhs = obj.name.split(":")[0]
                 seen.add(f"{lhs}:{lhs}_")
-        return list(seen)
+        return sorted(seen, key=len, reverse=True)
 
     def clean(self, raw: str) -> str:
         name = raw
@@ -148,15 +148,12 @@ class CarLoader:
         return node
 
     @staticmethod
-    def _compute_bbox(obj: bpy.types.Object) -> BBox:
-        bb = obj.bound_box  # 8 corners in local space
-        xs = [v[0] for v in bb]
-        ys = [v[1] for v in bb]
-        zs = [v[2] for v in bb]
+    def _compute_bbox(obj: bpy.types.Object) -> "BBox":
+        xs, ys, zs = zip(*obj.bound_box)
         return BBox(
-            w = abs(max(xs) - min(xs)),
-            h = abs(max(zs) - min(zs)),
-            d = abs(max(ys) - min(ys)),
+            w=abs(max(xs) - min(xs)),
+            h=abs(max(zs) - min(zs)),
+            d=abs(max(ys) - min(ys)),
         )
 
     @staticmethod

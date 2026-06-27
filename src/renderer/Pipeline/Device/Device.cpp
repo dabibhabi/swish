@@ -12,23 +12,44 @@ void Device::init(VkInstance instance, VkSurfaceKHR surface) {
     vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+
     for (const auto& device : devices) {
         if (rateDevice(device, surface) > 0) {
             m_physicalDevice = device;
             break;
         }
     }
-    QueueFamilyIndices      indices = findQueueFamilies(m_physicalDevice, surface);
-    VkDeviceQueueCreateInfo queueCreateInfo{};
-    queueCreateInfo.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
-    queueCreateInfo.queueCount       = 1;
-    float queuePriority              = 1.0f;
-    queueCreateInfo.pQueuePriorities = &queuePriority;
+    if (m_physicalDevice == VK_NULL_HANDLE) {
+        throw std::runtime_error("no suitable GPU found — check Vulkan drivers and extensions");
+    }
+
+    // Cache queue families so callers don't have to re-enumerate
+    m_queueFamilies = findQueueFamilies(m_physicalDevice, surface);
+
+    // Build one VkDeviceQueueCreateInfo per unique family index so that the
+    // present and graphics queues are both created when they differ.
+    std::set<uint32_t> uniqueFamilies = {
+        m_queueFamilies.graphicsFamily.value(),
+        m_queueFamilies.presentFamily.value(),
+    };
+
+    float                                queuePriority = 1.0f;
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+    queueCreateInfos.reserve(uniqueFamilies.size());
+    for (uint32_t family : uniqueFamilies) {
+        VkDeviceQueueCreateInfo qci{};
+        qci.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        qci.queueFamilyIndex = family;
+        qci.queueCount       = 1;
+        qci.pQueuePriorities = &queuePriority;
+        queueCreateInfos.push_back(qci);
+    }
+
     VkDeviceCreateInfo createInfo{};
     createInfo.sType                = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    createInfo.queueCreateInfoCount = 1;
-    createInfo.pQueueCreateInfos    = &queueCreateInfo;
+    createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
+    createInfo.pQueueCreateInfos    = queueCreateInfos.data();
+
     VkPhysicalDeviceFeatures deviceFeatures{};
     createInfo.pEnabledFeatures = &deviceFeatures;
 
@@ -48,11 +69,13 @@ void Device::init(VkInstance instance, VkSurfaceKHR surface) {
 
     createInfo.enabledExtensionCount   = static_cast<uint32_t>(deviceExtensions.size());
     createInfo.ppEnabledExtensionNames = deviceExtensions.data();
+
     if (vkCreateDevice(m_physicalDevice, &createInfo, nullptr, &m_device) != VK_SUCCESS) {
         throw std::runtime_error("failed to create logical device!");
     }
-    vkGetDeviceQueue(m_device, indices.graphicsFamily.value(), 0, &m_graphicsQueue);
-    vkGetDeviceQueue(m_device, indices.presentFamily.value(), 0, &m_presentQueue);
+
+    vkGetDeviceQueue(m_device, m_queueFamilies.graphicsFamily.value(), 0, &m_graphicsQueue);
+    vkGetDeviceQueue(m_device, m_queueFamilies.presentFamily.value(), 0, &m_presentQueue);
 }
 
 void Device::cleanup() {
@@ -73,6 +96,10 @@ VkQueue Device::getGraphicsQueue() const {
 
 VkQueue Device::getPresentQueue() const {
     return m_presentQueue;
+}
+
+const QueueFamilyIndices& Device::getQueueFamilies() const {
+    return m_queueFamilies;
 }
 
 QueueFamilyIndices Device::findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) const {
@@ -111,14 +138,29 @@ SwapChainSupportDetails Device::querySwapChainSupport(VkPhysicalDevice device, V
 }
 
 int Device::rateDevice(VkPhysicalDevice device, VkSurfaceKHR surface) const {
+    // Must support required extensions (swapchain at minimum)
+    if (!checkDeviceExtensionSupport(device)) return 0;
+
+    // Must expose both a graphics and a present queue
+    if (!findQueueFamilies(device, surface).isComplete()) return 0;
+
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(device, &properties);
+
     int score = 0;
     if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
         score = 1000;
     } else if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
         score = 100;
     }
+
+    // Prefer the vendor that matches the configured backend
+#if defined(SWISH_BACKEND_LINUX) || defined(SWISH_BACKEND_WINDOWS)
+    if (properties.vendorID == 0x1002 || properties.vendorID == 0x10DE) score += 500;  // AMD / NVIDIA
+#elif defined(SWISH_BACKEND_APPLE)
+    if (properties.vendorID == 0x106B) score += 500;  // Apple GPU
+#endif
+
     return score;
 }
 

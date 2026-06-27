@@ -21,28 +21,33 @@ target_include_directories(swish_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/include
 )
 
+# Tests only need Catch2 and GLM — no Vulkan SDK or windowing system required.
 target_link_libraries(swish_tests PRIVATE
     Catch2::Catch2WithMain
     glm::glm
-    Vulkan::Vulkan
-    glfw
 )
 
-if(APPLE)
-    target_link_libraries(swish_tests PRIVATE
-        ${COCOA_LIBRARY}
-        ${IOKIT_LIBRARY}
-        ${OPENGL_LIBRARY}
-    )
+target_compile_definitions(swish_tests PRIVATE
+    CONFIG_DIR="${CMAKE_BINARY_DIR}/config/"
+    $<$<STREQUAL:${SWISH_BACKEND},APPLE_METAL>:SWISH_BACKEND_APPLE>
+    $<$<STREQUAL:${SWISH_BACKEND},LINUX_VULKAN>:SWISH_BACKEND_LINUX>
+    $<$<STREQUAL:${SWISH_BACKEND},WINDOWS_VULKAN>:SWISH_BACKEND_WINDOWS>
+)
+
+target_compile_options(swish_tests PRIVATE
+    $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wpedantic -Wno-unused-parameter>
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+)
+
+# Optional AddressSanitizer + UndefinedBehaviorSanitizer
+option(ENABLE_SANITIZERS "Build swish_tests with ASan + UBSan" OFF)
+if(ENABLE_SANITIZERS)
+    target_compile_options(swish_tests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(swish_tests PRIVATE -fsanitize=address,undefined)
 endif()
 
 # road.bin must exist before the test binary runs
 add_dependencies(swish_tests bake_configs)
 
-target_compile_definitions(swish_tests PRIVATE
-    CONFIG_DIR="${CMAKE_BINARY_DIR}/config/"
-)
-
-include(CTest)
 include(Catch)
 catch_discover_tests(swish_tests)

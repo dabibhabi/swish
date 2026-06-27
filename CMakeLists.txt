@@ -5,18 +5,36 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# --- Platform detection ---
-# APPLE → needs Cocoa/IOKit/OpenGL frameworks for GLFW's internals.
-# Linux and Windows → GLFW's own package config pulls in the display-server
-# dependencies transitively, so no per-platform libs are needed here.
-if(APPLE)
-    message(STATUS "swish: target platform is macOS")
-elseif(UNIX)
-    message(STATUS "swish: target platform is Linux")
-elseif(WIN32)
-    message(STATUS "swish: target platform is Windows")
-else()
-    message(FATAL_ERROR "swish: unsupported platform")
+# --- Graphics backend selection ---
+# AUTO detects the host platform; override with -DSWISH_BACKEND=<value>.
+#   APPLE_METAL    → macOS via MoltenVK (adds Vulkan portability extensions)
+#   LINUX_VULKAN   → Linux with AMD or NVIDIA (native Vulkan, no portability layer)
+#   WINDOWS_VULKAN → Windows with AMD or NVIDIA (native Vulkan)
+set(SWISH_BACKEND "AUTO" CACHE STRING
+    "Graphics backend: AUTO | APPLE_METAL | LINUX_VULKAN | WINDOWS_VULKAN")
+set_property(CACHE SWISH_BACKEND PROPERTY STRINGS AUTO APPLE_METAL LINUX_VULKAN WINDOWS_VULKAN)
+
+if(SWISH_BACKEND STREQUAL "AUTO")
+    if(APPLE)
+        set(SWISH_BACKEND "APPLE_METAL")
+    elseif(UNIX)
+        set(SWISH_BACKEND "LINUX_VULKAN")
+    elseif(WIN32)
+        set(SWISH_BACKEND "WINDOWS_VULKAN")
+    else()
+        message(FATAL_ERROR "swish: unsupported platform — set SWISH_BACKEND manually")
+    endif()
+endif()
+
+message(STATUS "swish: SWISH_BACKEND = ${SWISH_BACKEND}")
+
+# Platform detection (still needed for framework linking on macOS)
+if(SWISH_BACKEND STREQUAL "APPLE_METAL")
+    message(STATUS "swish: target platform is macOS (MoltenVK / portability)")
+elseif(SWISH_BACKEND STREQUAL "LINUX_VULKAN")
+    message(STATUS "swish: target platform is Linux (native Vulkan, AMD/NVIDIA)")
+elseif(SWISH_BACKEND STREQUAL "WINDOWS_VULKAN")
+    message(STATUS "swish: target platform is Windows (native Vulkan, AMD/NVIDIA)")
 endif()
 
 # --- GLFW (Homebrew on macOS, system package on Linux) ---
@@ -25,8 +43,8 @@ find_package(glfw3 3.3 REQUIRED)
 # --- GLM (header-only) ---
 find_package(glm REQUIRED)
 
-# --- macOS frameworks ---
-if(APPLE)
+# --- macOS frameworks (needed for GLFW internals on Apple) ---
+if(SWISH_BACKEND STREQUAL "APPLE_METAL")
     find_library(COCOA_LIBRARY Cocoa REQUIRED)
     find_library(IOKIT_LIBRARY IOKit REQUIRED)
     find_library(OPENGL_LIBRARY OpenGL REQUIRED)
@@ -152,6 +170,14 @@ target_compile_definitions(swish PRIVATE
     TEXTURE_DIR="${CMAKE_SOURCE_DIR}/textures/"
     ASSET_DIR="${CMAKE_SOURCE_DIR}/assets/"
     CONFIG_DIR="${CONFIG_DIR}/"
+    $<$<STREQUAL:${SWISH_BACKEND},APPLE_METAL>:SWISH_BACKEND_APPLE>
+    $<$<STREQUAL:${SWISH_BACKEND},LINUX_VULKAN>:SWISH_BACKEND_LINUX>
+    $<$<STREQUAL:${SWISH_BACKEND},WINDOWS_VULKAN>:SWISH_BACKEND_WINDOWS>
+)
+
+target_compile_options(swish PRIVATE
+    $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wpedantic -Wno-unused-parameter>
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
 )
 
 target_link_libraries(swish PRIVATE
@@ -162,7 +188,7 @@ target_link_libraries(swish PRIVATE
     tinygltf
 )
 
-if(APPLE)
+if(SWISH_BACKEND STREQUAL "APPLE_METAL")
     target_link_libraries(swish PRIVATE
         ${OPENGL_LIBRARY}
         ${COCOA_LIBRARY}
@@ -172,4 +198,5 @@ endif()
 
 # --- Tests ---
 enable_testing()
+include(CTest)
 add_subdirectory(tests)

@@ -10,7 +10,7 @@ public:
     // TODO: Read a binary file (SPIR-V shader) into a byte vector.
     // Used by Pipeline to load compiled .spv shaders from disk.
     // Throw if file not found.
-    static std::vector<char> readBinaryFile(const std::string& filepath);
+    [[nodiscard]] static std::vector<char> readBinaryFile(const std::string& filepath);
 };
 
 }  // namespace swish

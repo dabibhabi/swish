@@ -217,17 +217,25 @@ int App::run() {
         float current_time = static_cast<float>(glfwGetTime());
         float delta_time   = current_time - last_frame_time;
         last_frame_time    = current_time;
+        delta_time = std::min(delta_time, 1.0f / 15.0f);  // cap at ~67ms to prevent physics explosion
 
         m_window->pollEvents();
 
-        // Toggle cursor capture with Escape
-        if (glfwGetKey(glfw_window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-            m_cursor_captured = !m_cursor_captured;
-            glfwSetInputMode(glfw_window, GLFW_CURSOR, m_cursor_captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
-            m_first_mouse = true;
-            // Small delay to avoid toggle spam
-            glfwWaitEventsTimeout(0.2);
+        // Note: drawFrame's handlePresent also checks wasResized, but checking here
+        // ensures the flag is consumed even on frames where drawing is skipped.
+        if (m_window->wasResized()) {
+            m_window->resetResizedFlag();
         }
+
+        // Toggle cursor capture with Escape (edge-detected — no toggle spam)
+        bool esc_down = glfwGetKey(glfw_window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
+        if (esc_down && !m_esc_key_prev) {
+            m_cursor_captured = !m_cursor_captured;
+            glfwSetInputMode(glfw_window, GLFW_CURSOR,
+                m_cursor_captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+            m_first_mouse = true;
+        }
+        m_esc_key_prev = esc_down;
 
         // Toggle cockpit / free-fly camera with C (edge-detected)
         bool c_down = glfwGetKey(glfw_window, GLFW_KEY_C) == GLFW_PRESS;

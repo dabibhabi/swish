@@ -91,6 +91,14 @@ glm::mat4 norm_matrix_y90(const glm::mat4& M) {
     return out;
 }
 
+template<typename T>
+static void transcodeIndices(const tinygltf::Model& gltf, int accessor, size_t n_idx,
+                              uint32_t base_vertex, MeshData& mesh) {
+    const T* idx = gltf_accessor_data<T>(gltf, accessor);
+    for (size_t i = 0; i < n_idx; i++)
+        mesh.addIndex(base_vertex + static_cast<uint32_t>(idx[i]));
+}
+
 // Upload one decoded image to TextureManager; returns name on success, "" on failure.
 std::string upload_gltf_image(const tinygltf::Model& model, int image_idx,
                                const std::string& name, TextureManager& tex_mgr) {
@@ -105,8 +113,9 @@ std::string upload_gltf_image(const tinygltf::Model& model, int image_idx,
     if (img.component == 4) {
         rgba = img.image;
     } else if (img.component == 3) {
-        rgba.resize(static_cast<size_t>(img.width) * img.height * 4);
-        for (int i = 0; i < img.width * img.height; i++) {
+        const int pixel_count = img.width * img.height;
+        rgba.resize(static_cast<size_t>(pixel_count) * 4);
+        for (int i = 0; i < pixel_count; i++) {
             rgba[i * 4 + 0] = img.image[i * 3 + 0];
             rgba[i * 4 + 1] = img.image[i * 3 + 1];
             rgba[i * 4 + 2] = img.image[i * 3 + 2];
@@ -183,12 +192,6 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         gltf_walk_nodes(gltf, root, glm::mat4(1.f), node_world, node_visited);
 
     glm::mat4 ref_inverse(1.f);
-    for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
-        if (gltf.nodes[ni].name == "RootNode") {
-            ref_inverse = glm::inverse(node_world[ni]);
-            break;
-        }
-    }
 
     // ── Steering wheel articulation ───────────────────────────────────
     // The Steering_Wheel node's origin sits at the hub center (confirmed in
@@ -201,10 +204,10 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     glm::mat4 sw_pivot_frame(1.f);
     bool      found_sw_pivot = false;
     for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
-        if (gltf.nodes[ni].name == "Steering_Wheel") {
+        if (gltf.nodes[ni].name == "RootNode")
+            ref_inverse = glm::inverse(node_world[ni]);
+        if (gltf.nodes[ni].name == "Steering_Wheel")
             steering_wheel_idx = static_cast<int>(ni);
-            break;
-        }
     }
     if (steering_wheel_idx >= 0 && node_visited[steering_wheel_idx]) {
         sw_pivot_frame = ref_inverse * node_world[steering_wheel_idx];
@@ -278,15 +281,11 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         // Indices — handle all common component types
         const auto& idx_acc = gltf.accessors[prim.indices];
         size_t      n_idx   = idx_acc.count;
-        if (idx_acc.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT) {
-            const uint32_t* idx = gltf_accessor_data<uint32_t>(gltf, prim.indices);
-            for (size_t i = 0; i < n_idx; i++) mesh.addIndex(base_vertex + idx[i]);
-        } else if (idx_acc.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
-            const uint16_t* idx = gltf_accessor_data<uint16_t>(gltf, prim.indices);
-            for (size_t i = 0; i < n_idx; i++) mesh.addIndex(base_vertex + idx[i]);
-        } else if (idx_acc.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE) {
-            const uint8_t* idx = gltf_accessor_data<uint8_t>(gltf, prim.indices);
-            for (size_t i = 0; i < n_idx; i++) mesh.addIndex(base_vertex + idx[i]);
+        switch (idx_acc.componentType) {
+            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:   transcodeIndices<uint32_t>(gltf, prim.indices, n_idx, base_vertex, mesh); break;
+            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: transcodeIndices<uint16_t>(gltf, prim.indices, n_idx, base_vertex, mesh); break;
+            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:  transcodeIndices<uint8_t> (gltf, prim.indices, n_idx, base_vertex, mesh); break;
+            default: break;
         }
 
         Submesh sm{};
@@ -304,27 +303,26 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     if (mesh.empty())
         throw std::runtime_error("ModelManager::load_car: no usable geometry in '" + path + "'");
 
-    // ── Normalize mesh space ──────────────────────────────────────────
+    // ── Normalize mesh space + bounding-box scan (single pass) ───────
     // The asset's nose points down mesh +Z, but the entity convention is
     // nose = +X at yaw 0, so that R_y(yaw)·(+X) equals the physics forward
     // vector and the body lines up with the direction of travel. Rotate
     // +90° about Y: (x, y, z) → (z, y, −x), directions included.
+    // Track bb_min simultaneously so we avoid a second O(n) pass.
+    glm::vec3 bb_min(std::numeric_limits<float>::max());
+    glm::vec3 bb_max(std::numeric_limits<float>::lowest());
     for (auto& v : mesh.getVertices()) {
         v.position = glm::vec3(v.position.z, v.position.y, -v.position.x);
         v.normal   = glm::vec3(v.normal.z, v.normal.y, -v.normal.x);
         v.tangent  = glm::vec4(v.tangent.z, v.tangent.y, -v.tangent.x, v.tangent.w);
+        bb_min = glm::min(bb_min, v.position);
+        bb_max = glm::max(bb_max, v.position);
     }
 
     // ── Ground the model ──────────────────────────────────────────────
     // The glTF origin sits at axle height, not at the tire contact patch.
     // Shift all vertices so the lowest point lands at y = 0; then an entity
     // position of y = 0 means "tires resting on the road surface".
-    glm::vec3 bb_min(std::numeric_limits<float>::max());
-    glm::vec3 bb_max(std::numeric_limits<float>::lowest());
-    for (const auto& v : mesh.getVertices()) {
-        bb_min = glm::min(bb_min, v.position);
-        bb_max = glm::max(bb_max, v.position);
-    }
     for (auto& v : mesh.getVertices())
         v.position.y -= bb_min.y;
 

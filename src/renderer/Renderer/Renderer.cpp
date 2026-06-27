@@ -62,22 +62,15 @@ struct ScopedRenderPass {
 // ══════════════════════════════════════════════════════════════════════
 
 Renderer::Renderer()
-    : m_cameraUniforms(std::make_unique<CameraUniforms>()),
-      m_materialDescriptors(std::make_unique<MaterialDescriptors>()) {
-    m_context        = new VulkanContext();
-    m_device         = new Device();
-    m_swapchain      = new Swapchain();
-    m_commandManager = new CommandManager();
-    m_syncObjects    = new SyncObjects();
-}
+    : m_context(std::make_unique<VulkanContext>()),
+      m_device(std::make_unique<Device>()),
+      m_swapchain(std::make_unique<Swapchain>()),
+      m_commandManager(std::make_unique<CommandManager>()),
+      m_syncObjects(std::make_unique<SyncObjects>()),
+      m_cameraUniforms(std::make_unique<CameraUniforms>()),
+      m_materialDescriptors(std::make_unique<MaterialDescriptors>()) {}
 
-Renderer::~Renderer() {
-    delete m_syncObjects;
-    delete m_commandManager;
-    delete m_swapchain;
-    delete m_device;
-    delete m_context;
-}
+Renderer::~Renderer() = default;
 
 void Renderer::init(Window& window) {
     m_window = &window;
@@ -93,13 +86,12 @@ void Renderer::init(Window& window) {
     m_cameraUniforms->init(m_device->getDevice(), m_device->getPhysicalDevice(), MAX_FRAMES_IN_FLIGHT);
     m_materialDescriptors->init(m_device->getDevice());
 
-    QueueFamilyIndices queueFamilies =
-        m_device->findQueueFamilies(m_device->getPhysicalDevice(), m_context->getSurface());
-    m_commandManager->init(m_device->getDevice(), queueFamilies.graphicsFamily.value(), MAX_FRAMES_IN_FLIGHT);
+    m_commandManager->init(m_device->getDevice(), m_device->getQueueFamilies().graphicsFamily.value(),
+                           MAX_FRAMES_IN_FLIGHT);
 
     m_syncObjects->init(m_device->getDevice(), MAX_FRAMES_IN_FLIGHT, m_swapchain->getImageCount());
 
-    m_postProcess = new PostProcessManager();
+    m_postProcess = std::make_unique<PostProcessManager>();
     m_postProcess->init(m_device->getDevice(), m_device->getPhysicalDevice(), m_commandManager->getPool(),
                         m_device->getGraphicsQueue(), m_swapchain->getExtent(), m_swapchain->getImageFormat(),
                         m_swapchain->getImageViews());
@@ -121,16 +113,14 @@ void Renderer::init(Window& window) {
 void Renderer::cleanup() {
     vkDeviceWaitIdle(m_device->getDevice());
 
-    delete m_camera;
-    m_camera = nullptr;
+    m_camera.reset();
 
     destroy_scene_geometry();
     destroy_dynamic_geometry();
 
     if (has_post_process()) {
         m_postProcess->cleanup();
-        delete m_postProcess;
-        m_postProcess = nullptr;
+        m_postProcess.reset();
     }
 
     m_materialDescriptors->cleanup(m_device->getDevice());
@@ -182,12 +172,11 @@ RendererServices Renderer::services() const {
 // ══════════════════════════════════════════════════════════════════════
 
 void Renderer::set_camera(Camera* camera) {
-    delete m_camera;
-    m_camera = camera;
+    m_camera.reset(camera);
 }
 
 Camera* Renderer::get_camera() const {
-    return m_camera;
+    return m_camera.get();
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -223,7 +212,8 @@ void Renderer::drawFrame() {
     auto submitFrame = [&](uint32_t imageIndex) {
         VkSemaphore          waitSems[]   = {m_syncObjects->getImageAvailable(m_currentFrame)};
         VkSemaphore          signalSems[] = {m_syncObjects->getRenderFinished(imageIndex)};
-        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT};
         VkCommandBuffer      cmdBufs[]    = {m_commandManager->getBuffer(m_currentFrame)};
 
         auto si                 = vk::makeSubmitInfo();
@@ -438,8 +428,8 @@ void Renderer::recreateSwapchain() {
     int width = 0, height = 0;
     m_window->getFramebufferSize(&width, &height);
     while (width == 0 || height == 0) {
+        m_window->waitEvents();
         m_window->getFramebufferSize(&width, &height);
-        m_window->pollEvents();
     }
 
     vkDeviceWaitIdle(m_device->getDevice());

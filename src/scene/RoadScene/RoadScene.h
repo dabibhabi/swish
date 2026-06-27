@@ -204,25 +204,32 @@ private:
     Vec4 m_yellow_tint;
     Vec4 m_black_tint;
 
+    // ── Precomputed per-generate() layout values ──────────────────
+    struct RoadLayout {
+        float eb_start;   // eastbound start X (barrier + clearance)
+        float road_width; // total road width (lane_count * lane_width)
+        float wb_inner;   // westbound inner edge (-road_width)
+    };
+
     // ── Section generators (const — read instance state only) ─────
-    void generate_grass(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_road_surfaces(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_shoulders(MeshBuilder& builder, float z_near, float z_far) const;
+    void generate_grass(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_road_surfaces(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_shoulders(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
     void generate_jersey_barrier(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_guardrail(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_solid_markings(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_dashed_markings(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_curbs(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_rumble_strips(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_dirt_strips(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_trees(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_ambient_occlusion(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_hov_diamonds(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_sign_posts(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_overpass(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_sound_barriers(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_exit_ramp(MeshBuilder& builder, float z_near, float z_far) const;
-    void generate_street_lamps(MeshBuilder& builder, std::vector<LightDesc>& lights, float z_near, float z_far) const;
+    void generate_guardrail(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_solid_markings(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_dashed_markings(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_curbs(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_rumble_strips(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_dirt_strips(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_trees(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_ambient_occlusion(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_hov_diamonds(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_sign_posts(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_overpass(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_sound_barriers(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_exit_ramp(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    void generate_street_lamps(MeshBuilder& builder, const RoadLayout& layout, std::vector<LightDesc>& lights, float z_near, float z_far) const;
 };
 
 }  // namespace swish

@@ -39,13 +39,13 @@ VkCommandBuffer CommandManager::getBuffer(uint32_t frameIndex) const {
 }
 
 void CommandManager::resetBuffer(uint32_t frameIndex) {
-    vkResetCommandBuffer(m_buffers[frameIndex], 0);
+    VK_CHECK(vkResetCommandBuffer(m_buffers[frameIndex], 0));
 }
 
 void CommandManager::beginRecording(uint32_t frameIndex) {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    // We use this if we want to submit the same buffer multiple times concurrently = 0 implies false
+    // No SIMULTANEOUS_USE_BIT: this buffer must not be resubmitted while still pending on the GPU.
     beginInfo.flags = 0;
 
     VK_CHECK(vkBeginCommandBuffer(m_buffers[frameIndex], &beginInfo));
