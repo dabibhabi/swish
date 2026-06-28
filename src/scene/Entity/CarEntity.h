@@ -2,6 +2,9 @@
 
 #include "Entity.h"
 
+#include <glm/glm.hpp>
+#include <cmath>
+
 struct GLFWwindow;
 
 namespace swish {
@@ -35,7 +38,17 @@ public:
 
     float get_speed() const { return m_forward_speed; }
 
+    // World-space unit vector pointing toward the car's nose (+X at yaw=0).
+    Vec3 get_forward() const {
+        float yaw = glm::radians(m_rotation.y);
+        return Vec3(std::cos(yaw), 0.f, -std::sin(yaw));
+    }
+
     std::vector<DrawCall> get_draw_calls() const override;
+
+    // Glass (BLEND) draw calls — same VBO/IBO as the opaque mesh but rendered
+    // in the forward transparent pass (GlassPass).
+    std::vector<DrawCall> get_windshield_draw_calls() const;
 
 private:
     float m_forward_speed  = 0.f;   // world units / second, positive = forward
@@ -57,6 +70,9 @@ private:
     static constexpr float kSteerRate       =     90.f;   // degrees/s
     static constexpr float kSteerReturn     =    120.f;   // return-to-center rate
     static constexpr float kWheelbase       =  2'800.f;   // ~2.8m wheelbase in WU
+
+public:
+    static constexpr float kMaxSpeed = kMaxForwardSpeed;  // exposed for normalization
 };
 
 }  // namespace swish

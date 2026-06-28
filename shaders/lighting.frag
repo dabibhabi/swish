@@ -67,10 +67,15 @@ void main() {
     vec4  material  = texture(gbMaterial, fragUV);
     float depth     = texture(gbDepth, fragUV).r;
 
+    float wetness = camera.camPos.w;  // packed by CameraUniforms::set_wetness()
+
     // Sky pixels (depth = 1.0, no geometry)
     if (depth > 0.9999) {
         vec3 viewDir = normalize(reconstructWorldPos(fragUV, 0.5) - camera.camPos.xyz);
-        outColor = vec4(compute_sky_color(viewDir), 1.0);
+        vec3 sky = compute_sky_color(viewDir);
+        // Overcast: grey out the sky as wetness increases
+        vec3 overcast = sky * (1.0 - wetness * 0.45);
+        outColor = vec4(mix(sky, overcast, wetness * 0.9), 1.0);
         return;
     }
 
@@ -78,6 +83,11 @@ void main() {
     vec3  N         = normalize(rawNormal * 2.0 - 1.0);
     float metallic  = material.r;
     float roughness = material.g;
+
+    // Wet surfaces: darken albedo (water absorbs light) and lower roughness
+    // (water film makes surfaces more specular / mirror-like)
+    albedo    = mix(albedo, albedo * 0.68, wetness);
+    roughness = mix(roughness, roughness * 0.35, wetness * 0.7);
 
     // Reconstruct world position from depth
     vec3 fragWorldPos = reconstructWorldPos(fragUV, depth);

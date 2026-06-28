@@ -39,6 +39,11 @@ public:
 
     bool has_geometry() const { return m_indexBuffer != VK_NULL_HANDLE; }
 
+    // Raw handle accessors for passes that share this geometry but use a
+    // different pipeline (e.g. GlassPass, WindshieldRainPass).
+    VkBuffer get_vertex_buffer() const { return m_vertexBuffer; }
+    VkBuffer get_index_buffer()  const { return m_indexBuffer; }
+
     // Replace the stored draw-call list without re-uploading GPU buffers.
     // Used every frame for dynamic objects (e.g. the car) whose vertex data
     // is static but whose model matrices change.

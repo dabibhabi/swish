@@ -24,6 +24,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <cstdint>
+#include <algorithm>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -215,9 +216,12 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     }
 
     // ── Build combined MeshData from all mesh nodes ───────────────────
+    // Opaque and glass geometry share the same VBO/IBO. Glass primitives
+    // (alphaMode=BLEND) are tracked in a separate submesh list so the
+    // G-buffer pass can skip them while the GlassPass can draw them.
     MeshData             mesh;
-    std::vector<Submesh> submeshes;
-    int                  skipped_glass = 0;
+    std::vector<Submesh> submeshes;       // opaque (G-buffer)
+    std::vector<Submesh> glassSubmeshes;  // BLEND (forward transparent pass)
 
     for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
         const auto& node = gltf.nodes[ni];
@@ -231,14 +235,20 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         if (prim.mode != TINYGLTF_MODE_TRIANGLES || prim.indices < 0)
             continue;
 
-        // Glass (alphaMode BLEND) would render opaque in the G-buffer and
-        // wall off the cockpit view. Skip it until the forward transparent
-        // pass exists (plan/car_system_port.md Phase 5).
-        if (prim.material >= 0 &&
-            gltf.materials[prim.material].alphaMode == "BLEND") {
-            skipped_glass++;
-            continue;
-        }
+        const bool isGlass = (prim.material >= 0 &&
+                              gltf.materials[prim.material].alphaMode == "BLEND");
+
+        // Windshield = the OUTER exterior glass pane only ("Window_Geo"),
+        // excluding the red taillight glass ("RED_GLASS"). The cabin-facing
+        // inner pane ("WindowInside_Geo") is deliberately NOT tagged — painting
+        // rain on it puts droplets inside the cabin (see issue.md §2a). Note
+        // "WindowInside_Geo" does not contain the substring "Window_Geo", so
+        // dropping that OR-term is sufficient to exclude it. The combined outer
+        // mesh also holds side/rear glass; the windshield rain shader confines
+        // drops to the forward-facing pane via a surface-normal mask.
+        const bool isWindshield = isGlass
+            && node.name.find("Window_Geo") != std::string::npos
+            && node.name.find("RED_GLASS") == std::string::npos;
 
         auto pos_it  = prim.attributes.find("POSITION");
         if (pos_it == prim.attributes.end())
@@ -289,14 +299,31 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         }
 
         Submesh sm{};
-        sm.indexOffset = idx_start;
-        sm.indexCount  = static_cast<uint32_t>(n_idx);
-        sm.color       = Vec4(1.f, 1.f, 1.f, 1.f);
-        sm.material    = (prim.material >= 0 && prim.material < kMaxCarMaterials)
-                             ? static_cast<MaterialId>(MAT_CAR_0 + prim.material)
-                             : MAT_DEFAULT;
-        sm.is_steering_wheel = found_sw_pivot && (node.name == "Steering_Wheel");
-        submeshes.push_back(sm);
+        sm.indexOffset       = idx_start;
+        sm.indexCount        = static_cast<uint32_t>(n_idx);
+        sm.is_glass          = isGlass;
+        sm.is_windshield     = isWindshield;
+        sm.is_steering_wheel = !isGlass && found_sw_pivot && (node.name == "Steering_Wheel");
+
+        if (prim.material >= 0 && prim.material < kMaxCarMaterials) {
+            sm.material = static_cast<MaterialId>(MAT_CAR_0 + prim.material);
+            // Glass base color from the glTF material factor (RGBA).
+            if (isGlass) {
+                const auto& bc = gltf.materials[prim.material].pbrMetallicRoughness.baseColorFactor;
+                sm.color = Vec4(static_cast<float>(bc[0]), static_cast<float>(bc[1]),
+                                static_cast<float>(bc[2]), static_cast<float>(bc[3]));
+            } else {
+                sm.color = Vec4(1.f, 1.f, 1.f, 1.f);
+            }
+        } else {
+            sm.material = MAT_DEFAULT;
+            sm.color    = Vec4(1.f, 1.f, 1.f, 1.f);
+        }
+
+        if (isGlass)
+            glassSubmeshes.push_back(sm);
+        else
+            submeshes.push_back(sm);
     }
     }
 
@@ -344,7 +371,10 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     std::cout << "ModelManager::load_car: '" << path << "' bbox (m) length "
               << size.x << " x height " << size.y << " x width " << size.z
               << ", grounded by " << -bb_min.y
-              << ", glass primitives skipped: " << skipped_glass;
+              << ", glass primitives: " << glassSubmeshes.size()
+              << " (windshield: "
+              << std::count_if(glassSubmeshes.begin(), glassSubmeshes.end(),
+                               [](const Submesh& s){ return s.is_windshield; }) << ")";
     if (found_sw_pivot) {
         std::cout << ", steering pivot " << sw_pivot_frame[3][0] << " " << sw_pivot_frame[3][1] << " "
                   << sw_pivot_frame[3][2];
@@ -355,6 +385,8 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     car->set_mesh_data(std::move(mesh));
     for (const auto& sm : submeshes)
         car->add_submesh(sm);
+    for (const auto& sm : glassSubmeshes)
+        car->add_glass_submesh(sm);
 
     return car;
 }

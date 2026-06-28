@@ -40,6 +40,14 @@ private:
     float m_look_yaw     = 0.0f;  // mouse-look offsets relative to car heading
     float m_look_pitch   = 0.0f;
 
+    // Rain (R key cycles off → light → heavy → off)
+    int  m_rain_level  = 0;
+    bool m_r_key_prev  = false;
+
+    // Windshield wiper (V key toggles continuous sweep on/off)
+    bool m_wiper_enabled = false;
+    bool m_v_key_prev    = false;
+
     static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
     // Owns the GLFW user pointer once App::run sets it, so the framebuffer
     // resize callback must also be App's — otherwise GLFW would still call

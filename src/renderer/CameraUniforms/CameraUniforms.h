@@ -27,6 +27,10 @@ public:
     void set_lights(const std::vector<LightDesc>& lights) { m_lights = lights; m_lightsDirty = true; }
     bool has_lights() const { return !m_lights.empty(); }
 
+    // Patches camPos.w in the already-mapped camera UBO for this frame.
+    // Call after update() — does not disturb xyz.
+    void set_wetness(uint32_t frameIndex, float wetness);
+
     VkDescriptorSetLayout get_layout() const { return m_setLayout; }
     VkDescriptorSet       get_set(uint32_t frameIndex) const { return m_sets[frameIndex]; }
 

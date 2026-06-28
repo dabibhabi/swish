@@ -28,6 +28,9 @@ class ModelManager;
 class PostProcessManager;
 class CameraUniforms;
 class MaterialDescriptors;
+class RainSystem;
+class GlassPass;
+class WindshieldRainPass;
 
 // The Renderer orchestrates the Vulkan draw loop and acts as a
 // central registry for managers (rind-style architecture).
@@ -56,7 +59,7 @@ public:
     // ── Core lifecycle ────────────────────────────────────────────────
     void init(Window& window);
     void cleanup();
-    void drawFrame();
+    void drawFrame(float deltaTime);
 
     // ── Manager registration (called by App after init) ───────────────
     void register_texture_manager(TextureManager* mgr);
@@ -93,6 +96,16 @@ public:
     // ── Scene lights (called by Scene lambdas) ─────────────────────────
     void set_scene_lights(const std::vector<LightDesc>& lights);
 
+    // ── Rain control (called by App; R key cycles intensity) ──────────
+    void set_rain_intensity(float intensity);  // [0,1]
+    void set_car_velocity(Vec3 velocity);      // WU/s; drives rain streak lean at speed
+    void set_wiper_enabled(bool enabled);      // V key toggles the windshield wiper
+
+    // ── Glass + windshield rain (updated each frame by App) ───────────
+    // Replaces the stored glass draw call list (call after update_dynamic_draw_calls).
+    void update_glass_draw_calls(const std::vector<DrawCall>& glassDCs);
+    void update_windshield_draw_calls(const std::vector<DrawCall>& windshieldDCs);
+
     // ── GPU synchronization ───────────────────────────────────────────
     void wait_for_idle();
 
@@ -111,6 +124,9 @@ private:
     std::unique_ptr<PostProcessManager>  m_postProcess;
     std::unique_ptr<CameraUniforms>      m_cameraUniforms;
     std::unique_ptr<MaterialDescriptors> m_materialDescriptors;
+    std::unique_ptr<RainSystem>          m_rainSystem;
+    std::unique_ptr<GlassPass>           m_glassPass;
+    std::unique_ptr<WindshieldRainPass>  m_windshieldRainPass;
 
     // ── Manager pointers (NOT owned — App owns these) ─────────────
     TextureManager* m_textureManager = nullptr;
@@ -128,6 +144,16 @@ private:
     // ── Camera ────────────────────────────────────────────────────
     std::unique_ptr<Camera> m_camera;
 
+    // ── Rain state ────────────────────────────────────────────────
+    float m_rainIntensity = 0.0f;
+    Vec3  m_rainWind      = Vec3(1500.0f, 0.0f, 400.0f);  // WU/s (≈1.5 m/s × drift)
+    Vec3  m_carVelocity   = Vec3(0.0f, 0.0f, 0.0f);       // set by App each frame
+    bool  m_wiperEnabled  = false;                        // V key toggles the wiper
+
+    // ── Glass + windshield state ──────────────────────────────────
+    std::vector<DrawCall> m_glassDrawCalls;
+    std::vector<DrawCall> m_windshieldDrawCalls;
+
     // ── Frame tracking ────────────────────────────────────────────
     uint32_t m_currentFrame = 0;
 
@@ -141,6 +167,9 @@ private:
     void recordGBufferPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExtent2D extent);
     void transitionGBufferForLighting(VkCommandBuffer cmd, uint32_t frameIndex);
     void recordLightingPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExtent2D extent);
+    void recordRainPass(VkCommandBuffer cmd, uint32_t frameIndex);
+    void recordGlassPass(VkCommandBuffer cmd, uint32_t frameIndex);
+    void recordWindshieldRainPass(VkCommandBuffer cmd, uint32_t frameIndex);
     void recordBloomExtract(VkCommandBuffer cmd, VkExtent2D extent);
     void recordBloomBlur(VkCommandBuffer cmd, VkExtent2D extent, bool horizontal);
     void recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t imageIndex, VkExtent2D extent);

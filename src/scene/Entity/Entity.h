@@ -42,16 +42,25 @@ public:
     void set_mesh_data(MeshData mesh) { m_mesh = std::move(mesh); }
     void add_submesh(const Submesh& s) { m_submeshes.push_back(s); }
 
+    // Glass (alphaMode=BLEND) submeshes share the same MeshData VBO/IBO as
+    // the opaque submeshes but are drawn in a separate forward transparent pass.
+    void add_glass_submesh(const Submesh& s) { m_glassSubmeshes.push_back(s); }
+
     const MeshData& get_mesh_data() const { return m_mesh; }
 
-    // Returns one DrawCall per submesh, each stamped with the current model matrix.
+    // Returns one DrawCall per opaque submesh stamped with the current model matrix.
     virtual std::vector<DrawCall> get_draw_calls() const;
 
-    const std::vector<Submesh>& get_submeshes() const { return m_submeshes; }
+    // Returns DrawCalls for glass (BLEND) submeshes stamped with current model matrix.
+    std::vector<DrawCall> get_glass_draw_calls() const;
+
+    const std::vector<Submesh>& get_submeshes()       const { return m_submeshes; }
+    const std::vector<Submesh>& get_glass_submeshes() const { return m_glassSubmeshes; }
 
 private:
     MeshData             m_mesh;
     std::vector<Submesh> m_submeshes;
+    std::vector<Submesh> m_glassSubmeshes;
 };
 
 }  // namespace swish

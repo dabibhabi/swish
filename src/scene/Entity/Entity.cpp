@@ -29,4 +29,21 @@ std::vector<DrawCall> ModelEntity::get_draw_calls() const {
     return result;
 }
 
+std::vector<DrawCall> ModelEntity::get_glass_draw_calls() const {
+    Mat4                  model = get_model_matrix();
+    std::vector<DrawCall> result;
+    result.reserve(m_glassSubmeshes.size());
+
+    for (const auto& s : m_glassSubmeshes) {
+        DrawCall dc{};
+        dc.indexOffset = s.indexOffset;
+        dc.indexCount  = s.indexCount;
+        dc.material    = s.material;
+        dc.color       = s.color;
+        dc.model       = model;
+        result.push_back(dc);
+    }
+    return result;
+}
+
 }  // namespace swish

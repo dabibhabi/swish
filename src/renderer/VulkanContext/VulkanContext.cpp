@@ -3,6 +3,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
@@ -97,6 +98,20 @@ void VulkanContext::createInstance() {
     extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
     createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 #endif
+
+    // Optionally enable extended color spaces (16-bit swapchain formats, wide gamut)
+    {
+        uint32_t propCount = 0;
+        vkEnumerateInstanceExtensionProperties(nullptr, &propCount, nullptr);
+        std::vector<VkExtensionProperties> allExts(propCount);
+        vkEnumerateInstanceExtensionProperties(nullptr, &propCount, allExts.data());
+        for (const auto& p : allExts) {
+            if (std::strcmp(p.extensionName, "VK_EXT_swapchain_colorspace") == 0) {
+                extensions.push_back("VK_EXT_swapchain_colorspace");
+                break;
+            }
+        }
+    }
 
     createInfo.enabledExtensionCount   = static_cast<uint32_t>(extensions.size());
     createInfo.ppEnabledExtensionNames = extensions.data();

@@ -69,6 +69,23 @@ void CarEntity::update(float dt) {
     m_position.x = std::clamp(m_position.x, m_min_x, m_max_x);
 }
 
+std::vector<DrawCall> CarEntity::get_windshield_draw_calls() const {
+    Mat4                  model = get_model_matrix();
+    std::vector<DrawCall> result;
+
+    for (const auto& s : get_glass_submeshes()) {
+        if (!s.is_windshield) continue;
+        DrawCall dc{};
+        dc.indexOffset = s.indexOffset;
+        dc.indexCount  = s.indexCount;
+        dc.material    = s.material;
+        dc.color       = s.color;
+        dc.model       = model;
+        result.push_back(dc);
+    }
+    return result;
+}
+
 std::vector<DrawCall> CarEntity::get_draw_calls() const {
     std::vector<DrawCall> result;
     result.reserve(get_submeshes().size());

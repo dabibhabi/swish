@@ -150,4 +150,11 @@ void CameraUniforms::createDescriptors(VkDevice device) {
     }
 }
 
+void CameraUniforms::set_wetness(uint32_t frameIndex, float wetness) {
+    // camPos is the third Vec4 in CameraUBO: offset = sizeof(Mat4)*2 + sizeof(Vec4)*0
+    // We write only the w component (byte offset +12 within the Vec4).
+    auto* ubo      = reinterpret_cast<CameraUBO*>(m_cameraMapped[frameIndex]);
+    ubo->camPos.w  = wetness;
+}
+
 }  // namespace swish

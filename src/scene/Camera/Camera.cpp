@@ -11,12 +11,8 @@ namespace swish {
 // Position
 // ══════════════════════════════════════════════════════════════════════
 
-void Camera::set_position(const Vec3& pos) {
-    m_position = pos;
-}
-const Vec3& Camera::get_position() const {
-    return m_position;
-}
+void Camera::set_position(const Vec3& pos) { m_position = pos; }
+const Vec3& Camera::get_position() const { return m_position; }
 
 // ══════════════════════════════════════════════════════════════════════
 // Orientation

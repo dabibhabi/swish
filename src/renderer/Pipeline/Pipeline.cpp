@@ -104,7 +104,15 @@ VkPipeline Pipeline::create(VkDevice device, const PipelineConfig& config, VkRen
     for (auto& attachment : colorBlendAttachments) {
         attachment.colorWriteMask =
             VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        if (config.enableBlending) {
+        if (config.additiveBlending) {
+            attachment.blendEnable         = VK_TRUE;
+            attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            attachment.colorBlendOp        = VK_BLEND_OP_ADD;
+            attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            attachment.alphaBlendOp        = VK_BLEND_OP_ADD;
+        } else if (config.enableBlending) {
             attachment.blendEnable         = VK_TRUE;
             attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
             attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;

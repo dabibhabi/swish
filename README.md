@@ -1,6 +1,6 @@
 # Swish
 
-A real-time driving simulation on the Long Island Expressway (I-495), built from scratch with Vulkan. Implements a full deferred rendering pipeline: G-buffer → PBR lighting → HDR bloom → ACES tone mapping, with a driveable Porsche on procedurally generated highway geometry.
+A real-time driving simulation on the Long Island Expressway (I-495), built from scratch with Vulkan. Implements a full deferred + forward rendering pipeline: G-buffer → PBR lighting → GPU rain → forward-transparent glass → windshield rain trails → HDR bloom → AgX tone mapping, with a driveable Porsche on procedurally generated highway geometry.
 
 ---
 
@@ -68,6 +68,7 @@ GPU vendor scoring: discrete GPU preferred over integrated (+1000 pts); matching
 | `↑ ↓` | Throttle / brake |
 | `← →` | Steer left / right |
 | `C` | Toggle cockpit / free-fly camera |
+| `R` | Cycle rain intensity: off → light (0.35) → heavy (1.0) |
 | `Shift` | Sprint (free-fly speed ×2) |
 | `ESC` | Toggle mouse cursor capture |
 
@@ -87,6 +88,7 @@ Start at the [**documentation index**](docs/README.md) for a full map. Highlight
 
 | Document | Description |
 |----------|-------------|
+| [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | **Quick lookup** — every term, abbreviation, class, and convention, one line each |
 | [`docs/architecture.md`](docs/architecture.md) | 5-layer system architecture, startup sequence, design patterns |
 | [`docs/render-pipeline.md`](docs/render-pipeline.md) | Per-frame 6-pass deferred rendering pipeline + all shader math |
 | [`docs/data-types.md`](docs/data-types.md) | Every data struct (DTO) and UBO, with exact byte layouts and std140 rules |

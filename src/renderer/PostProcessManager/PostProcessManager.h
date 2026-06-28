@@ -23,15 +23,16 @@ namespace swish {
 
 static constexpr uint32_t PP_MAX_FRAMES = 2;
 
-// Push constants shared by all post-process shaders
+// Push constants shared by post-process shaders.
+// Layout must match the push_constant block in composite.frag exactly.
 struct PostProcessParams {
     float threshold;        // bloom threshold (default 1.0)
     float bloom_intensity;  // bloom blend strength (default 0.3)
     float exposure;         // tone mapping exposure (default 1.0)
-    float _pad0;
-    float texel_x;  // 1.0/width for blur direction
-    float texel_y;  // 1.0/height for blur direction
-    float _pad1;
+    float rain_intensity;   // [0,1] rain haze strength — repurposed from _pad0
+    float texel_x;          // 1.0/width for blur passes
+    float texel_y;          // 1.0/height for blur passes
+    float fog_density;      // atmospheric fog blend per rain_intensity unit — repurposed from _pad1
     float _pad2;
 };
 
@@ -88,8 +89,10 @@ public:
     VkDescriptorSet get_composite_set(uint32_t frameIndex) const { return m_compositeSets[frameIndex]; }
 
     // ── Image getters (for barriers in Renderer) ─────────────────
-    VkImage get_hdr_image(uint32_t frameIndex) const { return m_hdrImages[frameIndex]; }
-    VkImage get_hdr_depth_image(uint32_t frameIndex) const { return m_hdrDepthImages[frameIndex]; }
+    VkImage     get_hdr_image(uint32_t frameIndex)      const { return m_hdrImages[frameIndex]; }
+    VkImageView get_hdr_view(uint32_t frameIndex)       const { return m_hdrViews[frameIndex]; }
+    VkImage     get_hdr_depth_image(uint32_t frameIndex) const { return m_hdrDepthImages[frameIndex]; }
+    VkImageView get_hdr_depth_view(uint32_t frameIndex)  const { return m_hdrDepthViews[frameIndex]; }
     VkImage get_bloom_extract_image() const { return m_bloomExtractImage; }
     VkImage get_bloom_blur_h_image() const { return m_bloomBlurHImage; }
     VkImage get_bloom_blur_v_image() const { return m_bloomBlurVImage; }

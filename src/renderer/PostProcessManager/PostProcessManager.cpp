@@ -263,9 +263,9 @@ void PostProcessManager::createImages() {
     VkFormat aoFormat    = VK_FORMAT_R8_UNORM;
 
     auto makeColorImage = [&](uint32_t w, uint32_t h, VkFormat fmt, VkImage& img, VkDeviceMemory& mem,
-                              VkImageView& view) {
+                              VkImageView& view, VkImageUsageFlags extraUsage = 0) {
         ResourceManager::createImage(m_device, m_physicalDevice, w, h, fmt, VK_IMAGE_TILING_OPTIMAL,
-                                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | extraUsage,
                                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, img, mem);
         view = createImageView(img, fmt);
     };
@@ -279,8 +279,10 @@ void PostProcessManager::createImages() {
 
     // Per-frame HDR + depth
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
+        // HDR needs TRANSFER_SRC so the windshield-rain pass can snapshot it
+        // (blit/copy → refraction-source image) for scene-refraction drops.
         makeColorImage(m_fullExtent.width, m_fullExtent.height, hdrFormat, m_hdrImages[i], m_hdrMemory[i],
-                       m_hdrViews[i]);
+                       m_hdrViews[i], VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
         makeDepthImage(m_fullExtent.width, m_fullExtent.height, m_hdrDepthImages[i], m_hdrDepthMemory[i],
                        m_hdrDepthViews[i]);
 

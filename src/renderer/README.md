@@ -20,9 +20,12 @@ All Vulkan rendering subsystems. Each lives in its own subdirectory and follows 
 | `DeferredLightingPipeline/` | `DeferredLightingPipeline` | Lighting, bloom extract/blur, composite pipelines |
 | `CameraUniforms/` | `CameraUniforms` | UBO (view, proj, lights) + descriptor set 0; dirty-flag upload |
 | `MaterialDescriptors/` | `MaterialDescriptors` | Per-material descriptor sets (set 1); batched `vkUpdateDescriptorSets` |
-| `SceneGeometry/` | `SceneGeometry` | Device-local vertex + index buffers; staging upload; draw-call recording |
+| `SceneGeometry/` | `SceneGeometry` | Device-local vertex + index buffers; staging upload; draw-call recording; exposes `get_vertex_buffer()` / `get_index_buffer()` for passes that share the car buffer |
 | `ResourceManager/` | `ResourceManager` | `createBuffer`, `createImage`, `insertImageBarrier`, one-time commands |
 | `TextureManager/` | `TextureManager` | stb_image → device-local `VkImage`; name-keyed cache; shared sampler |
+| `RainSystem/` | `RainSystem` | GPU rain streaks (instanced billboard quads, additive blend); owns its own render pass (LOAD_OP_LOAD on HDR), per-frame UBOs, and wetness accumulation |
+| `GlassPass/` | `GlassPass` | Forward transparent pass for `alphaMode=BLEND` car glass; alpha blending, depth-test read-only; Fresnel tint + sun specular; reuses the car shared VBO/IBO |
+| `WindshieldRainPass/` | `WindshieldRainPass` | Refractive rain drops on the front windshield: snapshots the HDR scene (`record_scene_snapshot`) and treats drops as lenses distorting it (alpha blend, single-sided cull); layered Voronoi drops in glass space, forward-normal confinement, analytic wiper; per-frame `WindshieldRainUBO` + refraction-source image |
 
 ---
 
@@ -33,6 +36,9 @@ VulkanContext → Device → Swapchain
   → CameraUniforms → MaterialDescriptors          (descriptor set layouts)
   → CommandManager → SyncObjects
   → PostProcessManager                            (images + passes sized to swapchain)
+  → RainSystem                                    (HDR image views from PostProcessManager)
+  → GlassPass                                     (HDR + depth views; must follow RainSystem)
+  → WindshieldRainPass                            (HDR + depth views; must follow GlassPass)
   → ScenePipeline → DeferredLightingPipeline      (pipeline objects)
   → TextureManager → SceneGeometry                (on scene load)
 ```
@@ -64,12 +70,16 @@ Cleanup runs in **reverse order**. `vkDeviceWaitIdle` must be called before any 
 6.   G-buffer pass (ScenePipeline::record_draws)
 7.   barrier → SHADER_READ_ONLY
 8.   Lighting pass
-9.   barrier → SHADER_READ_ONLY
-10.  Bloom extract → blur H → blur V
-11.  Composite pass → swapchain image
-12. vkEndCommandBuffer
-13. vkQueueSubmit  (wait: imageAvailable[frame], signal: renderFinished[imageIndex], fence: inFlight[frame])
-14. vkQueuePresentKHR  (wait: renderFinished[imageIndex])
+9.   Rain pass (additive streaks over HDR, LOAD_OP_LOAD — no barrier between lighting and rain)
+10.  Glass pass (LOAD_OP_LOAD — forward transparent car glass, alpha blend, depth read-only)
+10a. Scene snapshot (copy HDR → refraction-source image; transfer barriers) — feeds the windshield refraction
+11.  Windshield rain pass (LOAD_OP_LOAD — refractive water drops on the front windshield, alpha blend)
+12.  barrier → SHADER_READ_ONLY
+13.  Bloom extract → blur H → blur V
+14.  Composite pass → swapchain image
+15. vkEndCommandBuffer
+16. vkQueueSubmit  (wait: imageAvailable[frame], signal: renderFinished[imageIndex], fence: inFlight[frame])
+17. vkQueuePresentKHR  (wait: renderFinished[imageIndex])
 ```
 
 <details>

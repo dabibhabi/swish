@@ -21,10 +21,12 @@ target_include_directories(swish_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/include
 )
 
-# Tests only need Catch2 and GLM — no Vulkan SDK or windowing system required.
+# Catch2 + GLM for the test harness; glfw is required because Camera.cpp
+# (compiled into the test binary) polls input via glfwGetKey().
 target_link_libraries(swish_tests PRIVATE
     Catch2::Catch2WithMain
     glm::glm
+    glfw
 )
 
 target_compile_definitions(swish_tests PRIVATE

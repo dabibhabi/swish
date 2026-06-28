@@ -12,6 +12,7 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -207,7 +208,10 @@ int App::run() {
         m_renderer->rebuild_material_descriptors();
 
         // Upload the car mesh as dynamic geometry.
+        // Glass submeshes share the same VBO/IBO — no second upload needed.
         m_renderer->upload_dynamic_geometry(m_car->get_mesh_data(), m_car->get_draw_calls());
+        m_renderer->update_glass_draw_calls(m_car->get_glass_draw_calls());
+        m_renderer->update_windshield_draw_calls(m_car->get_windshield_draw_calls());
     }
 
     // ── 9. Main loop with delta time ──────────────────────────────
@@ -246,6 +250,23 @@ int App::run() {
         }
         m_c_key_prev = c_down;
 
+        // R key cycles rain intensity: off → light → heavy → off
+        bool r_down = glfwGetKey(glfw_window, GLFW_KEY_R) == GLFW_PRESS;
+        if (r_down && !m_r_key_prev) {
+            static constexpr float kRainLevels[] = {0.0f, 0.35f, 1.0f};
+            m_rain_level = (m_rain_level + 1) % 3;
+            m_renderer->set_rain_intensity(kRainLevels[m_rain_level]);
+        }
+        m_r_key_prev = r_down;
+
+        // V key toggles the windshield wiper (edge-detected continuous sweep)
+        bool v_down = glfwGetKey(glfw_window, GLFW_KEY_V) == GLFW_PRESS;
+        if (v_down && !m_v_key_prev) {
+            m_wiper_enabled = !m_wiper_enabled;
+            m_renderer->set_wiper_enabled(m_wiper_enabled);
+        }
+        m_v_key_prev = v_down;
+
         // Process camera input (WASD) — free-fly mode only
         Camera* camera = m_renderer->get_camera();
         if (camera && m_cursor_captured && !m_cockpit) {
@@ -263,6 +284,14 @@ int App::run() {
             m_car->set_position(pos);
 
             m_renderer->update_dynamic_draw_calls(m_car->get_draw_calls());
+            m_renderer->update_glass_draw_calls(m_car->get_glass_draw_calls());
+            m_renderer->update_windshield_draw_calls(m_car->get_windshield_draw_calls());
+
+            // Pass car velocity to renderer so rain streaks lean forward at speed.
+            // Convention (CarEntity.h): forward = (cos yaw_rad, 0, -sin yaw_rad)
+            float yaw_rad = m_car->get_rotation().y * (3.14159265f / 180.0f);
+            Vec3  carFwd(std::cos(yaw_rad), 0.f, -std::sin(yaw_rad));
+            m_renderer->set_car_velocity(carFwd * m_car->get_speed());
         }
 
         // Cockpit camera: the eye rides the car at the driver's seat.
@@ -281,7 +310,7 @@ int App::run() {
             camera->set_pitch(m_look_pitch);
         }
 
-        m_renderer->drawFrame();
+        m_renderer->drawFrame(delta_time);
     }
 
     // ── 10. Cleanup (reverse order) ───────────────────────────────

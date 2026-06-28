@@ -326,6 +326,7 @@ Common dependency rules:
 - All subsystems need `Device` → init Device first
 - `PostProcessManager` needs `Swapchain` extent → init after Swapchain
 - `ScenePipeline` needs descriptor set layouts from `CameraUniforms` + `MaterialDescriptors` → init those first
+- Forward transparent passes (`GlassPass`, `WindshieldRainPass`) need HDR color + depth views from `PostProcessManager`, and the car's device-local buffers from `SceneGeometry` → init after both
 
 </details>
 
@@ -343,6 +344,7 @@ Common dependency rules:
    ```
 3. **Wrap shader modules** in `ScopedShaderModule` (see `Pipeline.cpp`) to prevent leaks if pipeline creation fails partway through
 4. **Draw** fullscreen quads with `vkCmdDraw(cmd, 3, 1, 0, 0)` — the `fullscreen.vert` shader generates the triangle from `gl_VertexIndex`
+   - **Forward geometry passes** (e.g. `GlassPass`, `WindshieldRainPass`) are not fullscreen: bind the car's shared VBO/IBO via `SceneGeometry::get_vertex_buffer()` / `get_index_buffer()`, use `vkCmdDrawIndexed`, and configure `depthTestEnable=true`, `depthWriteEnable=false`, `initialLayout=DEPTH_STENCIL_READ_ONLY_OPTIMAL` to read the G-buffer depth without writing it
 5. **Image barriers** before reading any attachment written in a previous pass:
    ```cpp
    ResourceManager::insertImageBarrier(cmd, image,

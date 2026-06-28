@@ -117,6 +117,12 @@ struct Submesh {
     // Normalized SteeringWheel_Pivot frame (RootNode-rel, +90° Y, grounded).
     // Steer = sw_pivot_frame * R_local(angle) * inverse(sw_pivot_frame).
     Mat4 sw_pivot_frame = Mat4(1.f);
+
+    // Glass (alphaMode=BLEND) — rendered in the forward transparent pass,
+    // not in the G-buffer. is_windshield further marks the main front/side
+    // window panes that receive the windshield rain trail effect.
+    bool is_glass      = false;
+    bool is_windshield = false;
 };
 
 // ── DrawCall ──────────────────────────────────────────────────────────

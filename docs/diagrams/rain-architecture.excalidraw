@@ -1,0 +1,73 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "https://excalidraw.com",
+  "elements": [
+    {"id":"title","type":"text","x":360,"y":8,"width":620,"height":30,"angle":0,"strokeColor":"#212529","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"Swish — Rain System Architecture","fontSize":22,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+    {"id":"subtitle","type":"text","x":300,"y":42,"width":740,"height":20,"angle":0,"strokeColor":"#495057","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"Falling rain (additive streaks)  +  windshield rain (scene refraction)  +  wiper","fontSize":13,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+    {"id":"controls","type":"text","x":1010,"y":40,"width":320,"height":20,"angle":0,"strokeColor":"#1971c2","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"Controls:  R = cycle rain   ·   V = toggle wiper","fontSize":12,"fontFamily":2,"textAlign":"left","verticalAlign":"middle"},
+
+    {"id":"b1","type":"rectangle","x":20,"y":110,"width":160,"height":120,"angle":0,"strokeColor":"#1971c2","backgroundColor":"#d0ebff","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"roundness":{"type":3}},
+    {"id":"t1","type":"text","x":28,"y":120,"width":144,"height":100,"angle":0,"strokeColor":"#212529","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"Deferred Lighting\n→ HDR color\n(R16G16B16A16F)","fontSize":13,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+
+    {"id":"b2","type":"rectangle","x":210,"y":110,"width":160,"height":120,"angle":0,"strokeColor":"#1971c2","backgroundColor":"#d0ebff","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"roundness":{"type":3}},
+    {"id":"t2","type":"text","x":218,"y":118,"width":144,"height":104,"angle":0,"strokeColor":"#212529","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"Falling Rain\n(RainSystem)\n8192 instanced\nstreaks · additive\n→ accumulates wetness","fontSize":12,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+
+    {"id":"b3","type":"rectangle","x":400,"y":110,"width":160,"height":120,"angle":0,"strokeColor":"#1971c2","backgroundColor":"#d0ebff","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"roundness":{"type":3}},
+    {"id":"t3","type":"text","x":408,"y":120,"width":144,"height":100,"angle":0,"strokeColor":"#212529","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"Glass Pass\nBLEND windows\nalpha · Fresnel tint","fontSize":13,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+
+    {"id":"b4","type":"rectangle","x":590,"y":110,"width":160,"height":120,"angle":0,"strokeColor":"#2f9e44","backgroundColor":"#d3f9d8","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"roundness":{"type":3}},
+    {"id":"t4","type":"text","x":598,"y":118,"width":144,"height":104,"angle":0,"strokeColor":"#212529","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"HDR Snapshot\nvkCmdCopyImage\nHDR → refrSrc\n(+ transfer barriers)","fontSize":12,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+
+    {"id":"b5","type":"rectangle","x":780,"y":110,"width":170,"height":120,"angle":0,"strokeColor":"#2f9e44","backgroundColor":"#d3f9d8","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"roundness":{"type":3}},
+    {"id":"t5","type":"text","x":788,"y":118,"width":154,"height":104,"angle":0,"strokeColor":"#212529","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"Windshield Rain\nrefractive drops\ngated by wetness · FRONT cull\nalpha blend → HDR","fontSize":12,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+
+    {"id":"b6","type":"rectangle","x":990,"y":110,"width":150,"height":120,"angle":0,"strokeColor":"#1971c2","backgroundColor":"#d0ebff","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"roundness":{"type":3}},
+    {"id":"t6","type":"text","x":998,"y":120,"width":134,"height":100,"angle":0,"strokeColor":"#212529","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"Bloom\nextract + blur","fontSize":13,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+
+    {"id":"b7","type":"rectangle","x":1180,"y":110,"width":150,"height":120,"angle":0,"strokeColor":"#1971c2","backgroundColor":"#d0ebff","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"roundness":{"type":3}},
+    {"id":"t7","type":"text","x":1188,"y":120,"width":134,"height":100,"angle":0,"strokeColor":"#212529","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"Composite\nACES tonemap\n→ swapchain","fontSize":13,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+
+    {"id":"a1","type":"arrow","x":182,"y":170,"width":26,"height":0,"angle":0,"strokeColor":"#495057","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"points":[[0,0],[26,0]],"startArrowhead":null,"endArrowhead":"arrow"},
+    {"id":"a2","type":"arrow","x":372,"y":170,"width":26,"height":0,"angle":0,"strokeColor":"#495057","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"points":[[0,0],[26,0]],"startArrowhead":null,"endArrowhead":"arrow"},
+    {"id":"a3","type":"arrow","x":562,"y":170,"width":26,"height":0,"angle":0,"strokeColor":"#495057","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"points":[[0,0],[26,0]],"startArrowhead":null,"endArrowhead":"arrow"},
+    {"id":"a4","type":"arrow","x":752,"y":170,"width":26,"height":0,"angle":0,"strokeColor":"#495057","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"points":[[0,0],[26,0]],"startArrowhead":null,"endArrowhead":"arrow"},
+    {"id":"a5","type":"arrow","x":952,"y":170,"width":36,"height":0,"angle":0,"strokeColor":"#495057","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"points":[[0,0],[36,0]],"startArrowhead":null,"endArrowhead":"arrow"},
+    {"id":"a6","type":"arrow","x":1142,"y":170,"width":36,"height":0,"angle":0,"strokeColor":"#495057","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"points":[[0,0],[36,0]],"startArrowhead":null,"endArrowhead":"arrow"},
+
+    {"id":"barrier-line","type":"line","x":970,"y":95,"width":0,"height":150,"angle":0,"strokeColor":"#e03131","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"dashed","roughness":0,"opacity":100,"points":[[0,0],[0,150]]},
+    {"id":"barrier-label","type":"text","x":905,"y":250,"width":140,"height":30,"angle":0,"strokeColor":"#e03131","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"barrier:\nHDR → SHADER_READ_ONLY","fontSize":10,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+
+    {"id":"wetnote","type":"text","x":215,"y":245,"width":520,"height":18,"angle":0,"strokeColor":"#1971c2","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"wetness & intensity (RainSystem) feed the windshield UBO ───────────┐","fontSize":11,"fontFamily":2,"textAlign":"left","verticalAlign":"middle"},
+
+    {"id":"down","type":"arrow","x":865,"y":230,"width":0,"height":95,"angle":0,"strokeColor":"#2f9e44","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"points":[[0,0],[0,95]],"startArrowhead":null,"endArrowhead":"arrow"},
+    {"id":"detailhdr","type":"text","x":470,"y":300,"width":300,"height":18,"angle":0,"strokeColor":"#e8590c","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"Inside the windshield-rain fragment shader:","fontSize":12,"fontFamily":2,"textAlign":"left","verticalAlign":"middle"},
+
+    {"id":"d1","type":"rectangle","x":470,"y":330,"width":175,"height":120,"angle":0,"strokeColor":"#e8590c","backgroundColor":"#ffe8cc","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"roundness":{"type":3}},
+    {"id":"dt1","type":"text","x":478,"y":340,"width":159,"height":100,"angle":0,"strokeColor":"#212529","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"1 · Drop height field\nh(uv) — 2 Voronoi\nlayers, glass-space,\nstick-slip motion","fontSize":12,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+
+    {"id":"d2","type":"rectangle","x":675,"y":330,"width":175,"height":120,"angle":0,"strokeColor":"#e8590c","backgroundColor":"#ffe8cc","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"roundness":{"type":3}},
+    {"id":"dt2","type":"text","x":683,"y":345,"width":159,"height":90,"angle":0,"strokeColor":"#212529","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"2 · Surface normal\nn = normalize(grad h)\nfinite differences","fontSize":12,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+
+    {"id":"d3","type":"rectangle","x":880,"y":330,"width":175,"height":120,"angle":0,"strokeColor":"#e8590c","backgroundColor":"#ffe8cc","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"roundness":{"type":3}},
+    {"id":"dt3","type":"text","x":888,"y":345,"width":159,"height":90,"angle":0,"strokeColor":"#212529","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"3 · Refract\nsample snapshot at\nscreenUV − n·s·cov","fontSize":12,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+
+    {"id":"d4","type":"rectangle","x":1085,"y":330,"width":175,"height":120,"angle":0,"strokeColor":"#e8590c","backgroundColor":"#ffe8cc","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"roundness":{"type":3}},
+    {"id":"dt4","type":"text","x":1093,"y":345,"width":159,"height":90,"angle":0,"strokeColor":"#212529","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"4 · Fresnel rim +\nsun glint →\nalpha-blend over glass","fontSize":12,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+
+    {"id":"da1","type":"arrow","x":647,"y":390,"width":26,"height":0,"angle":0,"strokeColor":"#495057","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"points":[[0,0],[26,0]],"startArrowhead":null,"endArrowhead":"arrow"},
+    {"id":"da2","type":"arrow","x":852,"y":390,"width":26,"height":0,"angle":0,"strokeColor":"#495057","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"points":[[0,0],[26,0]],"startArrowhead":null,"endArrowhead":"arrow"},
+    {"id":"da3","type":"arrow","x":1057,"y":390,"width":26,"height":0,"angle":0,"strokeColor":"#495057","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"points":[[0,0],[26,0]],"startArrowhead":null,"endArrowhead":"arrow"},
+
+    {"id":"wiper","type":"rectangle","x":470,"y":500,"width":380,"height":64,"angle":0,"strokeColor":"#ae3ec9","backgroundColor":"#f3d9fa","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"roundness":{"type":3}},
+    {"id":"wipert","type":"text","x":478,"y":508,"width":364,"height":48,"angle":0,"strokeColor":"#212529","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"Persistent wetness map (fullscreen, ping-pong):\naccumulate rain · advect along flow (down→up at speed)\n· wiper (V) clears · gates drop coverage","fontSize":11,"fontFamily":2,"textAlign":"center","verticalAlign":"middle"},
+    {"id":"wiperarrow","type":"arrow","x":660,"y":500,"width":0,"height":48,"angle":0,"strokeColor":"#ae3ec9","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"points":[[0,48],[0,0]],"startArrowhead":null,"endArrowhead":"arrow"},
+
+    {"id":"feedline","type":"text","x":1015,"y":250,"width":300,"height":18,"angle":0,"strokeColor":"#1971c2","backgroundColor":"transparent","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"text":"└──→ wetness gates drop alpha","fontSize":11,"fontFamily":2,"textAlign":"left","verticalAlign":"middle"}
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff",
+    "gridSize": null
+  },
+  "files": {}
+}

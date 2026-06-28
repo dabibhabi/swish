@@ -32,6 +32,12 @@ All geometry shaders share the same global layout:
 
 This is the layout for the **G-buffer (geometry) pipeline**. The deferred-lighting pass reuses **set 0** (camera + lights) but binds the **G-buffer images as its set 1** (binding 0–3 = albedo, normal, material, depth) — a different set-1 layout. Bloom and composite passes bind their inputs via dedicated descriptor sets, all managed by `PostProcessManager`.
 
+The **rain forward pass** (`rain.vert` / `rain.frag`) uses set 0 = `CameraUBO` (shared with geometry), set 1 = `RainUBO` (wind direction, time, intensity, volume size — owned by `RainSystem`). No set-2 or push constants.
+
+The **glass forward pass** (`glass.vert` / `glass.frag`) uses set 0 = `CameraUBO`. No set-1 binding. Push constants carry `{ Mat4 model; Vec4 color; }` per draw call.
+
+The **windshield rain pass** (`windshield_rain.vert` / `windshield_rain.frag`) uses set 0 = `CameraUBO`, set 1 binding 0 = `WindshieldRainUBO` (flow dir, speed, time, wetness, intensity, drop density, refraction strength, screen size, wiper state — owned by `WindshieldRainPass`), set 1 binding 1 = `sampler2D` of the HDR scene **snapshot** that the drops refract. Push constants carry `{ Mat4 model; Vec4 color; }`.
+
 ---
 
 ## Shared Vertex Shader — `fullscreen.vert`
@@ -56,10 +62,16 @@ Invoke with: `vkCmdDraw(cmd, 3, 1, 0, 0)`
 | `basic.vert` | G-buffer | Per-vertex TBN matrix; outputs world pos, normal, tangent |
 | `gbuffer.frag` | G-buffer | MRT write; single albedo sample; discard if α < 0.5 |
 | `fullscreen.vert` | All post-process | Shared oversized-triangle shader |
-| `lighting.frag` | Deferred lighting | GGX Cook-Torrance PBR; sun + up to 16 point lights; sky gradient for depth = 1 |
+| `lighting.frag` | Deferred lighting | GGX Cook-Torrance PBR; sun + up to 16 point lights; sky gradient for depth = 1; reads `camPos.w` as wetness to darken albedo + tint sky overcast |
+| `rain.vert` | Rain forward pass | GPU-animated billboard quads; 8 192 instances; seed × volume wrapping in vertex shader; view-space streak orientation |
+| `rain.frag` | Rain forward pass | Additive streak texture (src=ONE, dst=ONE); smoothstep edge + fade; outputs premultiplied color |
 | `bloom_extract.frag` | Bloom extract | BT.709 luma soft-knee bright-pass |
 | `bloom_blur.frag` | Bloom blur H + V | 13-tap (7 bilinear) separable Gaussian; direction via push constant |
 | `composite.frag` | Composite | ACES Narkowicz tonemapping; AO × HDR + bloom |
+| `glass.vert` | Glass forward pass | Per-vertex TBN + world position; passes push-constant color to fragment shader |
+| `glass.frag` | Glass forward pass | Fresnel rim opacity; sun Blinn-Phong specular; `SRC_ALPHA / ONE_MINUS_SRC_ALPHA` blending |
+| `windshield_rain.vert` | Windshield rain pass | Outputs glass-space mesh UV (`fragUV`) for the drop field + object-space normal for the front-pane mask |
+| `windshield_rain.frag` | Windshield rain pass | Layered Voronoi drop **height field** → normal (finite differences) → **refracts** an HDR scene snapshot (lens); stick-slip motion, Fresnel rim + sun glint, forward-normal confinement, analytic wiper clear; **alpha** output |
 | `basic.frag` | Debug / unused | Forward shading fallback |
 | `ssao.frag` | SSAO (disabled) | Screen-space AO; pass not currently recorded |
 | `ao_blur.frag` | AO blur (disabled) | Blurs the SSAO buffer; pass not currently recorded |

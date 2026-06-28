@@ -6,6 +6,7 @@ Everything you need to understand, extend, and contribute to Swish.
 
 | If you want to… | Read |
 |-----------------|------|
+| Look up what a term/abbreviation/class means | [**GLOSSARY.md**](GLOSSARY.md) |
 | Build and run the project | [Root README — Quick Start](../README.md) |
 | Understand the whole system | [architecture.md](architecture.md) |
 | Add code without breaking conventions | [CONTRIBUTING.md](../CONTRIBUTING.md) |
@@ -15,7 +16,9 @@ Everything you need to understand, extend, and contribute to Swish.
 
 | Doc | Covers |
 |-----|--------|
+| [GLOSSARY.md](GLOSSARY.md) | One-line lookup of terms, abbreviations, classes, conventions, coordinate spaces, controls |
 | [architecture.md](architecture.md) | The 5-layer stack, startup sequence, RendererServices, swapchain recreation |
+| [rain/README.md](rain/README.md) | Rain system architecture — falling rain, refractive windshield drops, wetness map + wiper |
 | [render-pipeline.md](render-pipeline.md) | The 6-pass deferred pipeline, per-pass I/O, all shader math |
 | [data-types.md](data-types.md) | Every data struct (DTO) and UBO, with exact layouts and std140 rules |
 | [car_system.md](car_system.md) | GLB loading and car-mesh normalization algorithm |
