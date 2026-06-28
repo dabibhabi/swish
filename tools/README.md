@@ -33,15 +33,15 @@ cmake --build build --target toml_baker
 | Reorder fields | Reorder writes in `toml_baker.cpp` |
 | Change a field's type | Update both files and regenerate |
 
-The binary begins with a `magic` u32 and a `version` u32. The engine checks both at load time and throws if they mismatch — this catches most struct-drift errors at startup.
+The binary begins with `magic = 0x53575243` ("SWRC") and `version = 3` (both `static constexpr` on `RoadConfig`). `load_road_config()` checks both and throws on mismatch — this catches struct-drift errors at startup. All numeric fields are stored in **world units** (already converted from feet/metres by the baker).
 
 ### Color Parsing
 
 `read_color` returns `bool`. All call sites check the return value and emit a diagnostic before aborting:
 
 ```cpp
-if (!read_color(table, "lane_marking", cfg.lane_marking_color)) {
-    std::cerr << "toml_baker: missing or invalid 'lane_marking' color\n";
+if (!read_color(table, "barrier_tint", cfg.barrier_tint)) {
+    std::cerr << "toml_baker: missing or invalid 'barrier_tint' color\n";
     return 1;
 }
 ```
@@ -51,19 +51,23 @@ Never silently default a color — the resulting visual bug can be very hard to 
 <details>
 <summary><strong>Binary format layout</strong></summary>
 
+`RoadConfig` is `#pragma pack(push, 1)` — **byte-packed, no padding** — so the baker's sequential writes and the engine's single `fread` agree without any ABI assumptions. A `static_assert(std::is_trivially_copyable_v<RoadConfig>)` guards this.
+
 ```
-Offset   Size   Field
-0        4      magic  (RoadConfig::MAGIC — 0x52444348 "RDCH")
-4        4      version (RoadConfig::VERSION — incremented on breaking changes)
-8        4      lane_width     (float, metres)
-12       4      lane_count     (uint32_t)
-16       4      segment_length (float, metres)
-20       4      kCrownSlope    (float, radians)
-24       4      billboard_spacing (float, metres)
-...      ...    remaining RoadConfig fields in declaration order
+Offset  Size  Field
+0       4     magic       (uint32_t = 0x53575243 "SWRC")
+4       4     version     (uint32_t = 3)
+8       4     road_length (float, world units)
+12      4     lane_width  (float)
+16      4     lane_count  (int32_t)
+20      4     shoulder_width_wb (float)
+24      4     shoulder_width_eb (float)
+28      4     grass_extent      (float)
+32..    ...   barrier_*, rail_*, curb_*, *_tile, marking/dash params (float)
+...     16ea  color tints — float[4] each (shoulder_tint, barrier_tint, … black_tint)
 ```
 
-The engine reads the entire file as `RoadConfig` with `fread(&cfg, sizeof(RoadConfig), 1, f)`. Any padding inserted by the compiler must be identical between the baker and the engine, so both are compiled with the same target ABI. The CMake build ensures this because `toml_baker` is built in the same project.
+`kCrownSlope` (0.02) is a `static constexpr`, **not** serialized — it is identical in every build, so it lives in the header rather than the file. The engine reads the whole file with `fread(&cfg, sizeof(RoadConfig), 1, f)`.
 
 </details>
 
@@ -71,51 +75,54 @@ The engine reads the entire file as `RoadConfig` with `fread(&cfg, sizeof(RoadCo
 
 ## car_analyzer (`car_analyzer/`)
 
-Python 3 tool that inspects a GLB car mesh and validates that it meets the engine's normalization requirements **before** handing it to `ModelManager`.
+A **Blender/bpy GLB·GLTF node-hierarchy inspector**. It is a diagnostic tool, not a validator — run it on a new car model to understand its structure (mesh vs pivot nodes, materials, bounding boxes, part categories) before wiring it into `ModelManager`.
 
-Run it on any new car model to catch normalization issues without starting the engine.
+### Running
 
-### Setup
-
-```bash
-cd tools/car_analyzer
-pip install -e .
-```
-
-### Usage
+`car_analyzer` imports the model through Blender's `bpy`, so it needs Blender available — either run it *inside* Blender, or standalone with `bpy` installed from PyPI:
 
 ```bash
-python -m car_analyzer assets/porsche.glb
-python -m car_analyzer assets/porsche.glb --verbose   # print per-node report
+# Inside Blender (headless)
+blender --background --python tools/car_analyzer/run.py -- assets/porsche.glb [flags]
+
+# Standalone (requires the 'bpy' wheel)
+uv run python -m car_analyzer assets/porsche.glb [flags]
 ```
 
-### Validation Checks
+### Flags
 
-| Check | Pass condition |
-|-------|---------------|
-| Bounding box non-degenerate | No axis has zero extent |
-| Positions normalized | All vertices within $[-1, 1]^3$ after applying normalization matrix |
-| Root reachability | Every mesh node reachable from the scene root |
-| Prefix disambiguation | No two node-name prefixes are exact prefixes of each other (longest-match sort) |
-| Glass excluded | `alphaMode == BLEND` primitives not counted in the geometry |
+| Flag | Effect |
+|------|--------|
+| `--shorten` | Strip long Sketchfab-style prefixes from node names |
+| `--materials` | Show material names on mesh nodes |
+| `--bbox` | Show bounding-box dimensions (W×H×D) on mesh nodes |
+| `--stats` | Print summary statistics only — skip the full tree |
+| `--group` | Print nodes grouped by car-part category |
+
+### What It Reports
+
+- **StatsReporter** — totals: objects, meshes, pivots, materials, roots, leaves, max tree depth, total verts/faces.
+- **TreeRenderer** — the full node hierarchy (unless `--stats`).
+- **GroupReporter** (`--group`) — mesh nodes partitioned by part category.
 
 <details>
-<summary><strong>Normalization math verified by car_analyzer</strong></summary>
+<summary><strong>Part classification (PartClassifier)</strong></summary>
 
-`ModelManager` normalizes positions into a unit AABB:
+`parts.py` classifies each node's cleaned short-name with an **ordered list of case-insensitive regex rules — first match wins.** Order encodes specificity:
 
-$$\mathbf{p}_\text{norm} = \frac{\mathbf{p}_\text{baked} - \mathbf{c}}{\max(\text{extents})}$$
+- `steering` is tested **before** `wheel`, so `steering_wheel` → *Gauges & Steering*, not *Wheels*.
+- The wheel rule uses `(?<!t)rim` so `trim` does **not** match as a rim.
+- Broad categories (`Interior`, `Body Panels`, `Trim / Rubber`, `Lights (other)`) come last so specific parts win first.
 
-where $\mathbf{c}$ is the AABB centroid and $\text{extents} = (\mathbf{p}_\text{max} - \mathbf{p}_\text{min}) / 2$.
-
-`car_analyzer` replicates this computation in Python and checks that every vertex of the normalized mesh satisfies $\|\mathbf{p}\|_\infty \leq 1.0 + \varepsilon$ where $\varepsilon = 10^{-5}$.
+Categories include Wheels, Brakes, Bumpers, Headlights, Tail Lights, Glass / Windows, Doors, Hood, Trunk, Exhaust, Mirrors, Seats, Interior, Body Panels, Emblems, Chassis. Anything unmatched is `Uncategorized`.
 
 </details>
 
-### Implementation Notes
+<details>
+<summary><strong>Implementation notes</strong></summary>
 
-- `model.py` uses `yield from` generators for memory-efficient node traversal
-- `@cached_property` on `Model.bounding_box` — computed once, not on every access
-- Prefix disambiguation sorts by **descending length** before checking for partial matches — a shorter prefix must not shadow a longer one
+- **`_NameCleaner`** strips Sketchfab `LABEL:LABEL_` prefixes, trailing `_NverticesNfaces` tokens, and trailing material suffixes (`_EXT_0`). Detected prefixes are sorted **longest-first** (`key=len, reverse=True`) so a shorter prefix can't shadow a longer one.
+- **`model.py`** uses `@functools.cached_property` for `mesh_nodes` / `pivot_nodes`, and a `yield from` recursive generator in `CarNode.all_descendants()`. `CarNode.depth()` is intentionally a *method*, not a property, so its O(depth) cost is visible at the call site.
+- **`_compute_bbox`** uses `zip(*obj.bound_box)` and remaps Blender's Z-up axes to the report's `W×H×D` = (X, Z, Y).
 
 </details>

@@ -16,6 +16,7 @@ This guide covers the conventions, patterns, and checklists you need to add code
 | Static/constexpr constants | `k` + `PascalCase` | `kFt`, `kCrownSlope`, `kSpeedDeadZone` |
 | CMake-defined macros | `UPPER_SNAKE` | `MAX_FRAMES_IN_FLIGHT`, `MAX_POINT_LIGHTS` |
 | Enum values | `UPPER_SNAKE` | `MAT_ASPHALT`, `MAT_GRASS`, `MAT_DEFAULT` |
+| Data-struct fields (DTOs) | bare `camelCase`, no `m_` | `indexOffset`, `positionRadius`, `sunDir` |
 | Files | Match class name exactly | `Camera.h` / `Camera.cpp` |
 
 One class per directory. The directory name matches the class name:
@@ -207,6 +208,45 @@ Rules:
 - Retrieve via `Renderer::services()` at the moment you need it
 - Copy out only the specific handles you need; do not store the struct
 - Never cache `swapchainExtent` — it changes on every resize and causes framebuffer dimension mismatches
+
+</details>
+
+---
+
+<details>
+<summary><strong>Data Structures (DTOs)</strong></summary>
+
+Swish passes data across layer boundaries with plain data structures — the role enterprise codebases call a **DTO** (Data Transfer Object). We do **not** use that term in the code: the C++ idiom is *aggregate* / *POD* / *value type*. But the discipline is real and worth following.
+
+**Two families, two rule sets:**
+
+| Family | Examples | Rules |
+|--------|----------|-------|
+| CPU value types | `DrawCall`, `Submesh`, `LightDesc`, `RendererServices`, `RoadLayout` | Plain `struct`; public fields in bare `camelCase` (no `m_`); give defaults so aggregate init works; **no methods** |
+| GPU-layout types | `Vertex`, `CameraUBO`, `LightsUBO`, `PointLightData`, `PushConstantData` | Field-for-field identical to a GLSL block; **use only `Vec4`/`Mat4`** (never `Vec3` or trailing scalars) |
+
+**The `Vec4`-only rule for UBOs is not stylistic — it is required.** In std140 a `vec3` aligns to 16 bytes but a following scalar will not pack into its trailing 4 bytes, so a C++ `glm::vec3` + `float` does *not* match the GLSL block and the GPU reads garbage. Packing scalars into `vec4` lanes (`positionRadius.w = radius`) keeps the C++ layout byte-identical to std140 with zero padding. Document each packed lane with a comment.
+
+```cpp
+// CPU value type — plain aggregate, no behavior
+struct DrawCall {
+    uint32_t   indexOffset;
+    uint32_t   indexCount;
+    Vec4       color;
+    Mat4       model;
+    MaterialId material;
+};
+
+// GPU-layout type — vec4-only, mirrors the GLSL uniform block exactly
+struct PointLightData {
+    Vec4 positionRadius;  // xyz = position, w = radius
+    Vec4 colorIntensity;  // rgb = color,    a = intensity
+};
+```
+
+**When *not* to make a DTO:** if the type must protect an invariant, make it a class with controlled access. `MeshData` is the canonical example — vertices/indices only grow through `addVertex`/`addIndex` so callers always get correct base indices. Do not flatten such a type into a bare struct.
+
+The full catalog (every struct, exact byte offsets, std140 rules) lives in [docs/data-types.md](docs/data-types.md).
 
 </details>
 

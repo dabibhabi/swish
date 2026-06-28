@@ -64,6 +64,7 @@ GPU vendor scoring: discrete GPU preferred over integrated (+1000 pts); matching
 | Key | Action |
 |-----|--------|
 | `W A S D` | Move camera (free-fly mode) |
+| `Q E` | Move camera down / up |
 | `↑ ↓` | Throttle / brake |
 | `← →` | Steer left / right |
 | `C` | Toggle cockpit / free-fly camera |
@@ -82,13 +83,16 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system design an
 
 ## Documentation
 
+Start at the [**documentation index**](docs/README.md) for a full map. Highlights:
+
 | Document | Description |
 |----------|-------------|
 | [`docs/architecture.md`](docs/architecture.md) | 5-layer system architecture, startup sequence, design patterns |
-| [`docs/render-pipeline.md`](docs/render-pipeline.md) | Per-frame 6-pass deferred rendering pipeline |
+| [`docs/render-pipeline.md`](docs/render-pipeline.md) | Per-frame 6-pass deferred rendering pipeline + all shader math |
+| [`docs/data-types.md`](docs/data-types.md) | Every data struct (DTO) and UBO, with exact byte layouts and std140 rules |
 | [`docs/car_system.md`](docs/car_system.md) | Car physics, mesh normalization, cockpit camera |
 | [`docs/investigations/`](docs/investigations/) | In-tree root cause analyses |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Coding conventions, Vulkan patterns, adding subsystems |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Coding conventions, Vulkan patterns, data-struct & subsystem guides |
 
 ### Component READMEs
 
@@ -97,6 +101,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system design an
 | `src/core/` | [`App` and `Window`](src/core/README.md) |
 | `src/renderer/` | [Renderer subsystems](src/renderer/README.md) |
 | `src/scene/` | [Scene management](src/scene/README.md) |
+| `src/utils/` | [Shared helpers (`VK_CHECK`, FileIO, type aliases)](src/utils/README.md) |
 | `shaders/` | [Shader pipeline](shaders/README.md) |
 | `tests/` | [Testing guide](tests/README.md) |
 | `tools/` | [Developer tools](tools/README.md) |
@@ -111,6 +116,8 @@ Open `.excalidraw` files at [excalidraw.com](https://excalidraw.com) or with the
 | [`docs/diagrams/render-pipeline.excalidraw`](docs/diagrams/render-pipeline.excalidraw) | 6-pass rendering pipeline |
 | [`docs/diagrams/vulkan-sync.excalidraw`](docs/diagrams/vulkan-sync.excalidraw) | Frame synchronization (fences + semaphores) |
 | [`docs/diagrams/scene-data-flow.excalidraw`](docs/diagrams/scene-data-flow.excalidraw) | Asset → GPU → draw calls |
+| [`docs/diagrams/descriptor-sets.excalidraw`](docs/diagrams/descriptor-sets.excalidraw) | Descriptor set 0 / set 1 bindings + push constants |
+| [`docs/diagrams/data-layout.excalidraw`](docs/diagrams/data-layout.excalidraw) | Vertex byte layout + std140 UBO layout |
 
 ---
 

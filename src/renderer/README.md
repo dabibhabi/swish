@@ -9,7 +9,10 @@ All Vulkan rendering subsystems. Each lives in its own subdirectory and follows 
 | `Renderer/` | `Renderer` | Top-level facade; owns all subsystems as `unique_ptr`; drives per-frame recording |
 | `VulkanContext/` | `VulkanContext` | Instance, debug messenger, surface |
 | `Pipeline/Device/` | `Device` | Physical + logical device selection; GPU vendor scoring via `SWISH_BACKEND` |
-| `Pipeline/Swapchain/` | `Swapchain` | Swapchain, image views, present mode negotiation, recreation |
+| `Pipeline/` | `Pipeline` | Graphics-pipeline builder + `ScopedShaderModule` RAII helper |
+| `Swapchain/` | `Swapchain` | Swapchain, image views, present mode negotiation, recreation |
+| `RenderPass/` | `RenderPass` | `VkRenderPass` construction helpers |
+| `DepthBuffer/` | `DepthBuffer` | Depth image + view allocation |
 | `CommandManager/` | `CommandManager` | Command pool; `MAX_FRAMES_IN_FLIGHT` command buffers |
 | `SyncObjects/` | `SyncObjects` | `inFlight[frame]` fences; `imageAvailable[frame]` + `renderFinished[imageIndex]` semaphores |
 | `PostProcessManager/` | `PostProcessManager` | All offscreen images, render passes, framebuffers, post-process pipelines |
@@ -88,15 +91,15 @@ Short-lived struct of Vulkan handles passed to subsystem `init()` and `upload()`
 
 ```cpp
 struct RendererServices {
-    VkDevice         device;
-    VkPhysicalDevice physicalDevice;
-    VkCommandPool    commandPool;
-    VkQueue          graphicsQueue;
-    VkExtent2D       extent;            // invalidated on every resize
+    VkDevice         device          = VK_NULL_HANDLE;
+    VkPhysicalDevice physicalDevice  = VK_NULL_HANDLE;
+    VkCommandPool    commandPool     = VK_NULL_HANDLE;
+    VkQueue          graphicsQueue   = VK_NULL_HANDLE;
+    VkExtent2D       swapchainExtent = {0, 0};   // invalidated on every resize
 };
 ```
 
-Never store `RendererServices` as a member — `extent` becomes stale after every swapchain recreation. Copy out only the handles your subsystem needs for long-term storage.
+Never store `RendererServices` as a member — `swapchainExtent` becomes stale after every swapchain recreation. Copy out only the handles your subsystem needs for long-term storage. Full field reference: [docs/data-types.md](../../docs/data-types.md).
 
 ---
 
@@ -116,3 +119,7 @@ See [CONTRIBUTING.md § Adding a new shader pass](../../CONTRIBUTING.md) and [do
 - [docs/diagrams/render-pipeline.excalidraw](../../docs/diagrams/render-pipeline.excalidraw) — 6-pass pipeline
 - [docs/diagrams/vulkan-sync.excalidraw](../../docs/diagrams/vulkan-sync.excalidraw) — frame synchronization (fence + semaphore timing)
 - [docs/diagrams/scene-data-flow.excalidraw](../../docs/diagrams/scene-data-flow.excalidraw) — asset → GPU → draw calls
+- [docs/diagrams/descriptor-sets.excalidraw](../../docs/diagrams/descriptor-sets.excalidraw) — set 0 / set 1 bindings + push constants
+- [docs/diagrams/data-layout.excalidraw](../../docs/diagrams/data-layout.excalidraw) — Vertex byte layout + std140 UBO layout
+
+See also [docs/data-types.md](../../docs/data-types.md) for every struct's exact layout.

@@ -238,7 +238,7 @@ All shaders are GLSL 4.50. CMake compiles them to SPIR-V via `glslc`, placing bi
 | 0 | `CameraUBO` + `LightsUBO` | Every draw call |
 | 1 | PBR texture triplet (albedo, normal, roughness) | Per material |
 
-Post-process passes bind their own descriptor sets (managed by `PostProcessManager`). See [`shaders/README.md`](../shaders/README.md) for per-shader documentation and math.
+Post-process passes bind their own descriptor sets (managed by `PostProcessManager`). The deferred-lighting pass reuses set 0 and binds the G-buffer images as its set 1. See [`docs/diagrams/descriptor-sets.excalidraw`](diagrams/descriptor-sets.excalidraw) for the binding layout, [`docs/data-types.md`](data-types.md) for the exact UBO byte layouts, and [`shaders/README.md`](../shaders/README.md) for per-shader math.
 
 </details>
 

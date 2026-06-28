@@ -102,10 +102,11 @@ Using `waitEvents()` instead of `pollEvents()` here means the CPU idles at ~0% d
 
 | Key | Action |
 |-----|--------|
-| W / A / S / D | Free-fly camera (forward / left / back / right) |
-| Shift + WASD | Sprint (3× speed) |
+| W / A / S / D | Free-fly camera (forward / left / back / right; forward is flattened to XZ) |
+| Q / E | Free-fly camera down / up |
+| Left Shift | Sprint (2× speed) while held |
 | Mouse | Free-fly look |
-| Arrow Up / Down | Car throttle / brake |
+| Arrow Up / Down | Car throttle / brake (reverse) |
 | Arrow Left / Right | Car steer |
 | C | Toggle cockpit / free camera |
 | Escape | Toggle cursor lock |

@@ -71,7 +71,7 @@ See [`docs/diagrams/render-pipeline.excalidraw`](diagrams/render-pipeline.excali
 |-----------|--------|---------|
 | Color 0 — Albedo | `VK_FORMAT_R8G8B8A8_SRGB` | Base color; fragments with α < 0.5 are discarded |
 | Color 1 — Normal | `VK_FORMAT_R16G16B16A16_SFLOAT` | World-space normal remapped from $[-1,1]$ to $[0,1]$ |
-| Color 2 — Material | `VK_FORMAT_R8G8B8A8_UNORM` | R = metallic, G = roughness |
+| Color 2 — Material | `VK_FORMAT_R8G8B8A8_UNORM` | R = metallic (currently written as the constant `0.04` — every surface is treated as a dielectric), G = roughness, B = 0 |
 | Depth | `VK_FORMAT_D32_SFLOAT` | Used in Pass 2 to reconstruct world position from UV + depth |
 
 ### Descriptor Sets
@@ -168,15 +168,23 @@ $F_0 = \text{lerp}(0.04,\ \text{albedo},\ \text{metallic})$ — dielectrics defa
 
 $$G(\mathbf{l}, \mathbf{v}, \mathbf{h}) = G_1(\mathbf{l}) \cdot G_1(\mathbf{v}), \qquad G_1(\mathbf{x}) = \frac{\mathbf{n} \cdot \mathbf{x}}{(\mathbf{n} \cdot \mathbf{x})(1 - k) + k}$$
 
-$$k = \frac{(\alpha + 1)^2}{8}$$
+$$k = \frac{(\text{roughness} + 1)^2}{8}$$
+
+Note $k$ uses **roughness directly**, not $\alpha = \text{roughness}^2$ — the conventional remap for analytic (non-IBL) lights.
 
 </details>
 
 ### Point Light Attenuation
 
-$$E_\text{point} = \frac{\text{color} \cdot \text{intensity}}{d^2 + 1}$$
+Attenuation is a smooth radius-based falloff, **not** physical inverse-square:
 
-where $d$ is distance from fragment to light position. The $+1$ prevents the singularity at $d=0$.
+$$\text{att} = \operatorname{clamp}\!\left(1 - \frac{d}{r},\ 0,\ 1\right)^2$$
+
+where $d$ is the fragment-to-light distance and $r = \text{positionRadius.w}$ is the light's influence radius. Beyond $r$ the contribution is exactly zero (lights with `att < 0.001` are `continue`d), which bounds the per-fragment light loop cost.
+
+### Sky
+
+Fragments with depth ≥ 0.9999 (no geometry) bypass the BRDF and return a procedural sky: a horizon→zenith gradient plus a sun disc from `pow(max(dot(viewDir, sunDir), 0), 32)`. No skybox texture is sampled.
 
 ### After This Pass
 
@@ -193,24 +201,26 @@ HDR image barrier → `VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL`
 **Resolution:** 1/4 of swapchain extent  
 **Input:** HDR image from Pass 2
 
-### Luma Threshold
+### Luma Soft-Knee
 
-Pixels are passed through only if their perceptual luminance exceeds the threshold:
+Brightness is the ITU-R BT.709 perceptual luminance:
 
 $$L = 0.2126\,R + 0.7152\,G + 0.0722\,B$$
 
-$$\text{out} = \begin{cases} \text{color} & \text{if } L > \text{threshold} \\ \mathbf{0} & \text{otherwise} \end{cases}$$
+Rather than a hard cutoff, a **soft knee** ramps the contribution in smoothly so bloom doesn't pop on at the threshold:
 
-The ITU-R BT.709 luma coefficients $(0.2126, 0.7152, 0.0722)$ weight green heavily because the human eye is most sensitive to green wavelengths.
+$$c = \max(L - \text{threshold},\ 0), \qquad \text{out} = \text{color}\cdot\frac{c}{c + 1}$$
+
+The coefficients weight green heavily because the human eye is most sensitive to green wavelengths.
 
 ### Push Constants
 
 ```glsl
-layout(push_constant) uniform PostProcessParams {
-    float threshold;       // luma cutoff (e.g. 1.0 for HDR values above white)
-    float bloom_intensity; // used in composite, not extract
-    float exposure;        // used in composite, not extract
-} pp;
+layout(push_constant) uniform Params {
+    float threshold;   // luma cutoff
+    float intensity;   // used by composite, not extract
+    float exposure;    // used by composite, not extract
+} params;
 ```
 
 </details>
@@ -225,24 +235,22 @@ layout(push_constant) uniform PostProcessParams {
 
 ### Separable Gaussian Blur
 
-A 2D Gaussian is separable into two 1D passes (horizontal then vertical). Each pass samples 9 taps:
+A 2D Gaussian is separable into two 1D passes (horizontal then vertical). Each pass is a **13-tap Gaussian optimized to 7 bilinear taps** at even offsets, with fixed normalized weights:
 
-$$\text{out}(u,v) = \sum_{i=-4}^{4} w_i \cdot \text{color}(u + i \cdot \Delta u,\ v + i \cdot \Delta v)$$
+$$w = [\,0.0044,\ 0.0540,\ 0.2420,\ 0.3991,\ 0.2420,\ 0.0540,\ 0.0044\,]$$
 
-Weights are computed from a Gaussian with $\sigma = 2$:
+$$\text{out}(uv) = \sum_{k} w_k \cdot \text{color}\bigl(uv + o_k\cdot\mathbf{d}\bigr), \qquad o_k \in \{-6,-4,-2,0,2,4,6\}$$
 
-$$w_i = \frac{e^{-i^2 / (2\sigma^2)}}{\displaystyle\sum_{j=-4}^{4} e^{-j^2 / (2\sigma^2)}}$$
+The weights sum to 1 (energy preserved). The bilinear taps fetch two texels per sample, so 13 effective taps cost only 7 fetches.
 
-The denominator normalizes so energy is preserved. At $\sigma=2$, the effective kernel radius captures $\approx 95\%$ of the Gaussian's area.
+### Direction Push Constant (`texelSize`)
 
-### Direction Push Constant
+| Pass | `texelSize` |
+|------|-------------|
+| Blur H | `(1.0 / width, 0.0)` |
+| Blur V | `(0.0, 1.0 / height)` |
 
-| Pass | `texel_x` | `texel_y` |
-|------|-----------|-----------|
-| Blur H | `1.0 / width` | `0.0` |
-| Blur V | `0.0` | `1.0 / height` |
-
-The offset in UV space is $\Delta u = i \cdot \text{texel\_x}$, $\Delta v = i \cdot \text{texel\_y}$.
+The per-tap offset is $\mathbf{d} = \text{texelSize}$, so $o_k\cdot\mathbf{d}$ walks along one axis only.
 
 </details>
 
@@ -265,9 +273,11 @@ The offset in UV space is $\Delta u = i \cdot \text{texel\_x}$, $\Delta v = i \c
 
 ### Composite Formula
 
-$$\text{color} = (\text{hdr} + \text{bloom} \cdot k_\text{intensity}) \cdot \text{ao}$$
+The buffers combine **in this order** — AO multiplies the scene first, *then* bloom is added (so glow is not darkened by occlusion), then exposure:
 
-$$\text{color} = \text{ACES}(\text{color} \cdot \text{exposure})$$
+$$\text{color} = \bigl(\text{hdr}\cdot\text{ao} + \text{bloom}\cdot k_\text{intensity}\bigr)\cdot\text{exposure}$$
+
+$$\text{color} = \text{ACES}(\text{color})$$
 
 ### ACES Tonemapping — Narkowicz 2015
 
@@ -290,7 +300,7 @@ This is a rational approximation of the ACES RRT+ODT curve. It maps HDR linear v
 <details>
 <summary><strong>SSAO — Disabled</strong></summary>
 
-AO images (`ao_full`, `ao_blur`) are allocated by `PostProcessManager` but the SSAO and AO-blur passes are not recorded. The composite pass still samples the AO binding; `primeAOTexture()` uploads white pixels once at init to avoid reading from `VK_IMAGE_LAYOUT_UNDEFINED`.
+The SSAO shaders (`ssao.frag`, `ao_blur.frag`) exist and the AO images are allocated by `PostProcessManager`, but the SSAO and AO-blur passes are **not recorded**. The composite pass still samples the AO binding, so the AO target is primed with white pixels once at init — AO then multiplies as `1.0` (a no-op) until SSAO is re-enabled.
 
 **Status:** pending VUID-09600 fix (sampler reads from an image in undefined layout).
 

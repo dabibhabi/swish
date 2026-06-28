@@ -30,7 +30,7 @@ All geometry shaders share the same global layout:
 | 1 | 1 | Combined sampler | Normal map |
 | 1 | 2 | Combined sampler | Roughness/metallic map |
 
-Post-process passes (lighting, bloom, composite) do not use set 1. They bind their own input images via dedicated descriptor sets managed by `PostProcessManager`.
+This is the layout for the **G-buffer (geometry) pipeline**. The deferred-lighting pass reuses **set 0** (camera + lights) but binds the **G-buffer images as its set 1** (binding 0–3 = albedo, normal, material, depth) — a different set-1 layout. Bloom and composite passes bind their inputs via dedicated descriptor sets, all managed by `PostProcessManager`.
 
 ---
 
@@ -39,8 +39,8 @@ Post-process passes (lighting, bloom, composite) do not use set 1. They bind the
 All post-process passes share one vertex shader that generates a fullscreen triangle entirely from `gl_VertexIndex` — no vertex buffer bound:
 
 ```glsl
-const vec2 pos[3] = vec2[](vec2(-1,-1), vec2(3,-1), vec2(-1,3));
-const vec2 uv[3]  = vec2[](vec2( 0, 0), vec2(2, 0), vec2( 0, 2));
+fragUV      = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);  // (0,0) (2,0) (0,2)
+gl_Position = vec4(fragUV * 2.0 - 1.0, 0.0, 1.0);                   // (-1,-1) (3,-1) (-1,3)
 ```
 
 The triangle is oversized (extends beyond NDC bounds) so the rasterizer clips it to exactly the viewport. This avoids a vertex buffer upload and the two-triangle quad split.
@@ -56,11 +56,13 @@ Invoke with: `vkCmdDraw(cmd, 3, 1, 0, 0)`
 | `basic.vert` | G-buffer | Per-vertex TBN matrix; outputs world pos, normal, tangent |
 | `gbuffer.frag` | G-buffer | MRT write; single albedo sample; discard if α < 0.5 |
 | `fullscreen.vert` | All post-process | Shared oversized-triangle shader |
-| `lighting.frag` | Deferred lighting | GGX Cook-Torrance PBR; sun + up to 16 point lights |
-| `bloom_extract.frag` | Bloom extract | BT.709 luma threshold bright-pass |
-| `bloom_blur.frag` | Bloom blur H + V | 9-tap separable Gaussian; direction via push constant |
-| `composite.frag` | Composite | ACES Narkowicz tonemapping; HDR + bloom + AO |
+| `lighting.frag` | Deferred lighting | GGX Cook-Torrance PBR; sun + up to 16 point lights; sky gradient for depth = 1 |
+| `bloom_extract.frag` | Bloom extract | BT.709 luma soft-knee bright-pass |
+| `bloom_blur.frag` | Bloom blur H + V | 13-tap (7 bilinear) separable Gaussian; direction via push constant |
+| `composite.frag` | Composite | ACES Narkowicz tonemapping; AO × HDR + bloom |
 | `basic.frag` | Debug / unused | Forward shading fallback |
+| `ssao.frag` | SSAO (disabled) | Screen-space AO; pass not currently recorded |
+| `ao_blur.frag` | AO blur (disabled) | Blurs the SSAO buffer; pass not currently recorded |
 
 ---
 
@@ -85,13 +87,23 @@ $$F(\mathbf{v}, \mathbf{h}) = F_0 + (1 - F_0)(1 - \mathbf{v} \cdot \mathbf{h})^5
 
 **Smith Geometry (Schlick-GGX):**
 
-$$G(\mathbf{l}, \mathbf{v}) = G_1(\mathbf{l})\, G_1(\mathbf{v}), \qquad G_1(\mathbf{x}) = \frac{\mathbf{n} \cdot \mathbf{x}}{(\mathbf{n} \cdot \mathbf{x})(1-k)+k}, \qquad k = \frac{(\alpha+1)^2}{8}$$
+$$G(\mathbf{l}, \mathbf{v}) = G_1(\mathbf{l})\, G_1(\mathbf{v}), \qquad G_1(\mathbf{x}) = \frac{\mathbf{n} \cdot \mathbf{x}}{(\mathbf{n} \cdot \mathbf{x})(1-k)+k}, \qquad k = \frac{(\text{roughness}+1)^2}{8}$$
+
+Note `k` is computed from **roughness directly**, not from $\alpha = \text{roughness}^2$ (a common convention for the analytic-light geometry term).
 
 **Diffuse (Lambertian):**
 
 $$f_\text{diffuse} = \frac{\text{albedo}}{\pi} \cdot (1 - F) \cdot (1 - \text{metallic})$$
 
 Metals have no diffuse term (metallic = 1 → diffuse = 0).
+
+**Point-light attenuation** is a smooth radius-based falloff (not physical inverse-square):
+
+$$\text{att} = \operatorname{clamp}\!\left(1 - \frac{d}{r},\ 0,\ 1\right)^2$$
+
+where $d$ is the fragment-to-light distance and $r$ is the light's influence radius (`positionRadius.w`).
+
+**Sky pixels** (depth ≥ 0.9999, i.e. no geometry) skip lighting entirely and return a procedural sky gradient with a sun disc, so the background is shaded without a skybox texture.
 
 </details>
 
@@ -102,27 +114,41 @@ Metals have no diffuse term (metallic = 1 → diffuse = 0).
 
 $$L = 0.2126\,R + 0.7152\,G + 0.0722\,B$$
 
-These weights reflect the human eye's relative sensitivity to each channel (most sensitive to green). Pixels with $L > \text{threshold}$ pass through; others output black. The 1/4-resolution target limits the blur kernel cost.
+These weights reflect the human eye's relative sensitivity to each channel (most sensitive to green). Rather than a hard cutoff, it uses a **soft knee** so bloom fades in smoothly instead of popping at the threshold:
+
+$$c = \max(L - \text{threshold},\ 0), \qquad \text{out} = \text{color}\cdot\frac{c}{c + 1}$$
+
+The 1/4-resolution target limits the blur kernel cost.
 
 </details>
 
 <details>
 <summary><strong>Bloom Blur — Separable Gaussian</strong></summary>
 
-`bloom_blur.frag` applies a 9-tap 1D Gaussian kernel. Weights are precomputed from $\sigma = 2$:
+`bloom_blur.frag` applies a **13-tap 1D Gaussian, optimized to 7 bilinear taps** at even offsets. The fixed normalized weights are:
 
-$$w_i = \frac{e^{-i^2/(2\sigma^2)}}{\displaystyle\sum_{j=-4}^{4} e^{-j^2/(2\sigma^2)}}, \qquad i \in \{-4, -3, \dots, 4\}$$
+$$w = [\,0.0044,\ 0.0540,\ 0.2420,\ 0.3991,\ 0.2420,\ 0.0540,\ 0.0044\,]$$
 
-Normalization ensures energy conservation. The H and V passes share the same shader; direction is selected by push constants `(texel_x, texel_y)`. Two separable passes approximate a 2D Gaussian with $O(2n)$ samples instead of $O(n^2)$.
+sampled at offsets $\{-6, -4, -2, 0, +2, +4, +6\}\cdot\text{texelSize}$:
+
+$$\text{out} = \sum_{k} w_k \cdot \text{tex}\bigl(uv + o_k\cdot \mathbf{d}\bigr)$$
+
+The H and V passes share this shader; direction $\mathbf{d}$ is the push constant `texelSize` = `(1/w, 0)` for horizontal, `(0, 1/h)` for vertical. Two separable passes approximate a 2D Gaussian with $O(2n)$ samples instead of $O(n^2)$, and the bilinear taps halve the texture fetches.
 
 </details>
 
 <details>
 <summary><strong>Composite — ACES Tonemapping</strong></summary>
 
-`composite.frag` applies the Narkowicz 2015 ACES filmic approximation after combining HDR + bloom + AO:
+`composite.frag` combines the buffers **in this order** — AO multiplies the HDR scene, then bloom is added, then exposure — before tonemapping:
+
+$$\text{hdr}' = \bigl(\text{hdr}\cdot\text{ao} + \text{bloom}\cdot k_\text{intensity}\bigr)\cdot\text{exposure}$$
+
+then applies the Narkowicz 2015 ACES filmic approximation (clamped to $[0,1]$):
 
 $$f(x) = \frac{x(ax + b)}{x(cx + d) + e}$$
+
+Note bloom is added **after** AO, so glow is not darkened by occlusion.
 
 | Named constant | Value |
 |----------------|-------|
