@@ -355,7 +355,8 @@ void RoadScene::generate_grass(MeshBuilder& builder, const RoadLayout& layout, f
                               MAT_GRASS, m_grass_tile);
 }
 
-void RoadScene::generate_road_surfaces(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+void RoadScene::generate_road_surfaces(MeshBuilder& builder, const RoadLayout& layout, float z_near,
+                                       float z_far) const {
     float eb_start    = layout.eb_start;
     float crown_slope = RoadConfig::kCrownSlope;
 
@@ -466,7 +467,7 @@ void RoadScene::generate_jersey_barrier(MeshBuilder& builder, float z_near, floa
 }
 
 void RoadScene::generate_guardrail(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
-    float rail_x   = layout.eb_start + layout.road_width + m_shoulder_width_eb;
+    float rail_x = layout.eb_start + layout.road_width + m_shoulder_width_eb;
 
     // ── EB retaining wall (tall concrete wall like in LIE reference photo) ──
     float wall_height = 8.0f * kFt;                   // ~8ft tall retaining wall
@@ -498,7 +499,8 @@ void RoadScene::generate_guardrail(MeshBuilder& builder, const RoadLayout& layou
                             m_metal_tile);
 }
 
-void RoadScene::generate_solid_markings(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+void RoadScene::generate_solid_markings(MeshBuilder& builder, const RoadLayout& layout, float z_near,
+                                        float z_far) const {
     float eb_start    = layout.eb_start;
     float eb_width    = layout.road_width;
     float line_w      = 0.50f * kFt;  // 6-inch marking width
@@ -520,7 +522,8 @@ void RoadScene::generate_solid_markings(MeshBuilder& builder, const RoadLayout& 
                               m_white_marking);
 
     // WB white edge lines
-    builder.addHorizontalQuad(layout.wb_inner, layout.wb_inner + line_w, eb_outer_y, z_far, z_near, kUp, m_white_marking);
+    builder.addHorizontalQuad(layout.wb_inner, layout.wb_inner + line_w, eb_outer_y, z_far, z_near, kUp,
+                              m_white_marking);
     builder.addHorizontalQuad(-line_w, 0.0f, wb_inner_y, z_far, z_near, kUp, m_white_marking);
 
     // ── HOV double solid white lines (lane 0 / lane 1 boundary) ──
@@ -543,7 +546,8 @@ void RoadScene::generate_solid_markings(MeshBuilder& builder, const RoadLayout& 
                               kUp, m_white_marking);
 }
 
-void RoadScene::generate_dashed_markings(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+void RoadScene::generate_dashed_markings(MeshBuilder& builder, const RoadLayout& layout, float z_near,
+                                         float z_far) const {
     float eb_start    = layout.eb_start;
     float line_w      = 0.33f * kFt;
     float crown_slope = RoadConfig::kCrownSlope;
@@ -628,7 +632,8 @@ void RoadScene::generate_curbs(MeshBuilder& builder, const RoadLayout& layout, f
                             m_concrete_tile);
 }
 
-void RoadScene::generate_rumble_strips(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+void RoadScene::generate_rumble_strips(MeshBuilder& builder, const RoadLayout& layout, float z_near,
+                                       float z_far) const {
     float strip_width = 1.0f * kFt;                   // 1 ft wide
     float y_offset    = 1.0f;                         // tiny Y raise for z-fighting
     Vec4  rumble_tint = {0.85f, 0.85f, 0.85f, 1.0f};  // slightly dark
@@ -647,7 +652,8 @@ void RoadScene::generate_rumble_strips(MeshBuilder& builder, const RoadLayout& l
 // Ambient Occlusion — dark shadow strips at base of vertical structures
 // ══════════════════════════════════════════════════════════════════════
 
-void RoadScene::generate_ambient_occlusion(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+void RoadScene::generate_ambient_occlusion(MeshBuilder& builder, const RoadLayout& layout, float z_near,
+                                           float z_far) const {
     float ao_width = 0.5f * kFt;                   // 6 inches wide shadow strip
     float ao_y     = 0.5f;                         // tiny Y raise
     Vec4  ao_tint  = {0.15f, 0.15f, 0.18f, 1.0f};  // very dark blue-black
@@ -658,7 +664,7 @@ void RoadScene::generate_ambient_occlusion(MeshBuilder& builder, const RoadLayou
                               MAT_DEFAULT, 0.0f);
 
     // AO at base of EB guardrail
-    float eb_rail  = layout.eb_start + layout.road_width + m_shoulder_width_eb;
+    float eb_rail = layout.eb_start + layout.road_width + m_shoulder_width_eb;
     builder.addHorizontalQuad(eb_rail - ao_width, eb_rail, ao_y, z_far, z_near, kUp, ao_tint, MAT_DEFAULT, 0.0f);
 
     // AO at base of WB guardrail
@@ -762,19 +768,23 @@ void RoadScene::generate_sign_posts(MeshBuilder& builder, const RoadLayout& layo
         bool       overhead;
     };
 
+    // Sign Z positions are expressed as fractions of z_far so signage spreads
+    // along the whole route rather than clustering in the first few hundred
+    // metres. (z_far is negative; fraction * z_far places each sign that far
+    // out from the camera.)
     SignDef signs[] = {
         // Roadside: speed limit (first thing driver sees)
-        {-150000.0f, 3.0f * kFt, 4.0f * kFt, 6.0f * kFt, MAT_SIGN_4, false},
+        {0.10f * z_far, 3.0f * kFt, 4.0f * kFt, 6.0f * kFt, MAT_SIGN_4, false},
         // Roadside: mile marker
-        {-250000.0f, 2.0f * kFt, 3.0f * kFt, 5.0f * kFt, MAT_SIGN_5, false},
+        {0.26f * z_far, 2.0f * kFt, 3.0f * kFt, 5.0f * kFt, MAT_SIGN_5, false},
         // Overhead gantry: I-495 EAST
-        {-350000.0f, 20.0f * kFt, 6.0f * kFt, 0.0f, MAT_SIGN_0, true},
+        {0.42f * z_far, 20.0f * kFt, 6.0f * kFt, 0.0f, MAT_SIGN_0, true},
         // Roadside: EXIT 41B 1 MILE
-        {-500000.0f, 8.0f * kFt, 5.0f * kFt, 7.0f * kFt, MAT_SIGN_1, false},
+        {0.58f * z_far, 8.0f * kFt, 5.0f * kFt, 7.0f * kFt, MAT_SIGN_1, false},
         // Roadside: blue service sign
-        {-650000.0f, 6.0f * kFt, 4.0f * kFt, 6.0f * kFt, MAT_SIGN_3, false},
+        {0.74f * z_far, 6.0f * kFt, 4.0f * kFt, 6.0f * kFt, MAT_SIGN_3, false},
         // Overhead gantry: EXIT 41B 1/2 MILE
-        {-800000.0f, 20.0f * kFt, 6.0f * kFt, 0.0f, MAT_SIGN_2, true},
+        {0.90f * z_far, 20.0f * kFt, 6.0f * kFt, 0.0f, MAT_SIGN_2, true},
     };
 
     float gantry_height = 20.0f * kFt;
@@ -989,7 +999,6 @@ static float tree_hash(int slot) {
 }
 
 void RoadScene::generate_trees(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
-
     // Tree placement parameters
     float tree_spacing = 20.0f * kFt;  // every 20 feet
     float tree_setback = 25.0f * kFt;  // 25ft behind guardrail
@@ -1068,7 +1077,8 @@ void RoadScene::generate_trees(MeshBuilder& builder, const RoadLayout& layout, f
 // Sound Barriers — noise reduction panels along the roadside
 // ══════════════════════════════════════════════════════════════════════
 
-void RoadScene::generate_sound_barriers(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const {
+void RoadScene::generate_sound_barriers(MeshBuilder& builder, const RoadLayout& layout, float z_near,
+                                        float z_far) const {
     // EB sound barrier sits on top of the retaining wall
     float wall_x    = layout.eb_start + layout.road_width + m_shoulder_width_eb;
     float wall_top  = 8.0f * kFt;  // retaining wall height
@@ -1131,9 +1141,13 @@ void RoadScene::generate_exit_ramp(MeshBuilder& builder, const RoadLayout& layou
     float line_w   = 0.50f * kFt;
 
     // ── Ramp geometry parameters ─────────────────────────────────
-    float ramp_start_z  = -2132.5f * kFt;   // ramp begins diverging (~650m)
-    float ramp_end_z    = -2804.0f * kFt;   // ramp fully separated (~855m)
-    float decel_start_z = -1804.0f * kFt;   // deceleration lane begins (~550m)
+    // Anchored relative to the road length so the exit sits sensibly partway
+    // down the route (~75% of the way out) rather than clustered near the
+    // camera. Real-world segment lengths are preserved: 671.5ft diverge,
+    // 328.5ft deceleration lead-in. The marginal road then runs to z_far.
+    float ramp_end_z    = 0.75f * z_far;     // ramp fully separated (~75% out)
+    float ramp_start_z  = ramp_end_z + 671.5f * kFt;   // diverge begins (closer to camera)
+    float decel_start_z = ramp_start_z + 328.5f * kFt;  // deceleration lane begins
 
     float ramp_offset = 40.0f * kFt;                // how far right the ramp shifts at the end
     float ramp_width  = 14.0f * kFt;                // single ramp lane width
@@ -1317,7 +1331,6 @@ void RoadScene::generate_exit_ramp(MeshBuilder& builder, const RoadLayout& layou
 
 void RoadScene::generate_street_lamps(MeshBuilder& builder, const RoadLayout& layout, std::vector<LightDesc>& lights,
                                       float z_near, float z_far) const {
-
     // Lamp placement parameters
     float lamp_spacing = 500.0f * kFt;  // every 500ft (typical highway)
     float pole_height  = 30.0f * kFt;   // 30ft tall highway lamp
@@ -1339,12 +1352,9 @@ void RoadScene::generate_street_lamps(MeshBuilder& builder, const RoadLayout& la
     float wb_pole_x  = layout.wb_inner - m_shoulder_width_wb - m_rail_width - 2.0f * kFt;
     float wb_light_x = wb_pole_x + arm_len;
 
-    uint32_t light_count = 0;
-
+    // Emit lamps along the full road; CameraUniforms uploads the N nearest
+    // the camera each frame, so generation is no longer capped here.
     for (float z = z_far + lamp_spacing; z < z_near; z += lamp_spacing) {
-        if (light_count >= MAX_POINT_LIGHTS)
-            break;
-
         // ── EB lamp pole ──
         builder.addVerticalFace(eb_pole_x, pole_height, z - pole_width, z + pole_width, kRight, pole_tint, MAT_METAL,
                                 m_metal_tile);
@@ -1365,25 +1375,20 @@ void RoadScene::generate_street_lamps(MeshBuilder& builder, const RoadLayout& la
             5.0f,                                                                  // intensity
             50000.0f                                                               // radius (~50m coverage)
         });
-        light_count++;
 
-        // ── WB lamp pole (every other one to stay under MAX_POINT_LIGHTS) ──
-        if (light_count < MAX_POINT_LIGHTS) {
-            builder.addVerticalFace(wb_pole_x, pole_height, z - pole_width, z + pole_width, kRight, pole_tint,
-                                    MAT_METAL, m_metal_tile);
-            builder.addVerticalFace(wb_pole_x, pole_height, z - pole_width, z + pole_width, kLeft, pole_tint, MAT_METAL,
-                                    m_metal_tile);
+        // ── WB lamp pole (mirrored on the opposite side) ──
+        builder.addVerticalFace(wb_pole_x, pole_height, z - pole_width, z + pole_width, kRight, pole_tint, MAT_METAL,
+                                m_metal_tile);
+        builder.addVerticalFace(wb_pole_x, pole_height, z - pole_width, z + pole_width, kLeft, pole_tint, MAT_METAL,
+                                m_metal_tile);
 
-            builder.addHorizontalQuad(wb_pole_x, wb_light_x, pole_height, z - arm_h, z + arm_h, kUp, pole_tint,
-                                      MAT_METAL, m_metal_tile);
+        builder.addHorizontalQuad(wb_pole_x, wb_light_x, pole_height, z - arm_h, z + arm_h, kUp, pole_tint, MAT_METAL,
+                                  m_metal_tile);
 
-            builder.addHorizontalQuad(wb_light_x - fixture_w / 2.0f, wb_light_x + fixture_w / 2.0f,
-                                      pole_height - fixture_h, z - fixture_w / 2.0f, z + fixture_w / 2.0f, kUp,
-                                      fixture_tint, MAT_DEFAULT, 0.0f);
+        builder.addHorizontalQuad(wb_light_x - fixture_w / 2.0f, wb_light_x + fixture_w / 2.0f, pole_height - fixture_h,
+                                  z - fixture_w / 2.0f, z + fixture_w / 2.0f, kUp, fixture_tint, MAT_DEFAULT, 0.0f);
 
-            lights.push_back({Vec3(wb_light_x, pole_height - fixture_h, z), Vec3(1.0f, 0.9f, 0.7f), 5.0f, 50000.0f});
-            light_count++;
-        }
+        lights.push_back({Vec3(wb_light_x, pole_height - fixture_h, z), Vec3(1.0f, 0.9f, 0.7f), 5.0f, 50000.0f});
     }
 }
 

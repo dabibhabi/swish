@@ -35,14 +35,14 @@ private:
     bool  m_esc_key_prev    = false;
 
     // Camera mode: cockpit (eye follows the car) vs free-fly. C toggles.
-    bool  m_cockpit      = true;
-    bool  m_c_key_prev   = false;
-    float m_look_yaw     = 0.0f;  // mouse-look offsets relative to car heading
-    float m_look_pitch   = 0.0f;
+    bool  m_cockpit    = true;
+    bool  m_c_key_prev = false;
+    float m_look_yaw   = 0.0f;  // mouse-look offsets relative to car heading
+    float m_look_pitch = 0.0f;
 
     // Rain (R key cycles off → light → heavy → off)
-    int  m_rain_level  = 0;
-    bool m_r_key_prev  = false;
+    int  m_rain_level = 0;
+    bool m_r_key_prev = false;
 
     // Windshield wiper (V key toggles continuous sweep on/off)
     bool m_wiper_enabled = false;

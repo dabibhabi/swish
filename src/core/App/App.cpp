@@ -57,8 +57,8 @@ void App::mouse_callback(GLFWwindow* window, double xpos, double ypos) {
         // Mouse look relative to the car heading, clamped so you can't
         // look through the headrest or flip over the roof.
         constexpr float kSens = 0.1f;
-        app->m_look_yaw   = std::clamp(app->m_look_yaw + x_offset * kSens, -150.f, 150.f);
-        app->m_look_pitch = std::clamp(app->m_look_pitch + y_offset * kSens, -60.f, 60.f);
+        app->m_look_yaw       = std::clamp(app->m_look_yaw + x_offset * kSens, -150.f, 150.f);
+        app->m_look_pitch     = std::clamp(app->m_look_pitch + y_offset * kSens, -60.f, 60.f);
         return;
     }
 
@@ -82,11 +82,11 @@ void App::framebuffer_resize_callback(GLFWwindow* window, int /*width*/, int /*h
 int App::run() {
     // ── Road geometry constants (world units, must match road.bin) ───
     constexpr float kFt           = 0.3048f * 1000.0f;
-    constexpr float kBarrierRight = (2.67f + 3.0f) * kFt;   // ~1728 WU
-    constexpr float kLaneWidth    = 13.0f * kFt;             // ~3962 WU
+    constexpr float kBarrierRight = (2.67f + 3.0f) * kFt;  // ~1728 WU
+    constexpr float kLaneWidth    = 13.0f * kFt;           // ~3962 WU
     constexpr float kLaneCount    = 4.0f;
-    constexpr float kCrownSlope   = 0.02f;                   // RoadConfig::m_crown_slope
-    constexpr float kMarkingY     = 5.0f;                    // marking_y_offset from road.bin
+    constexpr float kCrownSlope   = 0.02f;  // RoadConfig::m_crown_slope
+    constexpr float kMarkingY     = 5.0f;   // marking_y_offset from road.bin
     constexpr float kEbRoadRight  = kBarrierRight + kLaneCount * kLaneWidth + 10.0f * kFt;
 
     // Computes road surface Y at world X using the crown formula.
@@ -189,8 +189,7 @@ int App::run() {
 
     // ── 8. Load the Porsche car ───────────────────────────────────
     {
-        auto car_entity = m_modelManager->load_car(
-            std::string(ASSET_DIR) + "Porsche/porsche.glb");
+        auto car_entity = m_modelManager->load_car(std::string(ASSET_DIR) + "Porsche/porsche.glb");
 
         // Place the car on the road ahead of the camera start position.
         // Camera starts at (6501, 1448, -5000) facing -Z.
@@ -221,7 +220,7 @@ int App::run() {
         float current_time = static_cast<float>(glfwGetTime());
         float delta_time   = current_time - last_frame_time;
         last_frame_time    = current_time;
-        delta_time = std::min(delta_time, 1.0f / 15.0f);  // cap at ~67ms to prevent physics explosion
+        delta_time         = std::min(delta_time, 1.0f / 15.0f);  // cap at ~67ms to prevent physics explosion
 
         m_window->pollEvents();
 
@@ -235,8 +234,7 @@ int App::run() {
         bool esc_down = glfwGetKey(glfw_window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
         if (esc_down && !m_esc_key_prev) {
             m_cursor_captured = !m_cursor_captured;
-            glfwSetInputMode(glfw_window, GLFW_CURSOR,
-                m_cursor_captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+            glfwSetInputMode(glfw_window, GLFW_CURSOR, m_cursor_captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
             m_first_mouse = true;
         }
         m_esc_key_prev = esc_down;
@@ -254,8 +252,12 @@ int App::run() {
         bool r_down = glfwGetKey(glfw_window, GLFW_KEY_R) == GLFW_PRESS;
         if (r_down && !m_r_key_prev) {
             static constexpr float kRainLevels[] = {0.0f, 0.35f, 1.0f};
-            m_rain_level = (m_rain_level + 1) % 3;
+            m_rain_level                         = (m_rain_level + 1) % 3;
             m_renderer->set_rain_intensity(kRainLevels[m_rain_level]);
+            // Drive the interior cabin wash from the same rain level so the
+            // cockpit reads light gray as rain rises (off → light → heavy).
+            if (m_car)
+                m_car->set_rain_intensity(kRainLevels[m_rain_level]);
         }
         m_r_key_prev = r_down;
 
@@ -302,7 +304,7 @@ int App::run() {
         // goes behind and above it (roof tops out at 1.29).
         if (camera && m_cockpit && m_car) {
             const Vec3 kSeatEye(-0.32f, 1.05f, -0.34f);
-            Vec3 eye = Vec3(m_car->get_model_matrix() * Vec4(kSeatEye, 1.f));
+            Vec3       eye = Vec3(m_car->get_model_matrix() * Vec4(kSeatEye, 1.f));
             camera->set_position(eye);
             // Camera forward = (cos yaw, ·, sin yaw); car forward =
             // (cos heading, 0, -sin heading) -> camera yaw = -heading.

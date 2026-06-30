@@ -57,6 +57,12 @@ void main() {
 
     // ── Sample PBR textures ───────────────────────────────────────
     vec3 albedo     = albedoSample.rgb * push.color.rgb;
+    // Rain cabin wash (back-compatible sentinel on color.a). color.a is NOT used
+    // for output alpha (outAlbedo.a is a hard 1.0 below), so this is free to repurpose:
+    //   a <= 1  → wash = 0 → albedo unchanged (ALL existing draws use a = 1).
+    //   a in (1,2] → wash in (0,1] → albedo tinted toward light gray (cabin only).
+    float wash = clamp(push.color.a - 1.0, 0.0, 1.0);
+    albedo     = mix(albedo, vec3(0.55), wash);  // tasteful LIGHT GRAY target (not white)
     vec3 normalMap  = texture(normalTex, fragUV).rgb * 2.0 - 1.0;
     float roughness = texture(roughnessTex, fragUV).r;
 

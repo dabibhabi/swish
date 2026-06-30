@@ -139,10 +139,12 @@ SwapChainSupportDetails Device::querySwapChainSupport(VkPhysicalDevice device, V
 
 int Device::rateDevice(VkPhysicalDevice device, VkSurfaceKHR surface) const {
     // Must support required extensions (swapchain at minimum)
-    if (!checkDeviceExtensionSupport(device)) return 0;
+    if (!checkDeviceExtensionSupport(device))
+        return 0;
 
     // Must expose both a graphics and a present queue
-    if (!findQueueFamilies(device, surface).isComplete()) return 0;
+    if (!findQueueFamilies(device, surface).isComplete())
+        return 0;
 
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(device, &properties);
@@ -156,9 +158,11 @@ int Device::rateDevice(VkPhysicalDevice device, VkSurfaceKHR surface) const {
 
     // Prefer the vendor that matches the configured backend
 #if defined(SWISH_BACKEND_LINUX) || defined(SWISH_BACKEND_WINDOWS)
-    if (properties.vendorID == 0x1002 || properties.vendorID == 0x10DE) score += 500;  // AMD / NVIDIA
+    if (properties.vendorID == 0x1002 || properties.vendorID == 0x10DE)
+        score += 500;  // AMD / NVIDIA
 #elif defined(SWISH_BACKEND_APPLE)
-    if (properties.vendorID == 0x106B) score += 500;  // Apple GPU
+    if (properties.vendorID == 0x106B)
+        score += 500;  // Apple GPU
 #endif
 
     return score;

@@ -20,7 +20,7 @@ struct PointLight {
 };
 
 layout(set = 0, binding = 1) uniform LightsUBO {
-    PointLight pointLights[16];
+    PointLight pointLights[32];
     uvec4      numPointLights;  // x = count
 } lights;
 

@@ -2,28 +2,29 @@
 
 #include "../../core/Window/Window.h"
 #include "../../scene/Camera/Camera.h"
+#include "../../scene/Entity/CarEntity.h"  // CarEntity::kMaxSpeed for windshield speedFactor
 #include "../../utils/Types.h"
 #include "../../utils/VulkanCheck.h"
 #include "../../utils/VulkanInit.h"
 #include "../CameraUniforms/CameraUniforms.h"
 #include "../CommandManager/CommandManager.h"
+#include "../GlassPass/GlassPass.h"
 #include "../MaterialDescriptors/MaterialDescriptors.h"
 #include "../Pipeline/Device/Device.h"
 #include "../PostProcessManager/PostProcessManager.h"
 #include "../RainSystem/RainSystem.h"
-#include "../GlassPass/GlassPass.h"
-#include "../WindshieldRainPass/WindshieldRainPass.h"
 #include "../ResourceManager/ResourceManager.h"
 #include "../Swapchain/Swapchain.h"
 #include "../SyncObjects/SyncObjects.h"
 #include "../TextureManager/TextureManager.h"
 #include "../VulkanContext/VulkanContext.h"
+#include "../WindshieldRainPass/WindshieldRainPass.h"
 
 #include <array>
-#include <optional>
-
+#include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <optional>
 
 namespace swish {
 
@@ -111,18 +112,13 @@ void Renderer::init(Window& window) {
         }
 
         m_rainSystem = std::make_unique<RainSystem>();
-        m_rainSystem->init(services(), hdrViews, depthViews,
-                           m_swapchain->getExtent(),
-                           m_cameraUniforms->get_layout());
+        m_rainSystem->init(services(), hdrViews, depthViews, m_swapchain->getExtent(), m_cameraUniforms->get_layout());
 
         m_glassPass = std::make_unique<GlassPass>();
-        m_glassPass->init(services(), hdrViews, depthViews,
-                          m_swapchain->getExtent(),
-                          m_cameraUniforms->get_layout());
+        m_glassPass->init(services(), hdrViews, depthViews, m_swapchain->getExtent(), m_cameraUniforms->get_layout());
 
         m_windshieldRainPass = std::make_unique<WindshieldRainPass>();
-        m_windshieldRainPass->init(services(), hdrViews, depthViews,
-                                   m_swapchain->getExtent(),
+        m_windshieldRainPass->init(services(), hdrViews, depthViews, m_swapchain->getExtent(),
                                    m_cameraUniforms->get_layout());
     }
 
@@ -199,8 +195,12 @@ void Renderer::register_model_manager(ModelManager* mgr) {
 TextureManager* Renderer::get_texture_manager() const {
     return m_textureManager;
 }
-SceneManager* Renderer::get_scene_manager() const { return m_sceneManager; }
-ModelManager* Renderer::get_model_manager() const { return m_modelManager; }
+SceneManager* Renderer::get_scene_manager() const {
+    return m_sceneManager;
+}
+ModelManager* Renderer::get_model_manager() const {
+    return m_modelManager;
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // Vulkan handle getters (for managers that need raw handles)
@@ -259,7 +259,7 @@ void Renderer::drawFrame(float deltaTime) {
         VkSemaphore          waitSems[]   = {m_syncObjects->getImageAvailable(m_currentFrame)};
         VkSemaphore          signalSems[] = {m_syncObjects->getRenderFinished(imageIndex)};
         VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT};
+                                             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT};
         VkCommandBuffer      cmdBufs[]    = {m_commandManager->getBuffer(m_currentFrame)};
 
         auto si                 = vk::makeSubmitInfo();
@@ -297,15 +297,26 @@ void Renderer::drawFrame(float deltaTime) {
     };
 
     auto imageIndex = acquireImage();
-    if (!imageIndex) return;
+    if (!imageIndex)
+        return;
 
     m_syncObjects->resetFence(m_device->getDevice(), m_currentFrame);
     m_commandManager->resetBuffer(m_currentFrame);
     m_cameraUniforms->update(m_currentFrame, *m_camera);
 
     if (m_rainSystem) {
-        // Effective wind = base wind minus car velocity; rain appears to lean forward at speed
-        Vec3 effectiveWind = m_rainWind - m_carVelocity;
+        // Time-varying gusts: superimpose a slow swing and a faster gust on the
+        // base horizontal wind so the streaks visibly slant and the slant DRIFTS
+        // over time. Two decorrelated sinusoids (periods ≈ 2π/0.35 ≈ 18 s and
+        // 2π/1.30 ≈ 4.8 s) give a wandering gust rather than a metronome. The
+        // gust modulates a ±1 envelope around a steady mean of ~1.0 so the wind
+        // never fully stalls. Vertical wind stays 0 (fall is handled by dropSpeed).
+        m_windTime += deltaTime;
+        float gust = 1.0f + 0.55f * std::sin(m_windTime * 0.35f) + 0.35f * std::sin(m_windTime * 1.30f + 1.7f);
+        Vec3  gustWind(m_rainWind.x * gust, 0.0f, m_rainWind.z * gust);
+
+        // Effective wind = gusting wind minus car velocity; rain leans forward at speed
+        Vec3 effectiveWind = gustWind - m_carVelocity;
         m_rainSystem->update(m_currentFrame, deltaTime, m_rainIntensity, effectiveWind);
         m_cameraUniforms->set_wetness(m_currentFrame, m_rainSystem->get_wetness());
     }
@@ -316,18 +327,19 @@ void Renderer::drawFrame(float deltaTime) {
         float carSpeed = glm::length(m_carVelocity);
         Vec2  screenFwd(0.0f, -1.0f);  // default: straight up (driving forward)
         if (carSpeed > 0.001f && m_camera) {
-            Vec3 fwdDir  = m_carVelocity / carSpeed;
-            Vec4 vsFwd   = m_camera->get_view_matrix() * Vec4(fwdDir, 0.0f);
+            Vec3 fwdDir = m_carVelocity / carSpeed;
+            Vec4 vsFwd  = m_camera->get_view_matrix() * Vec4(fwdDir, 0.0f);
             Vec2 raw(vsFwd.x, vsFwd.y);
             if (glm::length(raw) > 0.001f)
                 screenFwd = glm::normalize(raw);
         }
-        float speedFactor = glm::clamp(carSpeed / 30000.0f, 0.0f, 1.0f);
+        // Normalize over the car's actual top speed (kMaxSpeed, now 92000 WU/s)
+        // so speedFactor still spans 0..1 across the full speed range.
+        float speedFactor = glm::clamp(carSpeed / CarEntity::kMaxSpeed, 0.0f, 1.0f);
         float wetness     = m_rainSystem ? m_rainSystem->get_wetness() : 0.0f;
         float intensity   = m_rainSystem ? m_rainSystem->get_intensity() : 0.0f;
 
-        m_windshieldRainPass->update(m_currentFrame, deltaTime,
-                                     screenFwd, speedFactor, wetness, intensity,
+        m_windshieldRainPass->update(m_currentFrame, deltaTime, screenFwd, speedFactor, wetness, intensity,
                                      m_wiperEnabled);
     }
 
@@ -364,8 +376,8 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
     // the windshield is drawn; leaves HDR in COLOR_ATTACHMENT_OPTIMAL.
     if (m_windshieldRainPass && !m_windshieldDrawCalls.empty() && m_dynamicGeometry.has_geometry()) {
         m_windshieldRainPass->record_wetness_update(cmd);
-        m_windshieldRainPass->record_scene_snapshot(cmd, frameIndex,
-                                                    m_postProcess->get_hdr_image(frameIndex), fullExtent);
+        m_windshieldRainPass->record_scene_snapshot(cmd, frameIndex, m_postProcess->get_hdr_image(frameIndex),
+                                                    fullExtent);
     }
 
     // Windshield rain — refractive water drops on the front windshield
@@ -446,44 +458,42 @@ void Renderer::recordLightingPass(VkCommandBuffer cmd, uint32_t frameIndex, VkEx
 
 // ── Rain forward pass — additively onto existing HDR ──────────────────
 void Renderer::recordRainPass(VkCommandBuffer cmd, uint32_t frameIndex) {
-    if (!m_rainSystem) return;
+    if (!m_rainSystem)
+        return;
     // Bind camera set (set 0) using the rain pipeline layout before delegating.
     // RainSystem::record_draws binds its own set 1 (rain UBO) internally.
     VkDescriptorSet camSet = m_cameraUniforms->get_set(frameIndex);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_rainSystem->get_pipeline_layout(), 0, 1,
-                            &camSet, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_rainSystem->get_pipeline_layout(), 0, 1, &camSet, 0,
+                            nullptr);
     m_rainSystem->record_draws(cmd, frameIndex);
 }
 
 // ── Glass forward pass — alpha-blended windows onto HDR ───────────────
 void Renderer::recordGlassPass(VkCommandBuffer cmd, uint32_t frameIndex) {
-    if (!m_glassPass || m_glassDrawCalls.empty()) return;
-    if (!m_dynamicGeometry.has_geometry()) return;
+    if (!m_glassPass || m_glassDrawCalls.empty())
+        return;
+    if (!m_dynamicGeometry.has_geometry())
+        return;
 
     VkDescriptorSet camSet = m_cameraUniforms->get_set(frameIndex);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_glassPass->get_pipeline_layout(), 0, 1,
-                            &camSet, 0, nullptr);
-    m_glassPass->record_draws(cmd, frameIndex,
-                               m_dynamicGeometry.get_vertex_buffer(),
-                               m_dynamicGeometry.get_index_buffer(),
-                               m_glassDrawCalls);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_glassPass->get_pipeline_layout(), 0, 1, &camSet, 0,
+                            nullptr);
+    m_glassPass->record_draws(cmd, frameIndex, m_dynamicGeometry.get_vertex_buffer(),
+                              m_dynamicGeometry.get_index_buffer(), m_glassDrawCalls);
 }
 
 // ── Windshield rain pass — additive rivulets on windshield geometry ───
 void Renderer::recordWindshieldRainPass(VkCommandBuffer cmd, uint32_t frameIndex) {
-    if (!m_windshieldRainPass || m_windshieldDrawCalls.empty()) return;
-    if (!m_dynamicGeometry.has_geometry()) return;
+    if (!m_windshieldRainPass || m_windshieldDrawCalls.empty())
+        return;
+    if (!m_dynamicGeometry.has_geometry())
+        return;
 
     VkDescriptorSet camSet = m_cameraUniforms->get_set(frameIndex);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_windshieldRainPass->get_pipeline_layout(), 0, 1,
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_windshieldRainPass->get_pipeline_layout(), 0, 1,
                             &camSet, 0, nullptr);
-    m_windshieldRainPass->record_draws(cmd, frameIndex,
-                                        m_dynamicGeometry.get_vertex_buffer(),
-                                        m_dynamicGeometry.get_index_buffer(),
-                                        m_windshieldDrawCalls);
+    m_windshieldRainPass->record_draws(cmd, frameIndex, m_dynamicGeometry.get_vertex_buffer(),
+                                       m_dynamicGeometry.get_index_buffer(), m_windshieldDrawCalls);
 }
 
 // ── Pass 2a: bloom extract (HDR → 1/4 res bright pixels) ─────────────

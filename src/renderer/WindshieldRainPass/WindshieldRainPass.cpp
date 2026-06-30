@@ -8,10 +8,9 @@
 #include "../ResourceManager/ResourceManager.h"
 #include "../Vertex.h"
 
-#include <glm/glm.hpp>
-
 #include <cmath>
 #include <cstring>
+#include <glm/glm.hpp>
 
 namespace swish {
 
@@ -30,10 +29,8 @@ struct WetnessPush {
 
 // Inline image-memory barrier (covers TRANSFER layouts that
 // ResourceManager::insertImageBarrier does not).
-void imgBarrier(VkCommandBuffer cmd, VkImage img,
-                VkImageLayout oldL, VkImageLayout newL,
-                VkAccessFlags srcA, VkAccessFlags dstA,
-                VkPipelineStageFlags srcS, VkPipelineStageFlags dstS) {
+void imgBarrier(VkCommandBuffer cmd, VkImage img, VkImageLayout oldL, VkImageLayout newL, VkAccessFlags srcA,
+                VkAccessFlags dstA, VkPipelineStageFlags srcS, VkPipelineStageFlags dstS) {
     VkImageMemoryBarrier b{};
     b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     b.oldLayout           = oldL;
@@ -48,12 +45,9 @@ void imgBarrier(VkCommandBuffer cmd, VkImage img,
 }
 }  // namespace
 
-void WindshieldRainPass::init(
-    const RendererServices& s,
-    const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-    const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
-    VkExtent2D extent,
-    VkDescriptorSetLayout cameraSetLayout) {
+void WindshieldRainPass::init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
+                              VkDescriptorSetLayout cameraSetLayout) {
     m_extent         = extent;
     m_physicalDevice = s.physicalDevice;
     m_commandPool    = s.commandPool;
@@ -70,9 +64,8 @@ void WindshieldRainPass::init(
     createWetnessPipeline(s.device);
 }
 
-void WindshieldRainPass::update(uint32_t frameIndex, float deltaTime,
-                                 Vec2 screenFlowDir, float speedFactor,
-                                 float wetness, float intensity, bool wiperEnabled) {
+void WindshieldRainPass::update(uint32_t frameIndex, float deltaTime, Vec2 screenFlowDir, float speedFactor,
+                                float wetness, float intensity, bool wiperEnabled) {
     m_time += deltaTime;
     m_wiperEnabled = wiperEnabled;
 
@@ -83,31 +76,35 @@ void WindshieldRainPass::update(uint32_t frameIndex, float deltaTime,
     constexpr float kWiperHalfSweep = 1.15f;  // ~±66° of blade travel
     if (wiperEnabled) {
         m_wiperPhase += kWiperSpeed * deltaTime;
-        if (m_wiperPhase > kTwoPi) m_wiperPhase -= kTwoPi;
+        if (m_wiperPhase > kTwoPi)
+            m_wiperPhase -= kTwoPi;
     }
     const float bladeAngle = std::sin(m_wiperPhase) * kWiperHalfSweep;
 
-    // Water flow direction: gravity pulls down at rest, aerodynamic lift pushes
-    // up (and slightly sideways) at speed. Drives both the drop motion and the
-    // wetness-map advection.
-    const Vec2  gravity = Vec2(0.0f, 1.0f);
-    const Vec2  aero    = Vec2(0.15f, -1.0f);
-    // Crossover tuned to the car's achievable speedFactor range (terminal ≈0.24
-    // under drag), so water clearly streams UP near full throttle.
-    const float aeroBias = glm::smoothstep(0.05f, 0.20f, speedFactor);
-    m_waterFlow   = glm::normalize(glm::mix(gravity, aero, aeroBias));
-    m_curIntensity = intensity;
-    m_dt           = deltaTime;
-    m_wiperAngle   = bladeAngle;
-    m_advect       = deltaTime * (0.05f + 0.30f * speedFactor);  // drift this frame (UV)
+    // Water flow direction for the SCREEN-SPACE wetness-map advection. Here +Y is
+    // screen-down, so gravity = (0,+1) drifts the field DOWN at rest, and aero
+    // lift = (0.15,-1) streams it UP (and slightly sideways) at high speed. (This
+    // is screen space, so the sign is NOT flipped the way the mesh-UV shader is.)
+    const Vec2 gravity = Vec2(0.0f, 1.0f);
+    const Vec2 aero    = Vec2(0.15f, -1.0f);
+    // Crossover lifted to a higher normalized band (matches the mesh-UV shader's
+    // smoothstep(0.25,0.60)): water only streams UP at genuinely high speed, not a
+    // gentle cruise. speedFactor now spans 0..1 over the full top speed.
+    const float aeroBias = glm::smoothstep(0.25f, 0.60f, speedFactor);
+    m_waterFlow          = glm::normalize(glm::mix(gravity, aero, aeroBias));
+    m_curIntensity       = intensity;
+    m_dt                 = deltaTime;
+    m_wiperAngle         = bladeAngle;
+    m_advect             = deltaTime * (0.05f + 0.30f * speedFactor);  // drift this frame (UV)
 
     WindshieldRainUBO ubo{};
     ubo.flowAndTime   = Vec4(screenFlowDir.x, screenFlowDir.y, speedFactor, m_time);
-    // params.z = drop density (Voronoi cells across the glass), .w = refraction strength.
-    ubo.params        = Vec4(wetness, intensity, 60.0f, 0.030f);
-    // screenAndRefr.w = Fresnel rim gain (kept low so drops read as glassy, not white).
-    ubo.screenAndRefr = Vec4(static_cast<float>(m_extent.width),
-                             static_cast<float>(m_extent.height), 0.0f, 0.15f);
+    // density (reserved/unused in shader), refractStrength dialed back 0.135 → 0.095
+    // so the colored-light bokeh still smears through the big DISCRETE beads (ref
+    // img B) without over-displacing into a gray smear. fresnelGain (screenAndRefr.w)
+    // back to 0.06 — bright bead rims, not a glowing sheet.
+    ubo.params        = Vec4(wetness, intensity, 60.0f, 0.095f);
+    ubo.screenAndRefr = Vec4(static_cast<float>(m_extent.width), static_cast<float>(m_extent.height), 0.0f, 0.06f);
     ubo.wiperState    = Vec4(bladeAngle, m_wiperPhase, wiperEnabled ? 1.0f : 0.0f, kWiperSpeed);
     std::memcpy(m_uboMapped[frameIndex], &ubo, sizeof(ubo));
 }
@@ -116,23 +113,21 @@ void WindshieldRainPass::record_wetness_update(VkCommandBuffer cmd) {
     // Fullscreen pass: write the new wetness into m_wetImages[1] (B), reading the
     // history m_wetImages[0] (A) via m_wetDescSet. Render pass leaves B in
     // SHADER_READ_ONLY (its finalLayout).
-    VkRenderPassBeginInfo bi   = vk::makeRenderPassBeginInfo();
-    bi.renderPass              = m_wetRenderPass;
-    bi.framebuffer             = m_wetFramebuffer;
-    bi.renderArea.extent       = m_extent;
-    bi.clearValueCount         = 0;
-    bi.pClearValues            = nullptr;
+    VkRenderPassBeginInfo bi = vk::makeRenderPassBeginInfo();
+    bi.renderPass            = m_wetRenderPass;
+    bi.framebuffer           = m_wetFramebuffer;
+    bi.renderArea.extent     = m_extent;
+    bi.clearValueCount       = 0;
+    bi.pClearValues          = nullptr;
     vkCmdBeginRenderPass(cmd, &bi, VK_SUBPASS_CONTENTS_INLINE);
 
-    VkViewport vp{0.0f, 0.0f, static_cast<float>(m_extent.width),
-                  static_cast<float>(m_extent.height), 0.0f, 1.0f};
+    VkViewport vp{0.0f, 0.0f, static_cast<float>(m_extent.width), static_cast<float>(m_extent.height), 0.0f, 1.0f};
     vkCmdSetViewport(cmd, 0, 1, &vp);
     VkRect2D sc{{0, 0}, m_extent};
     vkCmdSetScissor(cmd, 0, 1, &sc);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_wetPipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_wetPipeLayout, 0, 1, &m_wetDescSet, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_wetPipeLayout, 0, 1, &m_wetDescSet, 0, nullptr);
 
     WetnessPush pc{};
     pc.flow       = m_waterFlow;
@@ -150,64 +145,60 @@ void WindshieldRainPass::record_wetness_update(VkCommandBuffer cmd) {
     // Copy B → A so next frame's history = this result (fixed bindings: the rain
     // pass always samples B, this pass always reads A).
     imgBarrier(cmd, m_wetImages[1], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-               VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+               VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+               VK_PIPELINE_STAGE_TRANSFER_BIT);
     imgBarrier(cmd, m_wetImages[0], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-               VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+               VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+               VK_PIPELINE_STAGE_TRANSFER_BIT);
 
     VkImageCopy region{};
     region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.extent         = {m_extent.width, m_extent.height, 1};
-    vkCmdCopyImage(cmd, m_wetImages[1], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   m_wetImages[0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    vkCmdCopyImage(cmd, m_wetImages[1], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_wetImages[0],
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     // Both back to SHADER_READ — A for next frame's read, B for this frame's draw.
     imgBarrier(cmd, m_wetImages[0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-               VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-               VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+               VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     imgBarrier(cmd, m_wetImages[1], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-               VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
-               VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+               VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 }
 
-void WindshieldRainPass::record_scene_snapshot(VkCommandBuffer cmd, uint32_t frameIndex,
-                                               VkImage hdrImage, VkExtent2D extent) {
+void WindshieldRainPass::record_scene_snapshot(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage,
+                                               VkExtent2D extent) {
     // Snapshot the (post-glass) HDR scene into a sampleable image so the
     // fragment shader can refract it without a read/write feedback loop on HDR.
     imgBarrier(cmd, hdrImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-    imgBarrier(cmd, m_refrImages[frameIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-               0, VK_ACCESS_TRANSFER_WRITE_BIT,
-               VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    imgBarrier(cmd, m_refrImages[frameIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+               VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
     VkImageCopy region{};
     region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.extent         = {extent.width, extent.height, 1};
-    vkCmdCopyImage(cmd, hdrImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   m_refrImages[frameIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    vkCmdCopyImage(cmd, hdrImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_refrImages[frameIndex],
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     imgBarrier(cmd, m_refrImages[frameIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-               VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     imgBarrier(cmd, hdrImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-               VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-               VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+               VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 }
 
-void WindshieldRainPass::record_draws(VkCommandBuffer cmd,
-                                       uint32_t frameIndex,
-                                       VkBuffer carVBO,
-                                       VkBuffer carIBO,
-                                       const std::vector<DrawCall>& windshieldDCs) const {
-    if (windshieldDCs.empty() || carVBO == VK_NULL_HANDLE) return;
+void WindshieldRainPass::record_draws(VkCommandBuffer cmd, uint32_t frameIndex, VkBuffer carVBO, VkBuffer carIBO,
+                                      const std::vector<DrawCall>& windshieldDCs) const {
+    if (windshieldDCs.empty() || carVBO == VK_NULL_HANDLE)
+        return;
 
     VkClearValue clearVals[2]{};
-    auto beginInfo              = vk::makeRenderPassBeginInfo();
+    auto         beginInfo      = vk::makeRenderPassBeginInfo();
     beginInfo.renderPass        = m_renderPass;
     beginInfo.framebuffer       = m_framebuffers[frameIndex];
     beginInfo.renderArea.extent = m_extent;
@@ -216,10 +207,7 @@ void WindshieldRainPass::record_draws(VkCommandBuffer cmd,
 
     vkCmdBeginRenderPass(cmd, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-    VkViewport vp{0.0f, 0.0f,
-                  static_cast<float>(m_extent.width),
-                  static_cast<float>(m_extent.height),
-                  0.0f, 1.0f};
+    VkViewport vp{0.0f, 0.0f, static_cast<float>(m_extent.width), static_cast<float>(m_extent.height), 0.0f, 1.0f};
     vkCmdSetViewport(cmd, 0, 1, &vp);
     VkRect2D sc{{0, 0}, m_extent};
     vkCmdSetScissor(cmd, 0, 1, &sc);
@@ -231,27 +219,24 @@ void WindshieldRainPass::record_draws(VkCommandBuffer cmd,
     vkCmdBindIndexBuffer(cmd, carIBO, 0, VK_INDEX_TYPE_UINT32);
 
     // Set 1: rain UBO + refraction sampler + wetness sampler (set 0 = camera).
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_pipeLayout, 1, 1, &m_descSets[frameIndex], 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeLayout, 1, 1, &m_descSets[frameIndex], 0,
+                            nullptr);
 
     for (const auto& dc : windshieldDCs) {
         PushConstantData push{};
         push.model = dc.model;
         push.color = dc.color;
-        vkCmdPushConstants(cmd, m_pipeLayout,
-                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                           0, sizeof(push), &push);
+        vkCmdPushConstants(cmd, m_pipeLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(push), &push);
         vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, 0, 0);
     }
 
     vkCmdEndRenderPass(cmd);
 }
 
-void WindshieldRainPass::recreate(
-    const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-    const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
-    VkExtent2D extent,
-    VkDevice device) {
+void WindshieldRainPass::recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
+                                  VkDevice device) {
     m_extent = extent;
     destroyFramebuffers(device);
     createFramebuffers(device, hdrViews, depthViews);
@@ -263,13 +248,34 @@ void WindshieldRainPass::recreate(
 }
 
 void WindshieldRainPass::cleanup(VkDevice device) {
-    if (m_pipeline != VK_NULL_HANDLE)     { vkDestroyPipeline(device, m_pipeline, nullptr); m_pipeline = VK_NULL_HANDLE; }
-    if (m_wetPipeline != VK_NULL_HANDLE)  { vkDestroyPipeline(device, m_wetPipeline, nullptr); m_wetPipeline = VK_NULL_HANDLE; }
-    if (m_pipeLayout != VK_NULL_HANDLE)   { vkDestroyPipelineLayout(device, m_pipeLayout, nullptr); m_pipeLayout = VK_NULL_HANDLE; }
-    if (m_wetPipeLayout != VK_NULL_HANDLE){ vkDestroyPipelineLayout(device, m_wetPipeLayout, nullptr); m_wetPipeLayout = VK_NULL_HANDLE; }
-    if (m_descPool != VK_NULL_HANDLE)     { vkDestroyDescriptorPool(device, m_descPool, nullptr); m_descPool = VK_NULL_HANDLE; }
-    if (m_ownLayout != VK_NULL_HANDLE)    { vkDestroyDescriptorSetLayout(device, m_ownLayout, nullptr); m_ownLayout = VK_NULL_HANDLE; }
-    if (m_wetSetLayout != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device, m_wetSetLayout, nullptr); m_wetSetLayout = VK_NULL_HANDLE; }
+    if (m_pipeline != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device, m_pipeline, nullptr);
+        m_pipeline = VK_NULL_HANDLE;
+    }
+    if (m_wetPipeline != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device, m_wetPipeline, nullptr);
+        m_wetPipeline = VK_NULL_HANDLE;
+    }
+    if (m_pipeLayout != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device, m_pipeLayout, nullptr);
+        m_pipeLayout = VK_NULL_HANDLE;
+    }
+    if (m_wetPipeLayout != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device, m_wetPipeLayout, nullptr);
+        m_wetPipeLayout = VK_NULL_HANDLE;
+    }
+    if (m_descPool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(device, m_descPool, nullptr);
+        m_descPool = VK_NULL_HANDLE;
+    }
+    if (m_ownLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, m_ownLayout, nullptr);
+        m_ownLayout = VK_NULL_HANDLE;
+    }
+    if (m_wetSetLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, m_wetSetLayout, nullptr);
+        m_wetSetLayout = VK_NULL_HANDLE;
+    }
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         if (m_ubos[i] != VK_NULL_HANDLE) {
@@ -282,11 +288,20 @@ void WindshieldRainPass::cleanup(VkDevice device) {
         }
     }
     destroyRefractionResources(device);
-    if (m_refrSampler != VK_NULL_HANDLE) { vkDestroySampler(device, m_refrSampler, nullptr); m_refrSampler = VK_NULL_HANDLE; }
+    if (m_refrSampler != VK_NULL_HANDLE) {
+        vkDestroySampler(device, m_refrSampler, nullptr);
+        m_refrSampler = VK_NULL_HANDLE;
+    }
     destroyWetnessResources(device);
-    if (m_wetRenderPass != VK_NULL_HANDLE) { vkDestroyRenderPass(device, m_wetRenderPass, nullptr); m_wetRenderPass = VK_NULL_HANDLE; }
+    if (m_wetRenderPass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(device, m_wetRenderPass, nullptr);
+        m_wetRenderPass = VK_NULL_HANDLE;
+    }
     destroyFramebuffers(device);
-    if (m_renderPass != VK_NULL_HANDLE) { vkDestroyRenderPass(device, m_renderPass, nullptr); m_renderPass = VK_NULL_HANDLE; }
+    if (m_renderPass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(device, m_renderPass, nullptr);
+        m_renderPass = VK_NULL_HANDLE;
+    }
 }
 
 // ── Private helpers ────────────────────────────────────────────────────
@@ -322,21 +337,15 @@ void WindshieldRainPass::createRenderPass(VkDevice device, VkFormat depthFormat)
     subpass.pDepthStencilAttachment = &depthRef;
 
     VkSubpassDependency dep{};
-    dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
-    dep.dstSubpass    = 0;
-    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
-                        VK_PIPELINE_STAGE_TRANSFER_BIT;
-    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
-                        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                        VK_ACCESS_SHADER_READ_BIT |
-                        VK_ACCESS_TRANSFER_WRITE_BIT;
-    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
-                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                        VK_ACCESS_SHADER_READ_BIT |
-                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+    dep.srcSubpass   = VK_SUBPASS_EXTERNAL;
+    dep.dstSubpass   = 0;
+    dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                       VK_PIPELINE_STAGE_TRANSFER_BIT;
+    dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                       VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
 
     VkAttachmentDescription atts[] = {colorAtt, depthAtt};
     VkRenderPassCreateInfo  rpInfo{};
@@ -351,12 +360,11 @@ void WindshieldRainPass::createRenderPass(VkDevice device, VkFormat depthFormat)
     VK_CHECK(vkCreateRenderPass(device, &rpInfo, nullptr, &m_renderPass));
 }
 
-void WindshieldRainPass::createFramebuffers(
-    VkDevice device,
-    const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-    const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews) {
+void WindshieldRainPass::createFramebuffers(VkDevice                                             device,
+                                            const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                                            const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews) {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        VkImageView atts[] = {hdrViews[i], depthViews[i]};
+        VkImageView             atts[] = {hdrViews[i], depthViews[i]};
         VkFramebufferCreateInfo fbInfo{};
         fbInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         fbInfo.renderPass      = m_renderPass;
@@ -380,13 +388,11 @@ void WindshieldRainPass::destroyFramebuffers(VkDevice device) {
 
 void WindshieldRainPass::createUBOs(const RendererServices& s) {
     const VkDeviceSize          uboSize   = sizeof(WindshieldRainUBO);
-    const VkMemoryPropertyFlags hostFlags =
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    const VkMemoryPropertyFlags hostFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        ResourceManager::createBuffer(s.device, s.physicalDevice, uboSize,
-                                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostFlags,
-                                      m_ubos[i], m_uboMemories[i]);
+        ResourceManager::createBuffer(s.device, s.physicalDevice, uboSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                      hostFlags, m_ubos[i], m_uboMemories[i]);
         VK_CHECK(vkMapMemory(s.device, m_uboMemories[i], 0, uboSize, 0, &m_uboMapped[i]));
     }
 }
@@ -394,18 +400,17 @@ void WindshieldRainPass::createUBOs(const RendererServices& s) {
 void WindshieldRainPass::createRefractionResources(VkDevice device, VkPhysicalDevice physicalDevice,
                                                    VkExtent2D extent) {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        ResourceManager::createImage(device, physicalDevice, extent.width, extent.height,
-                                     m_refrFormat, VK_IMAGE_TILING_OPTIMAL,
+        ResourceManager::createImage(device, physicalDevice, extent.width, extent.height, m_refrFormat,
+                                     VK_IMAGE_TILING_OPTIMAL,
                                      VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                                     m_refrImages[i], m_refrMemories[i]);
+                                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_refrImages[i], m_refrMemories[i]);
 
         VkImageViewCreateInfo viewInfo{};
-        viewInfo.sType                       = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        viewInfo.image                       = m_refrImages[i];
-        viewInfo.viewType                    = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format                      = m_refrFormat;
-        viewInfo.subresourceRange            = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        viewInfo.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image            = m_refrImages[i];
+        viewInfo.viewType         = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format           = m_refrFormat;
+        viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         VK_CHECK(vkCreateImageView(device, &viewInfo, nullptr, &m_refrViews[i]));
     }
 
@@ -427,21 +432,28 @@ void WindshieldRainPass::createRefractionResources(VkDevice device, VkPhysicalDe
 
 void WindshieldRainPass::destroyRefractionResources(VkDevice device) {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        if (m_refrViews[i]    != VK_NULL_HANDLE) { vkDestroyImageView(device, m_refrViews[i], nullptr);    m_refrViews[i]    = VK_NULL_HANDLE; }
-        if (m_refrImages[i]   != VK_NULL_HANDLE) { vkDestroyImage(device, m_refrImages[i], nullptr);       m_refrImages[i]   = VK_NULL_HANDLE; }
-        if (m_refrMemories[i] != VK_NULL_HANDLE) { vkFreeMemory(device, m_refrMemories[i], nullptr);       m_refrMemories[i] = VK_NULL_HANDLE; }
+        if (m_refrViews[i] != VK_NULL_HANDLE) {
+            vkDestroyImageView(device, m_refrViews[i], nullptr);
+            m_refrViews[i] = VK_NULL_HANDLE;
+        }
+        if (m_refrImages[i] != VK_NULL_HANDLE) {
+            vkDestroyImage(device, m_refrImages[i], nullptr);
+            m_refrImages[i] = VK_NULL_HANDLE;
+        }
+        if (m_refrMemories[i] != VK_NULL_HANDLE) {
+            vkFreeMemory(device, m_refrMemories[i], nullptr);
+            m_refrMemories[i] = VK_NULL_HANDLE;
+        }
     }
 }
 
-void WindshieldRainPass::createWetnessResources(VkDevice device, VkPhysicalDevice physicalDevice,
-                                                VkExtent2D extent) {
+void WindshieldRainPass::createWetnessResources(VkDevice device, VkPhysicalDevice physicalDevice, VkExtent2D extent) {
     for (int i = 0; i < 2; i++) {
-        ResourceManager::createImage(device, physicalDevice, extent.width, extent.height,
-                                     m_wetFormat, VK_IMAGE_TILING_OPTIMAL,
+        ResourceManager::createImage(device, physicalDevice, extent.width, extent.height, m_wetFormat,
+                                     VK_IMAGE_TILING_OPTIMAL,
                                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-                                     VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                                     m_wetImages[i], m_wetMemories[i]);
+                                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_wetImages[i], m_wetMemories[i]);
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image            = m_wetImages[i];
@@ -463,7 +475,7 @@ void WindshieldRainPass::createWetnessResources(VkDevice device, VkPhysicalDevic
         att.finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkAttachmentReference ref{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-        VkSubpassDescription subpass{};
+        VkSubpassDescription  subpass{};
         subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpass.colorAttachmentCount = 1;
         subpass.pColorAttachments    = &ref;
@@ -508,11 +520,23 @@ void WindshieldRainPass::createWetnessResources(VkDevice device, VkPhysicalDevic
 }
 
 void WindshieldRainPass::destroyWetnessResources(VkDevice device) {
-    if (m_wetFramebuffer != VK_NULL_HANDLE) { vkDestroyFramebuffer(device, m_wetFramebuffer, nullptr); m_wetFramebuffer = VK_NULL_HANDLE; }
+    if (m_wetFramebuffer != VK_NULL_HANDLE) {
+        vkDestroyFramebuffer(device, m_wetFramebuffer, nullptr);
+        m_wetFramebuffer = VK_NULL_HANDLE;
+    }
     for (int i = 0; i < 2; i++) {
-        if (m_wetViews[i]    != VK_NULL_HANDLE) { vkDestroyImageView(device, m_wetViews[i], nullptr);  m_wetViews[i]    = VK_NULL_HANDLE; }
-        if (m_wetImages[i]   != VK_NULL_HANDLE) { vkDestroyImage(device, m_wetImages[i], nullptr);     m_wetImages[i]   = VK_NULL_HANDLE; }
-        if (m_wetMemories[i] != VK_NULL_HANDLE) { vkFreeMemory(device, m_wetMemories[i], nullptr);     m_wetMemories[i] = VK_NULL_HANDLE; }
+        if (m_wetViews[i] != VK_NULL_HANDLE) {
+            vkDestroyImageView(device, m_wetViews[i], nullptr);
+            m_wetViews[i] = VK_NULL_HANDLE;
+        }
+        if (m_wetImages[i] != VK_NULL_HANDLE) {
+            vkDestroyImage(device, m_wetImages[i], nullptr);
+            m_wetImages[i] = VK_NULL_HANDLE;
+        }
+        if (m_wetMemories[i] != VK_NULL_HANDLE) {
+            vkFreeMemory(device, m_wetMemories[i], nullptr);
+            m_wetMemories[i] = VK_NULL_HANDLE;
+        }
     }
 }
 
@@ -530,14 +554,15 @@ void WindshieldRainPass::clearWetnessImages(VkDevice device) {
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(cb, &bi));
 
-    VkClearColorValue        cc{};
-    VkImageSubresourceRange  range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkClearColorValue       cc{};
+    VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     for (int i = 0; i < 2; i++) {
-        imgBarrier(cb, m_wetImages[i], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                   0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        imgBarrier(cb, m_wetImages[i], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                   VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
         vkCmdClearColorImage(cb, m_wetImages[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &cc, 1, &range);
         imgBarrier(cb, m_wetImages[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                   VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                   VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     }
 
     VK_CHECK(vkEndCommandBuffer(cb));
@@ -553,20 +578,34 @@ void WindshieldRainPass::clearWetnessImages(VkDevice device) {
 void WindshieldRainPass::createDescriptors(VkDevice device) {
     // Rain set (set 1): UBO + refraction sampler + wetness sampler.
     VkDescriptorSetLayoutBinding rainB[3]{};
-    rainB[0].binding = 0; rainB[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;         rainB[0].descriptorCount = 1; rainB[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    rainB[1].binding = 1; rainB[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rainB[1].descriptorCount = 1; rainB[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    rainB[2].binding = 2; rainB[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rainB[2].descriptorCount = 1; rainB[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    rainB[0].binding         = 0;
+    rainB[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    rainB[0].descriptorCount = 1;
+    rainB[0].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+    rainB[1].binding         = 1;
+    rainB[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    rainB[1].descriptorCount = 1;
+    rainB[1].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+    rainB[2].binding         = 2;
+    rainB[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    rainB[2].descriptorCount = 1;
+    rainB[2].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
     VkDescriptorSetLayoutCreateInfo rainLI{};
-    rainLI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    rainLI.bindingCount = 3; rainLI.pBindings = rainB;
+    rainLI.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    rainLI.bindingCount = 3;
+    rainLI.pBindings    = rainB;
     VK_CHECK(vkCreateDescriptorSetLayout(device, &rainLI, nullptr, &m_ownLayout));
 
     // Wetness-update set (set 0): previous wetness sampler.
     VkDescriptorSetLayoutBinding wetB{};
-    wetB.binding = 0; wetB.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; wetB.descriptorCount = 1; wetB.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    wetB.binding         = 0;
+    wetB.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    wetB.descriptorCount = 1;
+    wetB.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
     VkDescriptorSetLayoutCreateInfo wetLI{};
-    wetLI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    wetLI.bindingCount = 1; wetLI.pBindings = &wetB;
+    wetLI.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    wetLI.bindingCount = 1;
+    wetLI.pBindings    = &wetB;
     VK_CHECK(vkCreateDescriptorSetLayout(device, &wetLI, nullptr, &m_wetSetLayout));
 
     VkDescriptorPoolSize poolSizes[2]{};
@@ -602,20 +641,40 @@ void WindshieldRainPass::writeDescriptors(VkDevice device) {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         VkDescriptorBufferInfo bufInfo{m_ubos[i], 0, sizeof(WindshieldRainUBO)};
         VkDescriptorImageInfo  refrInfo{m_refrSampler, m_refrViews[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo  wetInfo{m_refrSampler,  m_wetViews[1],  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};  // B = current
+        VkDescriptorImageInfo  wetInfo{m_refrSampler, m_wetViews[1],
+                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};  // B = current
 
         VkWriteDescriptorSet w[3]{};
-        w[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w[0].dstSet = m_descSets[i]; w[0].dstBinding = 0; w[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;         w[0].descriptorCount = 1; w[0].pBufferInfo = &bufInfo;
-        w[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w[1].dstSet = m_descSets[i]; w[1].dstBinding = 1; w[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w[1].descriptorCount = 1; w[1].pImageInfo = &refrInfo;
-        w[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w[2].dstSet = m_descSets[i]; w[2].dstBinding = 2; w[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w[2].descriptorCount = 1; w[2].pImageInfo = &wetInfo;
+        w[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w[0].dstSet          = m_descSets[i];
+        w[0].dstBinding      = 0;
+        w[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        w[0].descriptorCount = 1;
+        w[0].pBufferInfo     = &bufInfo;
+        w[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w[1].dstSet          = m_descSets[i];
+        w[1].dstBinding      = 1;
+        w[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w[1].descriptorCount = 1;
+        w[1].pImageInfo      = &refrInfo;
+        w[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w[2].dstSet          = m_descSets[i];
+        w[2].dstBinding      = 2;
+        w[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w[2].descriptorCount = 1;
+        w[2].pImageInfo      = &wetInfo;
         vkUpdateDescriptorSets(device, 3, w, 0, nullptr);
     }
 
     // Wetness-update set reads A (m_wetImages[0]) = history.
     VkDescriptorImageInfo histInfo{m_refrSampler, m_wetViews[0], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkWriteDescriptorSet  ww{};
-    ww.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; ww.dstSet = m_wetDescSet; ww.dstBinding = 0;
-    ww.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; ww.descriptorCount = 1; ww.pImageInfo = &histInfo;
+    ww.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    ww.dstSet          = m_wetDescSet;
+    ww.dstBinding      = 0;
+    ww.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    ww.descriptorCount = 1;
+    ww.pImageInfo      = &histInfo;
     vkUpdateDescriptorSets(device, 1, &ww, 0, nullptr);
 }
 
@@ -642,7 +701,7 @@ void WindshieldRainPass::createPipeline(VkDevice device, VkDescriptorSetLayout c
     cfg.enableDepthTest  = true;
     cfg.enableDepthWrite = false;
     cfg.additiveBlending = false;
-    cfg.enableBlending   = true;   // refractive water alpha-blends over the glass
+    cfg.enableBlending   = true;  // refractive water alpha-blends over the glass
     cfg.pipelineLayout   = m_pipeLayout;
 
     m_pipeline = Pipeline::create(device, cfg, m_renderPass, m_extent);

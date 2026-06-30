@@ -24,7 +24,10 @@ public:
     // mapped UBO memory. Must be called before binding the set for the frame.
     void update(uint32_t frameIndex, const Camera& camera);
 
-    void set_lights(const std::vector<LightDesc>& lights) { m_lights = lights; m_lightsDirty = true; }
+    void set_lights(const std::vector<LightDesc>& lights) {
+        m_lights      = lights;
+        m_lightsDirty = true;
+    }
     bool has_lights() const { return !m_lights.empty(); }
 
     // Patches camPos.w in the already-mapped camera UBO for this frame.
@@ -54,7 +57,7 @@ private:
     std::vector<void*>          m_lightsMapped;
 
     std::vector<LightDesc> m_lights;
-    bool m_lightsDirty = false;
+    bool                   m_lightsDirty = false;
 };
 
 }  // namespace swish

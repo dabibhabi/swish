@@ -8,23 +8,23 @@
 
 // tinygltf internally calls stbi_* functions; stb_image.h must be visible
 // so it can see the declarations (implementation is in StbImage.cpp).
-#include "stb_image.h"
-#include <tiny_gltf.h>
-
 #include "ModelManager.h"
 
 #include "../../renderer/Renderer/Renderer.h"
 #include "../../renderer/TextureManager/TextureManager.h"
 #include "../../renderer/Vertex.h"
 #include "../../scene/SceneTypes.h"
+#include "stb_image.h"
 
+#include <tiny_gltf.h>
+
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
-
-#include <cstdint>
-#include <algorithm>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -56,24 +56,20 @@ glm::mat4 gltf_node_local_matrix(const tinygltf::Node& node) {
     }
     glm::mat4 t(1.f), r(1.f), s(1.f);
     if (node.translation.size() == 3)
-        t = glm::translate(glm::mat4(1.f),
-                           glm::vec3(node.translation[0], node.translation[1], node.translation[2]));
+        t = glm::translate(glm::mat4(1.f), glm::vec3(node.translation[0], node.translation[1], node.translation[2]));
     if (node.rotation.size() == 4)  // glTF order: x, y, z, w
-        r = glm::mat4_cast(glm::quat(static_cast<float>(node.rotation[3]),
-                                     static_cast<float>(node.rotation[0]),
-                                     static_cast<float>(node.rotation[1]),
-                                     static_cast<float>(node.rotation[2])));
+        r = glm::mat4_cast(glm::quat(static_cast<float>(node.rotation[3]), static_cast<float>(node.rotation[0]),
+                                     static_cast<float>(node.rotation[1]), static_cast<float>(node.rotation[2])));
     if (node.scale.size() == 3)
-        s = glm::scale(glm::mat4(1.f),
-                       glm::vec3(node.scale[0], node.scale[1], node.scale[2]));
+        s = glm::scale(glm::mat4(1.f), glm::vec3(node.scale[0], node.scale[1], node.scale[2]));
     return t * r * s;
 }
 
 // Depth-first walk computing each node's world transform.
-void gltf_walk_nodes(const tinygltf::Model& model, int node_idx, const glm::mat4& parent,
-                     std::vector<glm::mat4>& world, std::vector<bool>& visited) {
-    const auto& node = model.nodes[node_idx];
-    glm::mat4   w    = parent * gltf_node_local_matrix(node);
+void gltf_walk_nodes(const tinygltf::Model& model, int node_idx, const glm::mat4& parent, std::vector<glm::mat4>& world,
+                     std::vector<bool>& visited) {
+    const auto& node  = model.nodes[node_idx];
+    glm::mat4   w     = parent * gltf_node_local_matrix(node);
     world[node_idx]   = w;
     visited[node_idx] = true;
     for (int child : node.children)
@@ -92,17 +88,17 @@ glm::mat4 norm_matrix_y90(const glm::mat4& M) {
     return out;
 }
 
-template<typename T>
-static void transcodeIndices(const tinygltf::Model& gltf, int accessor, size_t n_idx,
-                              uint32_t base_vertex, MeshData& mesh) {
+template <typename T>
+static void transcodeIndices(const tinygltf::Model& gltf, int accessor, size_t n_idx, uint32_t base_vertex,
+                             MeshData& mesh) {
     const T* idx = gltf_accessor_data<T>(gltf, accessor);
     for (size_t i = 0; i < n_idx; i++)
         mesh.addIndex(base_vertex + static_cast<uint32_t>(idx[i]));
 }
 
 // Upload one decoded image to TextureManager; returns name on success, "" on failure.
-std::string upload_gltf_image(const tinygltf::Model& model, int image_idx,
-                               const std::string& name, TextureManager& tex_mgr) {
+std::string upload_gltf_image(const tinygltf::Model& model, int image_idx, const std::string& name,
+                              TextureManager& tex_mgr) {
     if (image_idx < 0 || image_idx >= static_cast<int>(model.images.size()))
         return "";
 
@@ -126,8 +122,7 @@ std::string upload_gltf_image(const tinygltf::Model& model, int image_idx,
         return "";
     }
 
-    tex_mgr.register_from_pixels(name, rgba, static_cast<uint32_t>(img.width),
-                                  static_cast<uint32_t>(img.height));
+    tex_mgr.register_from_pixels(name, rgba, static_cast<uint32_t>(img.width), static_cast<uint32_t>(img.height));
     return name;
 }
 
@@ -150,7 +145,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
 
     // ── Register PBR textures for each material slot ──────────────────
     constexpr int kMaxCarMaterials = 20;
-    int           num_mats = std::min(static_cast<int>(gltf.materials.size()), kMaxCarMaterials);
+    int           num_mats         = std::min(static_cast<int>(gltf.materials.size()), kMaxCarMaterials);
 
     for (int mi = 0; mi < num_mats; mi++) {
         const auto& mat  = gltf.materials[mi];
@@ -188,7 +183,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     // RootNode-relative space is the asset's raw mesh space: meters, Y-up.
     std::vector<glm::mat4> node_world(gltf.nodes.size(), glm::mat4(1.f));
     std::vector<bool>      node_visited(gltf.nodes.size(), false);
-    const auto& scene = gltf.scenes[gltf.defaultScene >= 0 ? gltf.defaultScene : 0];
+    const auto&            scene = gltf.scenes[gltf.defaultScene >= 0 ? gltf.defaultScene : 0];
     for (int root : scene.nodes)
         gltf_walk_nodes(gltf, root, glm::mat4(1.f), node_world, node_visited);
 
@@ -231,100 +226,113 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         glm::mat4 xform      = ref_inverse * node_world[ni];
         glm::mat3 normal_mat = glm::transpose(glm::inverse(glm::mat3(xform)));
 
-    for (const auto& prim : gltf.meshes[node.mesh].primitives) {
-        if (prim.mode != TINYGLTF_MODE_TRIANGLES || prim.indices < 0)
-            continue;
+        for (const auto& prim : gltf.meshes[node.mesh].primitives) {
+            if (prim.mode != TINYGLTF_MODE_TRIANGLES || prim.indices < 0)
+                continue;
 
-        const bool isGlass = (prim.material >= 0 &&
-                              gltf.materials[prim.material].alphaMode == "BLEND");
+            const bool isGlass = (prim.material >= 0 && gltf.materials[prim.material].alphaMode == "BLEND");
 
-        // Windshield = the OUTER exterior glass pane only ("Window_Geo"),
-        // excluding the red taillight glass ("RED_GLASS"). The cabin-facing
-        // inner pane ("WindowInside_Geo") is deliberately NOT tagged — painting
-        // rain on it puts droplets inside the cabin (see issue.md §2a). Note
-        // "WindowInside_Geo" does not contain the substring "Window_Geo", so
-        // dropping that OR-term is sufficient to exclude it. The combined outer
-        // mesh also holds side/rear glass; the windshield rain shader confines
-        // drops to the forward-facing pane via a surface-normal mask.
-        const bool isWindshield = isGlass
-            && node.name.find("Window_Geo") != std::string::npos
-            && node.name.find("RED_GLASS") == std::string::npos;
+            // Windshield = the OUTER exterior glass pane only ("Window_Geo"),
+            // excluding the red taillight glass ("RED_GLASS"). The cabin-facing
+            // inner pane ("WindowInside_Geo") is deliberately NOT tagged — painting
+            // rain on it puts droplets inside the cabin (see issue.md §2a). Note
+            // "WindowInside_Geo" does not contain the substring "Window_Geo", so
+            // dropping that OR-term is sufficient to exclude it. The combined outer
+            // mesh also holds side/rear glass; the windshield rain shader confines
+            // drops to the forward-facing pane via a surface-normal mask.
+            const bool isWindshield = isGlass && node.name.find("Window_Geo") != std::string::npos &&
+                                      node.name.find("RED_GLASS") == std::string::npos;
 
-        auto pos_it  = prim.attributes.find("POSITION");
-        if (pos_it == prim.attributes.end())
-            continue;
+            // Interior cabin geometry — node names "Kit1_Interior_Geo_..." and
+            // "Kit1_InteriorTilling_Geo_..." both contain "Interior". Match
+            // case-insensitively, but never tag glass (the cabin wash is opaque).
+            std::string lowerName = node.name;
+            std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            const bool isInterior = !isGlass && lowerName.find("interior") != std::string::npos;
 
-        auto norm_it = prim.attributes.find("NORMAL");
-        auto uv_it   = prim.attributes.find("TEXCOORD_0");
-        auto tan_it  = prim.attributes.find("TANGENT");
+            auto pos_it = prim.attributes.find("POSITION");
+            if (pos_it == prim.attributes.end())
+                continue;
 
-        uint32_t     base_vertex = mesh.getVertexCount();
-        uint32_t     idx_start   = mesh.getIndexCount();
-        size_t       vert_count  = gltf_accessor_count(gltf, pos_it->second);
-        const float* positions   = gltf_accessor_data<float>(gltf, pos_it->second);
-        const float* normals     = norm_it != prim.attributes.end()
-                                       ? gltf_accessor_data<float>(gltf, norm_it->second) : nullptr;
-        const float* uvs         = uv_it != prim.attributes.end()
-                                       ? gltf_accessor_data<float>(gltf, uv_it->second) : nullptr;
-        const float* tangents    = tan_it != prim.attributes.end()
-                                       ? gltf_accessor_data<float>(gltf, tan_it->second) : nullptr;
+            auto norm_it = prim.attributes.find("NORMAL");
+            auto uv_it   = prim.attributes.find("TEXCOORD_0");
+            auto tan_it  = prim.attributes.find("TANGENT");
 
-        for (size_t vi = 0; vi < vert_count; vi++) {
-            Vertex v{};
-            glm::vec3 p = {positions[vi*3+0], positions[vi*3+1], positions[vi*3+2]};
-            v.position  = glm::vec3(xform * glm::vec4(p, 1.f));
-            v.normal    = normals  ? glm::normalize(normal_mat *
-                                         glm::vec3(normals[vi*3+0], normals[vi*3+1], normals[vi*3+2]))
-                                   : glm::vec3(0.f, 1.f, 0.f);
-            v.uv        = uvs      ? glm::vec2(uvs[vi*2+0], uvs[vi*2+1])
-                                   : glm::vec2(0.f, 0.f);
-            if (tangents) {
-                glm::vec3 t = glm::normalize(glm::mat3(xform) *
-                                  glm::vec3(tangents[vi*4+0], tangents[vi*4+1], tangents[vi*4+2]));
-                v.tangent   = glm::vec4(t, tangents[vi*4+3]);
-            } else {
-                v.tangent   = glm::vec4(1.f, 0.f, 0.f, 1.f);
+            uint32_t     base_vertex = mesh.getVertexCount();
+            uint32_t     idx_start   = mesh.getIndexCount();
+            size_t       vert_count  = gltf_accessor_count(gltf, pos_it->second);
+            const float* positions   = gltf_accessor_data<float>(gltf, pos_it->second);
+            const float* normals =
+                norm_it != prim.attributes.end() ? gltf_accessor_data<float>(gltf, norm_it->second) : nullptr;
+            const float* uvs =
+                uv_it != prim.attributes.end() ? gltf_accessor_data<float>(gltf, uv_it->second) : nullptr;
+            const float* tangents =
+                tan_it != prim.attributes.end() ? gltf_accessor_data<float>(gltf, tan_it->second) : nullptr;
+
+            for (size_t vi = 0; vi < vert_count; vi++) {
+                Vertex    v{};
+                glm::vec3 p = {positions[vi * 3 + 0], positions[vi * 3 + 1], positions[vi * 3 + 2]};
+                v.position  = glm::vec3(xform * glm::vec4(p, 1.f));
+                v.normal    = normals ? glm::normalize(normal_mat * glm::vec3(normals[vi * 3 + 0], normals[vi * 3 + 1],
+                                                                              normals[vi * 3 + 2]))
+                                      : glm::vec3(0.f, 1.f, 0.f);
+                v.uv        = uvs ? glm::vec2(uvs[vi * 2 + 0], uvs[vi * 2 + 1]) : glm::vec2(0.f, 0.f);
+                if (tangents) {
+                    glm::vec3 t = glm::normalize(
+                        glm::mat3(xform) * glm::vec3(tangents[vi * 4 + 0], tangents[vi * 4 + 1], tangents[vi * 4 + 2]));
+                    v.tangent = glm::vec4(t, tangents[vi * 4 + 3]);
+                } else {
+                    v.tangent = glm::vec4(1.f, 0.f, 0.f, 1.f);
+                }
+                mesh.addVertex(v);
             }
-            mesh.addVertex(v);
-        }
 
-        // Indices — handle all common component types
-        const auto& idx_acc = gltf.accessors[prim.indices];
-        size_t      n_idx   = idx_acc.count;
-        switch (idx_acc.componentType) {
-            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:   transcodeIndices<uint32_t>(gltf, prim.indices, n_idx, base_vertex, mesh); break;
-            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: transcodeIndices<uint16_t>(gltf, prim.indices, n_idx, base_vertex, mesh); break;
-            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:  transcodeIndices<uint8_t> (gltf, prim.indices, n_idx, base_vertex, mesh); break;
-            default: break;
-        }
-
-        Submesh sm{};
-        sm.indexOffset       = idx_start;
-        sm.indexCount        = static_cast<uint32_t>(n_idx);
-        sm.is_glass          = isGlass;
-        sm.is_windshield     = isWindshield;
-        sm.is_steering_wheel = !isGlass && found_sw_pivot && (node.name == "Steering_Wheel");
-
-        if (prim.material >= 0 && prim.material < kMaxCarMaterials) {
-            sm.material = static_cast<MaterialId>(MAT_CAR_0 + prim.material);
-            // Glass base color from the glTF material factor (RGBA).
-            if (isGlass) {
-                const auto& bc = gltf.materials[prim.material].pbrMetallicRoughness.baseColorFactor;
-                sm.color = Vec4(static_cast<float>(bc[0]), static_cast<float>(bc[1]),
-                                static_cast<float>(bc[2]), static_cast<float>(bc[3]));
-            } else {
-                sm.color = Vec4(1.f, 1.f, 1.f, 1.f);
+            // Indices — handle all common component types
+            const auto& idx_acc = gltf.accessors[prim.indices];
+            size_t      n_idx   = idx_acc.count;
+            switch (idx_acc.componentType) {
+                case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
+                    transcodeIndices<uint32_t>(gltf, prim.indices, n_idx, base_vertex, mesh);
+                    break;
+                case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+                    transcodeIndices<uint16_t>(gltf, prim.indices, n_idx, base_vertex, mesh);
+                    break;
+                case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+                    transcodeIndices<uint8_t>(gltf, prim.indices, n_idx, base_vertex, mesh);
+                    break;
+                default:
+                    break;
             }
-        } else {
-            sm.material = MAT_DEFAULT;
-            sm.color    = Vec4(1.f, 1.f, 1.f, 1.f);
-        }
 
-        if (isGlass)
-            glassSubmeshes.push_back(sm);
-        else
-            submeshes.push_back(sm);
-    }
+            Submesh sm{};
+            sm.indexOffset       = idx_start;
+            sm.indexCount        = static_cast<uint32_t>(n_idx);
+            sm.is_glass          = isGlass;
+            sm.is_windshield     = isWindshield;
+            sm.is_interior       = isInterior;
+            sm.is_steering_wheel = !isGlass && found_sw_pivot && (node.name == "Steering_Wheel");
+
+            if (prim.material >= 0 && prim.material < kMaxCarMaterials) {
+                sm.material = static_cast<MaterialId>(MAT_CAR_0 + prim.material);
+                // Glass base color from the glTF material factor (RGBA).
+                if (isGlass) {
+                    const auto& bc = gltf.materials[prim.material].pbrMetallicRoughness.baseColorFactor;
+                    sm.color = Vec4(static_cast<float>(bc[0]), static_cast<float>(bc[1]), static_cast<float>(bc[2]),
+                                    static_cast<float>(bc[3]));
+                } else {
+                    sm.color = Vec4(1.f, 1.f, 1.f, 1.f);
+                }
+            } else {
+                sm.material = MAT_DEFAULT;
+                sm.color    = Vec4(1.f, 1.f, 1.f, 1.f);
+            }
+
+            if (isGlass)
+                glassSubmeshes.push_back(sm);
+            else
+                submeshes.push_back(sm);
+        }
     }
 
     if (mesh.empty())
@@ -342,8 +350,8 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         v.position = glm::vec3(v.position.z, v.position.y, -v.position.x);
         v.normal   = glm::vec3(v.normal.z, v.normal.y, -v.normal.x);
         v.tangent  = glm::vec4(v.tangent.z, v.tangent.y, -v.tangent.x, v.tangent.w);
-        bb_min = glm::min(bb_min, v.position);
-        bb_max = glm::max(bb_max, v.position);
+        bb_min     = glm::min(bb_min, v.position);
+        bb_max     = glm::max(bb_max, v.position);
     }
 
     // ── Ground the model ──────────────────────────────────────────────
@@ -354,7 +362,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         v.position.y -= bb_min.y;
 
     if (found_sw_pivot) {
-        sw_pivot_frame       = norm_matrix_y90(sw_pivot_frame);
+        sw_pivot_frame = norm_matrix_y90(sw_pivot_frame);
         sw_pivot_frame[3].y -= bb_min.y;
         // Strip accumulated scale from the pivot node so conjugation is
         // a pure rotation (M * R * M^-1). The SteeringWheel_Pivot carries
@@ -368,13 +376,12 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     }
 
     glm::vec3 size = bb_max - bb_min;
-    std::cout << "ModelManager::load_car: '" << path << "' bbox (m) length "
-              << size.x << " x height " << size.y << " x width " << size.z
-              << ", grounded by " << -bb_min.y
-              << ", glass primitives: " << glassSubmeshes.size()
-              << " (windshield: "
+    std::cout << "ModelManager::load_car: '" << path << "' bbox (m) length " << size.x << " x height " << size.y
+              << " x width " << size.z << ", grounded by " << -bb_min.y
+              << ", glass primitives: " << glassSubmeshes.size() << " (windshield: "
               << std::count_if(glassSubmeshes.begin(), glassSubmeshes.end(),
-                               [](const Submesh& s){ return s.is_windshield; }) << ")";
+                               [](const Submesh& s) { return s.is_windshield; })
+              << ")";
     if (found_sw_pivot) {
         std::cout << ", steering pivot " << sw_pivot_frame[3][0] << " " << sw_pivot_frame[3][1] << " "
                   << sw_pivot_frame[3][2];

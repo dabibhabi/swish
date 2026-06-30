@@ -26,26 +26,26 @@ enum MaterialId : uint32_t {
     MAT_SIGN_6   = 14,
     MAT_SIGN_7   = 15,
     // ── Car material slots (loaded from GLB, one per glTF material) ──
-    MAT_CAR_0    = 16,
-    MAT_CAR_1    = 17,
-    MAT_CAR_2    = 18,
-    MAT_CAR_3    = 19,
-    MAT_CAR_4    = 20,
-    MAT_CAR_5    = 21,
-    MAT_CAR_6    = 22,
-    MAT_CAR_7    = 23,
-    MAT_CAR_8    = 24,
-    MAT_CAR_9    = 25,
-    MAT_CAR_10   = 26,
-    MAT_CAR_11   = 27,
-    MAT_CAR_12   = 28,
-    MAT_CAR_13   = 29,
-    MAT_CAR_14   = 30,
-    MAT_CAR_15   = 31,
-    MAT_CAR_16   = 32,
-    MAT_CAR_17   = 33,
-    MAT_CAR_18   = 34,
-    MAT_CAR_19   = 35,
+    MAT_CAR_0  = 16,
+    MAT_CAR_1  = 17,
+    MAT_CAR_2  = 18,
+    MAT_CAR_3  = 19,
+    MAT_CAR_4  = 20,
+    MAT_CAR_5  = 21,
+    MAT_CAR_6  = 22,
+    MAT_CAR_7  = 23,
+    MAT_CAR_8  = 24,
+    MAT_CAR_9  = 25,
+    MAT_CAR_10 = 26,
+    MAT_CAR_11 = 27,
+    MAT_CAR_12 = 28,
+    MAT_CAR_13 = 29,
+    MAT_CAR_14 = 30,
+    MAT_CAR_15 = 31,
+    MAT_CAR_16 = 32,
+    MAT_CAR_17 = 33,
+    MAT_CAR_18 = 34,
+    MAT_CAR_19 = 35,
     MAT_COUNT
 };
 
@@ -59,7 +59,7 @@ struct CameraUBO {
 };
 
 // ── Point Light System (inspired by rind/Light.cpp) ──────────────────
-static constexpr uint32_t MAX_POINT_LIGHTS = 16;
+static constexpr uint32_t MAX_POINT_LIGHTS = 32;
 
 struct PointLightData {
     Vec4 positionRadius;  // xyz = world position, w = influence radius
@@ -110,8 +110,8 @@ private:
 struct Submesh {
     uint32_t   indexOffset;
     uint32_t   indexCount;
-    MaterialId material  = MAT_DEFAULT;
-    Vec4       color     = Vec4(1.f, 1.f, 1.f, 1.f);
+    MaterialId material = MAT_DEFAULT;
+    Vec4       color    = Vec4(1.f, 1.f, 1.f, 1.f);
 
     bool is_steering_wheel = false;
     // Normalized SteeringWheel_Pivot frame (RootNode-rel, +90° Y, grounded).
@@ -123,6 +123,10 @@ struct Submesh {
     // window panes that receive the windshield rain trail effect.
     bool is_glass      = false;
     bool is_windshield = false;
+
+    // Interior cabin geometry (node name contains "Interior") — tinted light gray
+    // by CarEntity::get_draw_calls as rain rises, via the gbuffer.frag wash sentinel.
+    bool is_interior = false;
 };
 
 // ── DrawCall ──────────────────────────────────────────────────────────

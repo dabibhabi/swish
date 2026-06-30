@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <random>
 #include <vector>
@@ -16,16 +17,21 @@
 namespace swish {
 
 // ── Rain volume parameters ─────────────────────────────────────────────
-static constexpr float kHalfExtent  = 20000.0f;  // 20 m radius around camera
-static constexpr float kDropSpeed   = 9000.0f;   // 9 m/s base fall speed
-static constexpr float kStreakLen   = 1200.0f;   // 1.2 m streak length (heavy rain)
-static constexpr float kWetRate     = 0.08f;     // wetness accumulation rate (s⁻¹)
-static constexpr float kDryRate     = 0.012f;    // wetness decay rate (s⁻¹)
+static constexpr float kHalfExtent = 20000.0f;  // 20 m radius around camera
+static constexpr float kDropSpeed  = 9000.0f;   // 9 m/s base fall speed
+static constexpr float kStreakLen  = 3200.0f;   // 3.2 m streak length — long, thin, motion-blurred
+static constexpr float kWetRate    = 0.08f;     // wetness accumulation rate (s⁻¹)
+static constexpr float kDryRate    = 0.012f;    // wetness decay rate (s⁻¹)
 
-void RainSystem::init(const RendererServices& s,
-                      const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                      const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
-                      VkExtent2D extent,
+// ── Far parallax layer scaling (relative to the near layer) ────────────
+static constexpr float kFarHalfExtentScale = 2.0f;
+static constexpr float kFarSpeedScale      = 0.7f;
+static constexpr float kFarIntensityScale  = 0.55f;  // dimmer/farther (fragAlpha ∝ intensity)
+static constexpr float kFarStreakScale     = 0.8f;
+static constexpr float kFarTimePhase       = 317.0f;  // decorrelate far field from near (shared seeds)
+
+void RainSystem::init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                      const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
                       VkDescriptorSetLayout cameraSetLayout) {
     m_extent      = extent;
     m_depthFormat = ResourceManager::findDepthFormat(s.physicalDevice);
@@ -41,23 +47,47 @@ void RainSystem::init(const RendererServices& s,
 
 void RainSystem::update(uint32_t frameIndex, float deltaTime, float intensity, Vec3 wind) {
     m_intensity = intensity;
-    m_time     += deltaTime;
+    m_time += deltaTime;
 
     // Wetness accumulates quickly, drains slowly
-    float rate  = (m_wetness < m_intensity) ? kWetRate : kDryRate;
-    m_wetness  += (m_intensity - m_wetness) * rate * deltaTime;
-    m_wetness   = std::clamp(m_wetness, 0.0f, 1.0f);
+    float rate = (m_wetness < m_intensity) ? kWetRate : kDryRate;
+    m_wetness += (m_intensity - m_wetness) * rate * deltaTime;
+    m_wetness = std::clamp(m_wetness, 0.0f, 1.0f);
 
     float streakLen = kStreakLen * (0.5f + 0.5f * m_intensity);
+
+    // Keep the vertical fall dominant. The caller subtracts the car velocity
+    // (up to kMaxForwardSpeed ≈ 30000 WU/s) from the wind, which can far exceed
+    // kDropSpeed and tip the velocity nearly parallel to the view direction —
+    // a streak aligned with the view foreshortens into a swinging dot. Capping
+    // the horizontal drift to a fraction of the fall speed keeps streaks reading
+    // as vertical-diagonal streaks while still leaning into the direction of travel.
+    const float maxHoriz = 0.6f * kDropSpeed;
+    float       hlen     = std::sqrt(wind.x * wind.x + wind.z * wind.z);
+    if (hlen > maxHoriz && hlen > 1e-5f) {
+        float scale = maxHoriz / hlen;
+        wind.x *= scale;
+        wind.z *= scale;
+    }
 
     RainUBO ubo{};
     ubo.windAndTime = Vec4(wind.x, wind.y, wind.z, m_time);
     ubo.params      = Vec4(m_intensity, streakLen, kDropSpeed, kHalfExtent);
     std::memcpy(m_rainUBOMapped[frameIndex], &ubo, sizeof(ubo));
+
+    // Far parallax layer: shares the same wind (already horizontally capped) and
+    // instance seeds, but a larger volume, slower fall, and lower intensity render
+    // it as dimmer, farther streaks. The time phase decorrelates it from the near field.
+    RainUBO farUbo{};
+    farUbo.windAndTime = Vec4(wind.x, wind.y, wind.z, m_time + kFarTimePhase);
+    farUbo.params = Vec4(m_intensity * kFarIntensityScale, streakLen * kFarStreakScale, kDropSpeed * kFarSpeedScale,
+                         kHalfExtent * kFarHalfExtentScale);
+    std::memcpy(m_rainUBOMappedFar[frameIndex], &farUbo, sizeof(farUbo));
 }
 
 void RainSystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const {
-    if (m_intensity < 0.001f) return;
+    if (m_intensity < 0.001f)
+        return;
 
     // Two attachments (color + depth), both LOAD_OP_LOAD — clear values are ignored
     // but the count must match the render pass attachment count.
@@ -73,10 +103,7 @@ void RainSystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const {
     vkCmdBeginRenderPass(cmd, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     // Dynamic viewport + scissor (matches Renderer pattern)
-    VkViewport vp{0.0f, 0.0f,
-                  static_cast<float>(m_extent.width),
-                  static_cast<float>(m_extent.height),
-                  0.0f, 1.0f};
+    VkViewport vp{0.0f, 0.0f, static_cast<float>(m_extent.width), static_cast<float>(m_extent.height), 0.0f, 1.0f};
     vkCmdSetViewport(cmd, 0, 1, &vp);
     VkRect2D sc{{0, 0}, m_extent};
     vkCmdSetScissor(cmd, 0, 1, &sc);
@@ -89,19 +116,26 @@ void RainSystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const {
     vkCmdBindVertexBuffers(cmd, 0, 2, vertBufs, offsets);
     vkCmdBindIndexBuffer(cmd, m_quadIBO, 0, VK_INDEX_TYPE_UINT16);
 
-    // Set 1: rain UBO (set 0 = camera, already bound by Renderer before this call)
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_pipeLayout, 1, 1, &m_descSets[frameIndex], 0, nullptr);
+    // Set 1: rain UBO (set 0 = camera, already bound by Renderer before this call).
+    // Two draws reuse the same pipeline/geometry/instance buffer; additive blending +
+    // depthWrite=false make the layer order irrelevant (no sorting needed).
+    //
+    // Far parallax layer first (dimmer, farther).
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeLayout, 1, 1, &m_descSetsFar[frameIndex], 0,
+                            nullptr);
+    vkCmdDrawIndexed(cmd, 6, kRainMaxDrops, 0, 0, 0);
 
+    // Near layer.
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeLayout, 1, 1, &m_descSets[frameIndex], 0,
+                            nullptr);
     vkCmdDrawIndexed(cmd, 6, kRainMaxDrops, 0, 0, 0);
 
     vkCmdEndRenderPass(cmd);
 }
 
 void RainSystem::recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                           const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
-                           VkExtent2D extent,
-                           VkDevice device) {
+                          const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
+                          VkDevice device) {
     m_extent = extent;
     destroyFramebuffers(device);
     createFramebuffers(device, hdrViews, depthViews);
@@ -126,14 +160,24 @@ void RainSystem::cleanup(VkDevice device) {
         m_rainLayout = VK_NULL_HANDLE;
     }
 
+    // Far descriptor sets need no explicit free — they are released when m_descPool
+    // is destroyed above; m_rainLayout is shared with the near sets.
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         if (m_rainUBOs[i] != VK_NULL_HANDLE) {
             vkUnmapMemory(device, m_rainUBOMemories[i]);
             vkDestroyBuffer(device, m_rainUBOs[i], nullptr);
             vkFreeMemory(device, m_rainUBOMemories[i], nullptr);
-            m_rainUBOs[i]         = VK_NULL_HANDLE;
-            m_rainUBOMemories[i]  = VK_NULL_HANDLE;
-            m_rainUBOMapped[i]    = nullptr;
+            m_rainUBOs[i]        = VK_NULL_HANDLE;
+            m_rainUBOMemories[i] = VK_NULL_HANDLE;
+            m_rainUBOMapped[i]   = nullptr;
+        }
+        if (m_rainUBOsFar[i] != VK_NULL_HANDLE) {
+            vkUnmapMemory(device, m_rainUBOMemoriesFar[i]);
+            vkDestroyBuffer(device, m_rainUBOsFar[i], nullptr);
+            vkFreeMemory(device, m_rainUBOMemoriesFar[i], nullptr);
+            m_rainUBOsFar[i]        = VK_NULL_HANDLE;
+            m_rainUBOMemoriesFar[i] = VK_NULL_HANDLE;
+            m_rainUBOMappedFar[i]   = nullptr;
         }
     }
 
@@ -205,14 +249,10 @@ void RainSystem::createRenderPass(VkDevice device) {
     VkSubpassDependency dep{};
     dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
     dep.dstSubpass    = 0;
-    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                        VK_ACCESS_SHADER_READ_BIT;
-    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
-                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
 
     VkAttachmentDescription atts[] = {colorAtt, depthAtt};
@@ -229,8 +269,7 @@ void RainSystem::createRenderPass(VkDevice device) {
     VK_CHECK(vkCreateRenderPass(device, &rpInfo, nullptr, &m_renderPass));
 }
 
-void RainSystem::createFramebuffers(VkDevice device,
-                                    const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+void RainSystem::createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                                     const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews) {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         VkImageView atts[] = {hdrViews[i], depthViews[i]};
@@ -262,20 +301,18 @@ void RainSystem::createGeometry(const RendererServices& s) {
     // localPos.y in [0, 1]       (along fall direction, streak length)
     const std::array<RainQuadVertex, 4> verts{{
         {{-0.5f, 0.0f}, {0.0f, 0.0f}},
-        {{ 0.5f, 0.0f}, {1.0f, 0.0f}},
-        {{ 0.5f, 1.0f}, {1.0f, 1.0f}},
+        {{0.5f, 0.0f}, {1.0f, 0.0f}},
+        {{0.5f, 1.0f}, {1.0f, 1.0f}},
         {{-0.5f, 1.0f}, {0.0f, 1.0f}},
     }};
-    const std::array<uint16_t, 6> indices{0, 1, 2, 2, 3, 0};
+    const std::array<uint16_t, 6>       indices{0, 1, 2, 2, 3, 0};
 
-    const VkDeviceSize vSize = sizeof(verts);
-    const VkDeviceSize iSize = sizeof(indices);
-    const VkMemoryPropertyFlags hostFlags =
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    const VkDeviceSize          vSize     = sizeof(verts);
+    const VkDeviceSize          iSize     = sizeof(indices);
+    const VkMemoryPropertyFlags hostFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
     // VBO
-    ResourceManager::createBuffer(s.device, s.physicalDevice, vSize,
-                                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, hostFlags,
+    ResourceManager::createBuffer(s.device, s.physicalDevice, vSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, hostFlags,
                                   m_quadVBO, m_quadVBOMemory);
     void* vMap;
     VK_CHECK(vkMapMemory(s.device, m_quadVBOMemory, 0, vSize, 0, &vMap));
@@ -283,8 +320,7 @@ void RainSystem::createGeometry(const RendererServices& s) {
     vkUnmapMemory(s.device, m_quadVBOMemory);
 
     // IBO
-    ResourceManager::createBuffer(s.device, s.physicalDevice, iSize,
-                                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT, hostFlags,
+    ResourceManager::createBuffer(s.device, s.physicalDevice, iSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, hostFlags,
                                   m_quadIBO, m_quadIBOMemory);
     void* iMap;
     VK_CHECK(vkMapMemory(s.device, m_quadIBOMemory, 0, iSize, 0, &iMap));
@@ -303,12 +339,10 @@ void RainSystem::createInstanceBuffer(const RendererServices& s) {
         inst.seed = Vec4(dist(rng), dist(rng), dist(rng), dist(rng));
     }
 
-    const VkDeviceSize size = sizeof(RainInstance) * kRainMaxDrops;
-    const VkMemoryPropertyFlags hostFlags =
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    const VkDeviceSize          size      = sizeof(RainInstance) * kRainMaxDrops;
+    const VkMemoryPropertyFlags hostFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
-    ResourceManager::createBuffer(s.device, s.physicalDevice, size,
-                                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, hostFlags,
+    ResourceManager::createBuffer(s.device, s.physicalDevice, size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, hostFlags,
                                   m_instanceBuffer, m_instanceBufferMemory);
     void* mapped;
     VK_CHECK(vkMapMemory(s.device, m_instanceBufferMemory, 0, size, 0, &mapped));
@@ -318,14 +352,17 @@ void RainSystem::createInstanceBuffer(const RendererServices& s) {
 
 void RainSystem::createRainUBOs(const RendererServices& s) {
     const VkDeviceSize          uboSize   = sizeof(RainUBO);
-    const VkMemoryPropertyFlags hostFlags =
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    const VkMemoryPropertyFlags hostFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        ResourceManager::createBuffer(s.device, s.physicalDevice, uboSize,
-                                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostFlags,
-                                      m_rainUBOs[i], m_rainUBOMemories[i]);
+        ResourceManager::createBuffer(s.device, s.physicalDevice, uboSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                      hostFlags, m_rainUBOs[i], m_rainUBOMemories[i]);
         VK_CHECK(vkMapMemory(s.device, m_rainUBOMemories[i], 0, uboSize, 0, &m_rainUBOMapped[i]));
+
+        // Far parallax layer: identical buffer, separate per-frame UBO with scaled params.
+        ResourceManager::createBuffer(s.device, s.physicalDevice, uboSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                      hostFlags, m_rainUBOsFar[i], m_rainUBOMemoriesFar[i]);
+        VK_CHECK(vkMapMemory(s.device, m_rainUBOMemoriesFar[i], 0, uboSize, 0, &m_rainUBOMappedFar[i]));
     }
 }
 
@@ -343,19 +380,21 @@ void RainSystem::createDescriptors(VkDevice device, VkDescriptorSetLayout camera
     layoutInfo.pBindings    = &rainBinding;
     VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_rainLayout));
 
-    // Descriptor pool
+    // Descriptor pool — sized for BOTH the near and far per-frame sets
+    // (2 * MAX_FRAMES_IN_FLIGHT), or vkAllocateDescriptorSets for the far sets
+    // would fail with VK_ERROR_OUT_OF_POOL_MEMORY.
     VkDescriptorPoolSize poolSize{};
     poolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    poolSize.descriptorCount = 2 * MAX_FRAMES_IN_FLIGHT;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes    = &poolSize;
-    poolInfo.maxSets       = MAX_FRAMES_IN_FLIGHT;
+    poolInfo.maxSets       = 2 * MAX_FRAMES_IN_FLIGHT;
     VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_descPool));
 
-    // Allocate sets
+    // Allocate sets — near and far share the same set-1 layout (m_rainLayout).
     std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
     layouts.fill(m_rainLayout);
 
@@ -365,18 +404,31 @@ void RainSystem::createDescriptors(VkDevice device, VkDescriptorSetLayout camera
     allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
     allocInfo.pSetLayouts        = layouts.data();
     VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, m_descSets.data()));
+    VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, m_descSetsFar.data()));
 
-    // Write rain UBO into each set
+    // Write the near + far rain UBO into their respective sets. Each
+    // VkDescriptorBufferInfo must outlive its vkUpdateDescriptorSets call, so
+    // keep both alive in this iteration and submit them as a 2-element batch.
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         VkDescriptorBufferInfo bufInfo{m_rainUBOs[i], 0, sizeof(RainUBO)};
-        VkWriteDescriptorSet   write{};
-        write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet          = m_descSets[i];
-        write.dstBinding      = 0;
-        write.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        write.descriptorCount = 1;
-        write.pBufferInfo     = &bufInfo;
-        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        VkDescriptorBufferInfo bufInfoFar{m_rainUBOsFar[i], 0, sizeof(RainUBO)};
+
+        VkWriteDescriptorSet writes[2]{};
+        writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet          = m_descSets[i];
+        writes[0].dstBinding      = 0;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[0].descriptorCount = 1;
+        writes[0].pBufferInfo     = &bufInfo;
+
+        writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet          = m_descSetsFar[i];
+        writes[1].dstBinding      = 0;
+        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[1].descriptorCount = 1;
+        writes[1].pBufferInfo     = &bufInfoFar;
+
+        vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
     }
 
     (void)cameraSetLayout;  // used only to build the pipeline layout below
@@ -413,12 +465,12 @@ void RainSystem::createPipeline(VkDevice device, VkDescriptorSetLayout cameraSet
     attrs[2].offset   = offsetof(RainInstance, seed);
 
     PipelineConfig cfg{};
-    cfg.vertShaderPath = std::string(SHADER_DIR) + "rain.vert.spv";
-    cfg.fragShaderPath = std::string(SHADER_DIR) + "rain.frag.spv";
-    cfg.vertexBindings  = {bindings[0], bindings[1]};
+    cfg.vertShaderPath   = std::string(SHADER_DIR) + "rain.vert.spv";
+    cfg.fragShaderPath   = std::string(SHADER_DIR) + "rain.frag.spv";
+    cfg.vertexBindings   = {bindings[0], bindings[1]};
     cfg.vertexAttributes = {attrs[0], attrs[1], attrs[2]};
     cfg.cullMode         = VK_CULL_MODE_NONE;
-    cfg.enableDepthTest  = true;   // scene depth occludes rain behind car surfaces
+    cfg.enableDepthTest  = true;  // scene depth occludes rain behind car surfaces
     cfg.enableDepthWrite = false;
     cfg.additiveBlending = true;
     cfg.pipelineLayout   = m_pipeLayout;

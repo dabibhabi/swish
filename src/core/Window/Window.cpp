@@ -83,7 +83,8 @@ void Window::resetResizedFlag() {
 }
 
 void Window::mark_resized() {
-    if (!m_window) return;
+    if (!m_window)
+        return;
     m_resized = true;
 }
 

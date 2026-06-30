@@ -6,6 +6,254 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-06-30 — Research briefs + visual-realism roadmap (rain · LIE · night scene)
+
+> Added two cited research briefs and a research-driven roadmap. [`docs/research-rain-rendering.md`](docs/research-rain-rendering.md) surveys realistic-rain techniques (streak appearance, drops-on-glass, GPU particle/parallax systems, wet surfaces, atmospheric veils) and [`docs/research-night-scene-realism.md`](docs/research-night-scene-realism.md) surveys night-scene realism (many-lights, wet-asphalt BRDF, tone mapping, volumetric fog, procedural road, motion/camera). Both are labelled **AI-assisted** per org policy. [`tasks/todo.md`](tasks/todo.md) gains a prioritized 3-track roadmap (A: rain next-steps, B: LIE curvature/LOD/enrichment, C: night-scene wet-road/bloom/tone-map/fog/SSR), each item linked to its motivating technique.
+
+<details>
+<summary>Technical summary</summary>
+
+- **Two research briefs** compiled via parallel web research with URL verification (~30+ sources total): peer-reviewed papers (Garg & Nayar, Halder ICCV'19, Olsson clustered shading, McGuire & Mara SSR ray-trace, Nakamae drive-sim wet road, Narasimhan & Nayar atmospherics), SIGGRAPH/EG course notes (Tatarchuk, Lagarde Frostbite PBR + wet surfaces, Wronski/Hillaire volumetric fog, Jimenez post-processing), GDC talks, and university slides (UCSD CSE 167/168, UPenn CIS 565, UW ARCH 481). Each entry: full citation, verified URL, technique summary, and a concrete "how it applies to swish" note; both close with a ranked **Top-8 actionable techniques** list.
+- **Labeling:** both briefs carry an "AI-assisted research artifact" header (org transparency requirement for largely-AI-generated work outputs); flagged unverifiable/paywalled sources inline.
+- **Roadmap** ([`tasks/todo.md`](tasks/todo.md)): Track A (light-source-dependent streaks, impact splashes, lens-drops overlay, Heartfelt validation, wetness mip-blur); Track B (curved OpenDRIVE-style centerline, distance LOD + billboard impostors, roadside enrichment via deferred decals, network-first refactor); Track C (wet-asphalt `WetLevel` BRDF lerp, bloom firefly suppression, tone-map + auto-exposure, froxel volumetric fog, SSR, clustered light culling + IES lights, camera motion blur, mesopic/Purkinje night look, circular-bokeh DOF). Sequenced by impact-per-effort with dependency notes.
+- **Docs index** ([`docs/README.md`](docs/README.md)) links both briefs.
+
+| File | Change |
+|---|---|
+| [`docs/research-rain-rendering.md`](docs/research-rain-rendering.md) | NEW — cited rain-rendering survey (7 sections + ranked Top-8) |
+| [`docs/research-night-scene-realism.md`](docs/research-night-scene-realism.md) | NEW — cited night-scene survey (7 sections + ranked Top-8 + verification summary) |
+| [`tasks/todo.md`](tasks/todo.md) | Prepended 3-track research-driven roadmap with checkable items |
+| [`docs/README.md`](docs/README.md) | Indexed both research briefs |
+| [`CHANGELOG.md`](CHANGELOG.md) | This entry |
+
+</details>
+
+### 2026-06-30 — Windshield drops: smaller beads, dense "hard rain" spray
+
+> User feedback on the rain pass: beads were too large, and heavy rain should pelt the glass with many more droplets. Tuned [`windshield_rain.frag`](shaders/windshield_rain.frag) — beads are now smaller and far denser at high intensity, while the glass stays see-through between them (small discrete beads keep clear gaps, so no return of the gray veil).
+
+<details>
+<summary>Technical summary</summary>
+
+- **Smaller, denser sliding beads**: `DropLayer2` grid `a.x 4→6` (more across-flow cells → more, smaller lens bodies), lens `mainDrop S(0.38→0.30)`, second layer scale `1.4→1.9` (finer beads).
+- **Dense impact spray that scales with rain**: `StaticDrops` cell count `28→55` (many small fresh-impact beads), and the static-layer weight ramps hard with intensity — `l0 = S(0.0,0.5)·0.65 → S(0.15,0.7)·0.95`: sparse at light rain, a heavy spray of droplets hitting the glass when it's raining hard.
+- Composite remap `S(0.35,0.62)` and alpha cap `0.62` unchanged, so the many small beads stay discrete and the road/lights read through the gaps. Verified in-app at heavy rain, static and while driving.
+
+</details>
+
+### 2026-06-29 — Three-task pass: rain bugs + realism, 911 Turbo performance, +2 mi road
+
+> Three parallel workstreams: (1) fixed the windshield "rain drifts **up** at rest" bug and the "blobby" falling rain, added gust wind, a **visible wiper blade** that actually clears, and a whole-cabin light-gray rain wash; (2) made the car perform like a **911 Turbo S** (was effectively capped at ~16 mph by a drag trap); (3) extended the LIE from 1 km to **~4.22 km** (+2 miles) with lamps that follow the car. Build clean; 32/34 tests (the 2 `RoadScene` zero-config failures are pre-existing). Verified in-app via screenshots while driving.
+
+<details>
+<summary>Technical summary</summary>
+
+#### 1 — Rain bugs + realism
+
+**"Rain goes up at rest" — root cause.** Not the `mod()` wrap in [`rain.vert`](shaders/rain.vert) (GLSL `mod()` is non-negative for a positive divisor, so world-rain fall was already correct). The upward motion was the **windshield drops**: their flow lives in mesh-UV space and this windshield's V axis is inverted vs the shader's `gravity = (0,1)` assumption, so at rest drops slid up. Fixed in [`windshield_rain.frag`](shaders/windshield_rain.frag) by flipping the flow Y sign — `gravity (0,1)→(0,−1)`, `aero (0.15,−1)→(0.15,1)` — so drops fall **down** at rest and stream **up** only at speed. The screen-space wetness map ([`windshield_wetness.frag`](shaders/windshield_wetness.frag)) was already correct and was left unflipped.
+
+**Speed coupling.** Since the car's top speed changed (task 2), the windshield `speedFactor` divisor in [`Renderer.cpp`](src/renderer/Renderer/Renderer.cpp) is now `carSpeed / CarEntity::kMaxSpeed` (was a hardcoded `30000`), and the aero crossover moved to `smoothstep(0.25, 0.60)` (CPU + shader) so water streams up only at genuinely high speed.
+
+**"Blobs" → streaks.** [`rain.frag`](shaders/rain.frag): cut the Garg–Nayar oscillation (`A20=A31 0.10→0.025`) and internal speckle (`0.22→0.06`) so the streak reads as one continuous thin line. [`RainSystem.cpp`](src/renderer/RainSystem/RainSystem.cpp): `kStreakLen 1200→3200` WU (length:width ≈ 400:1).
+
+**Wind.** [`Renderer.cpp`](src/renderer/Renderer/Renderer.cpp): base wind `(1500,0,400)→(4500,0,1200)` WU/s with a time-varying gust $g(t)=1+0.55\sin(0.35t)+0.35\sin(1.30t+1.7)$ on the horizontal components; the existing `0.6·kDropSpeed` horizontal cap keeps streaks from foreshortening.
+
+**Visible wiper + real clearing.** The wiper was wired but invisible (thin clear band, ~0.5 s re-wet, no blade). Added a screen-space SDF **blade** in [`windshield_rain.frag`](shaders/windshield_rain.frag) (pivot `(0.5,0.92)`, gated on `wiperState.z`), widened the cleared **sector** in [`windshield_wetness.frag`](shaders/windshield_wetness.frag) (`smoothstep 0.01–0.045 → 0.04–0.13`, reach `0.7→0.95`), and slowed re-wet (`+i·dt·2.0 → +i·dt·0.7`) so cleared glass stays clear ~1.4 s. Manual `V` toggle unchanged.
+
+**Whole-cabin light-gray wash.** Tagged interior submeshes with a new `is_interior` flag on `Submesh` ([`SceneTypes.h`](src/scene/SceneTypes.h)), set in [`ModelManager.cpp`](src/scene/ModelManager/ModelManager.cpp) by node-name match (`Kit1_Interior_Geo`, `Kit1_InteriorTilling_Geo`). Tint routed through [`gbuffer.frag`](shaders/gbuffer.frag) via a **back-compatible sentinel** on the per-draw color alpha so the rest of the world is untouched:
+> $\text{wash}=\mathrm{clamp}(\alpha-1,0,1),\quad \text{albedo}=\mathrm{mix}(\text{albedo},\,0.55,\,\text{wash})$
+
+[`CarEntity::get_draw_calls`](src/scene/Entity/CarEntity.cpp) sets `color.a = 1 + m_rain_intensity·0.5` on interior submeshes; [`App.cpp`](src/core/App/App.cpp) feeds the rain level via `set_rain_intensity`. All existing draws keep `α=1` → wash 0.
+
+> A first pass over-cooked both: heavy rain became an **opaque gray veil** and the cabin washed near-**white**. Tuned back to discrete see-through beads (drop composite `S(0.18,0.82)→S(0.35,0.62)`, haze/blur/refraction reduced, alpha cap kept `0.62`) and a true light gray (target `0.78→0.55`, wash `0.85→0.5`).
+
+#### 2 — 911 Turbo S performance — [`CarEntity.h`](src/scene/Entity/CarEntity.h) / [`CarEntity.cpp`](src/scene/Entity/CarEntity.cpp)
+
+**Root cause of "too slow":** the exponential drag `v \mathrel{*}= e^{-k\,dt}` with `k=2.5` capped throttle-held terminal speed at
+
+$$v_\text{term}=\frac{k_\text{accel}}{k_\text{drag}}=\frac{18000}{2.5}=7200\ \text{WU/s}\approx 16\ \text{mph}$$
+
+regardless of the 30000 clamp. Fix: `kDragCoeff 2.5→0.12` (terminal now $12000/0.12=100000 \ge$ top speed, so the clamp sets top speed), `kMaxForwardSpeed 30000→92000` WU/s (≈205 mph), `kAccel 18000→12000`, `kBrakeAccel 24000→36000`. With light linear drag, $v(t)=\frac{a}{k}(1-e^{-kt})$ gives 0–60 mph (26822 WU/s) at $t=-\ln(1-0.26822)/0.12 \approx 2.60\,\text{s}$. Added a **variable steering ratio** (`steer_scale = kSteerRefSpeed/(kSteerRefSpeed+|v|)`, `kSteerRefSpeed=12000`) on the effective lock only, so yaw rate stays bounded at 92000 WU/s (no spin-out) while parking-speed steering stays sharp; the visual wheel still tracks raw input.
+
+#### 3 — Extend the LIE by two miles
+
+[`config/road.toml`](config/road.toml): `length_m 1000 → 4218.688` (auto-baked to `road.bin` by the CMake `bake_configs` target). [`RoadScene.cpp`](src/scene/RoadScene/RoadScene.cpp): exit ramp + the 6 signs re-expressed relative to `z_far` (ramp ~75% out; signs at 10–90%) so they spread along the route instead of clustering in the first ~260 m, and the street-lamp generation cap removed so lamps are emitted for the whole length. Lamp lighting now scales: [`CameraUniforms.cpp`](src/renderer/CameraUniforms/CameraUniforms.cpp) `partial_sort`s lamps by distance and uploads the **nearest N to the camera** each frame; `MAX_POINT_LIGHTS 16→32` ([`SceneTypes.h`](src/scene/SceneTypes.h)) with the matching `pointLights[]` array bumped in [`lighting.frag`](shaders/lighting.frag) and [`basic.frag`](shaders/basic.frag).
+
+```mermaid
+graph LR
+  R[R key: rain level] --> RI[rain intensity]
+  RI --> WR[world rain: gust wind + thin streaks]
+  RI --> WS[windshield: beads + rivulets, gravity-down at rest]
+  RI --> INT[interior light-gray wash via gbuffer sentinel]
+  V[V key] --> WIPE[visible blade + swept-sector clear]
+  SPD[car speed / kMaxSpeed] --> WS
+  SPD --> LAMPS[nearest-N lamp selection]
+```
+
+#### File-change table (this task's edits)
+
+| File | Change |
+|---|---|
+| [`shaders/windshield_rain.frag`](shaders/windshield_rain.frag) | gravity-Y flip; visible wiper blade SDF; discrete-bead tuning (no veil) |
+| [`shaders/windshield_wetness.frag`](shaders/windshield_wetness.frag) | wider swept-sector clear; slower re-wet |
+| [`shaders/rain.frag`](shaders/rain.frag) / [`rain.vert`](shaders/rain.vert) | less speckle → continuous thin streaks |
+| [`shaders/gbuffer.frag`](shaders/gbuffer.frag) | back-compat alpha-sentinel light-gray interior wash |
+| [`shaders/lighting.frag`](shaders/lighting.frag), [`basic.frag`](shaders/basic.frag) | `pointLights[16→32]` |
+| [`RainSystem.cpp`](src/renderer/RainSystem/RainSystem.cpp) | `kStreakLen 1200→3200` |
+| [`Renderer.cpp`](src/renderer/Renderer/Renderer.cpp) | gust wind; `speedFactor = carSpeed/kMaxSpeed` |
+| [`WindshieldRainPass.cpp`](src/renderer/WindshieldRainPass/WindshieldRainPass.cpp) | aero crossover `0.25–0.60`; refraction tuning |
+| [`CarEntity.h`](src/scene/Entity/CarEntity.h) / [`CarEntity.cpp`](src/scene/Entity/CarEntity.cpp) | 911 Turbo constants; variable steering ratio; interior tint + `set_rain_intensity` |
+| [`CameraUniforms.cpp`](src/renderer/CameraUniforms/CameraUniforms.cpp) | nearest-N lamp selection |
+| [`RoadScene.cpp`](src/scene/RoadScene/RoadScene.cpp) | length-relative ramp/signs; lamp cap removed |
+| [`SceneTypes.h`](src/scene/SceneTypes.h) | `is_interior` flag; `MAX_POINT_LIGHTS 16→32` |
+| [`ModelManager.cpp`](src/scene/ModelManager/ModelManager.cpp) | tag interior submeshes by name |
+| [`App.cpp`](src/core/App/App.cpp) | feed rain level to car for interior wash |
+| [`config/road.toml`](config/road.toml) | `length_m 1000 → 4218.688` |
+
+</details>
+
+### 2026-06-29 — Rain realism: thin, translucent, delicate (grounded in the references)
+
+> Follow-up to the drop-model pass: the rain still read **"too thick."** Grounded in Garg & Nayar (thin, semi-transparent streaks with internal speckle), Rousseau (translucent multi-highlight streaks), and the in-repo `examples/DownPour` reference (combine drop layers with `max`, keep glass semi-transparent), both the windshield drops/rivulets and the falling streaks are now thin, translucent, and delicate — the scene clearly shows through at both light and heavy rain.
+
+<details>
+<summary>Technical summary</summary>
+
+#### Root cause of "too thick"
+
+1. **Windshield drop layers were composited *additively*** (`c = s + m1.x + m2.x` in `Drops()`), stacking three layers into a heavy, milky coverage.
+2. **Glass alpha could reach 1.0** (`alpha = max(coverage, haze)`) — a fully-opaque veil hiding the scene.
+3. **Falling streaks were fat and over-bright** — wide profile (`smoothstep(0.45,0.85)`), solid head, and a ×1.6 brightness boost from the prior pass.
+
+The `examples/DownPour` reference (`drop_height.frag`, `windshield.frag`) showed the fixes: combine layers with `max()` (fine layers add *structure*, not thickness), keep glass alpha in a semi-transparent band (~0.2–0.5), small drops, weak refraction.
+
+#### Windshield — [`windshield_rain.frag`](shaders/windshield_rain.frag)
+
+- **`max`-combine, not sum**: `c = max(s, max(m1.x, m2.x))` then `S(0.18, 0.82, c)` — drops stay crisp and don't fill in.
+- **Semi-transparent cap**: `alpha = clamp(coverage·0.9 + haze, 0, 0.62)` — the refracted scene always reads through.
+- **Smaller drops**: body `S(0.4→0.34, 0, d)`, static `S(0.3→0.28)`, wake bead `S(0.3→0.22)`.
+- **Thinner rivulets**: trail fold weight `0.6 → 0.45`. **Lighter haze**: `0.06+0.05·i → 0.035+0.03·i`. **Lighter lens**: body darken `0.72→0.85`, glint tightened (exp `22→30`) at `×1.25`.
+- Pass refraction `0.080 → 0.070` ([`WindshieldRainPass.cpp`](src/renderer/WindshieldRainPass/WindshieldRainPass.cpp)).
+
+#### Falling streaks — [`rain.vert`](shaders/rain.vert) + [`rain.frag`](shaders/rain.frag)
+
+- Thinner billboards: width `6–14 → 3–8` WU; lower base opacity `0.25+0.75·sw → 0.20+0.60·sw`.
+- Thinner bright core: profile `smoothstep(0.45,0.85) → smoothstep(0.12,0.72)`; **head taper** added (`smoothstep(0,0.06,y)`) so the streak is a thin lozenge.
+- Translucent: drop the ×1.6 over-boost → `×1.15`, color eased to `(0.72,0.82,0.97)`; deeper internal speckle `0.85+0.15 → 0.78+0.22` (Garg & Nayar multi-highlight) kept on the N=7 average.
+
+#### Verification
+
+In-app screenshot loop (force `m_rainIntensity` = 1.0 then 0.35, build, capture, judge; reverted to 0.0). At both heavy and light rain the windshield shows small translucent teardrop drops with subtle glints and thin rivulets, road/sky clearly visible through the glass; streaks are thin. `make build` clean; 2 pre-existing `RoadScene` failures unrelated.
+
+</details>
+
+### 2026-06-29 — Rain realism tuning (in-app visual pass): windshield drops read as water, not rings
+
+> Driven by looking at the running app (forced heavy rain, screenshot, iterate). The windshield drops were rendering as faint **ring outlines** with no rivulets; this pass makes them read as actual water — refractive teardrop bodies with bright glints and visible vertical rivulets — and makes the falling streaks legible.
+
+<details>
+<summary>Technical summary</summary>
+
+#### What was wrong (seen in-app)
+
+At heavy rain the windshield showed sparse **circular ring outlines**, no rivulets, and a flat gray veil. Two structural causes:
+
+1. **Rivulets were invisible by construction.** The drop trail (`dropField().y`) was used *only* to reduce blur — it never entered the coverage or the surface normal, so the clinging→sliding rivulets drew nothing.
+2. **Drops only showed their Fresnel rim.** The specular glint used the *macro* windshield normal (`fragNormal`), identical across the whole pane, so no individual bead caught a highlight. Against a low-contrast overcast scene the refracted body was indistinguishable from clear glass, leaving only the thin Fresnel rim → a ring.
+
+#### The fix — [`windshield_rain.frag`](shaders/windshield_rain.frag)
+
+- **Fold the trail into the height field**: `h = clamp(body + 0.6·trail, 0, 1)` for the value *and* both finite-difference offsets, so rivulets get a real lens normal and refract/glint like drop bodies.
+- **Per-drop sky glint**: a tight highlight from the *per-drop* normal `dropN` against a fixed overhead sky light $\hat{\mathbf L}=(-0.25,-0.55,1)$, so every bead and rivulet catches a glint independent of the weak overcast sun: $g=\max(\hat{\mathbf n}\!\cdot\!\hat{\mathbf L},0)^{22}\,c$, added as $0.92\text{–}1.0$ sky color × $1.4g$.
+- **Darken the lens body** (`×mix(1, 0.72, coverage)`) for contrast against the dull sky, and **cut the haze** (`0.18+0.12·i` → `0.06+0.05·i`) so beads/rivulets carry the look instead of a gray wash. The sun glint now also uses `dropN` (per-drop) and is gated by coverage.
+
+#### Pass constants — [`WindshieldRainPass.cpp`](src/renderer/WindshieldRainPass/WindshieldRainPass.cpp)
+
+| knob | was | now |
+|------|-----|-----|
+| drop density (`params.z`) | 60 | **85** (finer, denser beads) |
+| refraction strength (`params.w`) | 0.065 | **0.080** (more visible lensing) |
+| Fresnel rim gain (`screenAndRefr.w`) | 0.05 | **0.06** |
+
+#### Falling streaks — [`rain.frag`](shaders/rain.frag)
+
+Brightened so the thin additive streaks read against the scene: color `(0.65,0.76,0.90)` → `(0.78,0.86,1.0)`, additive contribution ×1.6.
+
+#### Verification
+
+Verified in-app by forcing `m_rainIntensity=1.0` (reverted to 0.0 after), launching, and screenshotting the windshield + air: drops now read as refractive teardrops with glints and vertical rivulets (best over the darker dashboard; subtler over the bright sky, as expected), and diagonal falling streaks are visible. `make build` clean; the 2 `RoadScene` test failures are pre-existing/unrelated.
+
+</details>
+
+### 2026-06-29 — Rain overhaul: parallax world layer, retinal-persistence streaks, light/medium windshield trails, wet streetlight halos
+
+> Four independent upgrades push the rain toward photoreal night-rain: world rain gains a **second, farther/slower parallax layer** for depth; streaks now show **multi-highlight speckle** (retinal-persistence integration); windshield **sliding rivulets appear at light/medium rain** instead of only heavy; and bright streetlights get a subtle **wet halo** that grows with wetness.
+
+<details>
+<summary>Technical summary</summary>
+
+#### Motivation
+
+- **World rain was a single shell** of streak billboards centered on the camera — no depth cue, so heavy rain read as a flat wall.
+- **Streaks were single-sampled**: one Garg & Nayar oscillation evaluation per fragment gave a smooth streak, missing the speckled multi-highlight look of real night rain (a streak is the eye/exposure integral of a *vibrating* drop).
+- **Windshield trails only ramped in at heavy rain**: the static-bead layer saturated immediately while the sliding-rivulet layer ramped over `[0.25, 0.75]`, so light/medium rain showed beads but no clinging→sliding rivulets (see [`docs/images/windshield-rain-fixed.png`](docs/images/windshield-rain-fixed.png)).
+- **No wet-weather glow** around the road's warm sodium-vapor streetlights.
+
+#### The changes
+
+**1. World-rain second parallax layer** — [`RainSystem.cpp`](src/renderer/RainSystem/RainSystem.cpp) / [`.h`](src/renderer/RainSystem/RainSystem.h). A second `vkCmdDrawIndexed` inside `record_draws`, reusing the *same* pipeline / render pass / geometry / instance buffer, bound to a second per-frame "far" UBO with scaled params. No shader, pipeline, render-pass, Renderer, or CMake change. Additive blending + `depthWrite=false` make the two-layer draw order irrelevant (no sorting). Far-layer params:
+
+$$\text{halfExtent}_\text{far}=2.0\,h,\quad \text{dropSpeed}_\text{far}=0.7\,v,\quad \text{intensity}_\text{far}=0.55\,i,\quad \text{streakLen}_\text{far}=0.8\,\ell$$
+
+Lower far intensity dims the streaks for free ($\text{fragAlpha}\propto\text{intensity}$). The far field shares the near field's instance seeds, so it is **decorrelated** by a constant time phase $t_\text{far}=t+317\,\text{s}$ — since the two layers have different wrap periods ($2\,\text{halfExtent}/\text{dropSpeed}$), they never visibly re-align. The descriptor pool's `descriptorCount` and `maxSets` were doubled to `2·MAX_FRAMES_IN_FLIGHT` (else `vkAllocateDescriptorSets` → `VK_ERROR_OUT_OF_POOL_MEMORY`). Near-cabin fade and the horizontal-wind cap are unchanged and apply to both layers.
+
+**2. Retinal-persistence streaks** — [`rain.frag`](shaders/rain.frag). The single oscillation/streak/speckle evaluation is replaced by an average of $N=7$ samples taken along the drop's vibration cycle, offsetting the (2,0)/(3,1) oscillation phase per sample, superimposing several highlight bands along the streak:
+
+$$\text{streak} = \frac{1}{N}\sum_{k=0}^{N-1}\Big(1-\mathrm{smoothstep}(0.45,0.85,\;\tfrac{\text{edge}}{\max(0.7\,\text{osc}_k,\,0.2)})\Big)\big(0.85+0.15\sin(\cdots+s_k\,12)\big),\quad s_k=\tfrac{k}{N-1}$$
+
+Output stays additive/premultiplied. This frag is shared by both rain layers, so the effect applies to near *and* far rain.
+
+**3. Windshield light/medium trails** — [`windshield_rain.frag`](shaders/windshield_rain.frag). Retuned the intensity→layer weights so rivulets ramp in early and beads don't dominate, and re-gated the composite trail through the *sliding* weights (it was gated through the static-dot weight `l0`, which the damping would otherwise have suppressed):
+
+| weight | before | after |
+|--------|--------|-------|
+| `l0` static beads | `clamp(S(-0.5,1.0,r)·2, 0,1)` → ~1.0 at light rain | `S(0.0,0.5,r)·0.65` |
+| `l1` sliding layer | `S(0.25,0.75,r)` → ~0.10 at light rain | `S(0.05,0.45,r)` |
+| `l2` sliding layer | `S(0.0,0.5,r)` | `S(0.0,0.40,r)` |
+| trail gate | `max(m1.y·l0, m2.y·l1)` | `max(m1.y·l1, m2.y·l2)` |
+
+**4. Wet streetlight halos** — [`lighting.frag`](shaders/lighting.frag). A small view-independent additive term in the point-light loop, gated by wetness (rain intensity is not available in this pass; wetness already tracks it), which the bloom pass then spreads into a halo:
+
+$$\mathbf C \mathrel{+}= \mathbf C_\ell\,I_\ell\,\,\text{att}^2\,\,w\,\,k_\text{halo},\qquad k_\text{halo}=0.12$$
+
+`att²` concentrates the glow near each lamp; the term is zero when dry, so the dry look is unchanged.
+
+#### Files changed
+
+| File | Change |
+|------|--------|
+| [`src/renderer/RainSystem/RainSystem.h`](src/renderer/RainSystem/RainSystem.h) | Far-layer UBO trio (`m_rainUBOsFar`/`Memories`/`Mapped`) + `m_descSetsFar` |
+| [`src/renderer/RainSystem/RainSystem.cpp`](src/renderer/RainSystem/RainSystem.cpp) | Far-layer constants; far UBO create/map/fill; doubled descriptor pool + 2nd alloc + batched writes; 2nd draw in `record_draws`; far cleanup |
+| [`shaders/rain.frag`](shaders/rain.frag) | $N=7$ retinal-persistence multi-sample streak averaging |
+| [`shaders/windshield_rain.frag`](shaders/windshield_rain.frag) | Retuned `l0/l1/l2` weights + trail re-gated through sliding layers |
+| [`shaders/lighting.frag`](shaders/lighting.frag) | Wetness-scaled additive halo around point lights |
+
+#### Data flow — two-layer world rain (one render pass, one pipeline)
+
+```mermaid
+graph LR
+    UPD["update(): near UBO + far UBO<br/>(scaled params, t+317s)"] --> RP["record_draws: begin pass"]
+    RP --> FAR["bind far set → draw 8192"]
+    FAR --> NEAR["bind near set → draw 8192"]
+    NEAR --> END["end pass (additive, no depth write)"]
+```
+
+#### Verification
+
+`make build` clean — all three shaders compile via glslc, `swish` + tests link. `clang-format` applied. Descriptor pool correctly sized for both sets. Two pre-existing `RoadScene zero-*-config` test failures are unrelated (working-tree `RoadScene.cpp` changes predating this work; no rain/lighting references). Visual confirmation pending an interactive `make run` (R cycles rain, V toggles wiper).
+
+</details>
+
 ### 2026-06-28 — Windshield rain: persistent wetness map (real wipe-off + speed-driven flow)
 
 > Rain now **accumulates** on the windshield and the wiper genuinely **wipes it off** (cleared glass stays clear and re-wets over time), via a persistent screen-space wetness map. Water **flows in the push direction** — down at rest, **up at speed** — and a real bug that made the up-flow unreachable was fixed.

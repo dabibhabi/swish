@@ -39,13 +39,12 @@ void uploadViaStaging(const RendererServices& s, VkBufferUsageFlags dstUsage, Vk
 
 // Uploads two buffers (vertex + index) through staging in a single command
 // buffer submission — one vkQueueSubmit + wait instead of two.
-void uploadTwoViaStaging(const RendererServices& s,
-                         VkBufferUsageFlags vertUsage, VkDeviceSize vertSize, const void* vertSrc,
-                         VkBuffer& vertDst, VkDeviceMemory& vertDstMem,
-                         VkBufferUsageFlags idxUsage, VkDeviceSize idxSize, const void* idxSrc,
-                         VkBuffer& idxDst, VkDeviceMemory& idxDstMem) {
+void uploadTwoViaStaging(const RendererServices& s, VkBufferUsageFlags vertUsage, VkDeviceSize vertSize,
+                         const void* vertSrc, VkBuffer& vertDst, VkDeviceMemory& vertDstMem,
+                         VkBufferUsageFlags idxUsage, VkDeviceSize idxSize, const void* idxSrc, VkBuffer& idxDst,
+                         VkDeviceMemory& idxDstMem) {
     // Create and fill vertex staging buffer
-    VkBuffer       vertStaging = VK_NULL_HANDLE;
+    VkBuffer       vertStaging    = VK_NULL_HANDLE;
     VkDeviceMemory vertStagingMem = VK_NULL_HANDLE;
     ResourceManager::createBuffer(s.device, s.physicalDevice, vertSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -56,7 +55,7 @@ void uploadTwoViaStaging(const RendererServices& s,
     vkUnmapMemory(s.device, vertStagingMem);
 
     // Create and fill index staging buffer
-    VkBuffer       idxStaging = VK_NULL_HANDLE;
+    VkBuffer       idxStaging    = VK_NULL_HANDLE;
     VkDeviceMemory idxStagingMem = VK_NULL_HANDLE;
     ResourceManager::createBuffer(s.device, s.physicalDevice, idxSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -66,11 +65,9 @@ void uploadTwoViaStaging(const RendererServices& s,
     vkUnmapMemory(s.device, idxStagingMem);
 
     // Create destination (device-local) buffers
-    ResourceManager::createBuffer(s.device, s.physicalDevice, vertSize,
-                                  VK_BUFFER_USAGE_TRANSFER_DST_BIT | vertUsage,
+    ResourceManager::createBuffer(s.device, s.physicalDevice, vertSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | vertUsage,
                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertDst, vertDstMem);
-    ResourceManager::createBuffer(s.device, s.physicalDevice, idxSize,
-                                  VK_BUFFER_USAGE_TRANSFER_DST_BIT | idxUsage,
+    ResourceManager::createBuffer(s.device, s.physicalDevice, idxSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | idxUsage,
                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, idxDst, idxDstMem);
 
     // Record both copies into one command buffer and submit once
@@ -141,8 +138,7 @@ void SceneGeometry::upload(const RendererServices& s, const MeshData& mesh, cons
     if (mesh.empty())
         return;
 
-    uploadTwoViaStaging(s,
-                        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, sizeof(Vertex) * mesh.getVertices().size(),
+    uploadTwoViaStaging(s, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, sizeof(Vertex) * mesh.getVertices().size(),
                         mesh.getVertices().data(), m_vertexBuffer, m_vertexBufferMemory,
                         VK_BUFFER_USAGE_INDEX_BUFFER_BIT, sizeof(uint32_t) * mesh.getIndices().size(),
                         mesh.getIndices().data(), m_indexBuffer, m_indexBufferMemory);

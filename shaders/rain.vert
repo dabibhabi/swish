@@ -27,6 +27,7 @@ layout(set = 1, binding = 0) uniform RainUBO {
 // ── Outputs ───────────────────────────────────────────────────────────
 layout(location = 0) out vec2 fragUV;
 layout(location = 1) out float fragAlpha;
+layout(location = 2) out float fragPhase;
 
 void main() {
     float time     = rain.windAndTime.w;
@@ -63,16 +64,28 @@ void main() {
         vsPerp = vec3(1.0, 0.0, 0.0);
     }
 
-    // Width: 6–14 WU (6–14 mm), varied per instance for natural look
-    float width = (6.0 + 8.0 * seed.w);
+    // Width: 3–8 WU, varied per instance. Thin streaks read as delicate rain
+    // (Garg & Nayar) rather than fat bright bars.
+    float width = (3.0 + 5.0 * seed.w);
     float len   = streakLen * (0.5 + 0.5 * seed.w);
 
     // localPos.x spans perp (width), localPos.y spans fall (length)
+    // Subtract vsVelDir so the streak trails BEHIND the drop head:
+    // fragUV.y=0 is the leading head, fragUV.y=1 is the trailing tail.
     vec3 vsCorner = vsCenter.xyz
                   + vsPerp * (localPos.x * width)
-                  + vsVelDir * (localPos.y * len);
+                  - vsVelDir * (localPos.y * len);
+
+    // Fade out drops inside the cabin bubble so rain does not render inside the
+    // car. The volume is centered on the (in-cabin) camera, so the nearest shell
+    // of drops spawns in the cabin air in front of the dashboard; depth only
+    // rejects rain BEHIND opaque surfaces, not these near drops. View-space
+    // distance from the camera (origin in view space) gates them out.
+    float camDist  = length(vsCenter.xyz);
+    float nearFade = smoothstep(2500.0, 5000.0, camDist);  // 2.5 m → 5 m
 
     gl_Position = camera.proj * vec4(vsCorner, 1.0);
     fragUV      = uv;
-    fragAlpha   = intensity * (0.25 + 0.75 * seed.w);
+    fragAlpha   = intensity * (0.20 + 0.60 * seed.w) * nearFade;  // semi-transparent
+    fragPhase   = seed.x;
 }

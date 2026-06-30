@@ -31,24 +31,17 @@ public:
     GlassPass()  = default;
     ~GlassPass() = default;
 
-    void init(const RendererServices& s,
-              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
-              VkExtent2D extent,
+    void init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
               VkDescriptorSetLayout cameraSetLayout);
 
     // Draw glass draw calls using the shared car VBO/IBO.
     // Camera set 0 must already be bound on m_pipeLayout before this call.
-    void record_draws(VkCommandBuffer cmd,
-                      uint32_t frameIndex,
-                      VkBuffer carVBO,
-                      VkBuffer carIBO,
+    void record_draws(VkCommandBuffer cmd, uint32_t frameIndex, VkBuffer carVBO, VkBuffer carIBO,
                       const std::vector<DrawCall>& glassDCs) const;
 
     void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
-                  VkExtent2D extent,
-                  VkDevice device);
+                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
 
     void cleanup(VkDevice device);
 
@@ -56,13 +49,12 @@ public:
 
 private:
     void createRenderPass(VkDevice device, VkFormat depthFormat);
-    void createFramebuffers(VkDevice device,
-                            const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+    void createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                             const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews);
     void destroyFramebuffers(VkDevice device);
     void createPipeline(VkDevice device, VkDescriptorSetLayout cameraSetLayout);
 
-    VkRenderPass                                    m_renderPass  = VK_NULL_HANDLE;
+    VkRenderPass                                    m_renderPass = VK_NULL_HANDLE;
     std::array<VkFramebuffer, MAX_FRAMES_IN_FLIGHT> m_framebuffers{};
 
     VkPipelineLayout m_pipeLayout = VK_NULL_HANDLE;

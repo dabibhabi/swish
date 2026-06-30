@@ -89,15 +89,15 @@ public:
     VkDescriptorSet get_composite_set(uint32_t frameIndex) const { return m_compositeSets[frameIndex]; }
 
     // ── Image getters (for barriers in Renderer) ─────────────────
-    VkImage     get_hdr_image(uint32_t frameIndex)      const { return m_hdrImages[frameIndex]; }
-    VkImageView get_hdr_view(uint32_t frameIndex)       const { return m_hdrViews[frameIndex]; }
+    VkImage     get_hdr_image(uint32_t frameIndex) const { return m_hdrImages[frameIndex]; }
+    VkImageView get_hdr_view(uint32_t frameIndex) const { return m_hdrViews[frameIndex]; }
     VkImage     get_hdr_depth_image(uint32_t frameIndex) const { return m_hdrDepthImages[frameIndex]; }
-    VkImageView get_hdr_depth_view(uint32_t frameIndex)  const { return m_hdrDepthViews[frameIndex]; }
-    VkImage get_bloom_extract_image() const { return m_bloomExtractImage; }
-    VkImage get_bloom_blur_h_image() const { return m_bloomBlurHImage; }
-    VkImage get_bloom_blur_v_image() const { return m_bloomBlurVImage; }
-    VkImage get_ao_image() const { return m_aoImage; }
-    VkImage get_ao_blur_image() const { return m_aoBlurImage; }
+    VkImageView get_hdr_depth_view(uint32_t frameIndex) const { return m_hdrDepthViews[frameIndex]; }
+    VkImage     get_bloom_extract_image() const { return m_bloomExtractImage; }
+    VkImage     get_bloom_blur_h_image() const { return m_bloomBlurHImage; }
+    VkImage     get_bloom_blur_v_image() const { return m_bloomBlurVImage; }
+    VkImage     get_ao_image() const { return m_aoImage; }
+    VkImage     get_ao_blur_image() const { return m_aoBlurImage; }
 
     // ── Extent getters ───────────────────────────────────────────
     VkExtent2D get_full_extent() const { return m_fullExtent; }

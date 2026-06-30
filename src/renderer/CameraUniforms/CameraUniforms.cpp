@@ -5,9 +5,11 @@
 #include "../../utils/VulkanCheck.h"
 #include "../ResourceManager/ResourceManager.h"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstring>
+#include <numeric>
 
 namespace swish {
 
@@ -50,17 +52,33 @@ void CameraUniforms::update(uint32_t frameIndex, const Camera& camera) {
     ubo.sunColor = Vec4(1.0f, 0.95f, 0.85f, 0.30f);
     std::memcpy(m_cameraMapped[frameIndex], &ubo, sizeof(ubo));
 
-    if (m_lightsDirty) {
-        LightsUBO lightsUbo{};
-        uint32_t  count = std::min(static_cast<uint32_t>(m_lights.size()), MAX_POINT_LIGHTS);
-        for (uint32_t i = 0; i < count; i++) {
-            lightsUbo.pointLights[i].positionRadius = Vec4(m_lights[i].position, m_lights[i].radius);
-            lightsUbo.pointLights[i].colorIntensity = Vec4(m_lights[i].color, m_lights[i].intensity);
-        }
-        lightsUbo.numPointLights = glm::uvec4(count, 0, 0, 0);
-        std::memcpy(m_lightsMapped[frameIndex], &lightsUbo, sizeof(lightsUbo));
-        m_lightsDirty = false;
+    // Select the MAX_POINT_LIGHTS lights nearest the camera each frame. The
+    // road may carry far more lamps than the UBO can hold, so uploading the
+    // first N would leave the road dark away from the start. Recomputed every
+    // frame because the nearest set changes as the car drives.
+    const Vec3 camPos = camera.get_position();
+    const auto total  = static_cast<uint32_t>(m_lights.size());
+    const uint32_t count = std::min(total, MAX_POINT_LIGHTS);
+
+    std::vector<uint32_t> order(total);
+    std::iota(order.begin(), order.end(), 0u);
+
+    auto distSq = [&](uint32_t i) {
+        const Vec3 d = m_lights[i].position - camPos;
+        return glm::dot(d, d);
+    };
+    std::partial_sort(order.begin(), order.begin() + count, order.end(),
+                      [&](uint32_t a, uint32_t b) { return distSq(a) < distSq(b); });
+
+    LightsUBO lightsUbo{};
+    for (uint32_t i = 0; i < count; i++) {
+        const LightDesc& l = m_lights[order[i]];
+        lightsUbo.pointLights[i].positionRadius = Vec4(l.position, l.radius);
+        lightsUbo.pointLights[i].colorIntensity = Vec4(l.color, l.intensity);
     }
+    lightsUbo.numPointLights = glm::uvec4(count, 0, 0, 0);
+    std::memcpy(m_lightsMapped[frameIndex], &lightsUbo, sizeof(lightsUbo));
+    m_lightsDirty = false;
 }
 
 void CameraUniforms::createLayout(VkDevice device) {
@@ -153,8 +171,8 @@ void CameraUniforms::createDescriptors(VkDevice device) {
 void CameraUniforms::set_wetness(uint32_t frameIndex, float wetness) {
     // camPos is the third Vec4 in CameraUBO: offset = sizeof(Mat4)*2 + sizeof(Vec4)*0
     // We write only the w component (byte offset +12 within the Vec4).
-    auto* ubo      = reinterpret_cast<CameraUBO*>(m_cameraMapped[frameIndex]);
-    ubo->camPos.w  = wetness;
+    auto* ubo     = reinterpret_cast<CameraUBO*>(m_cameraMapped[frameIndex]);
+    ubo->camPos.w = wetness;
 }
 
 }  // namespace swish

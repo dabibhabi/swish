@@ -20,7 +20,7 @@ struct PointLight {
 };
 
 layout(set = 0, binding = 1) uniform LightsUBO {
-    PointLight pointLights[16];
+    PointLight pointLights[32];
     uvec4      numPointLights;
 } lights;
 
@@ -84,10 +84,15 @@ void main() {
     float metallic  = material.r;
     float roughness = material.g;
 
-    // Wet surfaces: darken albedo (water absorbs light) and lower roughness
-    // (water film makes surfaces more specular / mirror-like)
-    albedo    = mix(albedo, albedo * 0.68, wetness);
-    roughness = mix(roughness, roughness * 0.35, wetness * 0.7);
+    // Wet surfaces: darken + desaturate albedo (water absorbs light) and lower
+    // roughness (water film makes surfaces more specular / mirror-like).
+    vec3  wetAlbedo = albedo * 0.6;
+    float luma      = dot(albedo, vec3(0.299, 0.587, 0.114));
+    wetAlbedo       = mix(wetAlbedo, vec3(luma) * 0.6, 0.25);  // slight desaturation
+    albedo          = mix(albedo, wetAlbedo, wetness);
+
+    roughness = mix(roughness, roughness * 0.25, wetness * 0.85);
+    roughness = clamp(roughness, 0.02, 1.0);
 
     // Reconstruct world position from depth
     vec3 fragWorldPos = reconstructWorldPos(fragUV, depth);
@@ -99,8 +104,10 @@ void main() {
     float a2 = a * a;
     float k  = (roughness + 1.0) * (roughness + 1.0) / 8.0;
 
-    // F0: metallic workflow (lerp between dielectric 0.04 and albedo for metals)
-    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    // F0: metallic workflow (lerp between dielectric and albedo for metals).
+    // Wet film raises dielectric reflectance for a stronger specular/Fresnel.
+    float dielectricF0 = mix(0.04, 0.06, wetness);
+    vec3  F0 = mix(vec3(dielectricF0), albedo, metallic);
 
     // ── Directional sun ───────────────────────────────────────────
     vec3 L = camera.sunDir.xyz;
@@ -164,6 +171,13 @@ void main() {
 
         vec3 kD_pt = (vec3(1.0) - F_pt) * (1.0 - metallic);
         vec3 radiance = lCol * lInt * att;
+
+        // Rainy glow: wet air halos bright lamps. View-independent (no BRDF / NdotL),
+        // scaled by wetness; att*att concentrates the bloom nearer the lamp and reuses
+        // the existing radius falloff. The bloom pass then spreads it into a wet halo.
+        const float kHaloStrength = 0.12;  // small/tasteful — tune via run
+        lit_color += lCol * lInt * att * att * wetness * kHaloStrength;
+
         lit_color += (kD_pt * albedo / PI + spec_pt) * NdotL_pt * radiance;
     }
 

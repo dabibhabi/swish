@@ -10,10 +10,8 @@
 
 namespace swish {
 
-void GlassPass::init(const RendererServices& s,
-                     const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                     const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
-                     VkExtent2D extent,
+void GlassPass::init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                     const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
                      VkDescriptorSetLayout cameraSetLayout) {
     m_extent      = extent;
     m_depthFormat = ResourceManager::findDepthFormat(s.physicalDevice);
@@ -23,15 +21,13 @@ void GlassPass::init(const RendererServices& s,
     createPipeline(s.device, cameraSetLayout);
 }
 
-void GlassPass::record_draws(VkCommandBuffer cmd,
-                              uint32_t frameIndex,
-                              VkBuffer carVBO,
-                              VkBuffer carIBO,
-                              const std::vector<DrawCall>& glassDCs) const {
-    if (glassDCs.empty() || carVBO == VK_NULL_HANDLE) return;
+void GlassPass::record_draws(VkCommandBuffer cmd, uint32_t frameIndex, VkBuffer carVBO, VkBuffer carIBO,
+                             const std::vector<DrawCall>& glassDCs) const {
+    if (glassDCs.empty() || carVBO == VK_NULL_HANDLE)
+        return;
 
     VkClearValue clearVals[2]{};
-    auto beginInfo              = vk::makeRenderPassBeginInfo();
+    auto         beginInfo      = vk::makeRenderPassBeginInfo();
     beginInfo.renderPass        = m_renderPass;
     beginInfo.framebuffer       = m_framebuffers[frameIndex];
     beginInfo.renderArea.extent = m_extent;
@@ -40,10 +36,7 @@ void GlassPass::record_draws(VkCommandBuffer cmd,
 
     vkCmdBeginRenderPass(cmd, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-    VkViewport vp{0.0f, 0.0f,
-                  static_cast<float>(m_extent.width),
-                  static_cast<float>(m_extent.height),
-                  0.0f, 1.0f};
+    VkViewport vp{0.0f, 0.0f, static_cast<float>(m_extent.width), static_cast<float>(m_extent.height), 0.0f, 1.0f};
     vkCmdSetViewport(cmd, 0, 1, &vp);
     VkRect2D sc{{0, 0}, m_extent};
     vkCmdSetScissor(cmd, 0, 1, &sc);
@@ -58,9 +51,8 @@ void GlassPass::record_draws(VkCommandBuffer cmd,
         PushConstantData push{};
         push.model = dc.model;
         push.color = dc.color;
-        vkCmdPushConstants(cmd, m_pipeLayout,
-                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                           0, sizeof(push), &push);
+        vkCmdPushConstants(cmd, m_pipeLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(push), &push);
         vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, 0, 0);
     }
 
@@ -68,9 +60,8 @@ void GlassPass::record_draws(VkCommandBuffer cmd,
 }
 
 void GlassPass::recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                          const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
-                          VkExtent2D extent,
-                          VkDevice device) {
+                         const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
+                         VkDevice device) {
     m_extent = extent;
     destroyFramebuffers(device);
     createFramebuffers(device, hdrViews, depthViews);
@@ -128,14 +119,10 @@ void GlassPass::createRenderPass(VkDevice device, VkFormat depthFormat) {
     VkSubpassDependency dep{};
     dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
     dep.dstSubpass    = 0;
-    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                        VK_ACCESS_SHADER_READ_BIT;
-    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
-                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
 
     VkAttachmentDescription atts[] = {colorAtt, depthAtt};
@@ -152,9 +139,8 @@ void GlassPass::createRenderPass(VkDevice device, VkFormat depthFormat) {
     VK_CHECK(vkCreateRenderPass(device, &rpInfo, nullptr, &m_renderPass));
 }
 
-void GlassPass::createFramebuffers(VkDevice device,
-                                    const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                                    const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews) {
+void GlassPass::createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                                   const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews) {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         VkImageView atts[] = {hdrViews[i], depthViews[i]};
 
@@ -188,18 +174,18 @@ void GlassPass::createPipeline(VkDevice device, VkDescriptorSetLayout cameraSetL
 
     m_pipeLayout = Pipeline::createLayout(device, {cameraSetLayout}, {pcRange});
 
-    auto binding   = Vertex::getBindingDescription();
-    auto attrs     = Vertex::getAttributeDescriptions();
+    auto binding = Vertex::getBindingDescription();
+    auto attrs   = Vertex::getAttributeDescriptions();
 
     PipelineConfig cfg{};
     cfg.vertShaderPath   = std::string(SHADER_DIR) + "glass.vert.spv";
     cfg.fragShaderPath   = std::string(SHADER_DIR) + "glass.frag.spv";
     cfg.vertexBindings   = {binding};
     cfg.vertexAttributes = {attrs[0], attrs[1], attrs[2], attrs[3]};
-    cfg.cullMode         = VK_CULL_MODE_NONE;    // glass is double-sided
+    cfg.cullMode         = VK_CULL_MODE_NONE;  // glass is double-sided
     cfg.enableDepthTest  = true;
-    cfg.enableDepthWrite = false;                // glass never writes depth
-    cfg.enableBlending   = true;                 // SRC_ALPHA / ONE_MINUS_SRC_ALPHA
+    cfg.enableDepthWrite = false;  // glass never writes depth
+    cfg.enableBlending   = true;   // SRC_ALPHA / ONE_MINUS_SRC_ALPHA
     cfg.pipelineLayout   = m_pipeLayout;
 
     m_pipeline = Pipeline::create(device, cfg, m_renderPass, m_extent);

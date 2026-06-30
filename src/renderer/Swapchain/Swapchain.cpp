@@ -111,14 +111,12 @@ VkSurfaceFormatKHR Swapchain::chooseSwapSurfaceFormat(const std::vector<VkSurfac
     // No shader change needed — AgX outputs linear [0,1] and both SRGB (hardware encodes)
     // and extended-sRGB-linear (display encodes) present correctly.
     for (const auto& f : availableFormats)
-        if (f.format == VK_FORMAT_R16G16B16A16_SFLOAT &&
-            f.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT)
+        if (f.format == VK_FORMAT_R16G16B16A16_SFLOAT && f.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT)
             return f;
 
     // Standard 8-bit sRGB fallback
     for (const auto& f : availableFormats)
-        if (f.format == VK_FORMAT_B8G8R8A8_SRGB &&
-            f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+        if (f.format == VK_FORMAT_B8G8R8A8_SRGB && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
             return f;
 
     return availableFormats[0];

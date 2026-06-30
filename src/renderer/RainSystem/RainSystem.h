@@ -47,10 +47,8 @@ public:
     // hdrViews: per-frame HDR color image views from PostProcessManager.
     // depthViews: per-frame HDR depth views — used for depth testing against scene geometry
     //             so rain does not appear inside the car cabin.
-    void init(const RendererServices& s,
-              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
-              VkExtent2D extent,
+    void init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
               VkDescriptorSetLayout cameraSetLayout);
 
     // Advance the rain simulation and upload per-frame UBO.
@@ -62,20 +60,17 @@ public:
 
     // Rebuild framebuffers when the swapchain (and HDR images) are recreated.
     void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
-                  VkExtent2D extent,
-                  VkDevice device);
+                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
 
     void cleanup(VkDevice device);
 
-    float            get_wetness()        const { return m_wetness; }
-    float            get_intensity()      const { return m_intensity; }
+    float            get_wetness() const { return m_wetness; }
+    float            get_intensity() const { return m_intensity; }
     VkPipelineLayout get_pipeline_layout() const { return m_pipeLayout; }
 
 private:
     void createRenderPass(VkDevice device);
-    void createFramebuffers(VkDevice device,
-                            const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+    void createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                             const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews);
     void destroyFramebuffers(VkDevice device);
     void createGeometry(const RendererServices& s);
@@ -95,18 +90,24 @@ private:
     VkDeviceMemory m_instanceBufferMemory = VK_NULL_HANDLE;
 
     // ── Per-frame rain UBOs ────────────────────────────────────────
-    std::array<VkBuffer,       MAX_FRAMES_IN_FLIGHT> m_rainUBOs{};
+    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT>       m_rainUBOs{};
     std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_rainUBOMemories{};
-    std::array<void*,          MAX_FRAMES_IN_FLIGHT> m_rainUBOMapped{};
+    std::array<void*, MAX_FRAMES_IN_FLIGHT>          m_rainUBOMapped{};
+
+    // ── Per-frame "far" parallax rain UBOs (scaled params, dimmer/farther) ──
+    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT>       m_rainUBOsFar{};
+    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_rainUBOMemoriesFar{};
+    std::array<void*, MAX_FRAMES_IN_FLIGHT>          m_rainUBOMappedFar{};
 
     // ── Render pass + per-frame framebuffers ───────────────────────
     VkRenderPass                                    m_renderPass = VK_NULL_HANDLE;
     std::array<VkFramebuffer, MAX_FRAMES_IN_FLIGHT> m_framebuffers{};
 
     // ── Descriptors (set 1: rain UBO) ──────────────────────────────
-    VkDescriptorPool                                    m_descPool   = VK_NULL_HANDLE;
-    VkDescriptorSetLayout                               m_rainLayout = VK_NULL_HANDLE;
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT>   m_descSets{};
+    VkDescriptorPool                                  m_descPool   = VK_NULL_HANDLE;
+    VkDescriptorSetLayout                             m_rainLayout = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_descSets{};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_descSetsFar{};
 
     // ── Pipeline ───────────────────────────────────────────────────
     VkPipelineLayout m_pipeLayout = VK_NULL_HANDLE;

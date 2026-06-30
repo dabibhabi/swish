@@ -20,7 +20,7 @@ struct PipelineConfig {
     VkCullModeFlags     cullMode = VK_CULL_MODE_BACK_BIT;
     VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
-    bool enableBlending  = false;
+    bool enableBlending   = false;
     bool additiveBlending = false;  // src=ONE dst=ONE; overrides enableBlending when true
 
     bool        enableDepthTest  = true;

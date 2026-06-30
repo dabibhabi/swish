@@ -17,11 +17,14 @@ VkPipeline Pipeline::create(VkDevice device, const PipelineConfig& config, VkRen
     VkShaderModule fragModule = createShaderModule(device, fragCode);
 
     struct ScopedShaderModule {
-        VkDevice      dev;
+        VkDevice       dev;
         VkShaderModule mod;
-        ~ScopedShaderModule() { if (mod != VK_NULL_HANDLE) vkDestroyShaderModule(dev, mod, nullptr); }
+        ~ScopedShaderModule() {
+            if (mod != VK_NULL_HANDLE)
+                vkDestroyShaderModule(dev, mod, nullptr);
+        }
         ScopedShaderModule(VkDevice d, VkShaderModule m) : dev(d), mod(m) {}
-        ScopedShaderModule(const ScopedShaderModule&) = delete;
+        ScopedShaderModule(const ScopedShaderModule&)            = delete;
         ScopedShaderModule& operator=(const ScopedShaderModule&) = delete;
     };
     ScopedShaderModule scopedVert{device, vertModule};

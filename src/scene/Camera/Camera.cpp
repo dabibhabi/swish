@@ -11,8 +11,12 @@ namespace swish {
 // Position
 // ══════════════════════════════════════════════════════════════════════
 
-void Camera::set_position(const Vec3& pos) { m_position = pos; }
-const Vec3& Camera::get_position() const { return m_position; }
+void Camera::set_position(const Vec3& pos) {
+    m_position = pos;
+}
+const Vec3& Camera::get_position() const {
+    return m_position;
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // Orientation
@@ -131,10 +135,14 @@ void Camera::process_keyboard(GLFWwindow* window, float delta_time) {
     if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
         velocity *= 2.f;
 
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) m_position += move_forward * velocity;
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) m_position -= move_forward * velocity;
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) m_position -= right * velocity;
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) m_position += right * velocity;
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        m_position += move_forward * velocity;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        m_position -= move_forward * velocity;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        m_position -= right * velocity;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        m_position += right * velocity;
 
     // Vertical movement (Q/E for up/down)
     if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)

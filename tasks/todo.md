@@ -1,3 +1,182 @@
+# Roadmap — rain realism · LIE extension · night-scene visual realism (2026-06-30)
+
+Research-driven plan. Grounded in two cited briefs (AI-assisted research artifacts):
+[`docs/research-rain-rendering.md`](../docs/research-rain-rendering.md) and
+[`docs/research-night-scene-realism.md`](../docs/research-night-scene-realism.md). Each item links the
+technique that motivates it. Ordered by **visual-impact-per-effort** within each track. Nothing here is
+started yet — this is the plan to verify before implementation.
+
+> Current baseline (committed this pass): rain = 2-layer parallax streaks + Heartfelt-style refractive
+> windshield drops (small/dense beads) + persistent wetness map + visible wiper; road = 4.22 km LIE,
+> nearest-N lamp lighting (`MAX_POINT_LIGHTS=32`); composite already does ACES tone-map + bloom; car =
+> 911 Turbo S physics.
+
+---
+
+## Track A — Rain realism (next steps)
+
+- [ ] **A1. Light-source-dependent streaks** — make falling-streak brightness/tint depend on the
+      nearest deferred point lights so streaks *ignite* near streetlamps (Garg–Nayar photometric model;
+      Halder ICCV 2019, rain brief §1). Feed the streak frag the same nearest-N lamp list `CameraUniforms`
+      already builds. **Highest rain ROI.**
+- [ ] **A2. Impact splashes / road spray** — short-lived splash sprites where streaks "hit" the road
+      plane + a faint up-spray near the car (R4 collision splashes, rain brief §3). Adaptive density
+      near the cockpit only (LOD).
+- [ ] **A3. Lens raindrops as a final overlay** — distinct from the windshield pass: screen-space drops
+      on the *virtual camera lens*, NOT cleared by wipers (Heartfelt as a lens pass; night brief §6).
+      Subtle, gated low so it doesn't fight the windshield drops.
+- [ ] **A4. Validate windshield drops vs Heartfelt reference** — confirm trail-cutting-through-fog and
+      normal→UV-offset refraction match the canonical behaviour; check the von Bernuth contact-angle
+      drop shape $h=\tan(\theta/2)\cdot d$ ($\theta\approx 87°$) for bead bulge (rain brief §2).
+- [ ] **A5. Wetness-map mip blur** — the snapshot is single-LOD; wire `screenAndRefr.z` (already
+      reserved) to a wetness-driven blur once the snapshot generates mips (rain/README "future work").
+
+## Track B — Extend & enrich the Long Island Expressway
+
+- [ ] **B1. Curved centerline** — replace the straight road with gentle arcs/clothoids so it reads as
+      real I-495 (OpenDRIVE reference-line + $(s,t)$ model; Galin curvature constraints; night brief §5).
+      Express lanes, lamps, signs as offsets along arc-length $s$ — one 1-D parameter drives the layout.
+- [ ] **B2. Distance LOD + billboard impostors** for lamps/signs/guardrail posts marching to the
+      horizon; geomorph/alpha-fade transitions, select by projected screen coverage (RTR4 Ch.19, night
+      brief §5). Needed before extending further than 4.22 km without a frame-time hit.
+- [ ] **B3. Roadside enrichment** — guardrails swept along the spline, more sign sets, an overpass or
+      two, lane-wear/tire decals via deferred screen-space decals against the G-buffer (Wronski 2015,
+      night brief §5).
+- [ ] **B4. Network-first refactor** — treat the baked centerline as the single source of truth and
+      *derive* lane stripes, lamp spacing, sign placement, and the exit-ramp split from it (Parish &
+      Müller "network drives everything", night brief §5), instead of hand-placed Z positions.
+- [ ] **B5. Optional further extension** — only after B2; with LOD in place, length becomes a config
+      number again (`road.toml`).
+
+## Track C — Night-scene visual realism (biggest "looks AAA" wins)
+
+- [ ] **C1. Wet-asphalt BRDF** — single-pass dry↔wet lerp on diffuse/roughness/normal driven by
+      `WetLevel` (reuse `RainSystem::get_wetness()`); porosity-masked so lane paint/metal barely change
+      (Lagarde 3a/3b; Nakamae 1990 drive-sim wet-road; night brief §2). **Highest night-scene ROI** —
+      turns the road from "dim grey" to "wet & reflective", reusing existing point lights for the
+      stretched specular streaks.
+- [ ] **C2. Bloom firefly suppression / quality pass** — confirm the existing bloom uses a
+      downsample/upsample mip pyramid with Karis-average firefly suppression (bright lamps vs dark sky
+      flicker without it) (Jimenez 2014, night brief §1). Upgrade if it's a naive blur.
+- [ ] **C3. Verify/upgrade tone map** — composite is ACES per docs; confirm + add log-average
+      **auto-exposure** so the dark road doesn't wash out or clip headlights (Hable/Narkowicz/Reinhard,
+      night brief §3).
+- [ ] **C4. Froxel volumetric fog** — view-aligned froxel volume, inject in-scattering from each lamp +
+      headlight cone with a forward Henyey–Greenstein phase ($g\approx0.2$–$0.6$); composites as one
+      texture lookup, cost independent of light count (Wronski 2014, Hillaire 2015, night brief §4).
+      The defining rainy-night atmosphere. *(Cheap interim: Mitchell screen-space god-rays for the one
+      hero on-screen lamp, night brief §4.)*
+- [ ] **C5. SSR on the wet road** — half-res stochastic SSR (McGuire–Mara tracer + Stachowiak BRDF
+      sampling + temporal/spatial filter) so wet asphalt reflects on-screen lamps; reuses C1's wet
+      material (night brief §2). Planar-reflection RTT as the cheaper artifact-free fallback.
+- [ ] **C6. Clustered light culling** — froxel light-assignment compute pass so dozens–hundreds of
+      lamps down the road don't blow up the per-fragment light loop (Olsson 2012; UPenn CIS 565). The
+      scalability backbone for B5 + C4. Pairs with **IES / range-windowed point lights** in physical
+      units (Lagarde & de Rousiers 2014, night brief §1) for correct falloff + tight bounding spheres.
+- [ ] **C7. Camera motion blur** — reconstruction filter from a reprojection velocity buffer; strongest
+      per-frame speed cue (McGuire 2012). Budget speed cues across FOV/shake/streaks — the Disney study
+      shows blur alone doesn't sell speed (Sharan 2013, night brief §6).
+- [ ] **C8. Mesopic night look** — subtle rod/cone desaturation + Purkinje blue-shift on dark regions so
+      the road *reads* as night, not just dim (Jensen 2000; Kirk & O'Brien 2011, night brief §3).
+- [ ] **C9. Circular-bokeh DOF** (optional/cinematic) — keep dash in focus, distant headlights bloom
+      into clean bokeh discs (Garcia GDC 2018, night brief §6).
+
+## Sequencing notes
+- **Do C1 + C2 + C3 first** — three mostly-shader changes that transform the look fast and underpin
+  everything else (wet road needs the tone map/bloom to show).
+- **C6 (clustered) gates B5 + C4** — get many-lights scalability before adding more lamps or per-light
+  fog.
+- **A1 reuses** the nearest-N lamp list already in `CameraUniforms` — cheap, high-impact, do early.
+- Per the visual-feature lesson ([`lessons.md`](lessons.md)): "clean build ≠ done" — every item here is
+  visually verified in-app (screenshot workflow) before being checked off, at rain extremes 0 and 1.0.
+
+---
+
+# Three-task pass — rain bugs/realism · 911 Turbo perf · +2 mi road (2026-06-29)
+
+Plan: `~/.claude/plans/three-agents-to-work-encapsulated-stroustrup.md`. Three agents on disjoint
+file sets (physics + road in parallel; rain last since it shares CarEntity/SceneTypes regions).
+
+## Agent 2 — Porsche 911 Turbo performance ✅
+- [x] Root cause: drag trap (`kAccel/kDragCoeff = 18000/2.5 ≈ 7200 WU/s ≈ 16 mph`), not the 30k clamp
+- [x] `kDragCoeff 2.5→0.12`, `kMaxForwardSpeed 30000→92000` (205 mph), `kAccel 18000→12000` (0–60 ≈2.6 s), `kBrakeAccel 24000→36000`
+- [x] Variable steering ratio `kSteerRefSpeed/(kSteerRefSpeed+|v|)` → stable at top speed, sharp when parking
+
+## Agent 3 — Extend LIE +2 miles ✅
+- [x] `road.toml` length_m 1000→4218.688; auto-baked via CMake `bake_configs`
+- [x] Exit ramp + 6 signs re-expressed relative to `z_far` (ramp ~75%, signs 10–90%)
+- [x] Lamp gen cap removed; nearest-N lamp selection in `CameraUniforms`; `MAX_POINT_LIGHTS 16→32` + arrays in lighting/basic.frag
+
+## Agent 1 — Rain realism + bugs ✅
+- [x] "Up at rest" was windshield mesh-UV gravity sign (NOT the mod wrap) → flipped gravity/aero Y
+- [x] Blobs→streaks (less speckle, `kStreakLen 1200→3200`); animated gust wind
+- [x] Visible wiper blade SDF + wider swept-sector clear + slower re-wet (manual V)
+- [x] Whole-cabin light-gray wash via gbuffer alpha-sentinel + `is_interior` tag (world untouched)
+- [x] Tuning round: fixed heavy-rain opaque veil → see-through beads; fixed near-white cabin → light gray
+
+## Review
+- **Verified in-app** (screencapture + CGEvent driving): build clean; app runs validation-clean; car
+  loads (bbox 4.57×1.29×2.03 m). Car drives (was drag-capped); heavy rain road visible (veil fixed);
+  interior reads light gray (white-out fixed); wiper blade sweeps + clears; road extends to horizon.
+- **Two regressions caught in QA and fixed by a second Agent-1 pass**: heavy-rain windshield went
+  opaque (the project's known "too thick" mode) and interior washed near-white. Lesson: always test
+  rain at the **intensity extremes** (0 and 1.0), not just mid.
+- **Tests:** 32/34 (2 pre-existing `RoadScene zero-*-config` failures, unrelated to these tasks).
+- **Pending live taste-check by user**: heavy-rain bead *density* is conservative (kept usable); the
+  windshield-drop "down at rest / up at speed" crawl is a deterministic sign flip — best confirmed by
+  watching live motion.
+
+---
+
+# Realistic Rain Overhaul — parallax + retinal streaks + windshield trails + halos (2026-06-29)
+
+## Context
+Four disjoint improvements to the two rain systems. Agent 2 kept in RainSystem.cpp/.h
+(two-draw far layer, no shader edit) so rain.frag stays exclusive to Agent 3 — all four
+workstreams are parallel-safe. "premons" → full implementation.
+
+## Plan
+- [x] Agent 1 — `shaders/windshield_rain.frag`: lower l1 threshold + reduce l0 so clinging→
+      sliding trails show at light/medium rain; verify trail/fog read.
+- [x] Agent 2 — `RainSystem.cpp/.h`: second "far" parallax layer via 2nd draw + 2nd UBO
+      (halfExt×2, dropSpeed×0.7, intensity×0.55, streakLen×0.8, time+kFarTimePhase); double
+      descriptor pool size; cleanup far buffers. No shader/pipeline/Renderer/CMake change.
+- [x] Agent 3 — `shaders/rain.frag`: average N=7 samples along the oscillation outline for
+      multi-highlight speckled streaks (Rousseau). Kept additive + head/tail fade.
+- [x] Agent 4 — `shaders/lighting.frag`: subtle additive halo around point lights scaled by
+      wetness (rainy streetlight glow), in the point-light loop.
+- [x] `./scripts/format.sh`, `make build` (clean — all 3 shaders compile, swish+tests link).
+- [x] `make test` — 32/34 pass; 2 failures (`RoadScene zero-*-config`) are PRE-EXISTING and
+      unrelated (working-tree RoadScene.cpp changes predating this work; no rain/lighting refs).
+- [x] **Visual verification done in-app** (forced m_rainIntensity=1.0, screenshot, iterate, revert).
+- [x] **Realism tuning pass** (windshield drops were ring outlines): folded trail into the height
+      field (rivulets now refract), per-drop sky glint (was using macro normal → no per-bead glint),
+      darkened lens body + cut haze; density 60→85, refraction 0.065→0.080; brighter falling streaks.
+- [x] Docs: CHANGELOG.md (2 entries 2026-06-29), docs/rain/README.md (Part 1 + tunables incl. lens model).
+- [x] **Realism round 2 — "too thick" → thin/translucent/delicate** (user feedback, grounded in
+      Garg & Nayar / Rousseau / in-repo examples/DownPour). Windshield: combine drop layers with
+      `max` not sum (the key fix), semi-transparent alpha cap (≤0.62), smaller drops, thinner
+      rivulets, lighter haze/glint, refraction 0.080→0.070. Streaks: thinner width (3–8), lower
+      opacity, thin core + head taper, drop the ×1.6 boost→×1.15, deeper internal speckle.
+      Verified in-app at heavy AND light rain (overshot to near-clear, dialed back to delicate).
+      CHANGELOG + docs/rain tunables updated. Build clean; same 2 pre-existing RoadScene failures.
+
+## Review
+- **Disjoint-files conflict resolved:** the task framed Agent 2 + Agent 3 as both touching
+  `rain.frag`. Implemented Agent 2 entirely in `RainSystem.cpp/.h` (two-draw far layer, no shader
+  edit) so `rain.frag` stayed exclusive to Agent 3 — all four workstreams ran as truly parallel
+  subagents on disjoint files.
+- **Agent 2 (parallax):** validated "two-draw" approach (Plan agent). One render pass, one pipeline,
+  same instance buffer; the second draw binds a far UBO with scaled params. The one correctness
+  pitfall — doubling the descriptor pool `descriptorCount` + `maxSets` to `2·MAX_FRAMES_IN_FLIGHT` —
+  is in. Verified by reading `createDescriptors`/`update`/`record_draws`/`cleanup` post-build.
+- **Compile/link verified:** `make build` clean; lighting.frag, rain.frag, windshield_rain.frag all
+  recompiled via glslc; RainSystem.cpp relinked. `clang-format` clean.
+- **Not yet verified:** on-screen appearance (needs interactive `make run`). Tuning constants
+  (windshield weights, kHaloStrength, far-layer scales, N) are documented and easy to iterate.
+
+---
+
 # Persistent wetness map — real wipe-off + speed flow (2026-06-28)
 
 ## Done

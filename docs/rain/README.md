@@ -39,6 +39,10 @@ $$w_{t+\Delta t} = w_t + (\,\text{intensity} - w_t\,)\,k\,\Delta t$$
 
 `get_wetness()` / `get_intensity()` are read by the renderer and handed to the windshield pass, coupling "how hard it's raining" to "how wet the glass is". Code: [`src/renderer/RainSystem/`](../../src/renderer/RainSystem/), shaders `rain.vert` / `rain.frag`.
 
+**Two parallax layers.** `record_draws` issues **two** instanced draws against the same pipeline / geometry / instance buffer — a near layer and a *far* layer bound to a second per-frame UBO with scaled params (`halfExtent ×2`, `dropSpeed ×0.7`, `intensity ×0.55`, `streakLen ×0.8`). The larger, slower, dimmer far layer reads as distant rain behind the near streaks, giving depth without sorting (additive blend + no depth write make the order irrelevant). The far field shares the near field's seeds, so its UBO time is offset by a constant `kFarTimePhase` (≈317 s) to decorrelate the two (their wrap periods differ, so they never re-align). The descriptor pool is sized `2·MAX_FRAMES_IN_FLIGHT` for both sets.
+
+**Retinal-persistence streaks.** `rain.frag` averages $N=7$ samples along each drop's oscillation cycle (varying the Garg & Nayar (2,0)/(3,1) phase per sample) so a streak carries several superimposed highlight bands — the speckled multi-highlight look of night rain (Rousseau et al.). Shared by both layers.
+
 </details>
 
 ---
@@ -249,9 +253,21 @@ The same flow drives both the wetness advection (`m_waterFlow`, CPU) and the pro
 
 | Knob | Where | Value | Effect |
 |------|-------|-------|--------|
-| drop density | `WindshieldRainPass::update` `params.z` | `60` | cells across glass — higher = smaller/denser |
-| refraction strength | `params.w` | `0.030` | how strongly drops bend the scene |
-| Fresnel rim gain | `screenAndRefr.w` | `0.15` | rim brightness — high reads "white/foamy" |
+| far-layer scales | `RainSystem.cpp` constants | `halfExt×2`, `speed×0.7`, `intensity×0.55`, `streak×0.8` | distance / fall speed / dimness / length of the 2nd parallax layer |
+| far-layer decorrelation | `RainSystem.cpp` `kFarTimePhase` | `317` s | time offset that separates the far field from the seed-shared near field |
+| streak samples | `rain.frag` `N` | `7` | retinal-persistence samples along the oscillation cycle (5–10) |
+| streetlight halo | `lighting.frag` `kHaloStrength` | `0.12` | wet glow around point lights (×`att²`×wetness); bloom spreads it |
+| windshield layer weights | `windshield_rain.frag` `l0/l1/l2` | `S(0,0.5)·0.65` / `S(0.05,0.45)` / `S(0,0.40)` | when static beads vs sliding rivulets appear by intensity |
+| drop lens model | `windshield_rain.frag` | trail folded into `h` (×0.45); per-drop glint `pow(dropN·skyL, 30)·1.25`; body `×0.85` | drops read as refractive water (teardrop body + glint + rivulet), not Fresnel-only rings |
+| layer combine | `windshield_rain.frag` `Drops()` | `max(s, m1.x, m2.x)` then `S(0.18,0.82)` | combine layers with **max not sum** — fine layers add structure, not thickness (the "too thick" fix) |
+| glass alpha cap | `windshield_rain.frag` | `clamp(coverage·0.9 + haze, 0, 0.62)` | keep glass semi-transparent so the scene always shows through |
+| drop body size | `windshield_rain.frag` | body `S(0.34,0,d)`, static `S(0.28)`, bead `S(0.22)` | small/crisp drops (smaller = more delicate) |
+| drop density | `WindshieldRainPass::update` `params.z` | `85` | cells across glass — higher = smaller/denser |
+| refraction strength | `params.w` | `0.070` | how strongly drops bend the scene |
+| Fresnel rim gain | `screenAndRefr.w` | `0.06` | rim brightness — high reads "white/foamy" |
+| streak width / opacity | `rain.vert` | width `3–8` WU; `fragAlpha = i·(0.20+0.60·sw)` | thin, semi-transparent streaks (Garg & Nayar) |
+| streak profile / brightness | `rain.frag` | core `smoothstep(0.12,0.72)` + head taper; color `(0.72,0.82,0.97)` × `1.15` | thin bright core, translucent — not a fat glowing bar |
+| haze strength | `windshield_rain.frag` | `0.035 + 0.03·intensity` | wet-glass fog veil — kept very light so beads carry the look |
 | cull side | `createPipeline` | `FRONT` | which windshield face is shaded |
 | front mask | `windshield_rain.frag` | `smoothstep(0.12,0.45,n.x)` | how aggressively side/rear glass is excluded |
 | wiper pivot / band | `wiperClear` | `(0.5,0.92)` / `0.12` | sweep origin and streak width |

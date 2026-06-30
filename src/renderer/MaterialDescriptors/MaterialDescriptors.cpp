@@ -53,10 +53,10 @@ constexpr const char* kMaterialNames[MAT_COUNT] = {
     "car_19",       // MAT_CAR_19
 };
 
-constexpr uint32_t    kTexturesPerMaterial = 3;
+constexpr uint32_t    kTexturesPerMaterial            = 3;
 constexpr const char* kSuffixes[kTexturesPerMaterial] = {"", "_normal", "_roughness"};
 
-} 
+}  // namespace
 
 void MaterialDescriptors::init(VkDevice device) {
     std::array<VkDescriptorSetLayoutBinding, kTexturesPerMaterial> bindings{};
@@ -158,4 +158,4 @@ void MaterialDescriptors::rebuild(VkDevice device, TextureManager& textures) {
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
-}  
+}  // namespace swish

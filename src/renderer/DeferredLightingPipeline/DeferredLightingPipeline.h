@@ -6,7 +6,6 @@
 
 namespace swish {
 
-
 class DeferredLightingPipeline {
 public:
     struct Config {
@@ -40,4 +39,4 @@ private:
     VkPipelineLayout m_layout   = VK_NULL_HANDLE;
 };
 
-}  
+}  // namespace swish

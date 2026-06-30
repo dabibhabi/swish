@@ -6,9 +6,9 @@ namespace swish {
 
 Mat4 Entity::get_model_matrix() const {
     Mat4 m = glm::translate(Mat4(1.f), m_position);
-    m       = glm::rotate(m, glm::radians(m_rotation.y), Vec3(0.f, 1.f, 0.f));
-    m       = glm::rotate(m, glm::radians(m_rotation.x), Vec3(1.f, 0.f, 0.f));
-    m       = glm::rotate(m, glm::radians(m_rotation.z), Vec3(0.f, 0.f, 1.f));
+    m      = glm::rotate(m, glm::radians(m_rotation.y), Vec3(0.f, 1.f, 0.f));
+    m      = glm::rotate(m, glm::radians(m_rotation.x), Vec3(1.f, 0.f, 0.f));
+    m      = glm::rotate(m, glm::radians(m_rotation.z), Vec3(0.f, 0.f, 1.f));
     return glm::scale(m, m_scale);
 }
 

@@ -146,9 +146,10 @@ private:
 
     // ── Rain state ────────────────────────────────────────────────
     float m_rainIntensity = 0.0f;
-    Vec3  m_rainWind      = Vec3(1500.0f, 0.0f, 400.0f);  // WU/s (≈1.5 m/s × drift)
-    Vec3  m_carVelocity   = Vec3(0.0f, 0.0f, 0.0f);       // set by App each frame
-    bool  m_wiperEnabled  = false;                        // V key toggles the wiper
+    Vec3  m_rainWind      = Vec3(4500.0f, 0.0f, 1200.0f);  // WU/s base gale (≈4.5 m/s × drift)
+    Vec3  m_carVelocity   = Vec3(0.0f, 0.0f, 0.0f);        // set by App each frame
+    bool  m_wiperEnabled  = false;                         // V key toggles the wiper
+    float m_windTime      = 0.0f;                          // accumulated time for gust oscillation
 
     // ── Glass + windshield state ──────────────────────────────────
     std::vector<DrawCall> m_glassDrawCalls;

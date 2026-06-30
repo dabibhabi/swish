@@ -22,6 +22,8 @@ Everything you need to understand, extend, and contribute to Swish.
 | [render-pipeline.md](render-pipeline.md) | The 6-pass deferred pipeline, per-pass I/O, all shader math |
 | [data-types.md](data-types.md) | Every data struct (DTO) and UBO, with exact layouts and std140 rules |
 | [car_system.md](car_system.md) | GLB loading and car-mesh normalization algorithm |
+| [research-rain-rendering.md](research-rain-rendering.md) | Cited survey of realistic-rain techniques (streaks, drops-on-glass, GPU particles, veils) — AI-assisted |
+| [research-night-scene-realism.md](research-night-scene-realism.md) | Cited survey of night-scene realism (wet-road BRDF, many-lights, tone mapping, atmospherics, motion) — AI-assisted |
 | [investigations/](investigations/) | Debugging write-ups (e.g. the VUID-00067 semaphore fix) |
 
 ## Component READMEs

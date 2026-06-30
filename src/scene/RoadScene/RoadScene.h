@@ -206,9 +206,9 @@ private:
 
     // ── Precomputed per-generate() layout values ──────────────────
     struct RoadLayout {
-        float eb_start;   // eastbound start X (barrier + clearance)
-        float road_width; // total road width (lane_count * lane_width)
-        float wb_inner;   // westbound inner edge (-road_width)
+        float eb_start;    // eastbound start X (barrier + clearance)
+        float road_width;  // total road width (lane_count * lane_width)
+        float wb_inner;    // westbound inner edge (-road_width)
     };
 
     // ── Section generators (const — read instance state only) ─────
@@ -229,7 +229,8 @@ private:
     void generate_overpass(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
     void generate_sound_barriers(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
     void generate_exit_ramp(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
-    void generate_street_lamps(MeshBuilder& builder, const RoadLayout& layout, std::vector<LightDesc>& lights, float z_near, float z_far) const;
+    void generate_street_lamps(MeshBuilder& builder, const RoadLayout& layout, std::vector<LightDesc>& lights,
+                               float z_near, float z_far) const;
 };
 
 }  // namespace swish

@@ -2,8 +2,8 @@
 
 #include "Entity.h"
 
-#include <glm/glm.hpp>
 #include <cmath>
+#include <glm/glm.hpp>
 
 struct GLFWwindow;
 
@@ -38,6 +38,10 @@ public:
 
     float get_speed() const { return m_forward_speed; }
 
+    // Rain intensity [0,1] — drives the interior cabin "wash toward light gray"
+    // tint applied in get_draw_calls (via the gbuffer.frag color.a sentinel).
+    void set_rain_intensity(float intensity) { m_rain_intensity = intensity; }
+
     // World-space unit vector pointing toward the car's nose (+X at yaw=0).
     Vec3 get_forward() const {
         float yaw = glm::radians(m_rotation.y);
@@ -51,25 +55,32 @@ public:
     std::vector<DrawCall> get_windshield_draw_calls() const;
 
 private:
-    float m_forward_speed  = 0.f;   // world units / second, positive = forward
-    float m_steering_angle = 0.f;   // degrees, negative = left, positive = right
+    float m_forward_speed  = 0.f;  // world units / second, positive = forward
+    float m_steering_angle = 0.f;  // degrees, negative = left, positive = right
+    float m_rain_intensity = 0.f;  // [0,1] — drives the interior cabin wash tint
 
     float m_min_x = -1e9f;
-    float m_max_x =  1e9f;
+    float m_max_x = 1e9f;
 
-    // Physics constants (tuned for the ~1000 WU/m scale)
-    static constexpr float kMaxForwardSpeed = 30'000.f;   // ~108 km/h
-    static constexpr float kMaxReverseSpeed =  8'000.f;
-    static constexpr float kAccel           = 18'000.f;   // WU/s²
-    static constexpr float kBrakeAccel      = 24'000.f;
-    static constexpr float kDragCoeff       =      2.5f;  // per-second linear drag
-    static constexpr float kSpeedDeadZone  =      0.5f;
-    static constexpr float kWheelLockToDeg =    450.f;   // full lock-to-lock steering range
-    static constexpr float kMaxSteer        =     35.f;   // degrees
+    // Physics constants (tuned for the ~1000 WU/m scale, 1 mph ≈ 447 WU/s).
+    // Modeled on a 911 Turbo S: ~205 mph top speed, 0–60 mph in ≈2.6 s.
+    static constexpr float kMaxForwardSpeed = 92'000.f;  // ~205 mph top speed
+    static constexpr float kMaxReverseSpeed = 12'000.f;  // ~27 mph in reverse
+    static constexpr float kAccel           = 12'000.f;  // WU/s² (0–60 in ≈2.6 s)
+    static constexpr float kBrakeAccel      = 36'000.f;  // strong, performance brakes
+    static constexpr float kDragCoeff       = 0.12f;     // light aero drag, per-second
+    static constexpr float kSpeedDeadZone   = 0.5f;
+    static constexpr float kWheelLockToDeg  = 450.f;  // full lock-to-lock steering range
+    static constexpr float kMaxSteer        = 35.f;   // degrees
     static constexpr float kSteerRatio      = kWheelLockToDeg / kMaxSteer;
-    static constexpr float kSteerRate       =     90.f;   // degrees/s
-    static constexpr float kSteerReturn     =    120.f;   // return-to-center rate
-    static constexpr float kWheelbase       =  2'800.f;   // ~2.8m wheelbase in WU
+    static constexpr float kSteerRate       = 90.f;     // degrees/s
+    static constexpr float kSteerReturn     = 120.f;    // return-to-center rate
+    static constexpr float kWheelbase       = 2'800.f;  // ~2.8m wheelbase in WU
+    // Speed-dependent steering authority (variable ratio): the effective lock
+    // is scaled by kSteerRefSpeed / (kSteerRefSpeed + |v|), so steering is
+    // sharp when parking and gentle at speed. This caps the bicycle-model yaw
+    // rate (∝ v·tan(δ)) and prevents spin-out near top speed.
+    static constexpr float kSteerRefSpeed   = 12'000.f;  // WU/s; authority halves here
 
 public:
     static constexpr float kMaxSpeed = kMaxForwardSpeed;  // exposed for normalization

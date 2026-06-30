@@ -11,7 +11,7 @@
 # ═══════════════════════════════════════════════════════════════════════
 
 [road]
-length_m            = 1000.0    # Road length in meters
+length_m            = 4218.688  # Road length in meters (~2.62 mi: original 1km + 2 added miles)
 lane_width_ft       = 13.0      # ~13ft per lane (wider for visual match)
 lane_count          = 4         # Lanes per direction
 shoulder_width_wb_ft = 3.0      # Westbound shoulder width

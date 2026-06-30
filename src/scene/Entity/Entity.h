@@ -54,7 +54,7 @@ public:
     // Returns DrawCalls for glass (BLEND) submeshes stamped with current model matrix.
     std::vector<DrawCall> get_glass_draw_calls() const;
 
-    const std::vector<Submesh>& get_submeshes()       const { return m_submeshes; }
+    const std::vector<Submesh>& get_submeshes() const { return m_submeshes; }
     const std::vector<Submesh>& get_glass_submeshes() const { return m_glassSubmeshes; }
 
 private:

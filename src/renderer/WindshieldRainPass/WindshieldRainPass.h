@@ -48,10 +48,8 @@ public:
     WindshieldRainPass()  = default;
     ~WindshieldRainPass() = default;
 
-    void init(const RendererServices& s,
-              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
-              VkExtent2D extent,
+    void init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
               VkDescriptorSetLayout cameraSetLayout);
 
     // Update per-frame state.
@@ -60,9 +58,8 @@ public:
     //   wetness       — from RainSystem::get_wetness().
     //   intensity     — from RainSystem::get_intensity().
     //   wiperEnabled  — V-key toggle; runs the continuous wiper sweep.
-    void update(uint32_t frameIndex, float deltaTime,
-                Vec2 screenFlowDir, float speedFactor,
-                float wetness, float intensity, bool wiperEnabled);
+    void update(uint32_t frameIndex, float deltaTime, Vec2 screenFlowDir, float speedFactor, float wetness,
+                float intensity, bool wiperEnabled);
 
     // Step the persistent wetness map (fullscreen pass): rain + advection +
     // wiper + evaporation. Call AFTER the glass pass, BEFORE the snapshot/draw.
@@ -72,21 +69,15 @@ public:
     // fragment shader can refract it. Records layout transitions + a copy into
     // the command buffer. Call while hdrImage is COLOR_ATTACHMENT_OPTIMAL
     // (restored to it on return).
-    void record_scene_snapshot(VkCommandBuffer cmd, uint32_t frameIndex,
-                               VkImage hdrImage, VkExtent2D extent);
+    void record_scene_snapshot(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, VkExtent2D extent);
 
     // Draw windshield draw calls using the shared car VBO/IBO.
     // Camera set 0 must already be bound on m_pipeLayout before this call.
-    void record_draws(VkCommandBuffer cmd,
-                      uint32_t frameIndex,
-                      VkBuffer carVBO,
-                      VkBuffer carIBO,
+    void record_draws(VkCommandBuffer cmd, uint32_t frameIndex, VkBuffer carVBO, VkBuffer carIBO,
                       const std::vector<DrawCall>& windshieldDCs) const;
 
     void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
-                  VkExtent2D extent,
-                  VkDevice device);
+                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
 
     void cleanup(VkDevice device);
 
@@ -94,8 +85,7 @@ public:
 
 private:
     void createRenderPass(VkDevice device, VkFormat depthFormat);
-    void createFramebuffers(VkDevice device,
-                            const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+    void createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                             const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews);
     void destroyFramebuffers(VkDevice device);
     void createUBOs(const RendererServices& s);
@@ -112,26 +102,26 @@ private:
     VkRenderPass                                    m_renderPass = VK_NULL_HANDLE;
     std::array<VkFramebuffer, MAX_FRAMES_IN_FLIGHT> m_framebuffers{};
 
-    std::array<VkBuffer,       MAX_FRAMES_IN_FLIGHT> m_ubos{};
+    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT>       m_ubos{};
     std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_uboMemories{};
-    std::array<void*,          MAX_FRAMES_IN_FLIGHT> m_uboMapped{};
+    std::array<void*, MAX_FRAMES_IN_FLIGHT>          m_uboMapped{};
 
     // Refraction source: per-frame snapshot of the HDR scene (sampled by frag).
-    std::array<VkImage,        MAX_FRAMES_IN_FLIGHT> m_refrImages{};
+    std::array<VkImage, MAX_FRAMES_IN_FLIGHT>        m_refrImages{};
     std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_refrMemories{};
-    std::array<VkImageView,    MAX_FRAMES_IN_FLIGHT> m_refrViews{};
+    std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>    m_refrViews{};
     VkSampler                                        m_refrSampler = VK_NULL_HANDLE;
 
     // Persistent wetness map (ping-pong: [0] = history/read, [1] = current/write).
-    std::array<VkImage,        2> m_wetImages{};
+    std::array<VkImage, 2>        m_wetImages{};
     std::array<VkDeviceMemory, 2> m_wetMemories{};
-    std::array<VkImageView,    2> m_wetViews{};
-    VkFramebuffer         m_wetFramebuffer = VK_NULL_HANDLE;  // targets m_wetImages[1]
-    VkRenderPass          m_wetRenderPass  = VK_NULL_HANDLE;
-    VkPipeline            m_wetPipeline    = VK_NULL_HANDLE;
-    VkPipelineLayout      m_wetPipeLayout  = VK_NULL_HANDLE;
-    VkDescriptorSetLayout m_wetSetLayout   = VK_NULL_HANDLE;
-    VkDescriptorSet       m_wetDescSet     = VK_NULL_HANDLE;  // reads m_wetImages[0]
+    std::array<VkImageView, 2>    m_wetViews{};
+    VkFramebuffer                 m_wetFramebuffer = VK_NULL_HANDLE;  // targets m_wetImages[1]
+    VkRenderPass                  m_wetRenderPass  = VK_NULL_HANDLE;
+    VkPipeline                    m_wetPipeline    = VK_NULL_HANDLE;
+    VkPipelineLayout              m_wetPipeLayout  = VK_NULL_HANDLE;
+    VkDescriptorSetLayout         m_wetSetLayout   = VK_NULL_HANDLE;
+    VkDescriptorSet               m_wetDescSet     = VK_NULL_HANDLE;  // reads m_wetImages[0]
 
     VkDescriptorPool                                  m_descPool  = VK_NULL_HANDLE;
     VkDescriptorSetLayout                             m_ownLayout = VK_NULL_HANDLE;
@@ -153,7 +143,7 @@ private:
     bool  m_wiperEnabled = false;
 
     // Wetness-pass push-constant params (filled by update(), used by record_wetness_update()).
-    Vec2  m_waterFlow   = Vec2(0.0f, 1.0f);
+    Vec2  m_waterFlow    = Vec2(0.0f, 1.0f);
     float m_curIntensity = 0.0f;
     float m_dt           = 0.0f;
     float m_wiperAngle   = 0.0f;
