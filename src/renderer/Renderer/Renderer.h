@@ -101,6 +101,11 @@ public:
     void set_car_velocity(Vec3 velocity);      // WU/s; drives rain streak lean at speed
     void set_wiper_enabled(bool enabled);      // V key toggles the windshield wiper
 
+    // ── Weather preset (called by App; G key toggles) ─────────────────
+    // Clear day = bright sunny preset (deep-blue sky, high white sun) and dry:
+    // it forces rain off. Overcast restores the original rainy-capable look.
+    void set_clear_day(bool clear);
+
     // ── Glass + windshield rain (updated each frame by App) ───────────
     // Replaces the stored glass draw call list (call after update_dynamic_draw_calls).
     void update_glass_draw_calls(const std::vector<DrawCall>& glassDCs);
@@ -150,6 +155,14 @@ private:
     Vec3  m_carVelocity   = Vec3(0.0f, 0.0f, 0.0f);        // set by App each frame
     bool  m_wiperEnabled  = false;                         // V key toggles the wiper
     float m_windTime      = 0.0f;                          // accumulated time for gust oscillation
+    bool  m_clearDay      = false;                         // G key: bright clear-day preset (dry)
+
+    // ── Sun direction (drives the shadow-map light-space matrix) ──
+    // Kept in sync with the Vec3 passed to set_weather in set_clear_day.
+    Vec3  m_sunDir        = glm::normalize(Vec3(0.3f, 0.6f, 0.15f));
+    // Sun light-space view*proj for the current frame (computed in drawFrame,
+    // consumed by recordShadowPass + written into the camera UBO).
+    Mat4  m_lightVP       = Mat4(1.0f);
 
     // ── Glass + windshield state ──────────────────────────────────
     std::vector<DrawCall> m_glassDrawCalls;

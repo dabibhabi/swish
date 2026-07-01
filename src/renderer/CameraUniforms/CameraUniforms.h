@@ -35,6 +35,16 @@ public:
     // Call after update() — does not disturb xyz.
     void set_wetness(uint32_t frameIndex, float wetness);
 
+    // Weather preset written into the camera UBO by update() each frame:
+    // sun direction (xyz normalized, w intensity), sun color (rgb, a ambient),
+    // and a clarity scalar (0 = overcast, 1 = clear day). Set once on a toggle.
+    void set_weather(const Vec4& sunDir, const Vec4& sunColor, float clarity);
+
+    // Sun light-space view*projection matrix, recomputed each frame by the
+    // Renderer from the camera position + sun direction. Written into the
+    // camera UBO by update() and consumed by lighting.frag for shadow lookup.
+    void set_light_matrix(const Mat4& lightViewProj) { m_lightViewProj = lightViewProj; }
+
     VkDescriptorSetLayout get_layout() const { return m_setLayout; }
     VkDescriptorSet       get_set(uint32_t frameIndex) const { return m_sets[frameIndex]; }
 
@@ -56,6 +66,16 @@ private:
 
     std::vector<LightDesc> m_lights;
     bool                   m_lightsDirty = false;
+
+    // Weather (overcast default — matches the original hardcoded sun). Renderer
+    // swaps these via set_weather() when the clear-day preset is toggled.
+    Vec4  m_sunDir   = Vec4(glm::normalize(Vec3(0.3f, 0.6f, 0.15f)), 1.0f);
+    Vec4  m_sunColor = Vec4(1.0f, 0.95f, 0.85f, 0.22f);
+    float m_clarity  = 0.0f;
+
+    // Sun light-space view*projection (identity until the Renderer sets it each
+    // frame). Written into CameraUBO::lightViewProj by update().
+    Mat4  m_lightViewProj = Mat4(1.0f);
 };
 
 }  // namespace swish

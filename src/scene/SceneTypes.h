@@ -49,13 +49,20 @@ enum MaterialId : uint32_t {
     MAT_COUNT
 };
 
-// Matches the UBO in basic.vert/basic.frag (set=0, binding=0)
+// Matches the UBO in basic.vert/basic.frag (set=0, binding=0). `weather` is appended
+// at the END so vertex shaders that declare only the prefix (basic.vert, rain.vert)
+// stay layout-compatible; only lighting.frag declares + reads it.
 struct CameraUBO {
     Mat4 view;
     Mat4 proj;
-    Vec4 camPos;    // xyz = camera world position, w = unused
+    Vec4 camPos;    // xyz = camera world position, w = wetness (set_wetness)
     Vec4 sunDir;    // xyz = normalized sun direction, w = intensity
     Vec4 sunColor;  // rgb = sun color, a = ambient strength
+    Vec4 weather;   // x = clarity (0 overcast .. 1 clear day), yzw reserved
+    // Sun light-space view*projection for shadow mapping. Appended at the END so
+    // vertex shaders that declare only the prefix (basic.vert, rain.vert) stay
+    // layout-compatible; only lighting.frag declares + reads it. Stays 16-aligned.
+    Mat4 lightViewProj;
 };
 
 // ── Point Light System (inspired by rind/Light.cpp) ──────────────────

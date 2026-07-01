@@ -632,6 +632,26 @@ void Renderer::set_wiper_enabled(bool enabled) {
     m_wiperEnabled = enabled;
 }
 
+void Renderer::set_clear_day(bool clear) {
+    m_clearDay = clear;
+    if (!m_cameraUniforms)
+        return;
+    if (clear) {
+        // A clear day is dry — kill any active rain so wetness decays to 0.
+        m_rainIntensity = 0.0f;
+        // Bright midday sun: higher + more frontal, near-white. Ambient kept LOW
+        // (0.24) — the enclosed cabin gets no direct sun, so a high ambient fill is
+        // exactly what over-exposed it; shadows + the sun disc do the lifting now.
+        // clarity = 1 deepens the sky gradient + sharpens the sun disc.
+        m_sunDir = glm::normalize(Vec3(0.25f, 0.85f, 0.20f));
+        m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(1.00f, 0.98f, 0.92f, 0.24f), 1.0f);
+    } else {
+        // Original overcast preset (matches the pre-existing hardcoded sun).
+        m_sunDir = glm::normalize(Vec3(0.3f, 0.6f, 0.15f));
+        m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(1.0f, 0.95f, 0.85f, 0.22f), 0.0f);
+    }
+}
+
 void Renderer::update_glass_draw_calls(const std::vector<DrawCall>& glassDCs) {
     m_glassDrawCalls = glassDCs;
 }

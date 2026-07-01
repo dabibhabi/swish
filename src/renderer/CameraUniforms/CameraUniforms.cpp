@@ -43,8 +43,10 @@ void CameraUniforms::update(uint32_t frameIndex, const Camera& camera) {
     ubo.view     = camera.get_view_matrix();
     ubo.proj     = camera.get_projection_matrix();
     ubo.camPos   = Vec4(camera.get_position(), 1.0f);
-    ubo.sunDir   = Vec4(glm::normalize(Vec3(0.3f, 0.6f, 0.15f)), 1.0f);
-    ubo.sunColor = Vec4(1.0f, 0.95f, 0.85f, 0.30f);
+    ubo.sunDir   = m_sunDir;
+    ubo.sunColor = m_sunColor;
+    ubo.weather  = Vec4(m_clarity, 0.0f, 0.0f, 0.0f);
+    ubo.lightViewProj = m_lightViewProj;
     std::memcpy(m_cameraBuffers[frameIndex].mapped(), &ubo, sizeof(ubo));
 
     // Select the MAX_POINT_LIGHTS lights nearest the camera each frame. The
@@ -159,6 +161,12 @@ void CameraUniforms::set_wetness(uint32_t frameIndex, float wetness) {
     // We write only the w component (byte offset +12 within the Vec4).
     auto* ubo     = reinterpret_cast<CameraUBO*>(m_cameraBuffers[frameIndex].mapped());
     ubo->camPos.w = wetness;
+}
+
+void CameraUniforms::set_weather(const Vec4& sunDir, const Vec4& sunColor, float clarity) {
+    m_sunDir   = sunDir;
+    m_sunColor = sunColor;
+    m_clarity  = clarity;
 }
 
 }  // namespace swish

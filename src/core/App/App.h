@@ -54,6 +54,10 @@ private:
     bool m_wiper_enabled = false;
     bool m_v_key_prev    = false;
 
+    // Clear-day weather preset (G key toggles a bright sunny day; forces rain off)
+    bool m_clear_day  = false;
+    bool m_g_key_prev = false;
+
     static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
     // Owns the GLFW user pointer once App::run sets it, so the framebuffer
     // resize callback must also be App's — otherwise GLFW would still call

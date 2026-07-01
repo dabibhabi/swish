@@ -248,11 +248,18 @@ int App::run() {
         if (r_down && !m_r_key_prev) {
             static constexpr float kRainLevels[] = {0.0f, 0.35f, 1.0f};
             m_rain_level                         = (m_rain_level + 1) % 3;
-            m_renderer->set_rain_intensity(kRainLevels[m_rain_level]);
+            const float rain                     = kRainLevels[m_rain_level];
+            m_renderer->set_rain_intensity(rain);
             // Drive the interior cabin wash from the same rain level so the
             // cockpit reads light gray as rain rises (off → light → heavy).
             if (m_car)
-                m_car->set_rain_intensity(kRainLevels[m_rain_level]);
+                m_car->set_rain_intensity(rain);
+            // Rain and the clear-day preset are mutually exclusive — an azure sunny
+            // sky with rain falling reads wrong, so turning rain on cancels clear day.
+            if (rain > 0.0f && m_clear_day) {
+                m_clear_day = false;
+                m_renderer->set_clear_day(false);
+            }
         }
         m_r_key_prev = r_down;
 
@@ -263,6 +270,20 @@ int App::run() {
             m_renderer->set_wiper_enabled(m_wiper_enabled);
         }
         m_v_key_prev = v_down;
+
+        // G key toggles the clear-day preset (bright sunny sky). A clear day is
+        // dry, so it also resets the rain cycle to off.
+        bool g_down = glfwGetKey(glfw_window, GLFW_KEY_G) == GLFW_PRESS;
+        if (g_down && !m_g_key_prev) {
+            m_clear_day = !m_clear_day;
+            m_renderer->set_clear_day(m_clear_day);
+            if (m_clear_day) {
+                m_rain_level = 0;  // clear day is dry — reset the rain cycle
+                if (m_car)
+                    m_car->set_rain_intensity(0.0f);
+            }
+        }
+        m_g_key_prev = g_down;
 
         // Process camera input (WASD) — free-fly mode only
         Camera* camera = m_renderer->get_camera();

@@ -12,6 +12,8 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     vec4 camPos;
     vec4 sunDir;
     vec4 sunColor;
+    vec4 weather;   // x = clarity (0 overcast .. 1 clear day), yzw reserved
+    mat4 lightViewProj;  // sun ortho * lookAt for shadow lookup (appended AFTER weather)
 } camera;
 
 struct PointLight {
@@ -59,13 +61,16 @@ vec3 reconstructWorldPos(vec2 uv, float depth) {
 }
 
 // ── Sky gradient (same as forward pass) ───────────────────────────
+// clarity (camera.weather.x): 0 = overcast hazy blue, 1 = clear-day deep azure with
+// a sharper, brighter sun disc. The overcast greying is applied separately by wetness.
 vec3 compute_sky_color(vec3 view_dir) {
-    float t = clamp(view_dir.y * 2.0 + 0.3, 0.0, 1.0);
-    vec3 horizon = vec3(0.70, 0.80, 0.90);
-    vec3 zenith  = vec3(0.35, 0.55, 0.85);
+    float t       = clamp(view_dir.y * 2.0 + 0.3, 0.0, 1.0);
+    float clarity = camera.weather.x;
+    vec3 horizon  = mix(vec3(0.70, 0.80, 0.90), vec3(0.62, 0.80, 0.98), clarity);
+    vec3 zenith   = mix(vec3(0.35, 0.55, 0.85), vec3(0.09, 0.36, 0.86), clarity);
     vec3 sky = mix(horizon, zenith, pow(t, 1.5));
     float sun_dot = max(dot(view_dir, camera.sunDir.xyz), 0.0);
-    sky += camera.sunColor.rgb * pow(sun_dot, 32.0) * 0.3;
+    sky += camera.sunColor.rgb * pow(sun_dot, mix(32.0, 220.0, clarity)) * mix(0.3, 0.9, clarity);
     return sky;
 }
 
