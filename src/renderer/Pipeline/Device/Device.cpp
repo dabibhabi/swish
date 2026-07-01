@@ -1,13 +1,20 @@
 #include "Device.h"
 
+#include "../../../utils/VulkanCheck.h"
+#include "../Pipeline.h"
+
 #include <vk_mem_alloc.h>
 
 #include <cstring>
+#include <fstream>
 #include <set>
 #include <stdexcept>
 #include <vector>
 
 namespace swish {
+
+// config/pipeline_cache.bin lives in the build tree (CONFIG_DIR = ${CMAKE_BINARY_DIR}/config/).
+static const std::string kPipelineCachePath = std::string(CONFIG_DIR) + "pipeline_cache.bin";
 
 void Device::init(VkInstance instance, VkSurfaceKHR surface) {
     uint32_t deviceCount = 0;
@@ -89,9 +96,22 @@ void Device::init(VkInstance instance, VkSurfaceKHR surface) {
     if (vmaCreateAllocator(&allocatorInfo, &m_allocator) != VK_SUCCESS) {
         throw std::runtime_error("failed to create VMA allocator!");
     }
+
+    // Pipeline cache: created here so every subsequent Pipeline::create (all of
+    // which run after Device::init) feeds it.
+    createPipelineCache();
+    Pipeline::set_cache(m_pipelineCache);
 }
 
 void Device::cleanup() {
+    // Persist + destroy the pipeline cache before the device (pipelines that used
+    // it were already destroyed by their subsystems' cleanup).
+    if (m_pipelineCache != VK_NULL_HANDLE) {
+        Pipeline::set_cache(VK_NULL_HANDLE);
+        savePipelineCache();
+        vkDestroyPipelineCache(m_device, m_pipelineCache, nullptr);
+        m_pipelineCache = VK_NULL_HANDLE;
+    }
     // Destroy the allocator (and thus its pooled device memory) before the
     // logical device it was created from.
     if (m_allocator != nullptr) {
@@ -99,6 +119,38 @@ void Device::cleanup() {
         m_allocator = nullptr;
     }
     vkDestroyDevice(m_device, nullptr);
+}
+
+void Device::createPipelineCache() {
+    // Seed with the previously-saved blob if present. Vulkan validates the blob's
+    // header (vendor/device/UUID) and silently ignores it on mismatch, so a stale
+    // or foreign cache is safe — it just falls back to compiling from scratch.
+    std::vector<char> initialData;
+    if (std::ifstream in{kPipelineCachePath, std::ios::binary | std::ios::ate}) {
+        const std::streamsize size = in.tellg();
+        if (size > 0) {
+            initialData.resize(static_cast<size_t>(size));
+            in.seekg(0);
+            in.read(initialData.data(), size);
+        }
+    }
+
+    VkPipelineCacheCreateInfo info{};
+    info.sType           = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+    info.initialDataSize = initialData.size();
+    info.pInitialData    = initialData.empty() ? nullptr : initialData.data();
+    VK_CHECK(vkCreatePipelineCache(m_device, &info, nullptr, &m_pipelineCache));
+}
+
+void Device::savePipelineCache() const {
+    size_t size = 0;
+    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, nullptr) != VK_SUCCESS || size == 0)
+        return;
+    std::vector<char> data(size);
+    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, data.data()) != VK_SUCCESS)
+        return;
+    if (std::ofstream out{kPipelineCachePath, std::ios::binary | std::ios::trunc})
+        out.write(data.data(), static_cast<std::streamsize>(size));
 }
 
 VkPhysicalDevice Device::getPhysicalDevice() const {

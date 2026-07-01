@@ -40,6 +40,13 @@ public:
     static VkPipelineLayout createLayout(VkDevice device, const std::vector<VkDescriptorSetLayout>& setLayouts,
                                          const std::vector<VkPushConstantRange>& pushConstants = {});
 
+    // Process-wide VkPipelineCache. Owned/loaded/saved by Device; set here once
+    // after the device is up so every create() feeds the same cache — repeat
+    // launches and swapchain recreations reuse compiled pipelines instead of
+    // re-compiling identical SPIR-V. VK_NULL_HANDLE (the default) is valid: the
+    // driver just compiles from scratch.
+    static void set_cache(VkPipelineCache cache);
+
 private:
     static VkShaderModule createShaderModule(VkDevice device, const std::vector<char>& code);
 };

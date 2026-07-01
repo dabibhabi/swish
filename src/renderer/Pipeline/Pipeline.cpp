@@ -7,6 +7,14 @@
 
 namespace swish {
 
+// Process-wide pipeline cache handle (owned by Device; see Pipeline::set_cache).
+// VK_NULL_HANDLE is a valid argument to vkCreateGraphicsPipelines.
+static VkPipelineCache s_pipelineCache = VK_NULL_HANDLE;
+
+void Pipeline::set_cache(VkPipelineCache cache) {
+    s_pipelineCache = cache;
+}
+
 VkPipeline Pipeline::create(VkDevice device, const PipelineConfig& config, VkRenderPass renderPass, VkExtent2D extent) {
     // 1. Load SPIR-V
     auto vertCode = FileIO::readBinaryFile(config.vertShaderPath);
@@ -152,7 +160,7 @@ VkPipeline Pipeline::create(VkDevice device, const PipelineConfig& config, VkRen
     pipelineInfo.subpass             = 0;
 
     VkPipeline pipeline;
-    VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline));
+    VK_CHECK(vkCreateGraphicsPipelines(device, s_pipelineCache, 1, &pipelineInfo, nullptr, &pipeline));
 
     return pipeline;
 }

@@ -6,6 +6,24 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — Persistent `VkPipelineCache` (Room-for-Improvement G-P2-1)
+
+> Every graphics pipeline was created with a `VK_NULL_HANDLE` cache, so all pipelines recompiled from SPIR-V on every launch **and** every swapchain recreation (window resize) — a launch hitch and a mid-drive stutter on resize. Added one process-wide `VkPipelineCache`, seeded from and saved to `config/pipeline_cache.bin`, so repeat launches/resizes reuse compiled pipelines.
+
+<details>
+<summary>Technical summary</summary>
+
+`Device` owns the cache: `createPipelineCache()` (in `init`) seeds `VkPipelineCacheCreateInfo` from `config/pipeline_cache.bin` if present — Vulkan validates the blob's vendor/device/UUID header and silently ignores a stale/foreign cache, so it's always safe; `savePipelineCache()` (in `cleanup`, before `vkDestroyDevice`) writes `vkGetPipelineCacheData` back out. The handle is published to the static factory via `Pipeline::set_cache(...)` right after the device is up (all `Pipeline::create` calls run later), and cleared before destruction. `Pipeline::create` passes it to `vkCreateGraphicsPipelines` instead of `VK_NULL_HANDLE`. The cache lives in the build tree (`CONFIG_DIR = ${CMAKE_BINARY_DIR}/config/`), not the source tree.
+
+| File | Change |
+| --- | --- |
+| [src/renderer/Pipeline/Pipeline.h](src/renderer/Pipeline/Pipeline.h) / [.cpp](src/renderer/Pipeline/Pipeline.cpp) | `set_cache()` + file-static `s_pipelineCache`; `vkCreateGraphicsPipelines` uses it |
+| [src/renderer/Pipeline/Device/Device.h](src/renderer/Pipeline/Device/Device.h) / [.cpp](src/renderer/Pipeline/Device/Device.cpp) | `m_pipelineCache` + `createPipelineCache`/`savePipelineCache`; wired in `init`/`cleanup` |
+
+Verified: clean build; `ctest` 52/52; validation-clean init (incl. `vkCreatePipelineCache`). Save-on-exit roundtrip pending an unlocked-screen run.
+
+</details>
+
 ### 2026-07-01 — Removed dead code: unused `RenderPass` class + GLAD (Room-for-Improvement S-P1-1)
 
 > The `RenderPass` class (`src/renderer/RenderPass/`) was fully implemented but **never `#include`d** — real passes build their `VkRenderPass` inline in each subsystem. GLAD (`src/glad.c` + `include/glad/`, an OpenGL loader ~large TU) was compiled and linked but **never included** by any source — GLFW is created with `GLFW_NO_API` (pure Vulkan). Both were onboarding/maintenance tax and, for GLAD, implied a non-existent GL path. Deleted.
