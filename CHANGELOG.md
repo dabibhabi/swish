@@ -6,6 +6,27 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-06-30 — Tire-limited braking + correct wheelbase (P0 #6)
+
+> `kBrakeAccel` was `36'000` WU/s² ≈ **3.67 g** — impossible on asphalt (μ≈1 gives ~1 g). It's now derived as `μ·g` (tire-limited). `kWheelbase` was 2.8 m; corrected to the real 992 Turbo S **2.45 m**.
+
+<details>
+<summary>Technical summary</summary>
+
+Braking deceleration is now $a_\text{brake} = \mu g$ rather than a magic constant:
+
+$$ a_\text{brake} = \mu\,g = 1.1 \times 9.81\ \text{m/s}^2 \approx 10.8\ \text{m/s}^2 \approx 1.1\,g. $$
+
+Introduced `kTireMu` (1.1) and `kGravity` (9.81 m/s² in WU) so braking is physically grounded and shared with the upcoming longitudinal/tire models. A `static_assert` guards that braking stays ≤ ~1.3 g. Wheelbase corrected 2 800 → 2 450 WU (2.45 m); stale constant table in `src/scene/README.md` updated to match the real values.
+
+| File | Change |
+|---|---|
+| [src/scene/Entity/CarEntity.h](src/scene/Entity/CarEntity.h) | `kTireMu`, `kGravity`; `kBrakeAccel = μ·g`; `kWheelbase = 2450`; `static_assert` |
+| [src/scene/README.md](src/scene/README.md) | refresh stale physics-constant table |
+
+Verified: builds (the `static_assert` compiles), `ctest` 39/39.
+</details>
+
 ### 2026-06-30 — Real per-material metalness (fix F0/metalness conflation) + hemispheric ambient (P0 #2, #3)
 
 > `gbuffer.frag` wrote the dielectric F0 constant `0.04` into the **metalness** channel, so every surface was locked to ~4% metal and no real metal (guardrails, trim) could exist. Now the G-buffer carries a real per-material metalness (dielectric = 0, `MAT_METAL` = 1) sourced from a push constant, with the `0.04` dielectric-F0 kept as a separate constant in `lighting.frag`. Ambient was also upgraded from a flat fill to an additive hemispheric sky term.

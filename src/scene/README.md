@@ -89,17 +89,19 @@ $$\theta_\text{column} = \delta \cdot k_\text{steerRatio}, \qquad k_\text{steerR
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| `kMaxForwardSpeed` | 30 000 WU/s | ≈ 108 km/h |
-| `kMaxReverseSpeed` | 8 000 WU/s | |
-| `kAccel` | 18 000 WU/s² | throttle / reverse |
-| `kBrakeAccel` | 24 000 WU/s² | braking |
-| `kDragCoeff` | 2.5 /s | exponential drag rate |
+| `kMaxForwardSpeed` | 92 000 WU/s | ≈ 205 mph top speed |
+| `kMaxReverseSpeed` | 12 000 WU/s | ≈ 27 mph |
+| `kAccel` | 12 000 WU/s² | throttle / reverse |
+| `kTireMu` | 1.1 | dry-asphalt friction coefficient |
+| `kGravity` | 9 810 WU/s² | 9.81 m/s² |
+| `kBrakeAccel` | `kTireMu·kGravity` ≈ 10 800 WU/s² | tire-limited braking (≈1.1 g) |
+| `kDragCoeff` | 0.12 /s | exponential drag rate |
 | `kSpeedDeadZone` | 0.5 WU/s | dead-stop threshold |
 | `kMaxSteer` | 35° | road-wheel clamp |
 | `kWheelLockToDeg` | 450° | steering-wheel lock-to-lock |
 | `kSteerRate` | 90°/s | steer-in rate |
 | `kSteerReturn` | 120°/s | return-to-center rate |
-| `kWheelbase` | 2 800 WU | ≈ 2.8 m axle spacing ($L$) |
+| `kWheelbase` | 2 450 WU | ≈ 2.45 m axle spacing ($L$) |
 
 </details>
 

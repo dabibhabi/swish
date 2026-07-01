@@ -64,10 +64,16 @@ private:
 
     // Physics constants (tuned for the ~1000 WU/m scale, 1 mph ≈ 447 WU/s).
     // Modeled on a 911 Turbo S: ~205 mph top speed, 0–60 mph in ≈2.6 s.
+    static constexpr float kWorldUnitsPerMeter = 1'000.f;      // 1 m = 1000 WU
+    static constexpr float kGravity            = 9.81f * kWorldUnitsPerMeter;  // WU/s²
+    static constexpr float kTireMu             = 1.1f;         // dry-asphalt μ (perf tires)
+
     static constexpr float kMaxForwardSpeed = 92'000.f;  // ~205 mph top speed
     static constexpr float kMaxReverseSpeed = 12'000.f;  // ~27 mph in reverse
     static constexpr float kAccel           = 12'000.f;  // WU/s² (0–60 in ≈2.6 s)
-    static constexpr float kBrakeAccel      = 36'000.f;  // strong, performance brakes
+    // Braking is tire-limited: peak decel = μ·g, not a magic number. The old
+    // 36'000 WU/s² was ≈3.67 g — impossible on asphalt (μ≈1 → ~1 g max).
+    static constexpr float kBrakeAccel      = kTireMu * kGravity;  // ≈1.1 g
     static constexpr float kDragCoeff       = 0.12f;     // light aero drag, per-second
     static constexpr float kSpeedDeadZone   = 0.5f;
     static constexpr float kWheelLockToDeg  = 450.f;  // full lock-to-lock steering range
@@ -75,7 +81,11 @@ private:
     static constexpr float kSteerRatio      = kWheelLockToDeg / kMaxSteer;
     static constexpr float kSteerRate       = 90.f;     // degrees/s
     static constexpr float kSteerReturn     = 120.f;    // return-to-center rate
-    static constexpr float kWheelbase       = 2'800.f;  // ~2.8m wheelbase in WU
+    // Real 992 Turbo S wheelbase ≈ 2.45 m (was 2.8 m).
+    static constexpr float kWheelbase       = 2'450.f;  // 2.45 m in WU
+
+    // Sanity: braking must be tire-limited (≤ ~1.3 g even with sticky tires).
+    static_assert(kBrakeAccel <= 1.3f * kGravity, "braking exceeds tire-limited deceleration");
     // Speed-dependent steering authority (variable ratio): the effective lock
     // is scaled by kSteerRefSpeed / (kSteerRefSpeed + |v|), so steering is
     // sharp when parking and gentle at speed. This caps the bicycle-model yaw
