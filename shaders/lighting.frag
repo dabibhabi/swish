@@ -89,15 +89,23 @@ void main() {
     float metallic  = material.r;
     float roughness = material.g;
 
-    // Wet surfaces: darken + desaturate albedo (water absorbs light) and lower
-    // roughness (water film makes surfaces more specular / mirror-like).
-    vec3  wetAlbedo = albedo * 0.6;
+    // ── Wet-surface model (P0 #9) ─────────────────────────────────────
+    // As water accumulates (wetness ∝ rain rate R): diffuse darkens toward a
+    // porosity floor (asphalt soaks up light), roughness collapses toward a
+    // mirror, and micro-normals on up-facing (road-like) surfaces flatten toward
+    // the plane so reflections stay coherent. The grazing Fresnel surge that
+    // actually reads as "wet" is added after lighting, below.
+    const float kPorosity = 0.35;  // asphalt diffuse floor when saturated
     float luma      = dot(albedo, vec3(0.299, 0.587, 0.114));
-    wetAlbedo       = mix(wetAlbedo, vec3(luma) * 0.6, 0.25);  // slight desaturation
+    vec3  wetAlbedo = mix(albedo * kPorosity, vec3(luma * kPorosity), 0.25);  // darken + desaturate
     albedo          = mix(albedo, wetAlbedo, wetness);
 
-    roughness = mix(roughness, roughness * 0.25, wetness * 0.85);
+    roughness = mix(roughness, roughness * 0.12, wetness);  // toward near-mirror, scaled by water
     roughness = clamp(roughness, 0.02, 1.0);
+
+    // Flatten micro-normal toward the geometric plane on up-facing surfaces.
+    float upFacing = clamp(N.y, 0.0, 1.0);
+    N = normalize(mix(N, vec3(0.0, 1.0, 0.0), wetness * upFacing * 0.6));
 
     // Reconstruct world position from depth
     vec3 fragWorldPos = reconstructWorldPos(fragUV, depth);
@@ -191,6 +199,16 @@ void main() {
 
         lit_color += (kD_pt * albedo / PI + spec_pt) * NdotL_pt * radiance;
     }
+
+    // ── Wet grazing Fresnel surge (P0 #9) ─────────────────────────────
+    // At grazing view angles a wet surface reflects the environment with F→1 —
+    // the surge that makes a wet night road mirror the sky and lamps. With no
+    // IBL/SSR yet (P1), reflect the cool sky ambient; the point-light loop above
+    // supplies the sharp lamp streaks (now that wet roughness is near-zero).
+    float grazing  = pow(1.0 - NdotV, 5.0);
+    vec3  Fgraze   = F0 + (1.0 - F0) * grazing;             // Schlick, → 1 at grazing
+    vec3  wetSheen = Fgraze * skyTint * ambient * wetness;  // reflect sky, gated by wetness
+    lit_color += wetSheen;
 
     outColor = vec4(lit_color, 1.0);
 }

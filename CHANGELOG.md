@@ -6,6 +6,30 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-06-30 — Wet-road BRDF: porosity diffuse, normal flatten, grazing Fresnel surge (P0 #9)
+
+> The wet-surface shading only darkened albedo, lowered roughness, and nudged F0 0.04→0.06 — it had no grazing-angle Fresnel surge, which is what produces the long lamp-streak reflections that define a wet night road. Added a proper wet lerp: porosity-floor diffuse, near-mirror roughness, normal flattening toward the plane, and a wetness-weighted grazing Fresnel reflection of the sky. Driven by the rain rate `R` (via accumulated wetness).
+
+<details>
+<summary>Technical summary</summary>
+
+As `wetness` (∝ rain rate `R`) rises:
+- **Diffuse** darkens toward a porosity floor (asphalt ≈ 0.35), not a flat ×0.6.
+- **Roughness** collapses toward a mirror (`×0.12`, scaled by water), so point-light specular becomes sharp streaks.
+- **Normal** flattens toward the geometric plane on up-facing surfaces: `N = normalize(mix(N, up, wetness·max(N_y,0)·0.6))`, keeping puddle reflections coherent.
+- **Grazing Fresnel surge** (the missing piece) reflects the environment as view angle → grazing:
+
+$$ F(\theta) = F_0 + (1-F_0)\,(1 - N\!\cdot\!V)^5, \qquad \text{wetSheen} = F(\theta)\cdot \text{sky}\cdot \text{ambient}\cdot \text{wetness}. $$
+
+With no IBL/SSR yet (P1) the surge reflects the cool sky ambient; the existing point-light loop supplies the actual lamp streaks now that wet roughness is near-zero. Everything is gated by `wetness`, so the dry scene is unchanged.
+
+| File | Change |
+|---|---|
+| [shaders/lighting.frag](shaders/lighting.frag) | porosity diffuse, ×0.12 roughness, normal flatten, grazing-Fresnel wet sheen |
+
+Verified: `shaders` target compiles the GLSL; `ctest` 49/49. Visual confirmation of the wet sheen deferred (host screensaver active; effect is wetness-gated so the dry default is unaffected).
+</details>
+
 ### 2026-06-30 — Physical rain: per-drop terminal velocity + Marshall–Palmer drop-size distribution (P0 #7, #8)
 
 > All 8 192 drops fell at one hardcoded 9 m/s regardless of size. Now a single physical rain rate `R` (mm/hr) drives a Marshall–Palmer drop-size distribution and a Gunn–Kinzer per-drop terminal velocity, so small drops fall at ~2 m/s and big ones near ~9 m/s — and drop width/length/opacity + visible count all follow from `R`.
