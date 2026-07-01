@@ -46,7 +46,8 @@ const float PI = 3.14159265359;
 // = distance (WU; 1 m = 1000 WU) at which fog reaches ~63% at full wetness. Large
 // enough that the near cabin (~1000 WU away) is essentially fog-free.
 const vec3  kFogColor   = vec3(0.52, 0.57, 0.63);
-const float kFogDist63  = 150000.0;
+const float kFogDist63  = 1200000.0;  // ~1.2 km to 63% at full rain (was 150 m — ~8× too dense)
+const float kFogMax     = 0.65;       // cap: distant geometry keeps ≥35% of its colour (no white-out)
 
 // ── Reconstruct world position from depth (rind pattern) ──────────
 // `depth` is the raw Vulkan depth-buffer value in [0,1]. pc.invProj is the
@@ -241,8 +242,12 @@ void main() {
     // Near surfaces (the cabin!) stay crisp; only distance hazes out — unlike the
     // old flat screen-wide blend that washed the whole frame. Gated by wetness so
     // it fades in with rain. β expressed via a "63%-fog distance" for readability.
+    // Gate by (1 - clarity) so a clear day has ZERO fog instantly (not waiting for the
+    // wetness to drain); cap by kFogMax so even the far end of the 4.2 km road stays
+    // legible instead of dissolving into grey.
     float fogDist  = length(fragWorldPos - camera.camPos.xyz);   // WU (1 m = 1000 WU)
-    float fogT     = 1.0 - exp(-fogDist * wetness / kFogDist63);  // 0 near .. →1 far
+    float fogClear = 1.0 - camera.weather.x;                      // 1 overcast/rain .. 0 clear day
+    float fogT     = (1.0 - exp(-fogDist * wetness / kFogDist63)) * kFogMax * fogClear;
     lit_color      = mix(lit_color, kFogColor, fogT);
 
     outColor = vec4(lit_color, 1.0);
