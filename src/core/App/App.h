@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 struct GLFWwindow;
 
 namespace swish {
@@ -20,12 +22,16 @@ public:
     int run();
 
 private:
-    Window*         m_window         = nullptr;
-    Renderer*       m_renderer       = nullptr;
-    TextureManager* m_textureManager = nullptr;
-    SceneManager*   m_sceneManager   = nullptr;
-    ModelManager*   m_modelManager   = nullptr;
-    CarEntity*      m_car            = nullptr;
+    // Owned subsystems. unique_ptr gives deterministic, exception-safe teardown:
+    // construction order defines destruction order (reverse), so a throw during
+    // run() can't leak or double-free these (the old raw new/delete pairs, split
+    // across run() and ~App, were a use-after-free waiting to happen).
+    std::unique_ptr<Window>         m_window;
+    std::unique_ptr<Renderer>       m_renderer;
+    std::unique_ptr<TextureManager> m_textureManager;
+    std::unique_ptr<SceneManager>   m_sceneManager;
+    std::unique_ptr<ModelManager>   m_modelManager;
+    std::unique_ptr<CarEntity>      m_car;
 
     // Mouse state for delta calculation
     bool  m_first_mouse     = true;

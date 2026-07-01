@@ -20,14 +20,9 @@ namespace swish {
 
 App::App() = default;
 
-App::~App() {
-    delete m_car;
-    delete m_sceneManager;
-    delete m_modelManager;
-    delete m_textureManager;
-    delete m_renderer;
-    delete m_window;
-}
+// Defined here (not defaulted in the header) so the unique_ptr members see the
+// complete subsystem types. Members destruct in reverse declaration order.
+App::~App() = default;
 
 // ══════════════════════════════════════════════════════════════════════
 // Mouse callback — computes delta and sends to camera
@@ -97,10 +92,10 @@ int App::run() {
     };
 
     // ── 1. Window + Renderer core ─────────────────────────────────
-    m_window = new Window();
+    m_window = std::make_unique<Window>();
     m_window->init(800, 600, "swish");
 
-    m_renderer = new Renderer();
+    m_renderer = std::make_unique<Renderer>();
     m_renderer->init(*m_window);
 
     // ── 2. Wire input callbacks ───────────────────────────────────
@@ -114,7 +109,7 @@ int App::run() {
     glfwSetInputMode(glfw_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     // ── 3. TextureManager — load all material textures ────────────
-    m_textureManager = new TextureManager(m_renderer->services());
+    m_textureManager = std::make_unique<TextureManager>(m_renderer->services());
 
     m_textureManager->load_directory(TEXTURE_DIR);
 
@@ -144,11 +139,11 @@ int App::run() {
         m_textureManager->register_from_pixels("rumble_roughness", {200, 200, 200, 255}, 1, 1);
     }
 
-    m_renderer->register_texture_manager(m_textureManager);
+    m_renderer->register_texture_manager(m_textureManager.get());
 
     // ── 4. ModelManager (placeholder) ─────────────────────────────
-    m_modelManager = new ModelManager(*m_renderer);
-    m_renderer->register_model_manager(m_modelManager);
+    m_modelManager = std::make_unique<ModelManager>(*m_renderer);
+    m_renderer->register_model_manager(m_modelManager.get());
 
     // ── 5. Build material descriptor sets ─────────────────────────
     m_renderer->rebuild_material_descriptors();
@@ -181,8 +176,8 @@ int App::run() {
     std::vector<std::unique_ptr<Scene>> scenes;
     scenes.push_back(std::move(road_scene));
 
-    m_sceneManager = new SceneManager(*m_renderer, std::move(scenes));
-    m_renderer->register_scene_manager(m_sceneManager);
+    m_sceneManager = std::make_unique<SceneManager>(*m_renderer, std::move(scenes));
+    m_renderer->register_scene_manager(m_sceneManager.get());
 
     // ── 7. Activate first scene ───────────────────────────────────
     m_sceneManager->set_active_scene(0);
@@ -201,7 +196,7 @@ int App::run() {
         car_entity->set_scale(Vec3(1000.f, 1000.f, 1000.f));
         car_entity->set_road_bounds(kBarrierRight + 100.f, kEbRoadRight - 100.f);
 
-        m_car = car_entity.release();
+        m_car = std::move(car_entity);
 
         // Rebuild material descriptors to include the car's textures.
         m_renderer->rebuild_material_descriptors();
@@ -316,9 +311,11 @@ int App::run() {
     }
 
     // ── 10. Cleanup (reverse order) ───────────────────────────────
+    // Release GPU resources while the device is still alive; the owned objects
+    // themselves are destroyed automatically (reverse declaration order) when
+    // App is destroyed after run() returns — no manual delete needed.
     m_renderer->wait_for_idle();
-    delete m_car;
-    m_car = nullptr;
+    m_car.reset();
     m_renderer->destroy_dynamic_geometry();
     m_textureManager->cleanup();
     m_modelManager->cleanup();

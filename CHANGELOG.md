@@ -6,6 +6,25 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — App owns subsystems via unique_ptr (deterministic, exception-safe teardown) (P0 #11, part 1)
+
+> `App` held six raw owning pointers, `new`'d in `run()` and `delete`'d in two places (`run()` and `~App`) in two orders — fragile and a use-after-free waiting to happen. Converted them to `std::unique_ptr`, so construction order defines destruction order and a throw during `run()` can't leak or double-free.
+
+<details>
+<summary>Technical summary</summary>
+
+`m_window / m_renderer / m_textureManager / m_sceneManager / m_modelManager / m_car` are now `std::unique_ptr`. `new` → `std::make_unique`, non-owning registrations pass `.get()`, `car_entity.release()` → `std::move`, and `~App` is `= default` (defined in the .cpp where the subsystem types are complete). The explicit GPU `cleanup()` calls in `run()` remain (they release Vulkan resources while the device is alive) — only the object *lifetime* is now RAII; teardown order is unchanged.
+
+Note: the review's #11 also asks for `~Renderer() = default`, which depends on the VMA RAII handles from #10 (so subsystem destructors free their own GPU resources); that part is deferred with #10.
+
+| File | Change |
+|---|---|
+| [src/core/App/App.h](src/core/App/App.h) | six owning members → `std::unique_ptr` |
+| [src/core/App/App.cpp](src/core/App/App.cpp) | `make_unique`, `.get()` registrations, `= default` dtor, drop manual `delete` |
+
+Verified: `ctest` **52/52**; the app launches, runs, and — closing the window via the accessibility API to exercise normal loop exit → `run()` return → `~App` — **exits cleanly (code 0)** with no crash or validation error on teardown.
+</details>
+
 ### 2026-07-01 — Dynamic bicycle + saturating tire model with a real grip limit (P0 #4)
 
 > Yaw was a pure geometric arc (`ψ̇ = (v/L)tan δ`) — the car couldn't understeer, oversteer, or slide, and a `kSteerRefSpeed` authority taper was a band-aid for the missing grip limit. Added real lateral-velocity + yaw-rate state, slip-angle-based tire forces that saturate at μ·Fz, a friction-circle cap on lateral acceleration, and a blend to the kinematic model below 5 m/s. Removed the taper.
