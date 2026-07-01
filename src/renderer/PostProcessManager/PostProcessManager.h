@@ -2,6 +2,7 @@
 
 #include "../../scene/SceneTypes.h"
 #include "../../utils/Types.h"
+#include "../GpuResource/GpuResource.h"
 
 #include <vulkan/vulkan.h>
 
@@ -42,16 +43,17 @@ public:
     ~PostProcessManager() = default;
 
     void init(VkDevice device, VkPhysicalDevice physicalDevice, VkCommandPool commandPool, VkQueue graphicsQueue,
-              VkExtent2D extent, VkFormat swapchainFormat, const std::vector<VkImageView>& swapchainImageViews);
+              VmaAllocator allocator, VkExtent2D extent, VkFormat swapchainFormat,
+              const std::vector<VkImageView>& swapchainImageViews);
     void cleanup();
     void recreate(VkExtent2D extent, VkFormat swapchainFormat, const std::vector<VkImageView>& swapchainImageViews);
 
     // ── G-Buffer + Lighting render pass getters ────────────────────
     VkRenderPass  get_gbuffer_render_pass() const { return m_gbufferRenderPass; }
     VkFramebuffer get_gbuffer_framebuffer(uint32_t frameIndex) const { return m_gbufferFramebuffers[frameIndex]; }
-    VkImage       get_gbuffer_albedo_image(uint32_t frameIndex) const { return m_gbAlbedoImages[frameIndex]; }
-    VkImage       get_gbuffer_normal_image(uint32_t frameIndex) const { return m_gbNormalImages[frameIndex]; }
-    VkImage       get_gbuffer_material_image(uint32_t frameIndex) const { return m_gbMaterialImages[frameIndex]; }
+    VkImage       get_gbuffer_albedo_image(uint32_t frameIndex) const { return m_gbAlbedoImages[frameIndex].handle(); }
+    VkImage       get_gbuffer_normal_image(uint32_t frameIndex) const { return m_gbNormalImages[frameIndex].handle(); }
+    VkImage       get_gbuffer_material_image(uint32_t frameIndex) const { return m_gbMaterialImages[frameIndex].handle(); }
 
     VkRenderPass  get_lighting_render_pass() const { return m_lightingRenderPass; }
     VkFramebuffer get_lighting_framebuffer(uint32_t frameIndex) const { return m_lightingFramebuffers[frameIndex]; }
@@ -89,15 +91,15 @@ public:
     VkDescriptorSet get_composite_set(uint32_t frameIndex) const { return m_compositeSets[frameIndex]; }
 
     // ── Image getters (for barriers in Renderer) ─────────────────
-    VkImage     get_hdr_image(uint32_t frameIndex) const { return m_hdrImages[frameIndex]; }
+    VkImage     get_hdr_image(uint32_t frameIndex) const { return m_hdrImages[frameIndex].handle(); }
     VkImageView get_hdr_view(uint32_t frameIndex) const { return m_hdrViews[frameIndex]; }
-    VkImage     get_hdr_depth_image(uint32_t frameIndex) const { return m_hdrDepthImages[frameIndex]; }
+    VkImage     get_hdr_depth_image(uint32_t frameIndex) const { return m_hdrDepthImages[frameIndex].handle(); }
     VkImageView get_hdr_depth_view(uint32_t frameIndex) const { return m_hdrDepthViews[frameIndex]; }
-    VkImage     get_bloom_extract_image() const { return m_bloomExtractImage; }
-    VkImage     get_bloom_blur_h_image() const { return m_bloomBlurHImage; }
-    VkImage     get_bloom_blur_v_image() const { return m_bloomBlurVImage; }
-    VkImage     get_ao_image() const { return m_aoImage; }
-    VkImage     get_ao_blur_image() const { return m_aoBlurImage; }
+    VkImage     get_bloom_extract_image() const { return m_bloomExtractImage.handle(); }
+    VkImage     get_bloom_blur_h_image() const { return m_bloomBlurHImage.handle(); }
+    VkImage     get_bloom_blur_v_image() const { return m_bloomBlurVImage.handle(); }
+    VkImage     get_ao_image() const { return m_aoImage.handle(); }
+    VkImage     get_ao_blur_image() const { return m_aoBlurImage.handle(); }
 
     // ── Extent getters ───────────────────────────────────────────
     VkExtent2D get_full_extent() const { return m_fullExtent; }
@@ -107,6 +109,7 @@ public:
 private:
     VkDevice         m_device         = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
+    VmaAllocator     m_allocator      = nullptr;
     VkCommandPool    m_commandPool    = VK_NULL_HANDLE;
     VkQueue          m_graphicsQueue  = VK_NULL_HANDLE;
 
@@ -115,17 +118,14 @@ private:
     VkExtent2D m_aoExtent    = {};
 
     // ── G-Buffer (per frame-in-flight) ─────────────────────────────
-    VkRenderPass                              m_gbufferRenderPass = VK_NULL_HANDLE;
-    std::array<VkImage, PP_MAX_FRAMES>        m_gbAlbedoImages{};
-    std::array<VkDeviceMemory, PP_MAX_FRAMES> m_gbAlbedoMemory{};
-    std::array<VkImageView, PP_MAX_FRAMES>    m_gbAlbedoViews{};
-    std::array<VkImage, PP_MAX_FRAMES>        m_gbNormalImages{};
-    std::array<VkDeviceMemory, PP_MAX_FRAMES> m_gbNormalMemory{};
-    std::array<VkImageView, PP_MAX_FRAMES>    m_gbNormalViews{};
-    std::array<VkImage, PP_MAX_FRAMES>        m_gbMaterialImages{};
-    std::array<VkDeviceMemory, PP_MAX_FRAMES> m_gbMaterialMemory{};
-    std::array<VkImageView, PP_MAX_FRAMES>    m_gbMaterialViews{};
-    std::array<VkFramebuffer, PP_MAX_FRAMES>  m_gbufferFramebuffers{};
+    VkRenderPass                             m_gbufferRenderPass = VK_NULL_HANDLE;
+    std::array<GpuImage, PP_MAX_FRAMES>      m_gbAlbedoImages{};
+    std::array<VkImageView, PP_MAX_FRAMES>   m_gbAlbedoViews{};
+    std::array<GpuImage, PP_MAX_FRAMES>      m_gbNormalImages{};
+    std::array<VkImageView, PP_MAX_FRAMES>   m_gbNormalViews{};
+    std::array<GpuImage, PP_MAX_FRAMES>      m_gbMaterialImages{};
+    std::array<VkImageView, PP_MAX_FRAMES>   m_gbMaterialViews{};
+    std::array<VkFramebuffer, PP_MAX_FRAMES> m_gbufferFramebuffers{};
 
     // ── Deferred lighting ────────────────────────────────────────
     // The lighting pipeline + layout live in DeferredLightingPipeline
@@ -144,40 +144,33 @@ private:
     VkRenderPass m_compositeRenderPass = VK_NULL_HANDLE;
 
     // ── HDR offscreen (per frame-in-flight) ──────────────────────
-    std::array<VkImage, PP_MAX_FRAMES>        m_hdrImages{};
-    std::array<VkDeviceMemory, PP_MAX_FRAMES> m_hdrMemory{};
-    std::array<VkImageView, PP_MAX_FRAMES>    m_hdrViews{};
-    std::array<VkImage, PP_MAX_FRAMES>        m_hdrDepthImages{};
-    std::array<VkDeviceMemory, PP_MAX_FRAMES> m_hdrDepthMemory{};
-    std::array<VkImageView, PP_MAX_FRAMES>    m_hdrDepthViews{};
-    std::array<VkFramebuffer, PP_MAX_FRAMES>  m_hdrFramebuffers{};
+    std::array<GpuImage, PP_MAX_FRAMES>      m_hdrImages{};
+    std::array<VkImageView, PP_MAX_FRAMES>   m_hdrViews{};
+    std::array<GpuImage, PP_MAX_FRAMES>      m_hdrDepthImages{};
+    std::array<VkImageView, PP_MAX_FRAMES>   m_hdrDepthViews{};
+    std::array<VkFramebuffer, PP_MAX_FRAMES> m_hdrFramebuffers{};
 
     // ── Bloom images (shared, 1/4 resolution) ────────────────────
-    VkImage        m_bloomExtractImage  = VK_NULL_HANDLE;
-    VkDeviceMemory m_bloomExtractMemory = VK_NULL_HANDLE;
-    VkImageView    m_bloomExtractView   = VK_NULL_HANDLE;
-    VkFramebuffer  m_bloomExtractFB     = VK_NULL_HANDLE;
+    GpuImage      m_bloomExtractImage;
+    VkImageView   m_bloomExtractView = VK_NULL_HANDLE;
+    VkFramebuffer m_bloomExtractFB   = VK_NULL_HANDLE;
 
-    VkImage        m_bloomBlurHImage  = VK_NULL_HANDLE;
-    VkDeviceMemory m_bloomBlurHMemory = VK_NULL_HANDLE;
-    VkImageView    m_bloomBlurHView   = VK_NULL_HANDLE;
-    VkFramebuffer  m_bloomBlurHFB     = VK_NULL_HANDLE;
+    GpuImage      m_bloomBlurHImage;
+    VkImageView   m_bloomBlurHView = VK_NULL_HANDLE;
+    VkFramebuffer m_bloomBlurHFB   = VK_NULL_HANDLE;
 
-    VkImage        m_bloomBlurVImage  = VK_NULL_HANDLE;
-    VkDeviceMemory m_bloomBlurVMemory = VK_NULL_HANDLE;
-    VkImageView    m_bloomBlurVView   = VK_NULL_HANDLE;
-    VkFramebuffer  m_bloomBlurVFB     = VK_NULL_HANDLE;
+    GpuImage      m_bloomBlurVImage;
+    VkImageView   m_bloomBlurVView = VK_NULL_HANDLE;
+    VkFramebuffer m_bloomBlurVFB   = VK_NULL_HANDLE;
 
     // ── AO images (shared, 1/2 resolution) ───────────────────────
-    VkImage        m_aoImage  = VK_NULL_HANDLE;
-    VkDeviceMemory m_aoMemory = VK_NULL_HANDLE;
-    VkImageView    m_aoView   = VK_NULL_HANDLE;
-    VkFramebuffer  m_aoFB     = VK_NULL_HANDLE;
+    GpuImage      m_aoImage;
+    VkImageView   m_aoView = VK_NULL_HANDLE;
+    VkFramebuffer m_aoFB   = VK_NULL_HANDLE;
 
-    VkImage        m_aoBlurImage  = VK_NULL_HANDLE;
-    VkDeviceMemory m_aoBlurMemory = VK_NULL_HANDLE;
-    VkImageView    m_aoBlurView   = VK_NULL_HANDLE;
-    VkFramebuffer  m_aoBlurFB     = VK_NULL_HANDLE;
+    GpuImage      m_aoBlurImage;
+    VkImageView   m_aoBlurView = VK_NULL_HANDLE;
+    VkFramebuffer m_aoBlurFB   = VK_NULL_HANDLE;
 
     // ── Composite framebuffers (one per swapchain image) ─────────
     std::vector<VkFramebuffer> m_compositeFBs;

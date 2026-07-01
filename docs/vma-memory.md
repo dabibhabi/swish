@@ -1,7 +1,7 @@
 # GPU Memory: VMA + RAII Handles
 
-> Status (2026-07-01): the allocator and RAII wrappers are in place; five of the
-> seven allocating subsystems are migrated. See [Migration status](#migration-status).
+> Status (2026-06-30): **complete** — the allocator and RAII wrappers are in place and
+> all seven allocating subsystems are migrated. See [Migration status](#migration-status).
 
 Swish allocates GPU memory through the [Vulkan Memory Allocator (VMA)](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator)
 behind two small move-only RAII wrappers, `GpuBuffer` and `GpuImage`
@@ -88,12 +88,22 @@ down after, and the device last.
 | `TextureManager` | ✅ | device-local images + staging |
 | `SceneGeometry` (static **and** dynamic/car) | ✅ | the streaming hotspot — vertex/index + staging |
 | `RainSystem` | ✅ | quad VBO/IBO, instances, per-frame UBOs |
-| `PostProcessManager` | ⏳ follow-up | fixed-count G-buffer / HDR / bloom / AO images |
-| `WindshieldRainPass` | ⏳ follow-up | fixed-count UBOs + refraction/wetness images |
+| `PostProcessManager` | ✅ | G-buffer / HDR / bloom / AO images (`GpuImage`) |
+| `WindshieldRainPass` | ✅ | UBOs (`GpuBuffer`, mapped) + refraction/wetness images (`GpuImage`) |
 
-The two remaining consumers allocate a **fixed** set of resources (recreated only
-on window resize), so they are not part of the streaming allocation-count risk;
-they still use the retained raw `ResourceManager::createBuffer/createImage` path.
-Finishing them will let the raw path be removed and `~Renderer() = default`
-(P0 #11, part 2) become correct, since every subsystem's destructor would then
-free its own GPU resources.
+Every allocating subsystem now goes through VMA and owns its GPU resources via
+`GpuBuffer`/`GpuImage`. The last two consumers allocate a **fixed** set of resources
+(recreated only on window resize), so they were never part of the streaming
+allocation-count risk — but migrating them retires the manual `vkAllocateMemory` /
+`vkDestroy* + vkFreeMemory` pattern everywhere.
+
+**Verified (2026-06-30):** clean build; `ctest` 52/52; the scene renders correctly;
+three swapchain recreations (window resizes) and a graceful window-close teardown
+produce **zero** validation-layer errors — confirming both consumers' `recreate()`
+paths re-allocate through the stored `m_allocator`, and that every `GpuBuffer`/`GpuImage`
+destructor runs before `Device` calls `vmaDestroyAllocator`.
+
+**Now unblocked (P0 #11, part 2):** with no subsystem left on the raw path, the
+retained `ResourceManager::createBuffer/createImage` helpers can be removed and
+`~Renderer() = default` becomes correct, since every subsystem destructor frees its
+own GPU resources.

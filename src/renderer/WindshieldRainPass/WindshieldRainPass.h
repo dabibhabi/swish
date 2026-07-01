@@ -2,6 +2,7 @@
 
 #include "../../scene/SceneTypes.h"
 #include "../../utils/Types.h"
+#include "../GpuResource/GpuResource.h"
 
 #include <vulkan/vulkan.h>
 
@@ -102,20 +103,16 @@ private:
     VkRenderPass                                    m_renderPass = VK_NULL_HANDLE;
     std::array<VkFramebuffer, MAX_FRAMES_IN_FLIGHT> m_framebuffers{};
 
-    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT>       m_ubos{};
-    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_uboMemories{};
-    std::array<void*, MAX_FRAMES_IN_FLIGHT>          m_uboMapped{};
+    std::array<GpuBuffer, MAX_FRAMES_IN_FLIGHT> m_ubos{};  // RAII (VMA), persistently mapped
 
     // Refraction source: per-frame snapshot of the HDR scene (sampled by frag).
-    std::array<VkImage, MAX_FRAMES_IN_FLIGHT>        m_refrImages{};
-    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_refrMemories{};
-    std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>    m_refrViews{};
-    VkSampler                                        m_refrSampler = VK_NULL_HANDLE;
+    std::array<GpuImage, MAX_FRAMES_IN_FLIGHT>    m_refrImages{};  // RAII (VMA)
+    std::array<VkImageView, MAX_FRAMES_IN_FLIGHT> m_refrViews{};
+    VkSampler                                     m_refrSampler = VK_NULL_HANDLE;
 
     // Persistent wetness map (ping-pong: [0] = history/read, [1] = current/write).
-    std::array<VkImage, 2>        m_wetImages{};
-    std::array<VkDeviceMemory, 2> m_wetMemories{};
-    std::array<VkImageView, 2>    m_wetViews{};
+    std::array<GpuImage, 2>    m_wetImages{};  // RAII (VMA)
+    std::array<VkImageView, 2> m_wetViews{};
     VkFramebuffer                 m_wetFramebuffer = VK_NULL_HANDLE;  // targets m_wetImages[1]
     VkRenderPass                  m_wetRenderPass  = VK_NULL_HANDLE;
     VkPipeline                    m_wetPipeline    = VK_NULL_HANDLE;
@@ -130,6 +127,7 @@ private:
     VkPipelineLayout m_pipeLayout = VK_NULL_HANDLE;
     VkPipeline       m_pipeline   = VK_NULL_HANDLE;
 
+    VmaAllocator     m_allocator      = nullptr;  // VMA sub-allocator (from RendererServices)
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
     VkCommandPool    m_commandPool    = VK_NULL_HANDLE;
     VkQueue          m_queue          = VK_NULL_HANDLE;

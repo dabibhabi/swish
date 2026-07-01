@@ -101,8 +101,8 @@ void Renderer::init(Window& window) {
 
     m_postProcess = std::make_unique<PostProcessManager>();
     m_postProcess->init(m_device->getDevice(), m_device->getPhysicalDevice(), m_commandManager->getPool(),
-                        m_device->getGraphicsQueue(), m_swapchain->getExtent(), m_swapchain->getImageFormat(),
-                        m_swapchain->getImageViews());
+                        m_device->getGraphicsQueue(), m_device->getAllocator(), m_swapchain->getExtent(),
+                        m_swapchain->getImageFormat(), m_swapchain->getImageViews());
 
     // ── Rain forward pass — after PostProcessManager (needs HDR + depth views) ─
     {

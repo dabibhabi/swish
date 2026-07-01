@@ -3,7 +3,7 @@
 A fast lookup of what each term, abbreviation, class, and convention means **in the Swish codebase**.
 Skim the section you need — every entry is one line.
 
-**Jump to:** [Conventions](#project-conventions) · [Abbreviations](#abbreviations) · [Render pipeline & passes](#render-pipeline--passes) · [Coordinate spaces](#coordinate-spaces) · [Vulkan objects](#vulkan-objects-as-used-here) · [Rain system](#rain-system) · [Components / classes](#components--classes) · [Key globals & files](#key-globals--files) · [Controls](#controls)
+**Jump to:** [Conventions](#project-conventions) · [Abbreviations](#abbreviations) · [Render pipeline & passes](#render-pipeline--passes) · [Coordinate spaces](#coordinate-spaces) · [Vulkan objects](#vulkan-objects-as-used-here) · [GPU memory (VMA + RAII)](#gpu-memory-vma--raii) · [Rain system](#rain-system) · [Components / classes](#components--classes) · [Key globals & files](#key-globals--files) · [Controls](#controls)
 
 ---
 
@@ -43,6 +43,8 @@ Skim the section you need — every entry is one line.
 | **SPIR-V / `.spv`** | Compiled shader bytecode Vulkan consumes (output of `glslc`). |
 | **glslc** | The GLSL→SPIR-V compiler (from the Vulkan SDK). |
 | **FoV** | Field of View. |
+| **VMA** | [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) — AMD's allocator library. Swish sub-allocates every GPU buffer/image from a few big device blocks through one `VmaAllocator`, instead of one `vkAllocateMemory` per resource. See [GPU memory](#gpu-memory-vma--raii). |
+| **RAII** | *Resource Acquisition Is Initialization* — the C++ idiom where an object releases its resource in its destructor. Here `GpuBuffer`/`GpuImage` free their VMA sub-allocation automatically, so there are no manual `vkDestroy*`/`vkFreeMemory` pairs. |
 
 ---
 
@@ -96,6 +98,25 @@ The per-frame order (see [`Renderer::recordCommandBuffer`](../src/renderer/Rende
 | **Frames in flight** | `MAX_FRAMES_IN_FLIGHT = 2` — how many frames are recorded/executing concurrently; most per-frame resources are arrays of this size. |
 | Sampler | How a shader filters a texture (linear, clamp-to-edge here). |
 | Ping-pong | Two images alternated read/write because a shader can't read+write the same image (used by the wetness map). |
+| `VmaAllocator` | The one VMA sub-allocator for the whole renderer, owned by `Device` (`getAllocator()`), created at `VK_API_VERSION_1_3`. Handed to subsystems via `RendererServices::allocator`; must outlive every `GpuBuffer`/`GpuImage`. |
+| `GpuBuffer` / `GpuImage` | Move-only RAII wrappers ([`GpuResource.h`](../src/renderer/GpuResource/GpuResource.h)) around a VMA allocation. `.handle()` → the `VkBuffer`/`VkImage`; `.mapped()` → the persistent CPU pointer (host-visible buffers); destructor / `.reset()` frees the sub-allocation. Replace the old raw `VkImage`+`VkDeviceMemory` (or `VkBuffer`+`VkDeviceMemory`) pairs. |
+
+---
+
+## GPU memory (VMA + RAII)
+
+How Swish allocates and frees GPU memory. Full write-up (diagrams + math): [`docs/vma-memory.md`](vma-memory.md).
+
+| Term | Meaning in Swish |
+|------|------------------|
+| **Sub-allocation** | Carving many resources out of a few large device memory blocks. VMA does this so the live-allocation count stays far below the driver's `maxMemoryAllocationCount` cap. |
+| **`maxMemoryAllocationCount`** | The Vulkan limit on **simultaneous** `vkAllocateMemory` calls — as low as **4096** on some drivers. One-allocation-per-resource scales with scene size and can hit it; VMA sub-allocation collapses it to a handful. |
+| **Device-local** | Memory that lives in VRAM, fastest for the GPU. Used for attachments/textures/vertex+index buffers (via `gpu::deviceLocalImage` / `deviceLocalBuffer`). Written from the CPU only through a **staging** copy. |
+| **Host-visible** | Memory the CPU can map and write directly. Used for per-frame UBOs (`gpu::hostVisibleBuffer`). |
+| **Persistently mapped** | A host-visible buffer whose CPU pointer (`.mapped()`) is obtained once at creation and reused every frame — no `vkMapMemory`/`vkUnmapMemory` per write. |
+| **Staging buffer** | A temporary host-visible buffer the CPU writes, then a `vkCmdCopyBuffer/Image` uploads it into a device-local resource. |
+| **`gpu::` factory helpers** | `deviceLocalBuffer`, `hostVisibleBuffer`, `deviceLocalImage` — one-liners that fill the VMA create-info for the three common patterns and return a `GpuBuffer`/`GpuImage`. |
+| **Teardown order** | Every subsystem's `GpuBuffer`/`GpuImage` must `reset()` (or be destroyed) **before** `Device` calls `vmaDestroyAllocator`, which itself runs **before** `vkDestroyDevice`. |
 
 ---
 

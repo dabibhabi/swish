@@ -6,6 +6,47 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-06-30 — Migrated WindshieldRainPass buffers + images to VMA-backed RAII (P0 #10, last consumer)
+
+> `WindshieldRainPass` was the final consumer on the retained raw path: its per-frame UBOs used `ResourceManager::createBuffer` + `vkMapMemory`, and its refraction / wetness images used `ResourceManager::createImage` — each a distinct `vkAllocateMemory` with hand-paired `vkDestroyBuffer`/`vkDestroyImage` + `vkFreeMemory` (+ `vkUnmapMemory`). It is now on the move-only RAII `GpuBuffer` (persistently-mapped UBOs) and `GpuImage` wrappers, mirroring `RainSystem` and `DepthBuffer`.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** Three raw resource families remained: 2 per-frame UBOs (`VkBuffer`+`VkDeviceMemory`+`void*` mapped ptr), 2 per-frame refraction images (`VkImage`+`VkDeviceMemory`), and the 2-entry wetness ping-pong (`VkImage`+`VkDeviceMemory`). This is the last of the per-resource `vkAllocateMemory` pattern the VMA sub-allocator replaces.
+
+**Approach.** Captured `RendererServices::allocator` into a new `VmaAllocator m_allocator` member at the top of `init(...)` (no `init`/`recreate` signature change); the no-services helpers `createUBOs`/`createRefractionResources`/`createWetnessResources` now read `m_allocator`. UBOs → `gpu::hostVisibleBuffer(...)`, written each frame through `.mapped()` (the separate `m_uboMapped` pointer array was dropped in favor of reading `.mapped()` directly, matching `RainSystem`). Refraction + wetness images → `gpu::deviceLocalImage(...)` with identical usage flags and formats (`R16G16B16A16_SFLOAT` refraction: `SAMPLED | TRANSFER_DST`; `R16_SFLOAT` wetness: `COLOR_ATTACHMENT | SAMPLED | TRANSFER_SRC | TRANSFER_DST`). Every `VkDeviceMemory` member removed; cleanup / `destroy*Resources` drop the `vkDestroy*`+`vkFreeMemory` and call `.reset()` (image views still destroyed explicitly). All command-buffer sites that consume the raw handle (descriptor writes, `imgBarrier`, `vkCmdCopyImage`, `vkCmdClearColorImage`, `vkCreateImageView`) now append `.handle()`. The ping-pong semantics (index 0 = history A, 1 = target B) are preserved unchanged. Now-unused `VkPhysicalDevice physicalDevice` params are `(void)`-cast, matching the `CameraUniforms` precedent.
+
+| File | Change |
+| --- | --- |
+| [src/renderer/WindshieldRainPass/WindshieldRainPass.h](src/renderer/WindshieldRainPass/WindshieldRainPass.h) | `+#include GpuResource.h`; `+VmaAllocator m_allocator`; `m_ubos` → `std::array<GpuBuffer>` (deleted `m_uboMemories`, `m_uboMapped`); `m_refrImages` → `std::array<GpuImage>` (deleted `m_refrMemories`); `m_wetImages` → `std::array<GpuImage,2>` (deleted `m_wetMemories`) |
+| [src/renderer/WindshieldRainPass/WindshieldRainPass.cpp](src/renderer/WindshieldRainPass/WindshieldRainPass.cpp) | `init` stores `m_allocator`; `update` memcpy via `m_ubos[f].mapped()`; `createUBOs`→`hostVisibleBuffer`, `createRefractionResources`/`createWetnessResources`→`deviceLocalImage`; cleanup / `destroy*Resources` use `.reset()`; all barrier/copy/clear/view/descriptor sites use `.handle()`; `(void)physicalDevice`/`(void)s` for symmetry |
+
+Result: with `WindshieldRainPass` migrated, all P0 #10 consumers are on VMA — the retained raw path in `ResourceManager` and `~Renderer() = default` can now be removed.
+
+</details>
+
+### 2026-06-30 — Migrated PostProcessManager images to VMA-backed `GpuImage` (P0 #10, finishing consumer)
+
+> `PostProcessManager` was the last consumer still on the retained raw path from the VMA refactor below: it did one `vkAllocateMemory` per G-buffer/HDR/bloom/AO image via `ResourceManager::createImage` and pair-destroyed each `VkImage`+`VkDeviceMemory` by hand. It is now migrated to the move-only RAII `GpuImage` wrapper, mirroring the canonical `DepthBuffer` migration.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** Every offscreen attachment (5 per-frame arrays × `PP_MAX_FRAMES` + 5 shared singles) held a raw `VkImage` + parallel `VkDeviceMemory`, each consuming a distinct `vkAllocateMemory` and requiring manual `vkDestroyImage`/`vkFreeMemory`. This is exactly the per-resource allocation pattern the VMA sub-allocator replaces, and it was flagged as the remaining follow-up.
+
+**Approach.** Threaded the `Device`'s `VmaAllocator` into `PostProcessManager::init(...)` (new param after `VkQueue graphicsQueue`), stored it as `m_allocator`, and replaced all `ResourceManager::createImage` calls with `gpu::deviceLocalImage(m_allocator, ...)`, preserving the exact usage flags (color attachments keep `COLOR_ATTACHMENT | SAMPLED`; HDR keeps its extra `TRANSFER_SRC`; depth keeps `DEPTH_STENCIL_ATTACHMENT | SAMPLED`). Each `VkImage`+`VkDeviceMemory` member pair collapsed to a single `GpuImage`; the parallel `VkDeviceMemory` members are gone. `recreate()` needed no signature change — it re-runs `createImages()`, which reads the stored `m_allocator`.
+
+| File | Change |
+| --- | --- |
+| [src/renderer/PostProcessManager/PostProcessManager.h](src/renderer/PostProcessManager/PostProcessManager.h) | `+#include GpuResource.h`; `init(...)` gains `VmaAllocator allocator`; `+VmaAllocator m_allocator`; 5 `std::array<VkImage>`+`std::array<VkDeviceMemory>` pairs → `std::array<GpuImage>`; 5 `VkImage`+`VkDeviceMemory` singles → `GpuImage`; all 9 image getters now return `.handle()` |
+| [src/renderer/PostProcessManager/PostProcessManager.cpp](src/renderer/PostProcessManager/PostProcessManager.cpp) | `init` stores `m_allocator`; `makeColorImage`/`makeDepthImage` lambdas take `GpuImage&` and call `gpu::deviceLocalImage`; `destroyImages` `destroy` lambda takes `GpuImage&` + `.reset()` (no `vkDestroyImage`/`vkFreeMemory`); `primeAOTexture` barrier uses `m_aoBlurImage.handle()` |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | Single init call site: inserted `m_device->getAllocator()` after the graphics-queue arg |
+
+Result: the P0 #10 image consumers are now fully on VMA; only `WindshieldRainPass` remains before the retained raw path (and `~Renderer() = default`) can be removed.
+
+</details>
+
 ### 2026-07-01 — VMA sub-allocator + move-only RAII GPU handles (P0 #10)
 
 > `ResourceManager` did one `vkAllocateMemory` per buffer/image and returned raw `VkBuffer`+`VkDeviceMemory` that every caller pair-destroyed by hand — risking the driver's `maxMemoryAllocationCount` (~4096) as the world streams in, and inviting leaks/double-frees. Introduced a single VMA allocator on `Device` and move-only `GpuBuffer`/`GpuImage` RAII wrappers, and migrated the core consumers (including the streaming hotspot) onto them. Full write-up + diagrams: [docs/vma-memory.md](docs/vma-memory.md).
