@@ -88,24 +88,29 @@ void main() {
     vec3  N         = normalize(rawNormal * 2.0 - 1.0);
     float metallic  = material.r;
     float roughness = material.g;
+    float wettable  = material.b;  // 1 = rain-exposed (road/body), 0 = enclosed cabin
+
+    // Wet-weather effects apply only to rain-exposed surfaces. The enclosed car
+    // cabin stays dry (wettable = 0 → wetLocal = 0), so rain never washes it out.
+    float wetLocal = wetness * wettable;
 
     // ── Wet-surface model (P0 #9) ─────────────────────────────────────
-    // As water accumulates (wetness ∝ rain rate R): diffuse darkens toward a
-    // porosity floor (asphalt soaks up light), roughness collapses toward a
-    // mirror, and micro-normals on up-facing (road-like) surfaces flatten toward
-    // the plane so reflections stay coherent. The grazing Fresnel surge that
+    // As water accumulates (wetLocal ∝ rain rate R, gated by exposure): diffuse
+    // darkens toward a porosity floor (asphalt soaks up light), roughness collapses
+    // toward a mirror, and micro-normals on up-facing (road-like) surfaces flatten
+    // toward the plane so reflections stay coherent. The grazing Fresnel surge that
     // actually reads as "wet" is added after lighting, below.
     const float kPorosity = 0.35;  // asphalt diffuse floor when saturated
     float luma      = dot(albedo, vec3(0.299, 0.587, 0.114));
     vec3  wetAlbedo = mix(albedo * kPorosity, vec3(luma * kPorosity), 0.25);  // darken + desaturate
-    albedo          = mix(albedo, wetAlbedo, wetness);
+    albedo          = mix(albedo, wetAlbedo, wetLocal);
 
-    roughness = mix(roughness, roughness * 0.12, wetness);  // toward near-mirror, scaled by water
+    roughness = mix(roughness, roughness * 0.12, wetLocal);  // toward near-mirror, scaled by water
     roughness = clamp(roughness, 0.02, 1.0);
 
     // Flatten micro-normal toward the geometric plane on up-facing surfaces.
     float upFacing = clamp(N.y, 0.0, 1.0);
-    N = normalize(mix(N, vec3(0.0, 1.0, 0.0), wetness * upFacing * 0.6));
+    N = normalize(mix(N, vec3(0.0, 1.0, 0.0), wetLocal * upFacing * 0.6));
 
     // Reconstruct world position from depth
     vec3 fragWorldPos = reconstructWorldPos(fragUV, depth);
@@ -119,7 +124,7 @@ void main() {
 
     // F0: metallic workflow (lerp between dielectric and albedo for metals).
     // Wet film raises dielectric reflectance for a stronger specular/Fresnel.
-    float dielectricF0 = mix(0.04, 0.06, wetness);
+    float dielectricF0 = mix(0.04, 0.06, wetLocal);
     vec3  F0 = mix(vec3(dielectricF0), albedo, metallic);
 
     // ── Directional sun ───────────────────────────────────────────
@@ -195,7 +200,7 @@ void main() {
         // scaled by wetness; att*att concentrates the bloom nearer the lamp and reuses
         // the existing radius falloff. The bloom pass then spreads it into a wet halo.
         const float kHaloStrength = 0.12;  // small/tasteful — tune via run
-        lit_color += lCol * lInt * att * att * wetness * kHaloStrength;
+        lit_color += lCol * lInt * att * att * wetLocal * kHaloStrength;
 
         lit_color += (kD_pt * albedo / PI + spec_pt) * NdotL_pt * radiance;
     }
@@ -206,8 +211,8 @@ void main() {
     // IBL/SSR yet (P1), reflect the cool sky ambient; the point-light loop above
     // supplies the sharp lamp streaks (now that wet roughness is near-zero).
     float grazing  = pow(1.0 - NdotV, 5.0);
-    vec3  Fgraze   = F0 + (1.0 - F0) * grazing;             // Schlick, → 1 at grazing
-    vec3  wetSheen = Fgraze * skyTint * ambient * wetness;  // reflect sky, gated by wetness
+    vec3  Fgraze   = F0 + (1.0 - F0) * grazing;              // Schlick, → 1 at grazing
+    vec3  wetSheen = Fgraze * skyTint * ambient * wetLocal;  // reflect sky, gated by exposure·wetness
     lit_color += wetSheen;
 
     outColor = vec4(lit_color, 1.0);

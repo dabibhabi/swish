@@ -137,6 +137,7 @@ struct DrawCall {
     Vec4       color;
     Mat4       model;
     MaterialId material;
+    bool       is_interior = false;  // enclosed cabin geometry — excluded from wet-weather effects
 };
 
 // Matches the push constant block in basic.vert + gbuffer.frag.

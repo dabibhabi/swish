@@ -103,6 +103,10 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
         // Per-material metalness (first pass: metal barriers/rails are metallic,
         // everything else is dielectric). Texture-driven metalness is a follow-up.
         pushData.material.x = (dc.material == MAT_METAL) ? 1.0f : 0.0f;
+        // Wettable mask: 1 = rain-exposed (road, car body), 0 = enclosed cabin. Written
+        // to outMaterial.b in gbuffer.frag and used by lighting.frag to keep wet-weather
+        // effects (darkening, sheen, halos) off the dry interior.
+        pushData.material.y = dc.is_interior ? 0.0f : 1.0f;
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(PushConstantData), &pushData);
         vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, 0, 0);

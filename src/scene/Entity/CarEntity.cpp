@@ -146,17 +146,20 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
     Mat4  car_model = get_model_matrix();
     float sw_angle  = m_steering_angle * kSteerRatio;
 
-    // Cabin wash: interior submeshes tint toward light gray as rain rises. Encoded
-    // in color.a as the gbuffer.frag sentinel (a = 1 + wash; max ≈0.5 at full rain,
-    // so even heavy rain reads as a clear LIGHT GRAY, not white). Light rain (0.35)
-    // → wash ≈0.18, a slight shift. Non-interior submeshes keep a = 1 → wash 0.
-    const float washAmount = m_rain_intensity * 0.5f;
+    // Cabin wash: interior submeshes lift *very slightly* toward light gray as rain
+    // rises — a faint gloomy-weather cue, NOT a brightening. Encoded in color.a as the
+    // gbuffer.frag sentinel (a = 1 + wash). Kept small (≤0.12 at full rain) because the
+    // dry cabin is already excluded from the wet-BRDF veil via the is_interior /
+    // material.y wettable mask (see SceneGeometry + lighting.frag); a large wash here
+    // was the cause of the rain-on interior over-exposure. Non-interior keeps a = 1.
+    const float washAmount = m_rain_intensity * 0.12f;
 
     for (const auto& s : get_submeshes()) {
         DrawCall dc{};
         dc.indexOffset = s.indexOffset;
         dc.indexCount  = s.indexCount;
         dc.material    = s.material;
+        dc.is_interior = s.is_interior;  // gates wet-weather effects off the dry cabin (lighting.frag)
         dc.color       = s.is_interior ? Vec4(s.color.r, s.color.g, s.color.b, 1.0f + washAmount) : s.color;
 
         if (s.is_steering_wheel) {

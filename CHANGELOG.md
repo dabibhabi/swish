@@ -6,6 +6,35 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — Fixed rain-on interior over-exposure (wettable mask, cabin excluded from wet effects)
+
+> With rain on, the enclosed car cabin washed out to a milky, over-exposed light grey. The `wetness` scalar was applied globally in the deferred pass, so wet-weather effects meant for rain-exposed surfaces (road, body) also hit the dry interior: the rain-driven "cabin wash" lifted interior albedo toward `0.55`, and the grazing-Fresnel wet sheen added a cool additive veil. Introduced a per-fragment **wettable mask** so the cabin is excluded from all wet effects, and dialled the cabin wash down to a faint cue.
+
+<details>
+<summary>Technical summary</summary>
+
+**Root cause.** `wetness` (from `RainSystem::get_wetness`) is a single global scalar consumed by every fragment in `lighting.frag`. Two rain terms brightened/veiled the interior, which physically stays dry:
+1. **Cabin wash** — `CarEntity` encoded `washAmount = rain_intensity * 0.5` into `color.a`; `gbuffer.frag` did `albedo = mix(albedo, vec3(0.55), wash)`, lifting the interior toward light grey as rain rose (the dominant brightener).
+2. **Wet-BRDF + grazing sheen** — the wet albedo/roughness/normal/F0 block and the additive `wetSheen = Fgraze·skyTint·ambient·wetness` were applied to all geometry, adding a cool veil to the cabin's many grazing-angle surfaces.
+
+**Fix — a "wettable" mask.** `PushConstantData.material` is a `Vec4` with only `.x` (metalness) used, so `.y` carries a wettable flag (1 = rain-exposed, 0 = enclosed cabin), written to the free `outMaterial.b` channel. The lighting pass gates every wet effect by it:
+
+$$ \text{wetLocal} = \text{wetness} \cdot \text{wettable}, \qquad \text{wettable} = \begin{cases} 0 & \text{interior}\\ 1 & \text{exterior} \end{cases} $$
+
+so the cabin (`wetLocal = 0`) renders identically rain-on vs rain-off, while the road/body keep the full wet-road look. The interior is identified by the car's existing per-submesh `is_interior` tag (node name contains "interior"), now carried on `DrawCall`. The redundant cabin wash was reduced `0.5 → 0.12` (a faint gloomy-weather cue, no longer a brightener).
+
+| File | Change |
+| --- | --- |
+| [src/scene/SceneTypes.h](src/scene/SceneTypes.h) | `DrawCall` gains `bool is_interior` |
+| [src/scene/Entity/CarEntity.cpp](src/scene/Entity/CarEntity.cpp) | set `dc.is_interior = s.is_interior`; cabin `washAmount` 0.5 → 0.12 |
+| [src/renderer/SceneGeometry/SceneGeometry.cpp](src/renderer/SceneGeometry/SceneGeometry.cpp) | `pushData.material.y = dc.is_interior ? 0 : 1` (wettable) |
+| [shaders/gbuffer.frag](shaders/gbuffer.frag) | `outMaterial.b = push.material.y` |
+| [shaders/lighting.frag](shaders/lighting.frag) | read `wettable = material.b`; `wetLocal = wetness·wettable` gates wet albedo/roughness/normal/F0, lamp halo, and grazing `wetSheen` |
+
+Verified: clean build; `ctest` 52/52; app runs with a validation-clean log through init + rain toggle. Visual before/after pending (screen was locked at verification time).
+
+</details>
+
 ### 2026-06-30 — Removed the dead raw `ResourceManager` allocation path (P0 #11, part 2)
 
 > With every subsystem migrated to VMA (P0 #10 complete), the hand-rolled `ResourceManager::createBuffer` / `createImage` / `copyBuffer` and their private `findMemoryType` helper had **zero callers**. Removed all four. `~Renderer()` was already `= default` (teardown is done via the explicit `Renderer::cleanup()` two-phase call in `App::run()`), so this retires the last of the per-resource `vkAllocateMemory` machinery and closes out the P0 review's #11.
