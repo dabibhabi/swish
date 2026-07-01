@@ -6,6 +6,48 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — VMA sub-allocator + move-only RAII GPU handles (P0 #10)
+
+> `ResourceManager` did one `vkAllocateMemory` per buffer/image and returned raw `VkBuffer`+`VkDeviceMemory` that every caller pair-destroyed by hand — risking the driver's `maxMemoryAllocationCount` (~4096) as the world streams in, and inviting leaks/double-frees. Introduced a single VMA allocator on `Device` and move-only `GpuBuffer`/`GpuImage` RAII wrappers, and migrated the core consumers (including the streaming hotspot) onto them. Full write-up + diagrams: [docs/vma-memory.md](docs/vma-memory.md).
+
+<details>
+<summary>Technical summary</summary>
+
+**Problem.** With one allocation per resource, the live-allocation count scales with scene size and approaches the driver cap:
+
+$$ \text{allocations}_\text{before} = N_\text{buffers} + N_\text{images} \longrightarrow \text{approaches } \sim\!4096. $$
+
+VMA sub-allocates from a few large blocks, decoupling the count from resource count:
+
+$$ \text{allocations}_\text{after} = \left\lceil \frac{\sum_i \text{size}_i}{\text{blockSize}} \right\rceil \ll \text{maxMemoryAllocationCount}. $$
+
+**Design.**
+
+```mermaid
+graph LR
+    A[createBuffer/Image] -->|before| B[vkAllocateMemory<br/>one per resource]
+    A2["gpu::deviceLocalBuffer /<br/>hostVisibleBuffer /<br/>deviceLocalImage"] -->|after| C[vmaCreateBuffer/Image]
+    C --> D[sub-alloc from shared block]
+    D --> E["GpuBuffer / GpuImage<br/>dtor → vmaDestroy*"]
+```
+
+- One `VmaAllocator` on `Device` (`vulkanApiVersion` 1.3, destroyed before the device), exposed via `RendererServices::allocator`.
+- `GpuBuffer`/`GpuImage`: move-only, dtor returns the sub-allocation. `hostVisibleBuffer` is persistently mapped (`.mapped()`, no `vkMapMemory`).
+
+**Migrated (verified):** `DepthBuffer`, `CameraUniforms` (mapped UBOs), `TextureManager` (images + staging), `SceneGeometry` (static **and** dynamic/car vertex+index+staging — the review's actual streaming concern), `RainSystem` (quad/instance/UBO buffers). **Follow-up:** `PostProcessManager` + `WindshieldRainPass` (fixed-count images, not the streaming risk) still use the retained raw path; finishing them unlocks removing that path and `~Renderer() = default` (#11 part 2).
+
+| File | Change |
+|---|---|
+| [CMakeLists.txt](CMakeLists.txt), [src/renderer/VmaUsage.cpp](src/renderer/VmaUsage.cpp) | FetchContent VMA v3.1.0; compile its implementation in one TU |
+| [src/renderer/Pipeline/Device/Device.cpp](src/renderer/Pipeline/Device/Device.cpp) | create/destroy the `VmaAllocator` |
+| [src/renderer/GpuResource/GpuResource.h](src/renderer/GpuResource/GpuResource.h) | `GpuBuffer`/`GpuImage` + `gpu::` factory helpers |
+| [src/renderer/Renderer/RendererServices.h](src/renderer/Renderer/RendererServices.h) | expose `allocator` |
+| DepthBuffer, CameraUniforms, TextureManager, SceneGeometry, RainSystem | migrated to `GpuBuffer`/`GpuImage` |
+| [docs/vma-memory.md](docs/vma-memory.md) | architecture, diagrams, teardown ordering, migration status |
+
+Verified: clean-from-scratch build; `ctest` 52/52; scene (road/car geometry, textures, depth, lighting, rain) renders correctly; window-close teardown exits cleanly (code 0) with the VMA allocator + RAII handles freeing in order.
+</details>
+
 ### 2026-07-01 — App owns subsystems via unique_ptr (deterministic, exception-safe teardown) (P0 #11, part 1)
 
 > `App` held six raw owning pointers, `new`'d in `run()` and `delete`'d in two places (`run()` and `~App`) in two orders — fragile and a use-after-free waiting to happen. Converted them to `std::unique_ptr`, so construction order defines destruction order and a throw during `run()` can't leak or double-free.
