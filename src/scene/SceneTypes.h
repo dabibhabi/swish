@@ -137,7 +137,11 @@ struct DrawCall {
     Vec4       color;
     Mat4       model;
     MaterialId material;
-    bool       is_interior = false;  // enclosed cabin geometry — excluded from wet-weather effects
+    // Excluded from wet-road (asphalt) effects in lighting.frag. Set for the WHOLE
+    // car — the wet-road BRDF (porosity darkening, sky sheen) is tuned for the
+    // horizontal road, not car paint or the enclosed cabin; applying it there
+    // washed the interior out. Road/world geometry leaves this false (wettable).
+    bool       dry = false;
 };
 
 // Matches the push constant block in basic.vert + gbuffer.frag.

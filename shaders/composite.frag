@@ -65,12 +65,11 @@ void main() {
     // Exposure adjustment
     hdr *= params.exposure;
 
-    // Rain atmospheric mist: blend toward a cool grey to simulate rain haze
-    if (params.rain_intensity > 0.001) {
-        vec3  fogColor  = vec3(0.52, 0.57, 0.63);
-        float fogAmount = params.fog_density * params.rain_intensity;
-        hdr = mix(hdr, fogColor * params.exposure, clamp(fogAmount, 0.0, 0.4));
-    }
+    // Rain fog is now applied per-fragment and depth-resolved in lighting.frag
+    // (Koschmieder), so near surfaces like the cabin stay crisp. The old flat
+    // screen-wide grey blend here washed the whole frame (including the interior)
+    // and has been removed. rain_intensity / fog_density are retained in the push
+    // block for compatibility but no longer drive a composite-stage veil.
 
     // AgX tone mapping (HDR → LDR)
     vec3 mapped = AgX(hdr);

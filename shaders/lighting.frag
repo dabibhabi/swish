@@ -40,6 +40,12 @@ layout(location = 0) out vec4 outColor;
 
 const float PI = 3.14159265359;
 
+// Depth-resolved rain fog (R-P1-1). kFogColor = cool overcast airlight; kFogDist63
+// = distance (WU; 1 m = 1000 WU) at which fog reaches ~63% at full wetness. Large
+// enough that the near cabin (~1000 WU away) is essentially fog-free.
+const vec3  kFogColor   = vec3(0.52, 0.57, 0.63);
+const float kFogDist63  = 150000.0;
+
 // ── Reconstruct world position from depth (rind pattern) ──────────
 // `depth` is the raw Vulkan depth-buffer value in [0,1]. pc.invProj is the
 // inverse of the same [0,1] clip-space projection (GLM_FORCE_DEPTH_ZERO_TO_ONE),
@@ -175,8 +181,18 @@ void main() {
         float dist    = length(toLight);
         vec3  L_pt    = toLight / max(dist, 0.001);
 
-        float t_att = clamp(1.0 - dist / lRad, 0.0, 1.0);
-        float att   = t_att * t_att;
+        // Windowed inverse-square falloff (G-P1-1). The old model was a windowed
+        // *linear* ramp; real irradiance falls as 1/d². Use the bounded inverse-
+        // square dRef²/(dRef²+d²) — 1 at the source, →0 with distance, no
+        // singularity — windowed (Karis) to reach exactly 0 at the lamp radius so
+        // each lamp stays local and the 32-light budget holds. dRef = 0.3·radius
+        // preserves the previously-tuned mid-range brightness while tightening the
+        // near-lamp pool; att stays in [0,1], so lamp intensity, the wet halo
+        // (att²), and bloom are all unchanged.
+        float dRef  = 0.3 * lRad;
+        float win   = clamp(1.0 - pow(dist / lRad, 4.0), 0.0, 1.0);
+        win         = win * win;
+        float att   = win * (dRef * dRef) / (dRef * dRef + dist * dist);
         if (att < 0.001) continue;
 
         vec3  H_pt     = normalize(V + L_pt);
@@ -214,6 +230,15 @@ void main() {
     vec3  Fgraze   = F0 + (1.0 - F0) * grazing;              // Schlick, → 1 at grazing
     vec3  wetSheen = Fgraze * skyTint * ambient * wetLocal;  // reflect sky, gated by exposure·wetness
     lit_color += wetSheen;
+
+    // ── Depth-resolved rain fog (R-P1-1, Koschmieder) ─────────────────
+    // Airlight accumulates with distance: L = L·e^(−βd) + L_air·(1−e^(−βd)).
+    // Near surfaces (the cabin!) stay crisp; only distance hazes out — unlike the
+    // old flat screen-wide blend that washed the whole frame. Gated by wetness so
+    // it fades in with rain. β expressed via a "63%-fog distance" for readability.
+    float fogDist  = length(fragWorldPos - camera.camPos.xyz);   // WU (1 m = 1000 WU)
+    float fogT     = 1.0 - exp(-fogDist * wetness / kFogDist63);  // 0 near .. →1 far
+    lit_color      = mix(lit_color, kFogColor, fogT);
 
     outColor = vec4(lit_color, 1.0);
 }

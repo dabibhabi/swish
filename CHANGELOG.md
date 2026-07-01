@@ -6,6 +6,35 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — Interior over-exposure, take 2: exclude the whole car + depth-resolved fog + inverse-square lights
+
+> The first pass (wettable mask keyed on the `is_interior` node-name tag) only caught the headliner/pillars — a mask-debug visualization (output `material.b` as colour) revealed the **steering wheel, dashboard, console, and door panels were still tagged rain-exposed** and getting the asphalt wet-road BRDF, so the cabin stayed washed out. Plus the **flat composite fog** greyed the whole frame (including the near cabin), which the user correctly fingered. Fixed both, and landed the two remaining Room-for-Improvement shader items.
+
+<details>
+<summary>Technical summary</summary>
+
+**1 — Whole car excluded from the wet-road BRDF (real interior fix).** The wet-road model (porosity darkening toward asphalt, normal-flatten, grazing sky sheen) is tuned for the horizontal road, not car paint or the cabin. Renamed `DrawCall::is_interior` → **`DrawCall::dry`** and set it for **every** car submesh (`CarEntity::get_draw_calls`), so `SceneGeometry` writes `material.y = 0` (non-wettable) for the whole car → `lighting.frag` `wetLocal = 0` → the cabin renders exactly as it does dry. Road/world geometry stays wettable. The cabin "wash" (`color.a` lift toward grey) is **disabled** (`washAmount = 0`) — the `dry` mask + depth fog make it unnecessary, and any lift re-introduced the over-exposure.
+
+**2 — Depth-resolved fog (R-P1-1, Koschmieder).** Replaced the flat screen-wide grey blend in `composite.frag` with per-fragment distance fog in `lighting.frag` (world position is already reconstructed there):
+
+$$ L(d) = L_\text{scene}\,e^{-\beta d} + L_\text{air}\,\big(1 - e^{-\beta d}\big),\qquad \text{fogT} = 1 - e^{-d\,\cdot\,\text{wetness}/\text{kFogDist63}} $$
+
+with `kFogDist63 = 150000` WU (≈150 m to 63% at full rain). The near cabin (~1000 WU away) is essentially fog-free while distance hazes out — so the interior stays crisp and the road correctly fades with depth. Sky keeps its existing overcast treatment (handled in the sky branch).
+
+**3 — Windowed inverse-square light falloff (G-P1-1).** Replaced the windowed *linear* lamp falloff with the bounded inverse-square `dRef²/(dRef²+d²)` (windowed to 0 at the lamp radius), `dRef = 0.3·radius`. `att` stays in `[0,1]`, so lamp intensity, the wet halo (`att²`), and bloom are unchanged; near-lamp pools tighten and distance falloff is physical. (Night-scene brightness fine-tuning is a follow-up — the current scene is overcast-daytime, where lamps are minor.)
+
+| File | Change |
+| --- | --- |
+| [src/scene/SceneTypes.h](src/scene/SceneTypes.h) | `DrawCall::is_interior` → `dry` |
+| [src/scene/Entity/CarEntity.cpp](src/scene/Entity/CarEntity.cpp) | `dc.dry = true` for all car submeshes; `washAmount = 0` |
+| [src/renderer/SceneGeometry/SceneGeometry.cpp](src/renderer/SceneGeometry/SceneGeometry.cpp) | `material.y = dc.dry ? 0 : 1` |
+| [shaders/lighting.frag](shaders/lighting.frag) | depth-resolved fog + `kFogColor`/`kFogDist63`; windowed inverse-square falloff |
+| [shaders/composite.frag](shaders/composite.frag) | removed the flat screen-wide fog blend |
+
+Verified: clean build; `ctest` 52/52; validation-clean run; a mask-debug pass confirmed the whole car is now `dry`; the rain-on cockpit renders dark + detailed (matching rain-off) with distance-resolved fog on the road.
+
+</details>
+
 ### 2026-07-01 — Persistent `VkPipelineCache` (Room-for-Improvement G-P2-1)
 
 > Every graphics pipeline was created with a `VK_NULL_HANDLE` cache, so all pipelines recompiled from SPIR-V on every launch **and** every swapchain recreation (window resize) — a launch hitch and a mid-drive stutter on resize. Added one process-wide `VkPipelineCache`, seeded from and saved to `config/pipeline_cache.bin`, so repeat launches/resizes reuse compiled pipelines.
