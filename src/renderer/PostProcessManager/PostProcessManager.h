@@ -60,6 +60,12 @@ public:
     VkDescriptorSetLayout get_lighting_tex_layout() const { return m_lightingTexLayout; }
     VkDescriptorSet       get_lighting_set(uint32_t frameIndex) const { return m_lightingSets[frameIndex]; }
 
+    // ── Shadow-map (single sun, 2048², depth-only) getters ─────────
+    VkRenderPass  get_shadow_render_pass() const { return m_shadowRenderPass; }
+    VkFramebuffer get_shadow_framebuffer(uint32_t frameIndex) const { return m_shadowFramebuffers[frameIndex]; }
+    VkDescriptorSetLayout get_shadow_tex_layout() const { return m_shadowTexLayout; }
+    VkDescriptorSet       get_shadow_set(uint32_t frameIndex) const { return m_shadowSets[frameIndex]; }
+
     // ── Render pass getters ──────────────────────────────────────
     VkRenderPass get_hdr_render_pass() const { return m_hdrRenderPass; }
     VkRenderPass get_bloom_render_pass() const { return m_bloomRenderPass; }
@@ -102,9 +108,23 @@ public:
     VkImage     get_ao_blur_image() const { return m_aoBlurImage.handle(); }
 
     // ── Extent getters ───────────────────────────────────────────
-    VkExtent2D get_full_extent() const { return m_fullExtent; }
+    // SSAA: the whole offscreen chain (G-buffer/HDR/lighting/bloom/AO and the
+    // forward rain/glass/windshield passes) renders at m_renderExtent = swap ×
+    // kRenderScale; only the composite pass outputs at the swapchain extent,
+    // downsampling the high-res HDR → supersample anti-aliasing.
+    //   get_full_extent()   == render extent (offscreen size; existing callers
+    //                          that mean "offscreen size" stay correct).
+    //   get_render_extent() == render extent (explicit alias).
+    //   get_swap_extent()   == swapchain extent (composite output size).
+    VkExtent2D get_full_extent() const { return m_renderExtent; }
+    VkExtent2D get_render_extent() const { return m_renderExtent; }
+    VkExtent2D get_swap_extent() const { return m_swapExtent; }
     VkExtent2D get_bloom_extent() const { return m_bloomExtent; }
     VkExtent2D get_ao_extent() const { return m_aoExtent; }
+
+    // Internal supersampling factor. ~kRenderScale² the pixels/VRAM
+    // (1.5² = 2.25×). Tunable; clamped per-device to maxImageDimension2D.
+    static constexpr float kRenderScale = 1.5f;
 
 private:
     VkDevice         m_device         = VK_NULL_HANDLE;
@@ -113,9 +133,13 @@ private:
     VkCommandPool    m_commandPool    = VK_NULL_HANDLE;
     VkQueue          m_graphicsQueue  = VK_NULL_HANDLE;
 
-    VkExtent2D m_fullExtent  = {};
-    VkExtent2D m_bloomExtent = {};
-    VkExtent2D m_aoExtent    = {};
+    // SSAA extents: m_renderExtent (== swap × kRenderScale, clamped to
+    // maxImageDimension2D) sizes every offscreen image/FB; m_swapExtent sizes
+    // only the composite framebuffers (swapchain images) + composite viewport.
+    VkExtent2D m_renderExtent = {};
+    VkExtent2D m_swapExtent   = {};
+    VkExtent2D m_bloomExtent  = {};  // m_renderExtent / 4
+    VkExtent2D m_aoExtent     = {};  // m_renderExtent / 2
 
     // ── G-Buffer (per frame-in-flight) ─────────────────────────────
     VkRenderPass                             m_gbufferRenderPass = VK_NULL_HANDLE;
@@ -136,6 +160,20 @@ private:
     std::array<VkFramebuffer, PP_MAX_FRAMES>   m_lightingFramebuffers{};
     VkDescriptorSetLayout                      m_lightingTexLayout = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, PP_MAX_FRAMES> m_lightingSets{};
+
+    // ── Sun shadow map (single, non-cascaded) ────────────────────
+    // Fixed 2048² depth-only target rendered from the sun POV each frame, then
+    // sampled by lighting.frag (set 2) with a hardware-PCF compare sampler.
+    // NOT tied to swapchain extent, but created/destroyed in the normal flow.
+    static constexpr uint32_t kShadowDim = 2048;
+
+    VkRenderPass                               m_shadowRenderPass = VK_NULL_HANDLE;
+    std::array<GpuImage, PP_MAX_FRAMES>        m_shadowImages{};
+    std::array<VkImageView, PP_MAX_FRAMES>     m_shadowViews{};
+    std::array<VkFramebuffer, PP_MAX_FRAMES>   m_shadowFramebuffers{};
+    VkSampler                                  m_shadowSampler = VK_NULL_HANDLE;  // compare sampler (hardware PCF)
+    VkDescriptorSetLayout                      m_shadowTexLayout = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, PP_MAX_FRAMES> m_shadowSets{};
 
     // ── Render passes ────────────────────────────────────────────
     VkRenderPass m_hdrRenderPass       = VK_NULL_HANDLE;
@@ -212,6 +250,10 @@ private:
     void destroyDescriptors();
 
     VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
+
+    // Scale a swapchain extent by kRenderScale for SSAA, clamping the factor
+    // down if width/height would exceed the device's maxImageDimension2D.
+    VkExtent2D scaleExtent(VkExtent2D swap) const;
 };
 
 }  // namespace swish

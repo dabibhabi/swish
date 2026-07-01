@@ -104,6 +104,11 @@ void Renderer::init(Window& window) {
                         m_device->getGraphicsQueue(), m_device->getAllocator(), m_swapchain->getExtent(),
                         m_swapchain->getImageFormat(), m_swapchain->getImageViews());
 
+    // SSAA: every offscreen target (incl. the HDR/depth views the forward passes
+    // wrap) is sized at the render extent = swap × kRenderScale, not the swap
+    // extent. Only the composite output stays swap-sized.
+    const VkExtent2D renderExtent = m_postProcess->get_render_extent();
+
     // ── Rain forward pass — after PostProcessManager (needs HDR + depth views) ─
     {
         std::array<VkImageView, MAX_FRAMES_IN_FLIGHT> hdrViews{}, depthViews{};
@@ -113,27 +118,35 @@ void Renderer::init(Window& window) {
         }
 
         m_rainSystem = std::make_unique<RainSystem>();
-        m_rainSystem->init(services(), hdrViews, depthViews, m_swapchain->getExtent(), m_cameraUniforms->get_layout());
+        m_rainSystem->init(services(), hdrViews, depthViews, renderExtent, m_cameraUniforms->get_layout());
 
         m_glassPass = std::make_unique<GlassPass>();
-        m_glassPass->init(services(), hdrViews, depthViews, m_swapchain->getExtent(), m_cameraUniforms->get_layout());
+        m_glassPass->init(services(), hdrViews, depthViews, renderExtent, m_cameraUniforms->get_layout());
 
         m_windshieldRainPass = std::make_unique<WindshieldRainPass>();
-        m_windshieldRainPass->init(services(), hdrViews, depthViews, m_swapchain->getExtent(),
-                                   m_cameraUniforms->get_layout());
+        m_windshieldRainPass->init(services(), hdrViews, depthViews, renderExtent, m_cameraUniforms->get_layout());
     }
 
+    // Sun shadow-map depth pass — fixed 2048² target owned by PostProcessManager.
+    m_depthOnlyPipeline.init(m_device->getDevice(), {
+                                                        m_postProcess->get_shadow_render_pass(),
+                                                        {2048, 2048},
+                                                    });
+
+    // Scene + lighting pipelines use dynamic viewport/scissor, so the init
+    // extent is cosmetic — pass the render extent (their offscreen target size).
     m_scenePipeline.init(m_device->getDevice(), {
                                                     m_cameraUniforms->get_layout(),
                                                     m_materialDescriptors->get_layout(),
                                                     m_postProcess->get_gbuffer_render_pass(),
-                                                    m_swapchain->getExtent(),
+                                                    renderExtent,
                                                 });
     m_deferredLighting.init(m_device->getDevice(), {
                                                        m_cameraUniforms->get_layout(),
                                                        m_postProcess->get_lighting_tex_layout(),
+                                                       m_postProcess->get_shadow_tex_layout(),
                                                        m_postProcess->get_lighting_render_pass(),
-                                                       m_swapchain->getExtent(),
+                                                       renderExtent,
                                                    });
 }
 
@@ -173,6 +186,7 @@ void Renderer::cleanup() {
     m_syncObjects->cleanup(m_device->getDevice());
     m_commandManager->cleanup(m_device->getDevice());
     m_deferredLighting.cleanup(m_device->getDevice());
+    m_depthOnlyPipeline.cleanup(m_device->getDevice());
     m_scenePipeline.cleanup(m_device->getDevice());
     m_swapchain->cleanup(m_device->getDevice());
     m_device->cleanup();
@@ -303,6 +317,25 @@ void Renderer::drawFrame(float deltaTime) {
 
     m_syncObjects->resetFence(m_device->getDevice(), m_currentFrame);
     m_commandManager->resetBuffer(m_currentFrame);
+
+    // ── Sun light-space matrix (shadow map), centered on the camera ────
+    // Orthographic sun projection framing a region around the camera. Units:
+    // 1 m = 1000 WU. halfExtent/depthRange are TUNABLE — they set the shadow
+    // coverage radius and the along-light depth range and want visual tuning.
+    // GLM_FORCE_DEPTH_ZERO_TO_ONE is defined project-wide, so glm::ortho yields
+    // [0,1] clip-Z (matches the depth pass VK_COMPARE_OP_LESS + shadow sampler);
+    // no Y-flip or Z remap beyond the shader's xy*0.5+0.5.
+    {
+        Vec3  center      = m_camera->get_position();
+        float halfExtent  = 45000.0f;   // ~45 m radius — TUNABLE
+        float depthRange  = 200000.0f;  // ~200 m along light dir — TUNABLE
+        Vec3  eye         = center - m_sunDir * depthRange * 0.5f;
+        Mat4  lightView   = glm::lookAt(eye, center, Vec3(0.0f, 1.0f, 0.0f));
+        Mat4  lightProj   = glm::ortho(-halfExtent, halfExtent, -halfExtent, halfExtent, 1.0f, depthRange);
+        m_lightVP         = lightProj * lightView;
+        m_cameraUniforms->set_light_matrix(m_lightVP);
+    }
+
     m_cameraUniforms->update(m_currentFrame, *m_camera);
 
     if (m_rainSystem) {
@@ -358,13 +391,20 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
     m_commandManager->beginRecording(frameIndex);
     VkCommandBuffer cmd = m_commandManager->getBuffer(frameIndex);
 
-    VkExtent2D fullExtent  = m_postProcess->get_full_extent();
-    VkExtent2D bloomExtent = m_postProcess->get_bloom_extent();
+    // SSAA: the whole offscreen chain runs at the render extent; only the
+    // composite pass outputs at the swap extent (downsampling the HDR).
+    VkExtent2D renderExtent = m_postProcess->get_render_extent();
+    VkExtent2D swapExtent   = m_postProcess->get_swap_extent();
+    VkExtent2D bloomExtent  = m_postProcess->get_bloom_extent();
 
-    recordGBufferPass(cmd, frameIndex, fullExtent);
+    // Sun shadow map first — depth-only from the sun POV, sampled by the
+    // lighting pass. Must precede the G-buffer/lighting passes.
+    recordShadowPass(cmd, frameIndex, m_lightVP);
+
+    recordGBufferPass(cmd, frameIndex, renderExtent);
     transitionGBufferForLighting(cmd, frameIndex);
 
-    recordLightingPass(cmd, frameIndex, fullExtent);
+    recordLightingPass(cmd, frameIndex, renderExtent);
 
     // Rain forward pass — loads HDR, renders streaks additively, no barrier needed between
     recordRainPass(cmd, frameIndex);
@@ -378,7 +418,7 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
     if (m_windshieldRainPass && !m_windshieldDrawCalls.empty() && m_dynamicGeometry.has_geometry()) {
         m_windshieldRainPass->record_wetness_update(cmd);
         m_windshieldRainPass->record_scene_snapshot(cmd, frameIndex, m_postProcess->get_hdr_image(frameIndex),
-                                                    fullExtent);
+                                                    renderExtent);
     }
 
     // Windshield rain — refractive water drops on the front windshield
@@ -403,9 +443,26 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
                                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-    recordCompositePass(cmd, frameIndex, imageIndex, fullExtent);
+    recordCompositePass(cmd, frameIndex, imageIndex, swapExtent);
 
     m_commandManager->endRecording(frameIndex);
+}
+
+// ── Pass 0: sun shadow map (depth-only, 2048²) ───────────────────────
+void Renderer::recordShadowPass(VkCommandBuffer cmd, uint32_t frameIndex, const Mat4& lightVP) {
+    const VkExtent2D shadowExtent{2048, 2048};
+
+    VkClearValue clear{};
+    clear.depthStencil = {1.0f, 0};  // far = 1.0 (LESS compare, [0,1] clip-Z)
+
+    ScopedRenderPass pass(cmd, m_postProcess->get_shadow_render_pass(),
+                          m_postProcess->get_shadow_framebuffer(frameIndex), shadowExtent, clear);
+
+    m_depthOnlyPipeline.bind(cmd, shadowExtent, lightVP);
+
+    // Render both static and dynamic geometry depth-only (no material binds).
+    m_sceneGeometry.record_depth(cmd, m_depthOnlyPipeline);
+    m_dynamicGeometry.record_depth(cmd, m_depthOnlyPipeline);
 }
 
 // ── Pass 1: scene → G-buffer ─────────────────────────────────────────
@@ -454,7 +511,8 @@ void Renderer::recordLightingPass(VkCommandBuffer cmd, uint32_t frameIndex, VkEx
     Mat4 invProj = glm::inverse(m_camera->get_projection_matrix());
 
     m_deferredLighting.bind_and_record(cmd, m_cameraUniforms->get_set(frameIndex),
-                                       m_postProcess->get_lighting_set(frameIndex), invView, invProj, extent);
+                                       m_postProcess->get_lighting_set(frameIndex),
+                                       m_postProcess->get_shadow_set(frameIndex), invView, invProj, extent);
 }
 
 // ── Rain forward pass — additively onto existing HDR ──────────────────
@@ -592,8 +650,11 @@ void Renderer::recreateSwapchain() {
     if (has_post_process()) {
         m_postProcess->recreate(m_swapchain->getExtent(), m_swapchain->getImageFormat(), m_swapchain->getImageViews());
 
-        m_deferredLighting.recreate(m_device->getDevice(), m_postProcess->get_lighting_render_pass(),
-                                    m_swapchain->getExtent());
+        // SSAA: the offscreen chain (incl. the forward passes' framebuffers over
+        // the HDR/depth views) is now sized at the recomputed render extent.
+        const VkExtent2D renderExtent = m_postProcess->get_render_extent();
+
+        m_deferredLighting.recreate(m_device->getDevice(), m_postProcess->get_lighting_render_pass(), renderExtent);
 
         if (m_rainSystem) {
             std::array<VkImageView, MAX_FRAMES_IN_FLIGHT> hdrViews{}, depthViews{};
@@ -601,13 +662,13 @@ void Renderer::recreateSwapchain() {
                 hdrViews[i]   = m_postProcess->get_hdr_view(i);
                 depthViews[i] = m_postProcess->get_hdr_depth_view(i);
             }
-            m_rainSystem->recreate(hdrViews, depthViews, m_swapchain->getExtent(), m_device->getDevice());
+            m_rainSystem->recreate(hdrViews, depthViews, renderExtent, m_device->getDevice());
 
             if (m_glassPass)
-                m_glassPass->recreate(hdrViews, depthViews, m_swapchain->getExtent(), m_device->getDevice());
+                m_glassPass->recreate(hdrViews, depthViews, renderExtent, m_device->getDevice());
 
             if (m_windshieldRainPass)
-                m_windshieldRainPass->recreate(hdrViews, depthViews, m_swapchain->getExtent(), m_device->getDevice());
+                m_windshieldRainPass->recreate(hdrViews, depthViews, renderExtent, m_device->getDevice());
         }
     }
 }

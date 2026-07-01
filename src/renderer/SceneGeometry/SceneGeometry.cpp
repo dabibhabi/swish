@@ -1,5 +1,6 @@
 #include "SceneGeometry.h"
 
+#include "../DepthOnlyPipeline/DepthOnlyPipeline.h"
 #include "../MaterialDescriptors/MaterialDescriptors.h"
 #include "../ScenePipeline/ScenePipeline.h"
 #include "../Vertex.h"
@@ -109,6 +110,23 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
         pushData.material.y = dc.dry ? 0.0f : 1.0f;
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(PushConstantData), &pushData);
+        vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, 0, 0);
+    }
+}
+
+void SceneGeometry::record_depth(VkCommandBuffer cmd, const DepthOnlyPipeline& pipe) const {
+    if (!has_geometry())
+        return;
+
+    VkBuffer     vbs[] = {m_vertexBuffer.handle()};
+    VkDeviceSize off[] = {0};
+    vkCmdBindVertexBuffers(cmd, 0, 1, vbs, off);
+    vkCmdBindIndexBuffer(cmd, m_indexBuffer.handle(), 0, VK_INDEX_TYPE_UINT32);
+
+    // Depth-only: no material or descriptor binds — just the per-object model
+    // matrix pushed into the depth pipeline's 128-byte block (bytes [64,128)).
+    for (const auto& dc : m_drawCalls) {
+        pipe.push_model(cmd, dc.model);
         vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, 0, 0);
     }
 }

@@ -2,6 +2,7 @@
 
 #include "../../scene/SceneTypes.h"
 #include "../DeferredLightingPipeline/DeferredLightingPipeline.h"
+#include "../DepthOnlyPipeline/DepthOnlyPipeline.h"
 #include "../SceneGeometry/SceneGeometry.h"
 #include "../ScenePipeline/ScenePipeline.h"
 #include "RendererServices.h"
@@ -141,6 +142,7 @@ private:
     // ── Pipelines ─────────────────────────────────────────────────
     ScenePipeline            m_scenePipeline;
     DeferredLightingPipeline m_deferredLighting;
+    DepthOnlyPipeline        m_depthOnlyPipeline;  // sun shadow-map depth pass
 
     // ── Scene geometry ────────────────────────────────────────────
     SceneGeometry m_sceneGeometry;
@@ -178,6 +180,7 @@ private:
     void recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex);
 
     // Per-pass command recording (called by recordCommandBuffer)
+    void recordShadowPass(VkCommandBuffer cmd, uint32_t frameIndex, const Mat4& lightVP);
     void recordGBufferPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExtent2D extent);
     void transitionGBufferForLighting(VkCommandBuffer cmd, uint32_t frameIndex);
     void recordLightingPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExtent2D extent);

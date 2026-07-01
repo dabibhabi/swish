@@ -24,7 +24,8 @@ void DeferredLightingPipeline::init(VkDevice device, const Config& cfg) {
     lightPC.offset     = 0;
     lightPC.size       = kLightingPushConstSize;
 
-    m_layout = Pipeline::createLayout(device, {cfg.cameraSetLayout, cfg.gbufferSetLayout}, {lightPC});
+    m_layout =
+        Pipeline::createLayout(device, {cfg.cameraSetLayout, cfg.gbufferSetLayout, cfg.shadowSetLayout}, {lightPC});
 
     buildPipeline(device, cfg.lightingRenderPass, cfg.extent);
 }
@@ -43,8 +44,8 @@ void DeferredLightingPipeline::cleanup(VkDevice device) {
 }
 
 void DeferredLightingPipeline::bind_and_record(VkCommandBuffer cmd, VkDescriptorSet cameraSet,
-                                               VkDescriptorSet gbufferSet, const Mat4& invView, const Mat4& invProj,
-                                               VkExtent2D extent) const {
+                                               VkDescriptorSet gbufferSet, VkDescriptorSet shadowSet,
+                                               const Mat4& invView, const Mat4& invProj, VkExtent2D extent) const {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 
     VkViewport vp{0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height), 0.0f, 1.0f};
@@ -54,6 +55,7 @@ void DeferredLightingPipeline::bind_and_record(VkCommandBuffer cmd, VkDescriptor
 
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout, 0, 1, &cameraSet, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout, 1, 1, &gbufferSet, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout, 2, 1, &shadowSet, 0, nullptr);
 
     LightingPushConstants pc{invView, invProj};
     vkCmdPushConstants(cmd, m_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, kLightingPushConstSize, &pc);

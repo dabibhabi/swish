@@ -12,6 +12,7 @@ namespace swish {
 
 class MaterialDescriptors;
 class ScenePipeline;
+class DepthOnlyPipeline;
 
 // Owns the scene's vertex + index buffers, their backing memory, and the
 // per-mesh draw-call list. Replaces the staging-buffer dance and the bind /
@@ -37,6 +38,12 @@ public:
     // bound the pipeline + set 0 (camera) via ScenePipeline::bind. No-op
     // if no geometry has been uploaded.
     void record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials) const;
+
+    // Depth-only pass (shadow map): bind vertex/index buffers, then for each
+    // draw call push only the per-object model matrix (no material/descriptor
+    // binds) and draw. Caller must have already bound the depth pipeline +
+    // pushed lightViewProj via DepthOnlyPipeline::bind. No-op if no geometry.
+    void record_depth(VkCommandBuffer cmd, const DepthOnlyPipeline& pipe) const;
 
     bool has_geometry() const { return static_cast<bool>(m_indexBuffer); }
 

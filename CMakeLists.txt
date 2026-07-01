@@ -97,6 +97,8 @@ set(SHADER_SOURCES
     ${SHADER_DIR}/composite.frag
     ${SHADER_DIR}/gbuffer.frag
     ${SHADER_DIR}/lighting.frag
+    ${SHADER_DIR}/depth_only.vert
+    ${SHADER_DIR}/depth_only.frag
     ${SHADER_DIR}/rain.vert
     ${SHADER_DIR}/rain.frag
     ${SHADER_DIR}/glass.vert
@@ -169,6 +171,7 @@ add_executable(swish
     src/renderer/SceneGeometry/SceneGeometry.cpp
     src/renderer/ScenePipeline/ScenePipeline.cpp
     src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.cpp
+    src/renderer/DepthOnlyPipeline/DepthOnlyPipeline.cpp
     src/renderer/RainSystem/RainSystem.cpp
     src/renderer/GlassPass/GlassPass.cpp
     src/renderer/WindshieldRainPass/WindshieldRainPass.cpp

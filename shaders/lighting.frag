@@ -32,6 +32,10 @@ layout(set = 1, binding = 1) uniform sampler2D gbNormal;
 layout(set = 1, binding = 2) uniform sampler2D gbMaterial;
 layout(set = 1, binding = 3) uniform sampler2D gbDepth;
 
+// ── Sun shadow map (set 2) — single non-cascaded. PLAIN sampler2D + manual
+//    compare: MoltenVK's portability subset has no comparison samplers. ──
+layout(set = 2, binding = 0) uniform sampler2D shadowMap;
+
 // ── Push constants: inverse matrices for position reconstruction ──
 layout(push_constant) uniform LightingPC {
     mat4 invView;
@@ -129,6 +133,31 @@ void main() {
     vec3 V = normalize(camera.camPos.xyz - fragWorldPos);
     float NdotV = max(dot(N, V), 0.001);
 
+    // ── Sun shadow visibility (3×3 PCF, manual depth compare) ──────────
+    // MoltenVK has no comparison samplers, so sample the depth as a plain texture
+    // and compare here. Project world pos into light space, map xy→[0,1]; a
+    // fragment is lit where its light-space depth is not beyond the stored
+    // occluder depth (+ bias to fight self-shadow acne). Off-map / beyond the far
+    // plane reads as fully lit. Applied to the sun term ONLY — ambient/sky/point
+    // lights still illuminate shadowed surfaces.
+    vec4  lp = camera.lightViewProj * vec4(fragWorldPos, 1.0);
+    vec3  sc = lp.xyz / lp.w;
+    sc.xy    = sc.xy * 0.5 + 0.5;
+    float vis = 0.0;
+    vec2  tx  = 1.0 / vec2(textureSize(shadowMap, 0));
+    const float kShadowBias = 0.0018;  // depth-compare bias (tunable; complements raster depth-bias)
+    for (int y = -1; y <= 1; ++y)
+        for (int x = -1; x <= 1; ++x) {
+            float occluder = texture(shadowMap, sc.xy + vec2(x, y) * tx).r;
+            vis += (sc.z - kShadowBias <= occluder) ? 1.0 : 0.0;
+        }
+    vis /= 9.0;
+    if (sc.z > 1.0 || any(lessThan(sc.xy, vec2(0.0))) || any(greaterThan(sc.xy, vec2(1.0))))
+        vis = 1.0;  // off-map = lit
+    // Shadow floor 0.25: ambient still lights shadowed areas, so shadows read as
+    // darkened rather than pitch black. Works in all weather (no clarity gate).
+    float sunShadow = mix(0.25, 1.0, vis);
+
     // ── PBR setup ─────────────────────────────────────────────────
     float a  = roughness * roughness;
     float a2 = a * a;
@@ -173,8 +202,30 @@ void main() {
     float skyFacing    = max(N.y, 0.0);              // 0 (down/side) .. 1 (up)
     const vec3 skyTint = vec3(0.55, 0.70, 1.00);     // cool overcast sky
     vec3  ambientIrr   = sun_radiance + skyFacing * skyTint * 0.5;
+    // Sun (direct) term is shadowed; ambient/sky fill is not (see sunShadow above).
+    vec3  sun_term  = (kD * albedo / PI + specular_sun) * NdotL * sun_radiance;
     vec3  lit_color = albedo * ambient * ambientIrr
-                   + (kD * albedo / PI + specular_sun) * NdotL * sun_radiance;
+                   + sun_term * sunShadow;
+
+    // ── Ambient sky reflection (IBL-lite — G-P1-2 / G-P0-3) ───────────
+    // No environment cubemap yet, so reflect the procedural sky AS the
+    // environment. This is the dominant "Blender gloss" cue on paint/glass:
+    // the surface mirrors the sky, Fresnel-weighted (grazing/rims brighten,
+    // head-on stays dark on a black dielectric) and faded out as roughness
+    // rises so dry rough asphalt doesn't become a mirror. The sky is low-
+    // frequency, so a single-sample reflection reads correctly at any gloss.
+    // Reuses the sky pixels' overcast greying so reflections match in rain.
+    vec3  R        = reflect(-V, N);
+    vec3  envColor = compute_sky_color(R);
+    envColor       = mix(envColor, envColor * (1.0 - wetness * 0.45), wetness * 0.9);
+    vec3  F_env    = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - NdotV, 5.0);
+    // Concentrate the reflection on genuinely glossy surfaces (car paint, wet road):
+    // a cubic gloss weight means matte cabin materials (high roughness) barely reflect,
+    // so the enclosed interior isn't frosted by the outdoor sky, while smooth paint and
+    // the near-mirror wet road still reflect strongly. The sky is low-frequency, so a
+    // single-sample reflection reads correctly without prefiltered roughness mips.
+    float envGloss = pow(1.0 - roughness, 3.0);
+    lit_color     += envColor * F_env * envGloss;
 
     // ── Point light accumulation ──────────────────────────────────
     for (uint i = 0u; i < lights.numPointLights.x; ++i) {

@@ -21,9 +21,13 @@ void PostProcessManager::init(VkDevice device, VkPhysicalDevice physicalDevice, 
     m_allocator      = allocator;
     m_commandPool    = commandPool;
     m_graphicsQueue  = graphicsQueue;
-    m_fullExtent     = extent;
-    m_bloomExtent    = {extent.width / 4, extent.height / 4};
-    m_aoExtent       = {extent.width / 2, extent.height / 2};
+
+    // SSAA: `extent` is the SWAP extent (composite output). Every offscreen
+    // target renders at m_renderExtent = swap × kRenderScale (clamped).
+    m_swapExtent   = extent;
+    m_renderExtent = scaleExtent(extent);
+    m_bloomExtent  = {m_renderExtent.width / 4, m_renderExtent.height / 4};
+    m_aoExtent     = {m_renderExtent.width / 2, m_renderExtent.height / 2};
 
     createSampler();
     createRenderPasses(swapchainFormat);
@@ -44,7 +48,15 @@ void PostProcessManager::cleanup() {
         vkDestroySampler(m_device, m_sampler, nullptr);
         m_sampler = VK_NULL_HANDLE;
     }
+    if (m_shadowSampler != VK_NULL_HANDLE) {
+        vkDestroySampler(m_device, m_shadowSampler, nullptr);
+        m_shadowSampler = VK_NULL_HANDLE;
+    }
 
+    if (m_shadowRenderPass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(m_device, m_shadowRenderPass, nullptr);
+        m_shadowRenderPass = VK_NULL_HANDLE;
+    }
     if (m_gbufferRenderPass != VK_NULL_HANDLE)
         vkDestroyRenderPass(m_device, m_gbufferRenderPass, nullptr);
     if (m_lightingRenderPass != VK_NULL_HANDLE)
@@ -68,9 +80,11 @@ void PostProcessManager::recreate(VkExtent2D extent, VkFormat swapchainFormat,
     destroyFramebuffers();
     destroyImages();
 
-    m_fullExtent  = extent;
-    m_bloomExtent = {extent.width / 4, extent.height / 4};
-    m_aoExtent    = {extent.width / 2, extent.height / 2};
+    // SSAA: recompute both extents from the new swap extent.
+    m_swapExtent   = extent;
+    m_renderExtent = scaleExtent(extent);
+    m_bloomExtent  = {m_renderExtent.width / 4, m_renderExtent.height / 4};
+    m_aoExtent     = {m_renderExtent.width / 2, m_renderExtent.height / 2};
 
     // Render passes don't change (format-dependent only)
     createImages();
@@ -93,6 +107,24 @@ void PostProcessManager::createSampler() {
     info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     VK_CHECK(vkCreateSampler(m_device, &info, nullptr, &m_sampler));
+
+    // Shadow-map sampler. MoltenVK's portability subset reports
+    // mutableComparisonSamplers = FALSE, so a compareEnable=TRUE (sampler2DShadow)
+    // sampler is rejected at descriptor-write time. We therefore sample the depth
+    // as a PLAIN texture and compare manually in lighting.frag (3×3 PCF there).
+    // NEAREST because we tap discrete texels ourselves (LINEAR would blend raw
+    // depths — meaningless before the compare, and often unsupported on depth
+    // formats). CLAMP_TO_BORDER + white border → off-map reads 1.0 (far = lit).
+    VkSamplerCreateInfo shadowInfo{};
+    shadowInfo.sType         = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    shadowInfo.magFilter     = VK_FILTER_NEAREST;
+    shadowInfo.minFilter     = VK_FILTER_NEAREST;
+    shadowInfo.addressModeU  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    shadowInfo.addressModeV  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    shadowInfo.addressModeW  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    shadowInfo.borderColor   = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;  // off-map = lit
+    shadowInfo.compareEnable = VK_FALSE;
+    VK_CHECK(vkCreateSampler(m_device, &shadowInfo, nullptr, &m_shadowSampler));
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -235,6 +267,62 @@ void PostProcessManager::createRenderPasses(VkFormat swapchainFormat) {
 
         VK_CHECK(vkCreateRenderPass(m_device, &rpInfo, nullptr, &m_gbufferRenderPass));
     }
+
+    // ── Shadow render pass: depth-only (no color attachments) ──────────
+    // One D32_SFLOAT attachment, cleared then stored, ending in
+    // DEPTH_STENCIL_READ_ONLY_OPTIMAL so lighting.frag can sample it. Two
+    // subpass dependencies bracket the pass so the depth WRITE (this pass)
+    // completes before the lighting pass's fragment-shader READ.
+    {
+        VkAttachmentDescription depthAtt{};
+        depthAtt.format         = VK_FORMAT_D32_SFLOAT;
+        depthAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
+        depthAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthAtt.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+        depthAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        depthAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAtt.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+        depthAtt.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        VkAttachmentReference depthRef{};
+        depthRef.attachment = 0;
+        depthRef.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription subpass{};
+        subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount    = 0;
+        subpass.pColorAttachments       = nullptr;
+        subpass.pDepthStencilAttachment = &depthRef;
+
+        std::array<VkSubpassDependency, 2> deps{};
+        // external → 0: prior fragment reads (last frame's sampling) finish before
+        // this frame writes depth.
+        deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
+        deps[0].dstSubpass    = 0;
+        deps[0].srcStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[0].dstStageMask  = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        deps[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        // 0 → external: depth write completes + layout transitions before the
+        // lighting pass samples the map in its fragment shader.
+        deps[1].srcSubpass    = 0;
+        deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+        deps[1].srcStageMask  = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        deps[1].dstStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        VkRenderPassCreateInfo rpInfo{};
+        rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        rpInfo.attachmentCount = 1;
+        rpInfo.pAttachments    = &depthAtt;
+        rpInfo.subpassCount    = 1;
+        rpInfo.pSubpasses      = &subpass;
+        rpInfo.dependencyCount = static_cast<uint32_t>(deps.size());
+        rpInfo.pDependencies   = deps.data();
+
+        VK_CHECK(vkCreateRenderPass(m_device, &rpInfo, nullptr, &m_shadowRenderPass));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -256,6 +344,35 @@ VkImageView PostProcessManager::createImageView(VkImage image, VkFormat format, 
     VkImageView view;
     VK_CHECK(vkCreateImageView(m_device, &info, nullptr, &view));
     return view;
+}
+
+// SSAA: render at swap × kRenderScale. If that would exceed the device's
+// maxImageDimension2D (MoltenVK/Metal caps this at 16384 on Apple silicon), the
+// scale is clamped DOWN so the larger of width/height fits exactly — never
+// letting an offscreen image exceed the limit.
+VkExtent2D PostProcessManager::scaleExtent(VkExtent2D swap) const {
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(m_physicalDevice, &props);
+    const uint32_t maxDim = props.limits.maxImageDimension2D;
+
+    float scale = kRenderScale;
+    // Largest scaled dimension must fit in maxDim; clamp the factor if not.
+    const uint32_t largestSwap = swap.width > swap.height ? swap.width : swap.height;
+    if (largestSwap > 0 && static_cast<float>(largestSwap) * scale > static_cast<float>(maxDim)) {
+        scale = static_cast<float>(maxDim) / static_cast<float>(largestSwap);
+    }
+    if (scale < 1.0f)  // never render below native (would upsample, not SSAA)
+        scale = 1.0f;
+
+    VkExtent2D out{};
+    out.width  = static_cast<uint32_t>(static_cast<float>(swap.width) * scale);
+    out.height = static_cast<uint32_t>(static_cast<float>(swap.height) * scale);
+    // Guard against zero (minimized window) exactly like the swap extent would be.
+    if (out.width == 0)
+        out.width = swap.width;
+    if (out.height == 0)
+        out.height = swap.height;
+    return out;
 }
 
 void PostProcessManager::createImages() {
@@ -280,16 +397,16 @@ void PostProcessManager::createImages() {
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
         // HDR needs TRANSFER_SRC so the windshield-rain pass can snapshot it
         // (blit/copy → refraction-source image) for scene-refraction drops.
-        makeColorImage(m_fullExtent.width, m_fullExtent.height, hdrFormat, m_hdrImages[i], m_hdrViews[i],
+        makeColorImage(m_renderExtent.width, m_renderExtent.height, hdrFormat, m_hdrImages[i], m_hdrViews[i],
                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-        makeDepthImage(m_fullExtent.width, m_fullExtent.height, m_hdrDepthImages[i], m_hdrDepthViews[i]);
+        makeDepthImage(m_renderExtent.width, m_renderExtent.height, m_hdrDepthImages[i], m_hdrDepthViews[i]);
 
         // G-Buffer images (per-frame)
-        makeColorImage(m_fullExtent.width, m_fullExtent.height, VK_FORMAT_R8G8B8A8_UNORM, m_gbAlbedoImages[i],
+        makeColorImage(m_renderExtent.width, m_renderExtent.height, VK_FORMAT_R8G8B8A8_UNORM, m_gbAlbedoImages[i],
                        m_gbAlbedoViews[i]);
-        makeColorImage(m_fullExtent.width, m_fullExtent.height, VK_FORMAT_R16G16B16A16_SFLOAT, m_gbNormalImages[i],
+        makeColorImage(m_renderExtent.width, m_renderExtent.height, VK_FORMAT_R16G16B16A16_SFLOAT, m_gbNormalImages[i],
                        m_gbNormalViews[i]);
-        makeColorImage(m_fullExtent.width, m_fullExtent.height, VK_FORMAT_R8G8B8A8_UNORM, m_gbMaterialImages[i],
+        makeColorImage(m_renderExtent.width, m_renderExtent.height, VK_FORMAT_R8G8B8A8_UNORM, m_gbMaterialImages[i],
                        m_gbMaterialViews[i]);
     }
 
@@ -301,6 +418,15 @@ void PostProcessManager::createImages() {
     // AO (1/2 res)
     makeColorImage(m_aoExtent.width, m_aoExtent.height, aoFormat, m_aoImage, m_aoView);
     makeColorImage(m_aoExtent.width, m_aoExtent.height, aoFormat, m_aoBlurImage, m_aoBlurView);
+
+    // Shadow maps (fixed 2048², D32_SFLOAT, per frame): DEPTH_STENCIL_ATTACHMENT
+    // (written by the depth pass) + SAMPLED (read by lighting.frag).
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
+        m_shadowImages[i] =
+            gpu::deviceLocalImage(m_allocator, kShadowDim, kShadowDim, VK_FORMAT_D32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
+                                  VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+        m_shadowViews[i] = createImageView(m_shadowImages[i].handle(), VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT);
+    }
 }
 
 void PostProcessManager::destroyImages() {
@@ -324,6 +450,8 @@ void PostProcessManager::destroyImages() {
     destroy(m_bloomBlurVImage, m_bloomBlurVView);
     destroy(m_aoImage, m_aoView);
     destroy(m_aoBlurImage, m_aoBlurView);
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
+        destroy(m_shadowImages[i], m_shadowViews[i]);
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -346,17 +474,17 @@ void PostProcessManager::createFramebuffers(const std::vector<VkImageView>& swap
         return fb;
     };
 
-    // G-Buffer framebuffers (3 color MRT + depth per frame)
+    // G-Buffer framebuffers (3 color MRT + depth per frame) — render extent (SSAA)
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
         m_gbufferFramebuffers[i] =
             makeFB(m_gbufferRenderPass,
-                   {m_gbAlbedoViews[i], m_gbNormalViews[i], m_gbMaterialViews[i], m_hdrDepthViews[i]}, m_fullExtent);
+                   {m_gbAlbedoViews[i], m_gbNormalViews[i], m_gbMaterialViews[i], m_hdrDepthViews[i]}, m_renderExtent);
     }
 
-    // HDR framebuffers (lighting output, color only per frame)
+    // HDR framebuffers (lighting output, color only per frame) — render extent (SSAA)
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
-        m_hdrFramebuffers[i]      = makeFB(m_hdrRenderPass, {m_hdrViews[i], m_hdrDepthViews[i]}, m_fullExtent);
-        m_lightingFramebuffers[i] = makeFB(m_lightingRenderPass, {m_hdrViews[i]}, m_fullExtent);
+        m_hdrFramebuffers[i]      = makeFB(m_hdrRenderPass, {m_hdrViews[i], m_hdrDepthViews[i]}, m_renderExtent);
+        m_lightingFramebuffers[i] = makeFB(m_lightingRenderPass, {m_hdrViews[i]}, m_renderExtent);
     }
 
     // Bloom framebuffers
@@ -368,10 +496,17 @@ void PostProcessManager::createFramebuffers(const std::vector<VkImageView>& swap
     m_aoFB     = makeFB(m_aoRenderPass, {m_aoView}, m_aoExtent);
     m_aoBlurFB = makeFB(m_aoRenderPass, {m_aoBlurView}, m_aoExtent);
 
-    // Composite framebuffers (one per swapchain image)
+    // Composite framebuffers (one per swapchain image) — SWAP extent, NOT the
+    // render extent: these wrap the swapchain images, and the composite pass
+    // downsamples the high-res HDR into them (the SSAA resolve).
     m_compositeFBs.resize(swapchainImageViews.size());
     for (size_t i = 0; i < swapchainImageViews.size(); i++) {
-        m_compositeFBs[i] = makeFB(m_compositeRenderPass, {swapchainImageViews[i]}, m_fullExtent);
+        m_compositeFBs[i] = makeFB(m_compositeRenderPass, {swapchainImageViews[i]}, m_swapExtent);
+    }
+
+    // Shadow framebuffers (fixed 2048², one depth attachment per frame)
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
+        m_shadowFramebuffers[i] = makeFB(m_shadowRenderPass, {m_shadowViews[i]}, {kShadowDim, kShadowDim});
     }
 }
 
@@ -393,6 +528,8 @@ void PostProcessManager::destroyFramebuffers() {
     destroy(m_bloomBlurVFB);
     destroy(m_aoFB);
     destroy(m_aoBlurFB);
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
+        destroy(m_shadowFramebuffers[i]);
     for (auto& fb : m_compositeFBs)
         destroy(fb);
     m_compositeFBs.clear();
@@ -460,6 +597,22 @@ void PostProcessManager::createDescriptors() {
         VK_CHECK(vkCreateDescriptorSetLayout(m_device, &info, nullptr, &m_lightingTexLayout));
     }
 
+    // Shadow descriptor layout: 1 combined_image_sampler (sampler2DShadow), fragment
+    // stage — set 2 in the lighting pipeline.
+    {
+        VkDescriptorSetLayoutBinding binding{};
+        binding.binding         = 0;
+        binding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        binding.descriptorCount = 1;
+        binding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo info{};
+        info.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        info.bindingCount = 1;
+        info.pBindings    = &binding;
+        VK_CHECK(vkCreateDescriptorSetLayout(m_device, &info, nullptr, &m_shadowTexLayout));
+    }
+
     // Lighting pipeline layout: set 0 = camera+lights (from Renderer), set 1 = G-buffer textures
     // Push constants: invView + invProj = 128 bytes
     VkPushConstantRange lightingPC{};
@@ -480,16 +633,17 @@ void PostProcessManager::createDescriptors() {
     // But we don't have the Renderer's set 0 layout here. So we'll create the lighting pipeline
     // layout in Renderer.cpp, not here. We'll just store the G-buffer descriptor set layout and sets.
 
-    // Descriptor pool — 5 single + 2 composite + 2 lighting = 9 sets, max 19 samplers
+    // Descriptor pool — 5 single + 2 composite + 2 lighting + 2 shadow = 11 sets,
+    // max 21 samplers (5×1 + 2×3 + 2×4 + 2×1).
     VkDescriptorPoolSize poolSize{};
     poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = 19;  // 5×1 + 2×3 + 2×4
+    poolSize.descriptorCount = 21;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes    = &poolSize;
-    poolInfo.maxSets       = 9;
+    poolInfo.maxSets       = 11;
     VK_CHECK(vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool));
 
     // Allocate single-texture sets
@@ -589,6 +743,32 @@ void PostProcessManager::createDescriptors() {
         }
         vkUpdateDescriptorSets(m_device, 4, gbWrites.data(), 0, nullptr);
     }
+
+    // Shadow sets: one sampler2DShadow per frame, bound with the compare sampler.
+    // Layout is DEPTH_STENCIL_READ_ONLY_OPTIMAL (the shadow render pass leaves the
+    // image in that layout on store).
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
+        VkDescriptorSetAllocateInfo ai{};
+        ai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        ai.descriptorPool     = m_descriptorPool;
+        ai.descriptorSetCount = 1;
+        ai.pSetLayouts        = &m_shadowTexLayout;
+        VK_CHECK(vkAllocateDescriptorSets(m_device, &ai, &m_shadowSets[i]));
+
+        VkDescriptorImageInfo shadowInfo{};
+        shadowInfo.sampler     = m_shadowSampler;
+        shadowInfo.imageView   = m_shadowViews[i];
+        shadowInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write{};
+        write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet          = m_shadowSets[i];
+        write.dstBinding      = 0;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.descriptorCount = 1;
+        write.pImageInfo      = &shadowInfo;
+        vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
+    }
 }
 
 void PostProcessManager::destroyDescriptors() {
@@ -615,6 +795,10 @@ void PostProcessManager::destroyDescriptors() {
     if (m_lightingTexLayout != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(m_device, m_lightingTexLayout, nullptr);
         m_lightingTexLayout = VK_NULL_HANDLE;
+    }
+    if (m_shadowTexLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(m_device, m_shadowTexLayout, nullptr);
+        m_shadowTexLayout = VK_NULL_HANDLE;
     }
 }
 
@@ -645,8 +829,10 @@ void PostProcessManager::createPipelines() {
     // (VUID-10069), and SSAO is bypassed for bring-up. The AO blur image is
     // primed to white by primeAOTexture() so the composite shader's `hdr *= ao`
     // is a no-op. Re-enable when SSAO is wired into the per-frame record path.
+    // Composite outputs at the swap extent (dynamic viewport/scissor make the
+    // extent cosmetic, but keep it consistent with the composite FB size).
     m_compositePipeline =
-        makeFullscreenPipeline("composite.frag", m_compositeRenderPass, m_compositeLayout, m_fullExtent);
+        makeFullscreenPipeline("composite.frag", m_compositeRenderPass, m_compositeLayout, m_swapExtent);
 }
 
 void PostProcessManager::destroyPipelines() {
