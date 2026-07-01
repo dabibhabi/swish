@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../scene/SceneTypes.h"
+#include "../GpuResource/GpuResource.h"
 #include "../Renderer/RendererServices.h"
 
 #include <vulkan/vulkan.h>
@@ -37,12 +38,12 @@ public:
     // if no geometry has been uploaded.
     void record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials) const;
 
-    bool has_geometry() const { return m_indexBuffer != VK_NULL_HANDLE; }
+    bool has_geometry() const { return static_cast<bool>(m_indexBuffer); }
 
     // Raw handle accessors for passes that share this geometry but use a
     // different pipeline (e.g. GlassPass, WindshieldRainPass).
-    VkBuffer get_vertex_buffer() const { return m_vertexBuffer; }
-    VkBuffer get_index_buffer() const { return m_indexBuffer; }
+    VkBuffer get_vertex_buffer() const { return m_vertexBuffer.handle(); }
+    VkBuffer get_index_buffer() const { return m_indexBuffer.handle(); }
 
     // Replace the stored draw-call list without re-uploading GPU buffers.
     // Used every frame for dynamic objects (e.g. the car) whose vertex data
@@ -50,10 +51,8 @@ public:
     void update_draw_calls(const std::vector<DrawCall>& draws) { m_drawCalls = draws; }
 
 private:
-    VkBuffer              m_vertexBuffer       = VK_NULL_HANDLE;
-    VkDeviceMemory        m_vertexBufferMemory = VK_NULL_HANDLE;
-    VkBuffer              m_indexBuffer        = VK_NULL_HANDLE;
-    VkDeviceMemory        m_indexBufferMemory  = VK_NULL_HANDLE;
+    GpuBuffer             m_vertexBuffer;  // RAII (VMA)
+    GpuBuffer             m_indexBuffer;   // RAII (VMA)
     std::vector<DrawCall> m_drawCalls;
 };
 

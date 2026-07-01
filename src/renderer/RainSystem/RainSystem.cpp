@@ -80,7 +80,7 @@ void RainSystem::update(uint32_t frameIndex, float deltaTime, float intensity, V
     RainUBO ubo{};
     ubo.windAndTime = Vec4(wind.x, wind.y, wind.z, m_time);
     ubo.params      = Vec4(m_intensity, streakLen, rainRate, kHalfExtent);
-    std::memcpy(m_rainUBOMapped[frameIndex], &ubo, sizeof(ubo));
+    std::memcpy(m_rainUBOs[frameIndex].mapped(), &ubo, sizeof(ubo));
 
     // Far parallax layer: shares the same wind, seeds, and rain rate, but a larger
     // volume + lower intensity + time phase render it as dimmer, farther streaks.
@@ -88,7 +88,7 @@ void RainSystem::update(uint32_t frameIndex, float deltaTime, float intensity, V
     farUbo.windAndTime = Vec4(wind.x, wind.y, wind.z, m_time + kFarTimePhase);
     farUbo.params = Vec4(m_intensity * kFarIntensityScale, streakLen * kFarStreakScale, rainRate,
                          kHalfExtent * kFarHalfExtentScale);
-    std::memcpy(m_rainUBOMappedFar[frameIndex], &farUbo, sizeof(farUbo));
+    std::memcpy(m_rainUBOsFar[frameIndex].mapped(), &farUbo, sizeof(farUbo));
 }
 
 void RainSystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const {
@@ -117,10 +117,10 @@ void RainSystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 
     // Binding 0: per-vertex quad corners
-    VkBuffer     vertBufs[] = {m_quadVBO, m_instanceBuffer};
+    VkBuffer     vertBufs[] = {m_quadVBO.handle(), m_instanceBuffer.handle()};
     VkDeviceSize offsets[]  = {0, 0};
     vkCmdBindVertexBuffers(cmd, 0, 2, vertBufs, offsets);
-    vkCmdBindIndexBuffer(cmd, m_quadIBO, 0, VK_INDEX_TYPE_UINT16);
+    vkCmdBindIndexBuffer(cmd, m_quadIBO.handle(), 0, VK_INDEX_TYPE_UINT16);
 
     // Set 1: rain UBO (set 0 = camera, already bound by Renderer before this call).
     // Two draws reuse the same pipeline/geometry/instance buffer; additive blending +
@@ -173,23 +173,11 @@ void RainSystem::cleanup(VkDevice device) {
 
     // Far descriptor sets need no explicit free — they are released when m_descPool
     // is destroyed above; m_rainLayout is shared with the near sets.
+    // RAII (VMA): reset frees each buffer + its sub-allocation (persistent maps
+    // are released by vmaDestroyBuffer — no manual vkUnmapMemory).
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        if (m_rainUBOs[i] != VK_NULL_HANDLE) {
-            vkUnmapMemory(device, m_rainUBOMemories[i]);
-            vkDestroyBuffer(device, m_rainUBOs[i], nullptr);
-            vkFreeMemory(device, m_rainUBOMemories[i], nullptr);
-            m_rainUBOs[i]        = VK_NULL_HANDLE;
-            m_rainUBOMemories[i] = VK_NULL_HANDLE;
-            m_rainUBOMapped[i]   = nullptr;
-        }
-        if (m_rainUBOsFar[i] != VK_NULL_HANDLE) {
-            vkUnmapMemory(device, m_rainUBOMemoriesFar[i]);
-            vkDestroyBuffer(device, m_rainUBOsFar[i], nullptr);
-            vkFreeMemory(device, m_rainUBOMemoriesFar[i], nullptr);
-            m_rainUBOsFar[i]        = VK_NULL_HANDLE;
-            m_rainUBOMemoriesFar[i] = VK_NULL_HANDLE;
-            m_rainUBOMappedFar[i]   = nullptr;
-        }
+        m_rainUBOs[i].reset();
+        m_rainUBOsFar[i].reset();
     }
 
     destroyFramebuffers(device);
@@ -199,24 +187,9 @@ void RainSystem::cleanup(VkDevice device) {
         m_renderPass = VK_NULL_HANDLE;
     }
 
-    if (m_instanceBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, m_instanceBuffer, nullptr);
-        vkFreeMemory(device, m_instanceBufferMemory, nullptr);
-        m_instanceBuffer       = VK_NULL_HANDLE;
-        m_instanceBufferMemory = VK_NULL_HANDLE;
-    }
-    if (m_quadIBO != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, m_quadIBO, nullptr);
-        vkFreeMemory(device, m_quadIBOMemory, nullptr);
-        m_quadIBO       = VK_NULL_HANDLE;
-        m_quadIBOMemory = VK_NULL_HANDLE;
-    }
-    if (m_quadVBO != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, m_quadVBO, nullptr);
-        vkFreeMemory(device, m_quadVBOMemory, nullptr);
-        m_quadVBO       = VK_NULL_HANDLE;
-        m_quadVBOMemory = VK_NULL_HANDLE;
-    }
+    m_instanceBuffer.reset();
+    m_quadIBO.reset();
+    m_quadVBO.reset();
 }
 
 // ── Private helpers ────────────────────────────────────────────────────
@@ -318,25 +291,15 @@ void RainSystem::createGeometry(const RendererServices& s) {
     }};
     const std::array<uint16_t, 6>       indices{0, 1, 2, 2, 3, 0};
 
-    const VkDeviceSize          vSize     = sizeof(verts);
-    const VkDeviceSize          iSize     = sizeof(indices);
-    const VkMemoryPropertyFlags hostFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    const VkDeviceSize vSize = sizeof(verts);
+    const VkDeviceSize iSize = sizeof(indices);
 
-    // VBO
-    ResourceManager::createBuffer(s.device, s.physicalDevice, vSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, hostFlags,
-                                  m_quadVBO, m_quadVBOMemory);
-    void* vMap;
-    VK_CHECK(vkMapMemory(s.device, m_quadVBOMemory, 0, vSize, 0, &vMap));
-    std::memcpy(vMap, verts.data(), vSize);
-    vkUnmapMemory(s.device, m_quadVBOMemory);
+    // Host-visible, persistently mapped (VMA) — written once here.
+    m_quadVBO = gpu::hostVisibleBuffer(s.allocator, vSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    std::memcpy(m_quadVBO.mapped(), verts.data(), vSize);
 
-    // IBO
-    ResourceManager::createBuffer(s.device, s.physicalDevice, iSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, hostFlags,
-                                  m_quadIBO, m_quadIBOMemory);
-    void* iMap;
-    VK_CHECK(vkMapMemory(s.device, m_quadIBOMemory, 0, iSize, 0, &iMap));
-    std::memcpy(iMap, indices.data(), iSize);
-    vkUnmapMemory(s.device, m_quadIBOMemory);
+    m_quadIBO = gpu::hostVisibleBuffer(s.allocator, iSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    std::memcpy(m_quadIBO.mapped(), indices.data(), iSize);
 }
 
 void RainSystem::createInstanceBuffer(const RendererServices& s) {
@@ -350,30 +313,19 @@ void RainSystem::createInstanceBuffer(const RendererServices& s) {
         inst.seed = Vec4(dist(rng), dist(rng), dist(rng), dist(rng));
     }
 
-    const VkDeviceSize          size      = sizeof(RainInstance) * kRainMaxDrops;
-    const VkMemoryPropertyFlags hostFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    const VkDeviceSize size = sizeof(RainInstance) * kRainMaxDrops;
 
-    ResourceManager::createBuffer(s.device, s.physicalDevice, size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, hostFlags,
-                                  m_instanceBuffer, m_instanceBufferMemory);
-    void* mapped;
-    VK_CHECK(vkMapMemory(s.device, m_instanceBufferMemory, 0, size, 0, &mapped));
-    std::memcpy(mapped, seeds.data(), size);
-    vkUnmapMemory(s.device, m_instanceBufferMemory);
+    m_instanceBuffer = gpu::hostVisibleBuffer(s.allocator, size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    std::memcpy(m_instanceBuffer.mapped(), seeds.data(), size);
 }
 
 void RainSystem::createRainUBOs(const RendererServices& s) {
-    const VkDeviceSize          uboSize   = sizeof(RainUBO);
-    const VkMemoryPropertyFlags hostFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    const VkDeviceSize uboSize = sizeof(RainUBO);
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        ResourceManager::createBuffer(s.device, s.physicalDevice, uboSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                      hostFlags, m_rainUBOs[i], m_rainUBOMemories[i]);
-        VK_CHECK(vkMapMemory(s.device, m_rainUBOMemories[i], 0, uboSize, 0, &m_rainUBOMapped[i]));
-
-        // Far parallax layer: identical buffer, separate per-frame UBO with scaled params.
-        ResourceManager::createBuffer(s.device, s.physicalDevice, uboSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                      hostFlags, m_rainUBOsFar[i], m_rainUBOMemoriesFar[i]);
-        VK_CHECK(vkMapMemory(s.device, m_rainUBOMemoriesFar[i], 0, uboSize, 0, &m_rainUBOMappedFar[i]));
+        // Host-visible, persistently mapped (VMA) — written every frame via .mapped().
+        m_rainUBOs[i]    = gpu::hostVisibleBuffer(s.allocator, uboSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        m_rainUBOsFar[i] = gpu::hostVisibleBuffer(s.allocator, uboSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     }
 }
 
@@ -421,8 +373,8 @@ void RainSystem::createDescriptors(VkDevice device, VkDescriptorSetLayout camera
     // VkDescriptorBufferInfo must outlive its vkUpdateDescriptorSets call, so
     // keep both alive in this iteration and submit them as a 2-element batch.
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        VkDescriptorBufferInfo bufInfo{m_rainUBOs[i], 0, sizeof(RainUBO)};
-        VkDescriptorBufferInfo bufInfoFar{m_rainUBOsFar[i], 0, sizeof(RainUBO)};
+        VkDescriptorBufferInfo bufInfo{m_rainUBOs[i].handle(), 0, sizeof(RainUBO)};
+        VkDescriptorBufferInfo bufInfoFar{m_rainUBOsFar[i].handle(), 0, sizeof(RainUBO)};
 
         VkWriteDescriptorSet writes[2]{};
         writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;

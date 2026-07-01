@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../utils/Types.h"
+#include "../GpuResource/GpuResource.h"
 
 #include <vulkan/vulkan.h>
 
@@ -80,24 +81,17 @@ private:
     void createPipeline(VkDevice device, VkDescriptorSetLayout cameraSetLayout);
 
     // ── Static geometry ────────────────────────────────────────────
-    VkBuffer       m_quadVBO       = VK_NULL_HANDLE;
-    VkDeviceMemory m_quadVBOMemory = VK_NULL_HANDLE;
-    VkBuffer       m_quadIBO       = VK_NULL_HANDLE;
-    VkDeviceMemory m_quadIBOMemory = VK_NULL_HANDLE;
+    GpuBuffer m_quadVBO;  // RAII (VMA), host-visible
+    GpuBuffer m_quadIBO;
 
     // ── Instance buffer (static seeds, never updated after init) ──
-    VkBuffer       m_instanceBuffer       = VK_NULL_HANDLE;
-    VkDeviceMemory m_instanceBufferMemory = VK_NULL_HANDLE;
+    GpuBuffer m_instanceBuffer;  // RAII (VMA), host-visible; seeded once at init
 
     // ── Per-frame rain UBOs ────────────────────────────────────────
-    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT>       m_rainUBOs{};
-    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_rainUBOMemories{};
-    std::array<void*, MAX_FRAMES_IN_FLIGHT>          m_rainUBOMapped{};
+    std::array<GpuBuffer, MAX_FRAMES_IN_FLIGHT> m_rainUBOs{};  // RAII, persistently mapped
 
     // ── Per-frame "far" parallax rain UBOs (scaled params, dimmer/farther) ──
-    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT>       m_rainUBOsFar{};
-    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> m_rainUBOMemoriesFar{};
-    std::array<void*, MAX_FRAMES_IN_FLIGHT>          m_rainUBOMappedFar{};
+    std::array<GpuBuffer, MAX_FRAMES_IN_FLIGHT> m_rainUBOsFar{};  // RAII, persistently mapped
 
     // ── Render pass + per-frame framebuffers ───────────────────────
     VkRenderPass                                    m_renderPass = VK_NULL_HANDLE;

@@ -1,7 +1,6 @@
 #include "SceneGeometry.h"
 
 #include "../MaterialDescriptors/MaterialDescriptors.h"
-#include "../ResourceManager/ResourceManager.h"
 #include "../ScenePipeline/ScenePipeline.h"
 #include "../Vertex.h"
 
@@ -11,64 +10,22 @@ namespace swish {
 
 namespace {
 
-// Boilerplate for a one-shot HOST_VISIBLE staging buffer that copies `srcBytes`
-// of `src` data into a freshly-allocated DEVICE_LOCAL `dst` buffer of `usage`.
-// Caller owns `dst` / `dstMem` and must destroy them. The staging buffer is
-// fully cleaned up here.
-void uploadViaStaging(const RendererServices& s, VkBufferUsageFlags dstUsage, VkDeviceSize bufferSize, const void* src,
-                      VkBuffer& dst, VkDeviceMemory& dstMem) {
-    VkBuffer       stagingBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
-    ResourceManager::createBuffer(s.device, s.physicalDevice, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                  stagingBuffer, stagingMemory);
-
-    void* mapped = nullptr;
-    vkMapMemory(s.device, stagingMemory, 0, bufferSize, 0, &mapped);
-    std::memcpy(mapped, src, static_cast<size_t>(bufferSize));
-    vkUnmapMemory(s.device, stagingMemory);
-
-    ResourceManager::createBuffer(s.device, s.physicalDevice, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | dstUsage,
-                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, dst, dstMem);
-
-    ResourceManager::copyBuffer(s.device, s.commandPool, s.graphicsQueue, stagingBuffer, dst, bufferSize);
-
-    vkDestroyBuffer(s.device, stagingBuffer, nullptr);
-    vkFreeMemory(s.device, stagingMemory, nullptr);
-}
-
-// Uploads two buffers (vertex + index) through staging in a single command
-// buffer submission — one vkQueueSubmit + wait instead of two.
+// Uploads vertex + index data through host-visible staging buffers into two
+// device-local buffers, with a single command-buffer submission (one
+// vkQueueSubmit + wait). All four buffers are VMA-allocated; the two staging
+// buffers free themselves (RAII) when this function returns.
 void uploadTwoViaStaging(const RendererServices& s, VkBufferUsageFlags vertUsage, VkDeviceSize vertSize,
-                         const void* vertSrc, VkBuffer& vertDst, VkDeviceMemory& vertDstMem,
-                         VkBufferUsageFlags idxUsage, VkDeviceSize idxSize, const void* idxSrc, VkBuffer& idxDst,
-                         VkDeviceMemory& idxDstMem) {
-    // Create and fill vertex staging buffer
-    VkBuffer       vertStaging    = VK_NULL_HANDLE;
-    VkDeviceMemory vertStagingMem = VK_NULL_HANDLE;
-    ResourceManager::createBuffer(s.device, s.physicalDevice, vertSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                  vertStaging, vertStagingMem);
-    void* mapped = nullptr;
-    vkMapMemory(s.device, vertStagingMem, 0, vertSize, 0, &mapped);
-    std::memcpy(mapped, vertSrc, static_cast<size_t>(vertSize));
-    vkUnmapMemory(s.device, vertStagingMem);
+                         const void* vertSrc, GpuBuffer& vertDst, VkBufferUsageFlags idxUsage, VkDeviceSize idxSize,
+                         const void* idxSrc, GpuBuffer& idxDst) {
+    GpuBuffer vertStaging = gpu::hostVisibleBuffer(s.allocator, vertSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+    std::memcpy(vertStaging.mapped(), vertSrc, static_cast<size_t>(vertSize));
 
-    // Create and fill index staging buffer
-    VkBuffer       idxStaging    = VK_NULL_HANDLE;
-    VkDeviceMemory idxStagingMem = VK_NULL_HANDLE;
-    ResourceManager::createBuffer(s.device, s.physicalDevice, idxSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                  idxStaging, idxStagingMem);
-    vkMapMemory(s.device, idxStagingMem, 0, idxSize, 0, &mapped);
-    std::memcpy(mapped, idxSrc, static_cast<size_t>(idxSize));
-    vkUnmapMemory(s.device, idxStagingMem);
+    GpuBuffer idxStaging = gpu::hostVisibleBuffer(s.allocator, idxSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+    std::memcpy(idxStaging.mapped(), idxSrc, static_cast<size_t>(idxSize));
 
-    // Create destination (device-local) buffers
-    ResourceManager::createBuffer(s.device, s.physicalDevice, vertSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | vertUsage,
-                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertDst, vertDstMem);
-    ResourceManager::createBuffer(s.device, s.physicalDevice, idxSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | idxUsage,
-                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, idxDst, idxDstMem);
+    // Device-local destinations (out-params).
+    vertDst = gpu::deviceLocalBuffer(s.allocator, vertSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | vertUsage);
+    idxDst  = gpu::deviceLocalBuffer(s.allocator, idxSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | idxUsage);
 
     // Record both copies into one command buffer and submit once
     VkCommandBufferAllocateInfo allocInfo{};
@@ -86,10 +43,10 @@ void uploadTwoViaStaging(const RendererServices& s, VkBufferUsageFlags vertUsage
     vkBeginCommandBuffer(cmd, &beginInfo);
 
     VkBufferCopy vertRegion{0, 0, vertSize};
-    vkCmdCopyBuffer(cmd, vertStaging, vertDst, 1, &vertRegion);
+    vkCmdCopyBuffer(cmd, vertStaging.handle(), vertDst.handle(), 1, &vertRegion);
 
     VkBufferCopy idxRegion{0, 0, idxSize};
-    vkCmdCopyBuffer(cmd, idxStaging, idxDst, 1, &idxRegion);
+    vkCmdCopyBuffer(cmd, idxStaging.handle(), idxDst.handle(), 1, &idxRegion);
 
     vkEndCommandBuffer(cmd);
 
@@ -101,34 +58,15 @@ void uploadTwoViaStaging(const RendererServices& s, VkBufferUsageFlags vertUsage
     vkQueueWaitIdle(s.graphicsQueue);
 
     vkFreeCommandBuffers(s.device, s.commandPool, 1, &cmd);
-
-    vkDestroyBuffer(s.device, vertStaging, nullptr);
-    vkFreeMemory(s.device, vertStagingMem, nullptr);
-    vkDestroyBuffer(s.device, idxStaging, nullptr);
-    vkFreeMemory(s.device, idxStagingMem, nullptr);
+    // vertStaging / idxStaging free themselves (RAII) on return.
 }
 
 }  // namespace
 
-void SceneGeometry::cleanup(VkDevice device) {
+void SceneGeometry::cleanup(VkDevice /*device*/) {
     m_drawCalls.clear();
-
-    if (m_indexBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, m_indexBuffer, nullptr);
-        m_indexBuffer = VK_NULL_HANDLE;
-    }
-    if (m_indexBufferMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(device, m_indexBufferMemory, nullptr);
-        m_indexBufferMemory = VK_NULL_HANDLE;
-    }
-    if (m_vertexBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, m_vertexBuffer, nullptr);
-        m_vertexBuffer = VK_NULL_HANDLE;
-    }
-    if (m_vertexBufferMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(device, m_vertexBufferMemory, nullptr);
-        m_vertexBufferMemory = VK_NULL_HANDLE;
-    }
+    m_indexBuffer.reset();   // RAII (VMA): frees buffer + sub-allocation
+    m_vertexBuffer.reset();
 }
 
 void SceneGeometry::upload(const RendererServices& s, const MeshData& mesh, const std::vector<DrawCall>& draws) {
@@ -139,9 +77,8 @@ void SceneGeometry::upload(const RendererServices& s, const MeshData& mesh, cons
         return;
 
     uploadTwoViaStaging(s, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, sizeof(Vertex) * mesh.getVertices().size(),
-                        mesh.getVertices().data(), m_vertexBuffer, m_vertexBufferMemory,
-                        VK_BUFFER_USAGE_INDEX_BUFFER_BIT, sizeof(uint32_t) * mesh.getIndices().size(),
-                        mesh.getIndices().data(), m_indexBuffer, m_indexBufferMemory);
+                        mesh.getVertices().data(), m_vertexBuffer, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                        sizeof(uint32_t) * mesh.getIndices().size(), mesh.getIndices().data(), m_indexBuffer);
 }
 
 void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline,
@@ -149,10 +86,10 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
     if (!has_geometry())
         return;
 
-    VkBuffer     vbs[] = {m_vertexBuffer};
+    VkBuffer     vbs[] = {m_vertexBuffer.handle()};
     VkDeviceSize off[] = {0};
     vkCmdBindVertexBuffers(cmd, 0, 1, vbs, off);
-    vkCmdBindIndexBuffer(cmd, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(cmd, m_indexBuffer.handle(), 0, VK_INDEX_TYPE_UINT32);
 
     VkPipelineLayout layout = pipeline.get_layout();
 
