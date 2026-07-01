@@ -6,6 +6,25 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — Removed dead code: unused `RenderPass` class + GLAD (Room-for-Improvement S-P1-1)
+
+> The `RenderPass` class (`src/renderer/RenderPass/`) was fully implemented but **never `#include`d** — real passes build their `VkRenderPass` inline in each subsystem. GLAD (`src/glad.c` + `include/glad/`, an OpenGL loader ~large TU) was compiled and linked but **never included** by any source — GLFW is created with `GLFW_NO_API` (pure Vulkan). Both were onboarding/maintenance tax and, for GLAD, implied a non-existent GL path. Deleted.
+
+<details>
+<summary>Technical summary</summary>
+
+Verified unused before removal: `grep` found zero `#include` of `RenderPass.h` and zero `<glad/gl.h>` includes across `src/`. `stb_image.h` (still used) resolves via the `swish` target's own `${CMAKE_SOURCE_DIR}/include` (CMakeLists ~L184), not GLAD's `PUBLIC` include dir, so removing the `glad` target doesn't affect it.
+
+| File | Change |
+| --- | --- |
+| `src/renderer/RenderPass/RenderPass.{h,cpp}` | deleted (unused class) |
+| `src/glad.c`, `include/glad/gl.h`, `include/KHR/khrplatform.h` | deleted (GLAD, unused) |
+| [CMakeLists.txt](CMakeLists.txt) | removed the `glad` static lib + its include dir, the `RenderPass.cpp` source entry, and `glad` from `target_link_libraries` |
+
+Verified: reconfigure + clean build; `ctest` 52/52.
+
+</details>
+
 ### 2026-07-01 — Fixed rain-on interior over-exposure (wettable mask, cabin excluded from wet effects)
 
 > With rain on, the enclosed car cabin washed out to a milky, over-exposed light grey. The `wetness` scalar was applied globally in the deferred pass, so wet-weather effects meant for rain-exposed surfaces (road, body) also hit the dry interior: the rain-driven "cabin wash" lifted interior albedo toward `0.55`, and the grazing-Fresnel wet sheen added a cool additive veil. Introduced a per-fragment **wettable mask** so the cabin is excluded from all wet effects, and dialled the cabin wash down to a faint cue.

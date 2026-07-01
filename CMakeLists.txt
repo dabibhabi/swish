@@ -78,10 +78,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(VulkanMemoryAllocator)
 
-# --- GLAD (compiled as part of the project) ---
-add_library(glad STATIC src/glad.c)
-target_include_directories(glad PUBLIC ${CMAKE_SOURCE_DIR}/include)
-
 # --- Shader compilation ---
 find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/bin)
 if(NOT GLSLC)
@@ -153,7 +149,6 @@ add_executable(swish
     src/renderer/Renderer/Renderer.cpp
     src/renderer/Pipeline/Device/Device.cpp
     src/renderer/Swapchain/Swapchain.cpp
-    src/renderer/RenderPass/RenderPass.cpp
     src/renderer/CommandManager/CommandManager.cpp
     src/renderer/SyncObjects/SyncObjects.cpp
     src/renderer/ResourceManager/ResourceManager.cpp
@@ -207,7 +202,6 @@ target_compile_options(swish PRIVATE
 )
 
 target_link_libraries(swish PRIVATE
-    glad
     glfw
     glm::glm
     Vulkan::Vulkan
