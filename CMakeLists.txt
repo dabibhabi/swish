@@ -70,6 +70,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tinygltf)
 
+# --- VulkanMemoryAllocator (header-only; single sub-allocator, RAII handles) ---
+FetchContent_Declare(
+    VulkanMemoryAllocator
+    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+    GIT_TAG        v3.1.0
+)
+FetchContent_MakeAvailable(VulkanMemoryAllocator)
+
 # --- GLAD (compiled as part of the project) ---
 add_library(glad STATIC src/glad.c)
 target_include_directories(glad PUBLIC ${CMAKE_SOURCE_DIR}/include)
@@ -149,6 +157,7 @@ add_executable(swish
     src/renderer/CommandManager/CommandManager.cpp
     src/renderer/SyncObjects/SyncObjects.cpp
     src/renderer/ResourceManager/ResourceManager.cpp
+    src/renderer/VmaUsage.cpp
     src/renderer/Pipeline/Pipeline.cpp
     src/utils/FileIO/FileIO.cpp
     src/scene/Camera/Camera.cpp
@@ -173,7 +182,10 @@ add_executable(swish
 
 add_dependencies(swish shaders bake_configs)
 
-target_include_directories(swish PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(swish PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${vulkanmemoryallocator_SOURCE_DIR}/include   # vk_mem_alloc.h
+)
 
 target_compile_definitions(swish PRIVATE
     # Vulkan clip space uses [0,1] depth, not OpenGL's [-1,1]. This makes

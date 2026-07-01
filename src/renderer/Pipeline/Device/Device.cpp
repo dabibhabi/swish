@@ -1,5 +1,7 @@
 #include "Device.h"
 
+#include <vk_mem_alloc.h>
+
 #include <cstring>
 #include <set>
 #include <stdexcept>
@@ -76,9 +78,26 @@ void Device::init(VkInstance instance, VkSurfaceKHR surface) {
 
     vkGetDeviceQueue(m_device, m_queueFamilies.graphicsFamily.value(), 0, &m_graphicsQueue);
     vkGetDeviceQueue(m_device, m_queueFamilies.presentFamily.value(), 0, &m_presentQueue);
+
+    // Create the single VMA allocator for the whole renderer. Must match the
+    // instance's API version (VK_API_VERSION_1_3, see VulkanContext).
+    VmaAllocatorCreateInfo allocatorInfo{};
+    allocatorInfo.instance         = instance;
+    allocatorInfo.physicalDevice   = m_physicalDevice;
+    allocatorInfo.device           = m_device;
+    allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+    if (vmaCreateAllocator(&allocatorInfo, &m_allocator) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create VMA allocator!");
+    }
 }
 
 void Device::cleanup() {
+    // Destroy the allocator (and thus its pooled device memory) before the
+    // logical device it was created from.
+    if (m_allocator != nullptr) {
+        vmaDestroyAllocator(m_allocator);
+        m_allocator = nullptr;
+    }
     vkDestroyDevice(m_device, nullptr);
 }
 
