@@ -620,7 +620,10 @@ void Renderer::recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uin
 
     PostProcessParams pp{};
     pp.bloom_intensity = 0.3f;
-    pp.exposure        = 1.0f;
+    // Global exposure trim applied before AgX (composite.frag). The scene was
+    // running hot / over-exposed; pulled well below 1.0 now that sun shadows
+    // restore contrast. Tune to taste.
+    pp.exposure        = 0.45f;
     pp.rain_intensity  = m_rainSystem ? m_rainSystem->get_intensity() : 0.0f;
     pp.fog_density     = 0.04f;  // multiplied by rain_intensity in the shader
     vkCmdPushConstants(cmd, m_postProcess->get_composite_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
