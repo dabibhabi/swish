@@ -16,6 +16,7 @@ layout(set = 0, binding = 0) uniform CameraUBO {
 layout(push_constant) uniform PushConstants {
     mat4 model;
     vec4 color;
+    vec4 material;   // unused here; declared so vertex/fragment push blocks match
 } push;
 
 layout(location = 0) out vec3 fragNormal;

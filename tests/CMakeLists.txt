@@ -10,6 +10,7 @@ add_executable(swish_tests
     test_camera.cpp
     test_road_scene.cpp
     test_file_io.cpp
+    test_pbr.cpp
 
     ${CMAKE_SOURCE_DIR}/src/scene/Camera/Camera.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/RoadScene/RoadScene.cpp

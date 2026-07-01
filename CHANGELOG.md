@@ -6,6 +6,34 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-06-30 — Real per-material metalness (fix F0/metalness conflation) + hemispheric ambient (P0 #2, #3)
+
+> `gbuffer.frag` wrote the dielectric F0 constant `0.04` into the **metalness** channel, so every surface was locked to ~4% metal and no real metal (guardrails, trim) could exist. Now the G-buffer carries a real per-material metalness (dielectric = 0, `MAT_METAL` = 1) sourced from a push constant, with the `0.04` dielectric-F0 kept as a separate constant in `lighting.frag`. Ambient was also upgraded from a flat fill to an additive hemispheric sky term.
+
+<details>
+<summary>Technical summary</summary>
+
+**#2 Metalness vs F0.** `lighting.frag` already implemented the correct metallic workflow — `F0 = mix(dielectricF0, albedo, metallic)` with `dielectricF0 = mix(0.04, 0.06, wetness)` — so the only bug was the G-buffer's metalness source. Added a real per-material metalness to the push constant and wrote it to `outMaterial.r`:
+
+$$ F_0 = \mathrm{mix}(\,\mathrm{dielectricF0},\ \text{albedo},\ \text{metalness}\,),\qquad \text{metalness}\in\{0,1\}\ \text{(first pass)}. $$
+
+**MoltenVK push-constant alignment (found while implementing #2).** Growing `PushConstantData` from 80→84 bytes (a bare trailing `float`) rendered geometry black on MoltenVK: a push-constant block whose total size isn't a multiple of 16 is mis-mapped. Fixed by using a full `Vec4 material` (x = metalness), making the struct **96 bytes (16-aligned)**, and declaring the identical block in `basic.vert` + `gbuffer.frag`. Glass/windshield passes (which don't read metalness) size their range + push to the 80-byte model+color prefix via `kPushConstantModelColorSize`.
+
+**#3 Hemispheric ambient.** Replaced the flat `albedo · ambient · sunColor` fill with an **additive** hemispheric term: the flat fill is kept as a floor and a cool sky tint is *added* on up-facing surfaces, `ambientIrr = sunColor + max(N.y,0)·skyTint·0.5`. Additive-only by construction, so it can never darken a surface below the previous fill (an earlier subtractive hemispheric attempt crushed dark interior panels to black — avoided here). Full IBL remains P1.
+
+| File | Change |
+|---|---|
+| [src/scene/SceneTypes.h](src/scene/SceneTypes.h) | `PushConstantData` → 96 B (`Vec4 material`, x=metalness); `kPushConstantModelColorSize` |
+| [shaders/gbuffer.frag](shaders/gbuffer.frag) | write real metalness (`push.material.x`) to `outMaterial.r` |
+| [shaders/basic.vert](shaders/basic.vert) | declare matching 96-B push block |
+| [shaders/lighting.frag](shaders/lighting.frag) | additive hemispheric ambient |
+| [src/renderer/SceneGeometry/SceneGeometry.cpp](src/renderer/SceneGeometry/SceneGeometry.cpp) | `material.x = (MAT_METAL) ? 1 : 0` |
+| [src/renderer/GlassPass/GlassPass.cpp](src/renderer/GlassPass/GlassPass.cpp), [src/renderer/WindshieldRainPass/WindshieldRainPass.cpp](src/renderer/WindshieldRainPass/WindshieldRainPass.cpp) | 80-B model+color push range |
+| [tests/test_pbr.cpp](tests/test_pbr.cpp) | F0 endpoints + material→metalness mapping |
+
+Verified: `ctest` **39/39**; renderer screenshots confirmed the metalness path (metallic guardrails, no black) and the push-constant alignment fix. Final ambient tint not re-screenshotted (host screensaver activated), but the term is additive-only so it cannot regress the verified baseline.
+</details>
+
 ### 2026-06-30 — Fixed depth→world reconstruction: enforce Vulkan [0,1] clip-Z (P0 #1)
 
 > Defined `GLM_FORCE_DEPTH_ZERO_TO_ONE` on the `swish` and `swish_tests` targets. `glm::perspective` was emitting OpenGL `[-1,1]` clip-Z while the Vulkan depth buffer stores `[0,1]`, so the shader depth→world reconstruction (`lighting.frag`, `ssao.frag`) fed raw `[0,1]` depth into an inverse-projection built for `[-1,1]` — corrupting every reconstructed world position (and thus every light, specular highlight, and distance attenuation). This is the single highest-leverage correctness fix in the renderer.

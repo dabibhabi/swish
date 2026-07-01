@@ -139,10 +139,16 @@ void main() {
     // Energy conservation: diffuse reduces with Fresnel
     vec3 kD = (vec3(1.0) - F_sun) * (1.0 - metallic);
 
-    // Sun contribution
-    float ambient = camera.sunColor.a;
-    vec3 sun_radiance = camera.sunColor.rgb;
-    vec3 lit_color = albedo * ambient * sun_radiance
+    // ── Ambient: flat fill + hemispheric sky boost (P0 #3) ────────────
+    // The flat term is kept as a floor; a cool sky term is *added* on up-facing
+    // surfaces for directionality. Additive-only so it never darkens a surface
+    // below the previous fill (dark interior panels can't crush to black).
+    float ambient      = camera.sunColor.a;
+    vec3  sun_radiance = camera.sunColor.rgb;
+    float skyFacing    = max(N.y, 0.0);              // 0 (down/side) .. 1 (up)
+    const vec3 skyTint = vec3(0.55, 0.70, 1.00);     // cool overcast sky
+    vec3  ambientIrr   = sun_radiance + skyFacing * skyTint * 0.5;
+    vec3  lit_color = albedo * ambient * ambientIrr
                    + (kD * albedo / PI + specular_sun) * NdotL * sun_radiance;
 
     // ── Point light accumulation ──────────────────────────────────

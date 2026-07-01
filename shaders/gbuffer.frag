@@ -16,6 +16,7 @@ layout(set = 1, binding = 2) uniform sampler2D roughnessTex;
 layout(push_constant) uniform PushConstants {
     mat4 model;
     vec4 color;
+    vec4 material;   // x = real per-material metalness [0,1] (dielectric = 0)
 } push;
 
 // ── G-Buffer MRT outputs (3 color attachments) ──────────────────
@@ -84,5 +85,7 @@ void main() {
     // ── Write G-Buffer ────────────────────────────────────────────
     outAlbedo   = vec4(albedo, 1.0);
     outNormal   = vec4(N * 0.5 + 0.5, 1.0);       // encode [-1,1] → [0,1]
-    outMaterial = vec4(0.04, roughness, 0.0, 1.0);  // R=metallic (0.04 for dielectric), G=roughness
+    // R = real metalness (dielectric F0 is a separate constant in lighting.frag),
+    // G = roughness. Previously R was hardcoded 0.04, conflating F0 with metalness.
+    outMaterial = vec4(push.material.x, roughness, 0.0, 1.0);
 }

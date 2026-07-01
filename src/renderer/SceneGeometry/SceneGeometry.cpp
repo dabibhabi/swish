@@ -163,6 +163,9 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
         PushConstantData pushData{};
         pushData.model = dc.model;
         pushData.color = dc.color;
+        // Per-material metalness (first pass: metal barriers/rails are metallic,
+        // everything else is dielectric). Texture-driven metalness is a follow-up.
+        pushData.material.x = (dc.material == MAT_METAL) ? 1.0f : 0.0f;
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(PushConstantData), &pushData);
         vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, 0, 0);

@@ -52,7 +52,7 @@ void GlassPass::record_draws(VkCommandBuffer cmd, uint32_t frameIndex, VkBuffer 
         push.model = dc.model;
         push.color = dc.color;
         vkCmdPushConstants(cmd, m_pipeLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                           sizeof(push), &push);
+                           kPushConstantModelColorSize, &push);
         vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, 0, 0);
     }
 
@@ -170,7 +170,7 @@ void GlassPass::createPipeline(VkDevice device, VkDescriptorSetLayout cameraSetL
     VkPushConstantRange pcRange{};
     pcRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pcRange.offset     = 0;
-    pcRange.size       = sizeof(PushConstantData);
+    pcRange.size       = kPushConstantModelColorSize;  // glass shaders use model+color only
 
     m_pipeLayout = Pipeline::createLayout(device, {cameraSetLayout}, {pcRange});
 

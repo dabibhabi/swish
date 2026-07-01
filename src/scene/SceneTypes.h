@@ -139,10 +139,21 @@ struct DrawCall {
     MaterialId material;
 };
 
-// Matches the expanded push constant block in both shaders
+// Matches the push constant block in basic.vert + gbuffer.frag.
+// `material.x` is the real per-material metalness [0,1] consumed by gbuffer.frag
+// (dielectric = 0); yzw are reserved. A full Vec4 is used (not a bare float) so
+// the struct is 96 bytes = a multiple of 16: MoltenVK mis-maps push constants
+// whose total size isn't 16-byte aligned (an 80→84 byte change rendered geometry
+// black). basic.vert declares the same 96-byte block so vertex/fragment agree.
 struct PushConstantData {
-    Mat4 model;
-    Vec4 color;
+    Mat4 model;     // 64 B
+    Vec4 color;     // 16 B
+    Vec4 material;  // 16 B — x = metalness [0,1], yzw reserved  (total 96 B)
 };
+
+// Passes that don't consume `material` (glass / windshield) size their push
+// range + push to just the model+color prefix (still 16-aligned at 80 B).
+inline constexpr uint32_t kPushConstantModelColorSize =
+    static_cast<uint32_t>(sizeof(Mat4) + sizeof(Vec4));
 
 }  // namespace swish
