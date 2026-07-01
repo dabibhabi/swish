@@ -176,6 +176,10 @@ add_dependencies(swish shaders bake_configs)
 target_include_directories(swish PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 target_compile_definitions(swish PRIVATE
+    # Vulkan clip space uses [0,1] depth, not OpenGL's [-1,1]. This makes
+    # glm::perspective emit [0,1] clip-Z so the depth buffer and the shader
+    # depth->world reconstruction (lighting.frag / ssao.frag) agree.
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
     SHADER_DIR="${SHADER_OUTPUT_DIR}/"
     TEXTURE_DIR="${CMAKE_SOURCE_DIR}/textures/"
     ASSET_DIR="${CMAKE_SOURCE_DIR}/assets/"

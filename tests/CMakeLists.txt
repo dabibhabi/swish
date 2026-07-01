@@ -30,6 +30,8 @@ target_link_libraries(swish_tests PRIVATE
 )
 
 target_compile_definitions(swish_tests PRIVATE
+    # Match the runtime: Vulkan [0,1] clip-Z (see top-level CMakeLists).
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
     CONFIG_DIR="${CMAKE_BINARY_DIR}/config/"
     $<$<STREQUAL:${SWISH_BACKEND},APPLE_METAL>:SWISH_BACKEND_APPLE>
     $<$<STREQUAL:${SWISH_BACKEND},LINUX_VULKAN>:SWISH_BACKEND_LINUX>

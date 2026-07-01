@@ -6,6 +6,35 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-06-30 — Fixed depth→world reconstruction: enforce Vulkan [0,1] clip-Z (P0 #1)
+
+> Defined `GLM_FORCE_DEPTH_ZERO_TO_ONE` on the `swish` and `swish_tests` targets. `glm::perspective` was emitting OpenGL `[-1,1]` clip-Z while the Vulkan depth buffer stores `[0,1]`, so the shader depth→world reconstruction (`lighting.frag`, `ssao.frag`) fed raw `[0,1]` depth into an inverse-projection built for `[-1,1]` — corrupting every reconstructed world position (and thus every light, specular highlight, and distance attenuation). This is the single highest-leverage correctness fix in the renderer.
+
+<details>
+<summary>Technical summary</summary>
+
+**Root cause.** With the default (OpenGL) convention, `glm::perspective` maps the near plane to NDC-Z $-1$ and the far plane to $+1$:
+
+$$ z_{\text{ndc}}^{\text{GL}} \in [-1, 1], \qquad z_{\text{ndc}}^{\text{VK}} \in [0, 1]. $$
+
+The reconstruction in `lighting.frag` builds `ndc = vec4(uv*2-1, depth, 1)` from the raw `[0,1]` depth-buffer sample and multiplies by `invProj`. When `invProj = inverse(proj)` and `proj` is the `[-1,1]` matrix, feeding a `[0,1]` depth is inconsistent, so `viewPos` (and the world position) is wrong for every non-degenerate pixel.
+
+**Why the one-line fix is sufficient.** `invProj` is computed at runtime as `glm::inverse(m_camera->get_projection_matrix())` ([Renderer.cpp:453](src/renderer/Renderer/Renderer.cpp)), and the same `proj` is uploaded to the vertex shaders by `CameraUniforms`. Defining the macro makes *both* the depth buffer and `invProj` use `[0,1]` clip-Z, so the existing raw-depth reconstruction becomes correct with **no shader-math change**. The reconstruction inverts whatever projection was actually used:
+
+$$ p_{\text{view}} = \text{invProj}\cdot(u\,{2}{-}1,\; v\,{2}{-}1,\; d,\; 1)^\top,\quad p_{\text{view}} /\!= p_{\text{view}}.w,\quad p_{\text{world}} = \text{invView}\cdot p_{\text{view}}. $$
+
+**Sky-ray sample.** `reconstructWorldPos(uv, 0.5)` (sky branch) extracts only a *direction*; any valid depth along the pixel's view ray yields the same normalized direction, so `0.5` is fine under either convention (the review's "wrong under either convention" was imprecise). Added a clarifying comment rather than a behavioral change.
+
+**Verification.** New Catch2 tests in [test_camera.cpp](tests/test_camera.cpp): (1) `near→0, far→1` convention assertion; (2) full world-point round-trip through proj/view and their inverses. A standalone check confirmed the macro flips near-plane NDC-Z from `-1.0000` → `0.0000` (far stays `1.0000`), so test (1) fails on the old convention and passes on the new — a genuine regression guard. `ctest` 34→**36/36**.
+
+| File | Change |
+|---|---|
+| [CMakeLists.txt](CMakeLists.txt) | `GLM_FORCE_DEPTH_ZERO_TO_ONE` on `swish` |
+| [tests/CMakeLists.txt](tests/CMakeLists.txt) | same define on `swish_tests` |
+| [shaders/lighting.frag](shaders/lighting.frag) | comments documenting `[0,1]` depth expectation + direction-only sky sample |
+| [tests/test_camera.cpp](tests/test_camera.cpp) | depth-convention + reconstruction round-trip tests |
+</details>
+
 ### 2026-06-30 — Added GitHub Actions CI (build tests + shaders, run ctest) as the P0 regression gate
 
 > New [`.github/workflows/ci.yml`](.github/workflows/ci.yml): on `ubuntu-latest`, installs the Vulkan SDK + GLFW + GLM, configures CMake, builds the `swish_tests` and `shaders` targets, and runs `ctest --output-on-failure`. No GPU needed — the test binary only links Camera/RoadScene/FileIO + GLM/GLFW/Catch2, and shaders are a static `glslc` → SPIR-V step.

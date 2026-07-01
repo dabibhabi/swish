@@ -147,3 +147,48 @@ TEST_CASE("Camera set_pitch and get_pitch round-trip", "[camera]") {
     cam.set_pitch(-15.0f);
     REQUIRE_THAT(cam.get_pitch(), WithinAbs(-15.0f, kEps));
 }
+
+// ── Projection depth convention (Vulkan [0,1] NDC-Z) ──────────────────
+// Guards the GLM_FORCE_DEPTH_ZERO_TO_ONE fix (P0 #1). GLM's perspective
+// (camera looks down -Z) must map the near plane to NDC-Z 0 and the far
+// plane to NDC-Z 1. Without the macro GLM emits OpenGL's [-1,1] and the near
+// plane would map to -1, corrupting all depth->world reconstruction.
+TEST_CASE("Camera projection uses Vulkan [0,1] depth convention", "[camera][depth]") {
+    Camera cam;
+    cam.set_perspective(60.0f, 16.0f / 9.0f, 1.0f, 100.0f);
+    Mat4 proj = cam.get_projection_matrix();  // Y-flip only touches row 1, not Z
+
+    auto ndcZ = [&](float viewZ) {
+        Vec4 clip = proj * Vec4(0.0f, 0.0f, viewZ, 1.0f);
+        return clip.z / clip.w;
+    };
+    REQUIRE_THAT(ndcZ(-1.0f),   WithinAbs(0.0f, 1e-3f));  // near plane -> 0
+    REQUIRE_THAT(ndcZ(-100.0f), WithinAbs(1.0f, 1e-3f));  // far  plane -> 1
+}
+
+// Round-trip a known world point exactly as lighting.frag does:
+// clip = proj*view*p ; ndc = clip/w ; recon = invView * (invProj * ndc)/w.
+// Self-consistent under any convention, but combined with the test above it
+// proves the runtime reconstruction recovers the correct world position.
+TEST_CASE("Camera proj/view round-trips a world point via the inverse", "[camera][depth]") {
+    Camera cam;
+    cam.set_position(Vec3(0.0f, 0.0f, 0.0f));
+    cam.set_yaw(-90.0f);   // forward = (0,0,-1)
+    cam.set_pitch(0.0f);
+    cam.set_perspective(65.0f, 16.0f / 9.0f, 1.0f, 1000.0f);
+
+    Mat4 view = cam.get_view_matrix();
+    Mat4 proj = cam.get_projection_matrix();
+
+    Vec3 worldP(2.0f, -1.0f, -50.0f);  // in front of the camera (-Z), off-axis
+    Vec4 clip = proj * view * Vec4(worldP, 1.0f);
+    Vec3 ndc  = Vec3(clip) / clip.w;
+
+    Vec4 viewPos = glm::inverse(proj) * Vec4(ndc, 1.0f);
+    viewPos /= viewPos.w;
+    Vec4 recon = glm::inverse(view) * viewPos;
+
+    REQUIRE_THAT(recon.x, WithinAbs(worldP.x, 1e-2f));
+    REQUIRE_THAT(recon.y, WithinAbs(worldP.y, 1e-2f));
+    REQUIRE_THAT(recon.z, WithinAbs(worldP.z, 1e-2f));
+}

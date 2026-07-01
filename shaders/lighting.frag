@@ -41,6 +41,9 @@ layout(location = 0) out vec4 outColor;
 const float PI = 3.14159265359;
 
 // ── Reconstruct world position from depth (rind pattern) ──────────
+// `depth` is the raw Vulkan depth-buffer value in [0,1]. pc.invProj is the
+// inverse of the same [0,1] clip-space projection (GLM_FORCE_DEPTH_ZERO_TO_ONE),
+// so ndc.z = depth is already correct — no [0,1]->[-1,1] remap needed.
 vec3 reconstructWorldPos(vec2 uv, float depth) {
     vec4 ndc = vec4(uv * 2.0 - 1.0, depth, 1.0);
     vec4 viewPos = pc.invProj * ndc;
@@ -71,6 +74,8 @@ void main() {
 
     // Sky pixels (depth = 1.0, no geometry)
     if (depth > 0.9999) {
+        // Any valid depth along the pixel's view ray yields the same direction,
+        // so the 0.5 sample is arbitrary (and in-range under [0,1] clip-Z).
         vec3 viewDir = normalize(reconstructWorldPos(fragUV, 0.5) - camera.camPos.xyz);
         vec3 sky = compute_sky_color(viewDir);
         // Overcast: grey out the sky as wetness increases
