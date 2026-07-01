@@ -6,6 +6,29 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-06-30 — Physical rain: per-drop terminal velocity + Marshall–Palmer drop-size distribution (P0 #7, #8)
+
+> All 8 192 drops fell at one hardcoded 9 m/s regardless of size. Now a single physical rain rate `R` (mm/hr) drives a Marshall–Palmer drop-size distribution and a Gunn–Kinzer per-drop terminal velocity, so small drops fall at ~2 m/s and big ones near ~9 m/s — and drop width/length/opacity + visible count all follow from `R`.
+
+<details>
+<summary>Technical summary</summary>
+
+The dimensionless 0–1 "intensity" is mapped to a rain rate `R` (mm/hr), the one shared parameter. Per drop, the existing per-instance uniform `seed.w` is used as the inverse-CDF sample of the Marshall–Palmer distribution, then fed to Gunn–Kinzer:
+
+$$ \Lambda = 4.1\,R^{-0.21}\ \text{mm}^{-1}, \qquad D = -\frac{\ln u}{\Lambda}\ \text{mm}, \qquad v_t(D) = 9.65 - 10.3\,e^{-0.6D}\ \text{m/s}. $$
+
+Drop **width ∝ D**, **length ∝ v_t** (faster drops motion-blur longer), and **opacity ∝ D**; the drawn instance count scales with intensity (light rain shows fewer drops, not the same 8 192 at low alpha). Formulas live in a pure, GPU-free header [RainPhysics.h](src/renderer/RainSystem/RainPhysics.h) that `rain.vert` mirrors in GLSL and the tests exercise directly.
+
+| File | Change |
+|---|---|
+| [src/renderer/RainSystem/RainPhysics.h](src/renderer/RainSystem/RainPhysics.h) | new: Marshall–Palmer Λ / inverse-CDF diameter / Gunn–Kinzer speed / rate map |
+| [shaders/rain.vert](shaders/rain.vert) | per-drop D → v_t; size/length/alpha from D & v_t |
+| [src/renderer/RainSystem/RainSystem.cpp](src/renderer/RainSystem/RainSystem.cpp) | pack `R` in the UBO; scale instance count by intensity |
+| [tests/test_rain.cpp](tests/test_rain.cpp) | Λ(R) monotonicity, inverse-CDF, mean≈1/Λ, Gunn–Kinzer band |
+
+Verified: `ctest` **49/49**; mean sampled diameter ≈ 1/Λ (≈0.50 mm at R=25); v_t monotone in D within [0.5, 9.65] m/s.
+</details>
+
 ### 2026-06-30 — Physical longitudinal model: power-limited, traction-capped, emergent top speed (P0 #5)
 
 > Replaced constant-acceleration + lumped-exponential-drag + hard-clamped top speed with a real force balance. Throttle no longer adds a fixed acceleration; top speed now *emerges* (~205 mph) instead of being clamped.

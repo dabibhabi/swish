@@ -21,8 +21,23 @@ layout(set = 0, binding = 0) uniform CameraUBO {
 
 layout(set = 1, binding = 0) uniform RainUBO {
     vec4 windAndTime;  // xyz = wind (WU/s), w = time
-    vec4 params;       // x = intensity, y = streakLen (WU), z = dropSpeed (WU/s), w = halfExtent (WU)
+    vec4 params;       // x = intensity, y = streakLen (WU), z = rainRate R (mm/hr), w = halfExtent (WU)
 } rain;
+
+// 1000 WU = 1 m (matches the sim's world scale).
+const float WU_PER_M = 1000.0;
+
+// Marshall–Palmer inverse-CDF drop diameter (mm) from a per-drop uniform u.
+float sampleDropDiameter(float u, float R) {
+    u = clamp(u, 1.0e-3, 0.999);
+    float lambda = 4.1 * pow(max(R, 0.1), -0.21);  // 1/mm
+    return clamp(-log(u) / lambda, 0.1, 6.0);
+}
+
+// Gunn–Kinzer terminal velocity (m/s) for diameter D (mm).
+float gunnKinzerSpeed(float D) {
+    return max(9.65 - 10.3 * exp(-0.6 * D), 0.5);
+}
 
 // ── Outputs ───────────────────────────────────────────────────────────
 layout(location = 0) out vec2 fragUV;
@@ -30,12 +45,18 @@ layout(location = 1) out float fragAlpha;
 layout(location = 2) out float fragPhase;
 
 void main() {
-    float time     = rain.windAndTime.w;
-    vec3  wind     = rain.windAndTime.xyz;
+    float time      = rain.windAndTime.w;
+    vec3  wind      = rain.windAndTime.xyz;
     float intensity = rain.params.x;
     float streakLen = rain.params.y;
-    float dropSpeed = rain.params.z;
+    float rainRate  = rain.params.z;   // R (mm/hr)
     float halfExt   = rain.params.w;
+
+    // Per-drop diameter (Marshall–Palmer) → terminal velocity (Gunn–Kinzer).
+    // seed.w is the per-instance uniform for the inverse-CDF sample, so each
+    // drop falls at a speed appropriate to its size (2–9.5 m/s), not one constant.
+    float dropDia   = sampleDropDiameter(seed.w, rainRate);          // mm
+    float dropSpeed = gunnKinzerSpeed(dropDia) * WU_PER_M;           // WU/s
 
     // Rain falls downward (−Y) plus wind drift
     vec3 vel = vec3(wind.x, -dropSpeed, wind.z);
@@ -64,10 +85,11 @@ void main() {
         vsPerp = vec3(1.0, 0.0, 0.0);
     }
 
-    // Width: 3–8 WU, varied per instance. Thin streaks read as delicate rain
-    // (Garg & Nayar) rather than fat bright bars.
-    float width = (3.0 + 5.0 * seed.w);
-    float len   = streakLen * (0.5 + 0.5 * seed.w);
+    // Width scales with drop diameter; length with fall speed (faster, bigger
+    // drops motion-blur into longer, slightly wider streaks). Thin streaks read
+    // as delicate rain (Garg & Nayar) rather than fat bright bars.
+    float width = clamp(dropDia * 1.8, 1.5, 9.0);
+    float len   = streakLen * clamp(dropSpeed / 9000.0, 0.25, 1.1);
 
     // localPos.x spans perp (width), localPos.y spans fall (length)
     // Subtract vsVelDir so the streak trails BEHIND the drop head:
@@ -84,8 +106,10 @@ void main() {
     float camDist  = length(vsCenter.xyz);
     float nearFade = smoothstep(2500.0, 5000.0, camDist);  // 2.5 m → 5 m
 
+    // Larger drops are more visible. dn ∈ [0,1] maps diameter (0.1–3mm) to opacity.
+    float dn    = clamp(dropDia / 3.0, 0.0, 1.0);
     gl_Position = camera.proj * vec4(vsCorner, 1.0);
     fragUV      = uv;
-    fragAlpha   = intensity * (0.20 + 0.60 * seed.w) * nearFade;  // semi-transparent
+    fragAlpha   = intensity * (0.15 + 0.55 * dn) * nearFade;  // semi-transparent
     fragPhase   = seed.x;
 }

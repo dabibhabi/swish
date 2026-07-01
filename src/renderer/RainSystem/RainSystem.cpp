@@ -1,5 +1,7 @@
 #include "RainSystem.h"
 
+#include "RainPhysics.h"
+
 #include "../../utils/Types.h"
 #include "../../utils/VulkanCheck.h"
 #include "../../utils/VulkanInit.h"
@@ -18,14 +20,14 @@ namespace swish {
 
 // ── Rain volume parameters ─────────────────────────────────────────────
 static constexpr float kHalfExtent = 20000.0f;  // 20 m radius around camera
-static constexpr float kDropSpeed  = 9000.0f;   // 9 m/s base fall speed
+static constexpr float kDropSpeed  = 9000.0f;   // 9 m/s — reference speed for the wind cap only
 static constexpr float kStreakLen  = 3200.0f;   // 3.2 m streak length — long, thin, motion-blurred
+static constexpr float kMaxRainRate = 25.0f;    // mm/hr at intensity 1.0 (heavy rain)
 static constexpr float kWetRate    = 0.08f;     // wetness accumulation rate (s⁻¹)
 static constexpr float kDryRate    = 0.012f;    // wetness decay rate (s⁻¹)
 
 // ── Far parallax layer scaling (relative to the near layer) ────────────
 static constexpr float kFarHalfExtentScale = 2.0f;
-static constexpr float kFarSpeedScale      = 0.7f;
 static constexpr float kFarIntensityScale  = 0.55f;  // dimmer/farther (fragAlpha ∝ intensity)
 static constexpr float kFarStreakScale     = 0.8f;
 static constexpr float kFarTimePhase       = 317.0f;  // decorrelate far field from near (shared seeds)
@@ -70,17 +72,21 @@ void RainSystem::update(uint32_t frameIndex, float deltaTime, float intensity, V
         wind.z *= scale;
     }
 
+    // One physical rain rate R (mm/hr) drives per-drop size + fall speed in the
+    // shader (Marshall–Palmer + Gunn–Kinzer, see RainPhysics.h) and the wetness
+    // target — replacing five independent 0–1 knobs.
+    const float rainRate = intensity_to_rain_rate(m_intensity, kMaxRainRate);
+
     RainUBO ubo{};
     ubo.windAndTime = Vec4(wind.x, wind.y, wind.z, m_time);
-    ubo.params      = Vec4(m_intensity, streakLen, kDropSpeed, kHalfExtent);
+    ubo.params      = Vec4(m_intensity, streakLen, rainRate, kHalfExtent);
     std::memcpy(m_rainUBOMapped[frameIndex], &ubo, sizeof(ubo));
 
-    // Far parallax layer: shares the same wind (already horizontally capped) and
-    // instance seeds, but a larger volume, slower fall, and lower intensity render
-    // it as dimmer, farther streaks. The time phase decorrelates it from the near field.
+    // Far parallax layer: shares the same wind, seeds, and rain rate, but a larger
+    // volume + lower intensity + time phase render it as dimmer, farther streaks.
     RainUBO farUbo{};
     farUbo.windAndTime = Vec4(wind.x, wind.y, wind.z, m_time + kFarTimePhase);
-    farUbo.params = Vec4(m_intensity * kFarIntensityScale, streakLen * kFarStreakScale, kDropSpeed * kFarSpeedScale,
+    farUbo.params = Vec4(m_intensity * kFarIntensityScale, streakLen * kFarStreakScale, rainRate,
                          kHalfExtent * kFarHalfExtentScale);
     std::memcpy(m_rainUBOMappedFar[frameIndex], &farUbo, sizeof(farUbo));
 }
@@ -120,15 +126,20 @@ void RainSystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const {
     // Two draws reuse the same pipeline/geometry/instance buffer; additive blending +
     // depthWrite=false make the layer order irrelevant (no sorting needed).
     //
+    // Scale the visible drop count with intensity (≈ rain rate): light rain shows
+    // fewer drops rather than the same 8192 at a lower alpha.
+    uint32_t drawCount = static_cast<uint32_t>(static_cast<float>(kRainMaxDrops) * m_intensity + 0.5f);
+    drawCount          = std::clamp(drawCount, 1u, kRainMaxDrops);
+
     // Far parallax layer first (dimmer, farther).
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeLayout, 1, 1, &m_descSetsFar[frameIndex], 0,
                             nullptr);
-    vkCmdDrawIndexed(cmd, 6, kRainMaxDrops, 0, 0, 0);
+    vkCmdDrawIndexed(cmd, 6, drawCount, 0, 0, 0);
 
     // Near layer.
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeLayout, 1, 1, &m_descSets[frameIndex], 0,
                             nullptr);
-    vkCmdDrawIndexed(cmd, 6, kRainMaxDrops, 0, 0, 0);
+    vkCmdDrawIndexed(cmd, 6, drawCount, 0, 0, 0);
 
     vkCmdEndRenderPass(cmd);
 }
