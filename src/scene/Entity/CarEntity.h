@@ -64,6 +64,10 @@ private:
     float m_brake    = 0.f;        // [0,1]
     bool  m_reverse  = false;      // DOWN held while ~stopped → creep backward
 
+    // Lateral/yaw dynamic state (dynamic bicycle model, P0 #4). Right-positive.
+    float m_lateral_velocity = 0.f;  // m/s (body rightward)
+    float m_yaw_rate         = 0.f;  // rad/s (right-positive; heading -= deg(r)·dt)
+
     float m_min_x = -1e9f;
     float m_max_x = 1e9f;
 
@@ -82,12 +86,8 @@ private:
     static constexpr float kSteerReturn     = 120.f;    // return-to-center rate
     // Real 992 Turbo S wheelbase ≈ 2.45 m (was 2.8 m).
     static constexpr float kWheelbase       = 2'450.f;  // 2.45 m in WU
-
-    // Speed-dependent steering authority (variable ratio): the effective lock
-    // is scaled by kSteerRefSpeed / (kSteerRefSpeed + |v|), so steering is
-    // sharp when parking and gentle at speed. This caps the bicycle-model yaw
-    // rate (∝ v·tan(δ)) and prevents spin-out near top speed.
-    static constexpr float kSteerRefSpeed   = 12'000.f;  // WU/s; authority halves here
+    // (The old kSteerRefSpeed authority taper is gone — the dynamic tire model's
+    //  μ·Fz saturation now provides the real high-speed grip limit.)
 
 public:
     static constexpr float kMaxSpeed = kMaxForwardSpeed;  // exposed for normalization

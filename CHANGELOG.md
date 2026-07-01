@@ -6,6 +6,30 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — Dynamic bicycle + saturating tire model with a real grip limit (P0 #4)
+
+> Yaw was a pure geometric arc (`ψ̇ = (v/L)tan δ`) — the car couldn't understeer, oversteer, or slide, and a `kSteerRefSpeed` authority taper was a band-aid for the missing grip limit. Added real lateral-velocity + yaw-rate state, slip-angle-based tire forces that saturate at μ·Fz, a friction-circle cap on lateral acceleration, and a blend to the kinematic model below 5 m/s. Removed the taper.
+
+<details>
+<summary>Technical summary</summary>
+
+Above ~5 m/s the car integrates the dynamic bicycle model (`CarPhysics.h`):
+
+$$ \alpha_f = \frac{v_l + a r}{v_x} - \delta,\quad \alpha_r = \frac{v_l - b r}{v_x},\quad F_y = \operatorname{clamp}(-C_\alpha \alpha,\ \pm\mu F_z), $$
+$$ m(\dot v_l + v_x r) = F_{yf} + F_{yr},\qquad I_z \dot r = a F_{yf} - b F_{yr}. $$
+
+Tire forces are linear in slip angle but **saturate at μ·Fz**, so the car understeers/slides at the limit. The CG is rear-biased (rear engine: `a=1.49 > b=0.96 m`) and the rear cornering stiffness is higher than the front, giving a **positive understeer gradient → stable at all speeds** (no critical speed). A **friction-circle cap** `|r| ≤ μg/vx` enforces `a_y ≤ μg`; since `v̇l = a_y − v_x r → 0` at that cap, it also arrests sideslip growth under a sustained over-drive input (no spin/blow-up). Below 5 m/s (and blending 5→8 m/s) the proven kinematic yaw is used to avoid the `1/v_x` singularity; the kinematic reference and the dynamic result share the same sign, so low-speed handling is unchanged. Position now advances by forward speed **plus** lateral drift. The `kSteerRefSpeed` taper is deleted.
+
+| File | Change |
+|---|---|
+| [src/scene/Entity/CarPhysics.h](src/scene/Entity/CarPhysics.h) | `TireParams`, `dynamic_bicycle_deriv`, `max_yaw_rate` (friction circle) |
+| [src/scene/Entity/CarEntity.h](src/scene/Entity/CarEntity.h) | lateral-velocity + yaw-rate state; remove `kSteerRefSpeed` |
+| [src/scene/Entity/CarEntity.cpp](src/scene/Entity/CarEntity.cpp) | integrate dynamic model + kinematic blend + friction cap; lateral drift in position |
+| [tests/test_car_physics.cpp](tests/test_car_physics.cpp) | sign vs kinematic, μg saturation, high-speed stability |
+
+Verified: `ctest` **52/52** (correct steer→yaw sign, understeer in the linear regime, `a_y ≤ 1.15 μg` under hard steer, bounded `r`/`vl` at 40 m/s). Live drive-test recommended.
+</details>
+
 ### 2026-06-30 — Wet-road BRDF: porosity diffuse, normal flatten, grazing Fresnel surge (P0 #9)
 
 > The wet-surface shading only darkened albedo, lowered roughness, and nudged F0 0.04→0.06 — it had no grazing-angle Fresnel surge, which is what produces the long lamp-streak reflections that define a wet night road. Added a proper wet lerp: porosity-floor diffuse, near-mirror roughness, normal flattening toward the plane, and a wetness-weighted grazing Fresnel reflection of the sky. Driven by the rain rate `R` (via accumulated wetness).

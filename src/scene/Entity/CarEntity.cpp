@@ -76,27 +76,46 @@ void CarEntity::update(float dt) {
     if (m_forward_speed == 0.f)
         return;
 
-    // Bicycle model yaw rate: ω = (v / L) * tan(δ)
-    // Increasing yaw turns the body LEFT (R_y is counterclockwise from
-    // above), so positive steering (= right) decreases yaw.
-    //
-    // Variable steering ratio: reduce the EFFECTIVE lock as speed rises so the
-    // yaw rate stays controllable at high speed (full lock at v=92000 WU/s
-    // would yaw >1300 deg/s — instant spin). The scale falls off smoothly from
-    // 1.0 at standstill toward 0 as |v| grows; the visual steering wheel still
-    // tracks the raw m_steering_angle (via kSteerRatio in get_draw_calls).
-    float steer_scale = kSteerRefSpeed / (kSteerRefSpeed + std::abs(m_forward_speed));
-    float safe_steer = std::clamp(m_steering_angle, -kMaxSteer, kMaxSteer) * steer_scale;
-    float yaw_rate   = (m_forward_speed / kWheelbase) * std::tan(glm::radians(safe_steer));  // rad/s
-    m_rotation.y -= glm::degrees(yaw_rate) * dt;
-    // Wrap heading to ±180° so cockpit camera yaw composition stays sane.
+    // ── Lateral / yaw dynamics (dynamic bicycle + saturating tires, P0 #4) ──
+    // Below ~5 m/s the kinematic model is used (the dynamic model's 1/vx is
+    // singular); above it, lateral velocity + yaw rate are integrated with tire
+    // forces that saturate at μ·Fz, so the car can understeer and slide instead
+    // of following a rigid geometric arc. This replaces the old kSteerRefSpeed
+    // authority taper (a band-aid for the missing grip limit).
+    const float wheelbase_m = kWheelbase / kWorldUnitsPerMeter;
+    const float delta       = glm::radians(std::clamp(m_steering_angle, -kMaxSteer, kMaxSteer));
+    const float vx          = m_forward_speed / kWorldUnitsPerMeter;  // m/s
+    const float r_kin       = (vx / wheelbase_m) * std::tan(delta);   // kinematic yaw rate (right-pos)
+
+    constexpr float kBlendSpeed = 5.0f;  // m/s
+    if (std::abs(vx) < kBlendSpeed) {
+        m_yaw_rate         = r_kin;  // keep dynamic state consistent for a smooth handoff
+        m_lateral_velocity = 0.f;
+    } else {
+        const TireParams tire;
+        BicycleDeriv     d = dynamic_bicycle_deriv(vx, m_lateral_velocity, m_yaw_rate, delta, params, tire);
+        m_lateral_velocity += d.vlDot * dt;
+        m_yaw_rate         += d.rDot * dt;
+        // Smooth 5→8 m/s handoff from kinematic to full dynamic response.
+        const float blend = glm::clamp((std::abs(vx) - kBlendSpeed) / 3.0f, 0.f, 1.f);
+        m_yaw_rate         = glm::mix(r_kin, m_yaw_rate, blend);
+        // Friction circle: cap lateral accel at μ·g (understeer at the limit;
+        // also arrests sideslip growth under a sustained over-drive input).
+        const float rMax   = max_yaw_rate(vx, params);
+        m_yaw_rate         = std::clamp(m_yaw_rate, -rMax, rMax);
+        m_lateral_velocity = std::clamp(m_lateral_velocity, -std::abs(vx), std::abs(vx));
+    }
+
+    // Apply heading (right-positive yaw decreases rotation.y) and wrap to ±180°.
+    m_rotation.y -= glm::degrees(m_yaw_rate) * dt;
     m_rotation.y = std::fmod(m_rotation.y + 180.f, 360.f) - 180.f;
 
-    // Advance position along heading. forward = R_y(yaw)·(+X), the same
-    // direction the mesh nose points, so body and velocity stay aligned.
-    float yaw_rad = glm::radians(m_rotation.y);
-    Vec3  forward(std::cos(yaw_rad), 0.f, -std::sin(yaw_rad));
-    m_position += forward * m_forward_speed * dt;
+    // Advance position: forward motion + lateral drift. forward = mesh nose;
+    // right = forward × up is the body's rightward axis (matches m_lateral_velocity).
+    const float yaw_rad = glm::radians(m_rotation.y);
+    const Vec3  forward(std::cos(yaw_rad), 0.f, -std::sin(yaw_rad));
+    const Vec3  right = glm::normalize(glm::cross(forward, Vec3(0.f, 1.f, 0.f)));
+    m_position += (forward * m_forward_speed + right * (m_lateral_velocity * kWorldUnitsPerMeter)) * dt;
 
     // Clamp X to road bounds
     m_position.x = std::clamp(m_position.x, m_min_x, m_max_x);

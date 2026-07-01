@@ -49,6 +49,64 @@ inline float longitudinal_accel(float v, float throttle, float brake, const CarP
     return fNet / p.mass;
 }
 
+// ── Lateral / yaw dynamics (dynamic bicycle model, P0 #4) ─────────────────
+// Parameters for a rear-biased-CG 911 (rear engine ⇒ CG ~61% toward the rear
+// axle, so the front lever a > rear lever b). Equal cornering stiffness with
+// a>b yields a positive understeer gradient → stable (won't spin blindly).
+struct TireParams {
+    float a           = 1.49f;      // CG → front axle (m); a + b ≈ wheelbase
+    float b           = 0.96f;      // CG → rear axle (m)
+    float iz          = 2600.0f;    // yaw moment of inertia (kg·m²)
+    // Understeer (stable at ALL speeds, no critical speed) needs
+    // Cα_rear/Cα_front > W_rear/W_front = a/b ≈ 1.55. A stiffer rear delivers that.
+    float cAlphaFront = 80000.0f;   // N/rad
+    float cAlphaRear  = 150000.0f;  // N/rad
+};
+
+struct BicycleDeriv {
+    float vlDot;  // d(lateral velocity)/dt  (m/s²)
+    float rDot;   // d(yaw rate)/dt          (rad/s²)
+};
+
+// Friction-circle limit on yaw rate: lateral accel a_y = vx·r ≤ μ·g, so
+// |r| ≤ μg/vx. Applied after integration, this caps cornering at the grip limit
+// (understeer plow at the edge) and — since v̇l = a_y − vx·r → 0 when saturated —
+// also stops sideslip from growing unbounded under a sustained over-drive input.
+inline float max_yaw_rate(float vx, const CarParams& p) {
+    return p.tireMu * p.gravity / std::max(std::fabs(vx), 1.0f);
+}
+
+// One step of the dynamic bicycle model, in a RIGHT-positive body frame that
+// matches the kinematic yaw used elsewhere (heading -= deg(r)·dt):
+//   vx    forward speed (m/s),  vl lateral (rightward) velocity (m/s)
+//   r     yaw rate (right-positive, rad/s),  delta road-wheel steer (right-pos, rad)
+// Front/rear lateral tire forces are linear in slip angle but SATURATE at μ·Fz,
+// so the car can understeer / slide and lateral accel is capped at ~μg — the
+// grip limit the pure kinematic model lacked. Caller blends to kinematic below
+// ~5 m/s to avoid the 1/vx singularity.
+inline BicycleDeriv dynamic_bicycle_deriv(float vx, float vl, float r, float delta,
+                                          const CarParams& p, const TireParams& t) {
+    const float vxs = std::max(std::fabs(vx), 1.0f);
+    const float L   = t.a + t.b;
+
+    // Slip angles (right-positive): velocity heading at each axle minus steer.
+    const float alphaF = (vl + t.a * r) / vxs - delta;
+    const float alphaR = (vl - t.b * r) / vxs;
+
+    // Static axle loads → per-axle friction limits.
+    const float FzF = p.mass * p.gravity * t.b / L;
+    const float FzR = p.mass * p.gravity * t.a / L;
+
+    // Saturating linear tire forces (rightward-positive, opposing slip).
+    const float FyF = std::clamp(-t.cAlphaFront * alphaF, -p.tireMu * FzF, p.tireMu * FzF);
+    const float FyR = std::clamp(-t.cAlphaRear * alphaR, -p.tireMu * FzR, p.tireMu * FzR);
+
+    // m(v̇l + vx·r) = FyF + FyR ;   Iz·ṙ = a·FyF − b·FyR
+    const float vlDot = (FyF + FyR) / p.mass - vx * r;
+    const float rDot  = (t.a * FyF - t.b * FyR) / t.iz;
+    return {vlDot, rDot};
+}
+
 // Emergent steady-state top speed (m/s): the v where full-throttle net
 // acceleration crosses zero. Bisection (monotone: thrust falls, drag rises).
 inline float steady_state_top_speed(const CarParams& p) {
