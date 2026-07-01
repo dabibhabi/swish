@@ -1,3 +1,84 @@
+# ACTIVE — "Blender-look" realism pass (2026-07-01)
+
+Goal: close the gap to Blender Material-Preview realism on the glossy black 911. Root cue is
+**environment reflection** (paint mirroring the sky), NOT tonemapping (AgX already present) nor raw
+resolution. Four features, user-approved, worked with agents on the isolated parts.
+
+Orchestration: shared hot files (`lighting.frag`, `Renderer.cpp`, `PostProcessManager`,
+`CameraUniforms`) force serial edits → agents author isolated NEW files; I integrate shared files
+sequentially, building between each.
+
+- [x] **1. Clear-day preset** — `G` toggles bright sunny day (deep-blue sky, high white sun, brighter
+      ambient); dry (rain forced off, mutually exclusive with `R`). `weather.x`=clarity in CameraUBO.
+      DONE: build clean, ctest 52/52, validation-clean. Visual taste-check pending.
+- [x] **2. Sky reflections (IBL-lite)** — reflect `compute_sky_color()` about N, Fresnel + roughness
+      weighted → the Blender gloss. `lighting.frag` only. DONE (build/tests/validation clean).
+- [x] **(fog fix, mid-stream)** — rain fog was ~8× too dense (63% @ 150 m). Thinned to ~1.2 km, capped
+      0.65, gated to 0 on clear day. Cabin re-wash from clear-day fixed (ambient 0.45→0.33 + cubic
+      roughness-gate on reflection). Verified in-app (clear-day + heavy-rain cockpit screenshots).
+- [x] **3. Sun shadows** — DONE + verified. Shadow map + light matrix + PCF wired. MoltenVK has NO
+      comparison samplers → used plain sampler2D + manual PCF compare (the sampler2DShadow path was
+      rejected). Roof self-shadows the cabin → fixed the interior overexposure. Works in all weather.
+- [x] **Exposure trim** — composite exposure 1.0 → 0.45 + interior ambient 0.30→0.22 (clear 0.24) per
+      user ("too conservative"). Verified darker in-app.
+- [x] **4. SSAA** — DONE + verified. renderExtent = swap×1.5 (clamped to maxImageDimension2D);
+      offscreen chain (G-buffer/HDR/lighting/forward/bloom) render-sized, composite downsamples to
+      swapchain. Build clean, ctest 52/52, validation-clean.
+
+## Review
+All four features + fog/exposure fixes landed, each build-clean / ctest 52/52 / validation-clean and
+visually verified via screenshots. Clear-day cabin now dark + contrasty (was over-exposed): the fix
+chain was (a) whole-car dry mask, (b) roughness-gated sky reflection, (c) sun shadows binding (roof
+self-shadows cabin — the real fix; MoltenVK has no compare samplers so manual PCF), (d) exposure 1.0→
+0.45 + ambient cut. Fog thinned ~8× + capped + off on clear day. Bonus (reflections+shadows in rain):
+reflections show on the wet road; shadows are weather-independent. NOT committed (awaiting user).
+Tunables if further taste passes wanted: exposure 0.45, SSAA scale 1.5, shadow bias/frustum, reflection
+strength.
+- [ ] **4. Supersampling (SSAA)** — render offscreen chain at scale×, composite downsamples.
+
+Rules: full-execution (user-authorized for Swish); CHANGELOG per feature; verify each (build, ctest
+52/52, validation-clean) before next; update Obsidian RFI note (G-P1-2/G-P0-3/G-P1-3) when landed.
+
+## Next plans (post realism-pass, 2026-07-01)
+
+Ordered by visual-impact-per-effort, building on what just landed.
+
+**Lighting / reflections**
+- [ ] **Reflection ↔ ambient energy rebalance** (Cursor "lever 2"): the sky reflection and the
+      hemispheric sky-ambient (`skyFacing·skyTint·0.5`) both model sky light and aren't discounted
+      against each other. Drop/shrink the ambient sky term now that the reflection covers it — prevents
+      bright panels stacking past AgX's shoulder.
+- [ ] **Live exposure control + auto-exposure**: bind keys to nudge exposure; then log-average /
+      histogram auto-exposure so night vs day self-levels (Cursor "lever 3"; RFI C3).
+- [ ] **Full HDRI IBL** — prefiltered environment cubemap + irradiance map + BRDF LUT so glossy paint
+      reflects a *real* environment (trees/buildings), not just the analytic sky. The "true Blender"
+      reflection (RFI G-P1-2 / G-P0-3).
+- [ ] **SSR on the wet road** — screen-space reflections of on-screen lamps/geometry in wet asphalt
+      (RFI C5 / G-P1-2); reuses the wet-road material.
+- [ ] **SSAO** — wire ambient occlusion for contact/crevice darkening (RFI G-P1-4); the correct tool
+      the sun shadow map doesn't cover (under the car, dash recesses).
+
+**Shadows**
+- [ ] **CSM (cascaded shadow maps)** — the current single 2048² frustum follows the camera (~45 m).
+      Cascades for crisp long-range shadows down the 4.2 km highway (RFI G-P1-3).
+- [ ] **Shadow polish** — soft shadows (PCSS), tighter frustum fit, bias auto-tune; confirm the car's
+      ground shadow in free-fly and tune `halfExtent`/`depthRange`/bias/floor.
+
+**AA / perf**
+- [ ] **SSAA polish** — make render-scale a key/config; consider TAA or a proper downsample kernel
+      for >1.5×; watch VRAM/frame-time at 2×.
+
+**Weather / rain (bonus follow-through)**
+- [ ] **Night-scene lamp tuning** (RFI G-P1-1 follow-up) — lamp intensity/falloff for a proper wet night.
+- [ ] **Light-coupled rain streaks** (RFI R-P1-2) — streaks brighten/tint near lamps.
+- [ ] **Windshield lens optics** (RFI R-P1-3) — refracted-ray displacement, TIR, chromatic aberration.
+
+**Software robustness (deferred RFI)**
+- [ ] Exception-safe subsystem destructors (S-P0-2); std140 `static_assert`s; delete dead `glslc_test`
+      stub; `VK_CHECK_LOG` for teardown paths.
+
+---
+
 # Roadmap — rain realism · LIE extension · night-scene visual realism (2026-06-30)
 
 Research-driven plan. Grounded in two cited briefs (AI-assisted research artifacts):

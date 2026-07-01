@@ -6,6 +6,148 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — Added SSAA (internal supersampling) by splitting render vs swap extents
+
+> Rendered the entire offscreen chain (G-buffer, HDR color/depth, deferred lighting, bloom, AO, and the forward rain/glass/windshield passes) at a higher internal resolution — `renderExtent = swapExtent × kRenderScale` with `kRenderScale = 1.5f` (~2.25× the pixels/VRAM) — while the composite pass keeps outputting at the swapchain extent, sampling the high-res HDR through the existing LINEAR sampler. That single bilinear downsample IS the supersample-anti-aliasing resolve: edge shimmer/jaggies drop and detail sharpens, with zero shader changes.
+>
+> **MoltenVK note:** the scale is clamped per-device against `VkPhysicalDeviceProperties::limits.maxImageDimension2D` (Metal caps this at 16384 on Apple silicon) so an offscreen image can never exceed the limit; the factor is also floored at 1.0 so it never upsamples below native. No clamping triggered at typical window sizes.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** One extent (the swapchain size) previously sized *everything*, so the offscreen chain rendered at native resolution and aliased on high-contrast edges. SSAA renders offscreen larger, then resolves on the final downsample.
+
+**Two extents.** `PostProcessManager` now derives both from the swap extent it is handed:
+
+$$\text{renderExtent} = \Big\lfloor \text{swapExtent}\cdot s \Big\rfloor,\qquad s = \min\!\Big(k_{\text{scale}},\ \tfrac{\text{maxImageDimension2D}}{\max(\text{swap}_w,\text{swap}_h)}\Big),\ \ s \ge 1$$
+
+with $k_{\text{scale}} = 1.5$. `m_renderExtent` sizes the G-buffer, HDR color+depth, lighting FBs, bloom (`renderExtent/4`), AO (`renderExtent/2`), and — since the forward passes wrap the HDR/depth views — the rain/glass/windshield framebuffers, snapshot, and wetness images. `m_swapExtent` sizes only the composite framebuffers (swapchain images) and the composite viewport/scissor. The member formerly named `m_fullExtent` is repurposed as `m_renderExtent`; `get_full_extent()` now returns the render extent (existing "offscreen size" callers stay correct), joined by explicit `get_render_extent()` / `get_swap_extent()` getters.
+
+**Pipeline.**
+
+```mermaid
+graph LR
+  subgraph renderExtent["renderExtent = swap × 1.5"]
+    G[G-buffer] --> L[lighting → HDR] --> F[rain/glass/windshield] --> B[bloom + AO]
+  end
+  B --> C["composite (swapExtent)<br/>LINEAR downsample = SSAA resolve"]
+```
+
+**Pass extents.** `recordCommandBuffer` passes `renderExtent` to G-buffer, lighting, snapshot, and (via `get_bloom_extent()`) bloom; it passes `swapExtent` to the composite pass. The forward passes and deferred lighting are init/recreated with `renderExtent` (from `get_render_extent()` after PostProcess init/recreate). The shadow map stays a fixed 2048² and was left untouched. On resize both extents recompute and every offscreen image/FB is recreated at the new render extent (existing recreate ordering preserved). The composite descriptor set is unchanged — it samples the same HDR view handle, now backed by a larger image.
+
+**Correctness.** Every offscreen framebuffer's extent equals its attachment images' extent (all render-extent); the composite FB equals the swapchain image extent. The windshield snapshot is a 1:1 `vkCmdCopyImage` — its source (HDR, render-extent), destination (refraction snapshot, sized from the passed render extent), and copy region all match. Zero-extent (minimized) guards mirror the existing swap-extent handling.
+
+**File-change table.**
+
+| File | Change |
+| --- | --- |
+| [src/renderer/PostProcessManager/PostProcessManager.h](src/renderer/PostProcessManager/PostProcessManager.h) | Added `kRenderScale`, split `m_fullExtent`→`m_renderExtent` + new `m_swapExtent`; added `get_render_extent()`/`get_swap_extent()` (kept `get_full_extent()` = render extent); declared `scaleExtent()`. |
+| [src/renderer/PostProcessManager/PostProcessManager.cpp](src/renderer/PostProcessManager/PostProcessManager.cpp) | `init`/`recreate` compute both extents (bloom/AO derive from render extent); `createImages`/G-buffer+HDR+lighting FBs use render extent; composite FBs + composite pipeline use swap extent; added `scaleExtent()` (queries `maxImageDimension2D`, clamps factor, floors at 1.0, guards zero). |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | `init`/`recreateSwapchain` init/recreate rain/glass/windshield + deferred lighting with `get_render_extent()`; scene/lighting pipeline init extents use render extent; `recordCommandBuffer` feeds `renderExtent` to G-buffer/lighting/snapshot and `swapExtent` to composite. |
+
+</details>
+
+### 2026-07-01 — Wired single (non-cascaded) sun shadow mapping into the deferred pipeline
+
+> Integrated the pre-written `DepthOnlyPipeline` into the renderer: a per-frame 2048² depth-only pass from the sun's POV produces a shadow map that the deferred lighting pass samples (3×3 PCF) to shadow **only** the direct-sun term. Ambient/sky-reflection/point-light/wet/fog contributions are untouched, so shadows read as darkening (0.25 floor) rather than pitch black, and work in all weather. This is what fixed the interior over-exposure: the car roof now self-shadows the cabin, restoring contrast (Cursor's "no shadowing → flat CG look" diagnosis).
+>
+> **MoltenVK note:** the first pass used a `sampler2DShadow` comparison sampler, but MoltenVK's portability subset reports `mutableComparisonSamplers = FALSE` and rejects it at descriptor-write time (validation error, shadow map never bound). Switched to the **manual-compare fallback**: a plain `sampler2D` (NEAREST, `compareEnable = FALSE`) sampled as a depth texture with the `z ≤ occluder + bias` compare done in `lighting.frag`. Validation-clean after the switch.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** The deferred lighting had no occlusion for the directional sun — the 911 and roadside geometry cast no shadows. The self-contained `DepthOnlyPipeline` + `depth_only.{vert,frag}` were already written; this change wires them into the frame graph, transports the sun light-space matrix to the lighting shader, and adds the shadow-map resources to `PostProcessManager`.
+
+**Transport.** `CameraUBO` gains a trailing `mat4 lightViewProj` (after `weather`, staying 16-aligned and prefix-compatible with `basic.vert`/`rain.vert`, which are untouched). `CameraUniforms::set_light_matrix` stores it; `update()` writes it. The Renderer computes it each frame in `drawFrame` from the camera position + tracked sun direction:
+
+$$\mathbf{VP}_{\text{light}} = \operatorname{ortho}(-h,h,-h,h,\,z_n,\,z_f)\cdot \operatorname{lookAt}\!\big(\mathbf{c} - \hat{\mathbf{s}}\tfrac{z_f}{2},\ \mathbf{c},\ \hat{\mathbf{y}}\big)$$
+
+with $h = 45000$ WU (~45 m radius), $z_f = 200000$ WU (~200 m), $\mathbf{c}$ = camera position, $\hat{\mathbf{s}}$ = sun direction. `GLM_FORCE_DEPTH_ZERO_TO_ONE` makes `glm::ortho` emit $[0,1]$ clip-Z, matching the depth pass's `VK_COMPARE_OP_LESS` and the compare sampler — no Y-flip or Z remap beyond the shader's `xy*0.5+0.5`.
+
+**Frame graph.**
+
+```mermaid
+graph LR
+  S[recordShadowPass 2048²<br/>depth-only, sun POV] --> G[recordGBufferPass] --> L[recordLightingPass<br/>samples shadowMap set 2] --> P[bloom/composite]
+```
+
+**Shadow visibility** (per lit fragment), 3×3 PCF over texel size $t = 1/\text{textureSize}$:
+
+$$\text{vis} = \frac{1}{9}\sum_{y=-1}^{1}\sum_{x=-1}^{1}\text{texture}\big(\text{shadowMap},\,(\mathbf{sc}_{xy}+t\,(x,y),\ \mathbf{sc}_z)\big),\quad \text{sunShadow}=\operatorname{mix}(0.25,1,\text{vis})$$
+
+Off-map ($\mathbf{sc}_{xy}\notin[0,1]^2$) or beyond far ($\mathbf{sc}_z>1$) forces vis = 1 (lit); the compare sampler's `CLAMP_TO_BORDER` + white border gives the same result at the edges. `sunShadow` multiplies **only** `sun_term = (kD·albedo/π + specular_sun)·NdotL·sun_radiance`.
+
+**Render-pass layout transitions (shadow pass):** attachment `D32_SFLOAT`, `UNDEFINED → (DEPTH_STENCIL_ATTACHMENT_OPTIMAL) → DEPTH_STENCIL_READ_ONLY_OPTIMAL`; loadOp CLEAR (1.0), storeOp STORE. Two subpass dependencies (`EXTERNAL→0` early-fragment write after prior fragment reads; `0→EXTERNAL` fragment-shader read after late-fragment write) synchronize write-then-sample.
+
+**Final lighting-pipeline descriptor-set layout:** set 0 = camera+lights (UBOs), set 1 = G-buffer textures (albedo/normal/material/depth), **set 2 = `sampler2DShadow` shadow map**.
+
+| File | Change |
+| --- | --- |
+| [src/scene/SceneTypes.h](src/scene/SceneTypes.h) | Appended `Mat4 lightViewProj` to `CameraUBO` (after `weather`). |
+| [src/renderer/CameraUniforms/CameraUniforms.h](src/renderer/CameraUniforms/CameraUniforms.h) | Added `set_light_matrix()` + `m_lightViewProj` member. |
+| [src/renderer/CameraUniforms/CameraUniforms.cpp](src/renderer/CameraUniforms/CameraUniforms.cpp) | `update()` writes `ubo.lightViewProj`. |
+| [src/renderer/SceneGeometry/SceneGeometry.h](src/renderer/SceneGeometry/SceneGeometry.h) | Declared `record_depth()`; fwd-declared `DepthOnlyPipeline`. |
+| [src/renderer/SceneGeometry/SceneGeometry.cpp](src/renderer/SceneGeometry/SceneGeometry.cpp) | Implemented `record_depth()` — binds VBO/IBO, pushes per-draw model, draws (no material binds). |
+| [src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.h](src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.h) | `Config` gains `shadowSetLayout`; `bind_and_record` gains `shadowSet` param. |
+| [src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.cpp](src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.cpp) | Layout built with 3 sets; binds shadow set at set 2. |
+| [src/renderer/PostProcessManager/PostProcessManager.h](src/renderer/PostProcessManager/PostProcessManager.h) | Added `kShadowDim=2048`, shadow render pass/images/views/FBs, compare sampler, shadow tex layout + per-frame sets, 4 getters. |
+| [src/renderer/PostProcessManager/PostProcessManager.cpp](src/renderer/PostProcessManager/PostProcessManager.cpp) | Created shadow render pass (2 deps), 2048² D32 images, FBs, compare sampler (LESS, CLAMP_TO_BORDER, white border), shadow layout + sets; bumped pool to 21 samplers / 11 sets; idempotent teardown. |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) | Added `m_depthOnlyPipeline`, `m_sunDir`, `m_lightVP`, `recordShadowPass()`. |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | Init depth pipeline; per-frame lightVP; `recordShadowPass` first in `recordCommandBuffer`; pass shadow set to lighting; set `m_sunDir` in both `set_clear_day` branches; cleanup. |
+| [shaders/lighting.frag](shaders/lighting.frag) | Added `lightViewProj` to UBO, `sampler2DShadow` set 2, 3×3 PCF `sunShadow`, applied to sun term only. |
+| [CMakeLists.txt](CMakeLists.txt) | Added `DepthOnlyPipeline.cpp` + `depth_only.{vert,frag}` to sources. |
+
+**Tunables flagged for visual QA:** `halfExtent` (45000 WU) and `depthRange` (200000 WU) in `Renderer::drawFrame`; depth-bias `kDepthBiasConstantFactor`/`kDepthBiasSlopeFactor` in `DepthOnlyPipeline.cpp`; the 0.25 shadow floor in `lighting.frag`.
+
+</details>
+
+### 2026-07-01 — Clear-day weather preset + sky reflections (Blender-look realism, part 1)
+
+> Added a `G`-key **clear-day** preset (deep-azure sky, high white sun, brighter ambient; dry — mutually exclusive with rain) and **sky reflections** — a Fresnel-weighted ambient-specular term that mirrors the procedural sky. Environment reflection is the cue that was missing versus Blender's HDRI-lit Material Preview: it's what makes the glossy black 911 read as glossy instead of matte. Down payment on G-P1-2 (no environment reflections) / G-P0-3 (flat ambient, hardcoded sun).
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** The pipeline already had AgX tonemapping, correct sRGB handling, and native-resolution (Retina) rendering — so neither "add tonemapping" nor "bigger window" was the gap. What Blender's Material Preview has and Swish lacked is **image-based lighting**: the black paint reflecting the environment. Ambient here was a flat `albedo·0.30` fill with no specular reflection, so glossy surfaces had nothing to mirror. Separately there was no bright-day lighting preset.
+
+**1 — Clear-day weather preset (`G`).** A `WeatherState` toggle plumbed App → Renderer → CameraUniforms. `CameraUBO` gains a `weather` `Vec4` (`.x` = clarity ∈ [0,1]) **appended at the end** so vertex shaders that declare only the prefix (`basic.vert`, `rain.vert`) stay std140-compatible with no change, and the struct stays a multiple of 16 B (MoltenVK push/UBO safety). The sun (dir/color/ambient) is now driven from `CameraUniforms::set_weather()` instead of being hardcoded in `update()` — this also chips at G-P0-3's "hardcoded sun". Clear mode forces rain off; pressing `R` (rain) cancels clear day, so an azure sky never coexists with falling rain. `lighting.frag` lerps the sky gradient toward deep azure and sharpens/brightens the sun disc by clarity:
+
+$$\text{horizon} = \text{mix}(c_\text{overcast}, c_\text{clear}, \text{clarity}),\qquad \text{sunDisc} = (\hat v\cdot\hat s)^{\,\text{mix}(32,\,220,\,\text{clarity})}$$
+
+**2 — Sky reflections (IBL-lite).** With no environment cubemap yet, reflect the *procedural sky itself* as the environment. Reflect the view about the normal, sample the sky in that direction, and weight by a roughness-aware Schlick Fresnel and a gloss factor:
+
+$$R = \mathrm{reflect}(-V, N),\quad F_\text{env} = F_0 + \big(\max(1-\text{rough},\,F_0) - F_0\big)(1 - N\!\cdot\!V)^5,\quad L_\text{refl} = \mathrm{sky}(R)\,F_\text{env}\,(1-\text{rough})$$
+
+On a black dielectric ($F_0=0.04$) this yields the signature look: dark head-on, sky-bright at grazing angles and along body curves — exactly the black-paint gloss in the reference Blender shots. The sky is low-frequency, so a single-sample reflection reads correctly at any roughness; the reflected sky reuses the sky pixels' overcast greying so wet-scene reflections stay consistent.
+
+```mermaid
+graph LR
+  G["G key"] --> R1[Renderer.set_clear_day]
+  Rk["R key"] -->|rain>0 cancels| R1
+  R1 --> CU[CameraUniforms.set_weather]
+  CU --> UBO["CameraUBO.weather.x = clarity<br/>sunDir / sunColor"]
+  UBO --> LF["lighting.frag: sky gradient +<br/>sun disc + reflect(sky)"]
+```
+
+| File | Change |
+| --- | --- |
+| [src/scene/SceneTypes.h](src/scene/SceneTypes.h) | `CameraUBO` += `Vec4 weather` (x = clarity), appended (prefix-safe) |
+| [src/renderer/CameraUniforms/CameraUniforms.h](src/renderer/CameraUniforms/CameraUniforms.h) | `set_weather()`; `m_sunDir`/`m_sunColor`/`m_clarity` members |
+| [src/renderer/CameraUniforms/CameraUniforms.cpp](src/renderer/CameraUniforms/CameraUniforms.cpp) | `update()` writes sun+weather from members; `set_weather()` |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) | `set_clear_day()`; `m_clearDay` |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | `set_clear_day()` — clear/overcast sun presets, forces rain off |
+| [src/core/App/App.h](src/core/App/App.h) | `m_clear_day`, `m_g_key_prev` |
+| [src/core/App/App.cpp](src/core/App/App.cpp) | `G` toggle; `R` cancels clear day (mutually exclusive) |
+| [shaders/lighting.frag](shaders/lighting.frag) | `weather` in UBO; clarity-driven sky; Fresnel-weighted sky reflection |
+
+**3 — Tuning after in-app review.** Clear-day ambient dialed back (0.45 → 0.33 — the brighter sun does the lifting; a big ambient boost re-washed the enclosed cabin, which gets no direct sun). The sky reflection is now **cubic-roughness-gated** (`(1−roughness)³`) so it concentrates on glossy paint / near-mirror wet road and leaves matte cabin materials alone (no interior frosting).
+
+**4 — Rain fog was ~8× too dense.** `kFogDist63` 150 000 → 1 200 000 WU (63% fog at ~1.2 km, not 150 m — realistic heavy-rain visibility on a 4.2 km road), capped at `kFogMax = 0.65` so the far end stays legible instead of dissolving to grey, and gated by `×(1−clarity)` so a clear day has **zero** fog instantly instead of waiting for the wetness to drain.
+
+Build clean; `ctest` 52/52; runs validation-clean. **Verified in-app** (cockpit screenshots, clear-day + heavy-rain): cabin dark/detailed, road legible to the horizon, fog no longer overwhelming.
+
+</details>
+
 ### 2026-07-01 — Interior over-exposure, take 2: exclude the whole car + depth-resolved fog + inverse-square lights
 
 > The first pass (wettable mask keyed on the `is_interior` node-name tag) only caught the headliner/pillars — a mask-debug visualization (output `material.b` as colour) revealed the **steering wheel, dashboard, console, and door panels were still tagged rain-exposed** and getting the asphalt wet-road BRDF, so the cabin stayed washed out. Plus the **flat composite fog** greyed the whole frame (including the near cabin), which the user correctly fingered. Fixed both, and landed the two remaining Room-for-Improvement shader items.
