@@ -6,6 +6,28 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-06-30 — Removed the dead raw `ResourceManager` allocation path (P0 #11, part 2)
+
+> With every subsystem migrated to VMA (P0 #10 complete), the hand-rolled `ResourceManager::createBuffer` / `createImage` / `copyBuffer` and their private `findMemoryType` helper had **zero callers**. Removed all four. `~Renderer()` was already `= default` (teardown is done via the explicit `Renderer::cleanup()` two-phase call in `App::run()`), so this retires the last of the per-resource `vkAllocateMemory` machinery and closes out the P0 review's #11.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** The VMA sub-allocator + `GpuBuffer`/`GpuImage` RAII wrappers replaced every raw allocation site. A grep across `src/` confirmed the raw path was dead: `createBuffer` (0), `createImage` (0), `copyBuffer` (0), and `findMemoryType` (only ever called *by* `createBuffer`/`createImage`, so orphaned once they went). Leaving dead `vkAllocateMemory` code around invites future misuse and contradicts the whole point of #10.
+
+**What was kept.** The command-buffer / format utilities that operate on already-allocated handles and are still in active use: `transitionImageLayout` + `copyBufferToImage` (texture staging in `TextureManager`), `insertImageBarrier` (mid-frame layout transitions, 10 call sites), and `findDepthFormat` → `findSupportedFormat` (depth-format pick, 8 call sites). `<stdexcept>` stays — the survivors still `throw`.
+
+**`~Renderer() = default`.** Confirmed already in place ([Renderer.cpp](src/renderer/Renderer/Renderer.cpp)): the destructor never did manual deletes; GPU resources are released by each subsystem's explicit `cleanup(device)` (called in order from `App::run()` while the device is alive) plus, now, the `GpuBuffer`/`GpuImage` destructors for VMA memory. No change needed.
+
+| File | Change |
+| --- | --- |
+| [src/renderer/ResourceManager/ResourceManager.h](src/renderer/ResourceManager/ResourceManager.h) | Removed `createBuffer` / `createImage` / `copyBuffer` / `findMemoryType` declarations; refreshed the class comment to point allocation at `GpuResource.h` |
+| [src/renderer/ResourceManager/ResourceManager.cpp](src/renderer/ResourceManager/ResourceManager.cpp) | Removed the four method definitions (~100 lines of raw `vkAllocateMemory`/`vkBind*Memory`/staging-copy code) |
+
+Verified: clean build (every TU that includes `ResourceManager.h` recompiled — none referenced the removed methods); `ctest` 52/52. Pure compile-time dead-code removal — no runtime path changes. **P0 review fully closed (all 11 items).**
+
+</details>
+
 ### 2026-06-30 — Migrated WindshieldRainPass buffers + images to VMA-backed RAII (P0 #10, last consumer)
 
 > `WindshieldRainPass` was the final consumer on the retained raw path: its per-frame UBOs used `ResourceManager::createBuffer` + `vkMapMemory`, and its refraction / wetness images used `ResourceManager::createImage` — each a distinct `vkAllocateMemory` with hand-paired `vkDestroyBuffer`/`vkDestroyImage` + `vkFreeMemory` (+ `vkUnmapMemory`). It is now on the move-only RAII `GpuBuffer` (persistently-mapped UBOs) and `GpuImage` wrappers, mirroring `RainSystem` and `DepthBuffer`.
