@@ -577,6 +577,12 @@ RoadScene::SceneData RoadScene::generate() const {
     SceneData   scene;
     MeshBuilder builder(scene.meshData, scene.drawCalls);
 
+    // Degenerate configs (no lanes or zero length) produce no geometry.
+    // Without this guard, length/lane-independent features (barrier, grass)
+    // would still emit vertices for an empty road.
+    if (m_lane_count <= 0 || m_road_length <= 0.0f)
+        return scene;
+
     float z_near = 0.0f;
     float z_far  = -m_road_length;
 

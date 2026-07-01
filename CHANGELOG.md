@@ -6,6 +6,24 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-06-30 — Fixed RoadScene emitting geometry for degenerate (zero-lane / zero-length) configs
+
+> `RoadScene::generate()` now early-returns an empty scene when `lane_count <= 0` or `road_length <= 0`, so the two long-failing degenerate-input tests pass and the test suite is fully green — a prerequisite for the CI regression gate.
+
+<details>
+<summary>Technical summary</summary>
+
+**Root cause.** `generate()` unconditionally ran every sub-generator. Several of them (Jersey barrier, grass) are independent of `lane_count`/`road_length`, so even a `lane_count == 0` or `road_length == 0` config produced 656 vertices / 960 indices. Tests `RoadScene zero-lane config produces no geometry` and `RoadScene zero-length config produces no geometry` asserted an empty mesh and had never passed against this code.
+
+**Fix.** Added a degenerate-input guard at the top of `generate()` that returns the empty `SceneData` before any sub-generator runs.
+
+| File | Change |
+|---|---|
+| [src/scene/RoadScene/RoadScene.cpp](src/scene/RoadScene/RoadScene.cpp) | Early-return empty scene when `m_lane_count <= 0 \|\| m_road_length <= 0.0f` |
+
+Verified: `ctest` went from 32/34 → **34/34** passing; no other test changed.
+</details>
+
 ### 2026-06-30 — Research briefs + visual-realism roadmap (rain · LIE · night scene)
 
 > Added two cited research briefs and a research-driven roadmap. [`docs/research-rain-rendering.md`](docs/research-rain-rendering.md) surveys realistic-rain techniques (streak appearance, drops-on-glass, GPU particle/parallax systems, wet surfaces, atmospheric veils) and [`docs/research-night-scene-realism.md`](docs/research-night-scene-realism.md) surveys night-scene realism (many-lights, wet-asphalt BRDF, tone mapping, volumetric fog, procedural road, motion/camera). Both are labelled **AI-assisted** per org policy. [`tasks/todo.md`](tasks/todo.md) gains a prioritized 3-track roadmap (A: rain next-steps, B: LIE curvature/LOD/enrichment, C: night-scene wet-road/bloom/tone-map/fog/SSR), each item linked to its motivating technique.
