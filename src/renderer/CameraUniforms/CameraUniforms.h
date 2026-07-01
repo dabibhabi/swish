@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../scene/SceneTypes.h"
+#include "../GpuResource/GpuResource.h"
 
 #include <vulkan/vulkan.h>
 
@@ -17,7 +18,7 @@ class Camera;
 // narrow: a layout, a per-frame descriptor set, and an update entry point.
 class CameraUniforms {
 public:
-    void init(VkDevice device, VkPhysicalDevice physicalDevice, uint32_t framesInFlight);
+    void init(VkDevice device, VkPhysicalDevice physicalDevice, VmaAllocator allocator, uint32_t framesInFlight);
     void cleanup(VkDevice device);
 
     // Write this frame's camera matrices + sun + active lights into the
@@ -39,7 +40,7 @@ public:
 
 private:
     void createLayout(VkDevice device);
-    void createBuffers(VkDevice device, VkPhysicalDevice physicalDevice);
+    void createBuffers(VmaAllocator allocator);
     void createDescriptors(VkDevice device);
 
     uint32_t m_frames = 0;
@@ -48,13 +49,10 @@ private:
     VkDescriptorPool             m_pool      = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> m_sets;
 
-    std::vector<VkBuffer>       m_cameraBuffers;
-    std::vector<VkDeviceMemory> m_cameraMemory;
-    std::vector<void*>          m_cameraMapped;
-
-    std::vector<VkBuffer>       m_lightsBuffers;
-    std::vector<VkDeviceMemory> m_lightsMemory;
-    std::vector<void*>          m_lightsMapped;
+    // RAII, persistently-mapped host-visible UBOs (VMA). Access the pointer via
+    // .mapped(); the sub-allocation is freed when the vector is cleared/destroyed.
+    std::vector<GpuBuffer> m_cameraBuffers;
+    std::vector<GpuBuffer> m_lightsBuffers;
 
     std::vector<LightDesc> m_lights;
     bool                   m_lightsDirty = false;

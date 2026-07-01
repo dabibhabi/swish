@@ -19,7 +19,8 @@ TextureManager::TextureManager(const RendererServices& services)
     : m_device(services.device),
       m_physicalDevice(services.physicalDevice),
       m_commandPool(services.commandPool),
-      m_graphicsQueue(services.graphicsQueue) {
+      m_graphicsQueue(services.graphicsQueue),
+      m_allocator(services.allocator) {
     create_sampler();
 }
 
@@ -99,12 +100,8 @@ void TextureManager::cleanup() {
     for (auto& [name, tex] : m_textures) {
         if (tex.view != VK_NULL_HANDLE)
             vkDestroyImageView(m_device, tex.view, nullptr);
-        if (tex.image != VK_NULL_HANDLE)
-            vkDestroyImage(m_device, tex.image, nullptr);
-        if (tex.memory != VK_NULL_HANDLE)
-            vkFreeMemory(m_device, tex.memory, nullptr);
     }
-    m_textures.clear();
+    m_textures.clear();  // GpuImage RAII frees each image + sub-allocation
 
     if (m_sampler != VK_NULL_HANDLE) {
         vkDestroySampler(m_device, m_sampler, nullptr);
@@ -125,40 +122,29 @@ void TextureManager::upload_texture(const std::string& name, const std::vector<u
 
     VkDeviceSize imageSize = w * h * 4;
 
-    // Staging buffer
-    VkBuffer       stagingBuffer;
-    VkDeviceMemory stagingMemory;
-    ResourceManager::createBuffer(m_device, m_physicalDevice, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                  stagingBuffer, stagingMemory);
+    // Staging buffer (host-visible, persistently mapped; freed by RAII at scope end).
+    GpuBuffer staging = gpu::hostVisibleBuffer(m_allocator, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+    memcpy(staging.mapped(), pixels.data(), static_cast<size_t>(imageSize));
 
-    void* data;
-    vkMapMemory(m_device, stagingMemory, 0, imageSize, 0, &data);
-    memcpy(data, pixels.data(), static_cast<size_t>(imageSize));
-    vkUnmapMemory(m_device, stagingMemory);
-
-    // Create VkImage in device-local memory
-    ResourceManager::createImage(m_device, m_physicalDevice, w, h, format, VK_IMAGE_TILING_OPTIMAL,
-                                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, tex.image, tex.memory);
+    // Create VkImage in device-local memory (VMA).
+    tex.image = gpu::deviceLocalImage(m_allocator, w, h, format, VK_IMAGE_TILING_OPTIMAL,
+                                      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
     // Transitions + copy
-    ResourceManager::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue, tex.image,
+    ResourceManager::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue, tex.image.handle(),
                                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    ResourceManager::copyBufferToImage(m_device, m_commandPool, m_graphicsQueue, stagingBuffer, tex.image, w, h);
+    ResourceManager::copyBufferToImage(m_device, m_commandPool, m_graphicsQueue, staging.handle(), tex.image.handle(),
+                                       w, h);
 
-    ResourceManager::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue, tex.image,
+    ResourceManager::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue, tex.image.handle(),
                                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-    vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-    vkFreeMemory(m_device, stagingMemory, nullptr);
 
     // Image view
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image                           = tex.image;
+    viewInfo.image                           = tex.image.handle();
     viewInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
     viewInfo.format                          = format;
     viewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -169,7 +155,7 @@ void TextureManager::upload_texture(const std::string& name, const std::vector<u
 
     VK_CHECK(vkCreateImageView(m_device, &viewInfo, nullptr, &tex.view));
 
-    m_textures[name] = tex;
+    m_textures[name] = std::move(tex);  // Texture is move-only (owns a GpuImage)
 }
 
 // ══════════════════════════════════════════════════════════════════════

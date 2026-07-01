@@ -3,7 +3,6 @@
 #include "../../scene/Camera/Camera.h"
 #include "../../utils/Types.h"
 #include "../../utils/VulkanCheck.h"
-#include "../ResourceManager/ResourceManager.h"
 
 #include <algorithm>
 #include <array>
@@ -13,24 +12,20 @@
 
 namespace swish {
 
-void CameraUniforms::init(VkDevice device, VkPhysicalDevice physicalDevice, uint32_t framesInFlight) {
+void CameraUniforms::init(VkDevice device, VkPhysicalDevice physicalDevice, VmaAllocator allocator,
+                          uint32_t framesInFlight) {
+    (void)physicalDevice;  // VMA holds the physical device; kept for signature symmetry
     m_frames = framesInFlight;
     createLayout(device);
-    createBuffers(device, physicalDevice);
+    createBuffers(allocator);
     createDescriptors(device);
 }
 
 void CameraUniforms::cleanup(VkDevice device) {
-    assert(m_cameraBuffers.size() == m_frames || m_frames == 0);
-    for (size_t i = 0; i < m_frames; i++) {
-        vkUnmapMemory(device, m_cameraMemory[i]);
-        vkDestroyBuffer(device, m_cameraBuffers[i], nullptr);
-        vkFreeMemory(device, m_cameraMemory[i], nullptr);
-
-        vkUnmapMemory(device, m_lightsMemory[i]);
-        vkDestroyBuffer(device, m_lightsBuffers[i], nullptr);
-        vkFreeMemory(device, m_lightsMemory[i], nullptr);
-    }
+    // GpuBuffer is RAII (VMA): clearing the vectors frees the buffers +
+    // sub-allocations and unmaps the persistent mapping — no manual loop.
+    m_cameraBuffers.clear();
+    m_lightsBuffers.clear();
     m_frames = 0;
 
     if (m_pool != VK_NULL_HANDLE) {
@@ -50,7 +45,7 @@ void CameraUniforms::update(uint32_t frameIndex, const Camera& camera) {
     ubo.camPos   = Vec4(camera.get_position(), 1.0f);
     ubo.sunDir   = Vec4(glm::normalize(Vec3(0.3f, 0.6f, 0.15f)), 1.0f);
     ubo.sunColor = Vec4(1.0f, 0.95f, 0.85f, 0.30f);
-    std::memcpy(m_cameraMapped[frameIndex], &ubo, sizeof(ubo));
+    std::memcpy(m_cameraBuffers[frameIndex].mapped(), &ubo, sizeof(ubo));
 
     // Select the MAX_POINT_LIGHTS lights nearest the camera each frame. The
     // road may carry far more lamps than the UBO can hold, so uploading the
@@ -77,7 +72,7 @@ void CameraUniforms::update(uint32_t frameIndex, const Camera& camera) {
         lightsUbo.pointLights[i].colorIntensity = Vec4(l.color, l.intensity);
     }
     lightsUbo.numPointLights = glm::uvec4(count, 0, 0, 0);
-    std::memcpy(m_lightsMapped[frameIndex], &lightsUbo, sizeof(lightsUbo));
+    std::memcpy(m_lightsBuffers[frameIndex].mapped(), &lightsUbo, sizeof(lightsUbo));
     m_lightsDirty = false;
 }
 
@@ -100,26 +95,17 @@ void CameraUniforms::createLayout(VkDevice device) {
     VK_CHECK(vkCreateDescriptorSetLayout(device, &info, nullptr, &m_setLayout));
 }
 
-void CameraUniforms::createBuffers(VkDevice device, VkPhysicalDevice physicalDevice) {
+void CameraUniforms::createBuffers(VmaAllocator allocator) {
     m_cameraBuffers.resize(m_frames);
-    m_cameraMemory.resize(m_frames);
-    m_cameraMapped.resize(m_frames);
     m_lightsBuffers.resize(m_frames);
-    m_lightsMemory.resize(m_frames);
-    m_lightsMapped.resize(m_frames);
 
-    const VkDeviceSize          cameraSize = sizeof(CameraUBO);
-    const VkDeviceSize          lightsSize = sizeof(LightsUBO);
-    const VkMemoryPropertyFlags hostFlags  = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    const VkDeviceSize cameraSize = sizeof(CameraUBO);
+    const VkDeviceSize lightsSize = sizeof(LightsUBO);
 
     for (uint32_t i = 0; i < m_frames; i++) {
-        ResourceManager::createBuffer(device, physicalDevice, cameraSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostFlags,
-                                      m_cameraBuffers[i], m_cameraMemory[i]);
-        VK_CHECK(vkMapMemory(device, m_cameraMemory[i], 0, cameraSize, 0, &m_cameraMapped[i]));
-
-        ResourceManager::createBuffer(device, physicalDevice, lightsSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostFlags,
-                                      m_lightsBuffers[i], m_lightsMemory[i]);
-        VK_CHECK(vkMapMemory(device, m_lightsMemory[i], 0, lightsSize, 0, &m_lightsMapped[i]));
+        // Host-visible + persistently mapped (VMA) — write via .mapped().
+        m_cameraBuffers[i] = gpu::hostVisibleBuffer(allocator, cameraSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        m_lightsBuffers[i] = gpu::hostVisibleBuffer(allocator, lightsSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     }
 }
 
@@ -146,8 +132,8 @@ void CameraUniforms::createDescriptors(VkDevice device) {
     VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, m_sets.data()));
 
     for (uint32_t i = 0; i < m_frames; i++) {
-        VkDescriptorBufferInfo cameraInfo{m_cameraBuffers[i], 0, sizeof(CameraUBO)};
-        VkDescriptorBufferInfo lightsInfo{m_lightsBuffers[i], 0, sizeof(LightsUBO)};
+        VkDescriptorBufferInfo cameraInfo{m_cameraBuffers[i].handle(), 0, sizeof(CameraUBO)};
+        VkDescriptorBufferInfo lightsInfo{m_lightsBuffers[i].handle(), 0, sizeof(LightsUBO)};
 
         std::array<VkWriteDescriptorSet, 2> writes{};
         writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -171,7 +157,7 @@ void CameraUniforms::createDescriptors(VkDevice device) {
 void CameraUniforms::set_wetness(uint32_t frameIndex, float wetness) {
     // camPos is the third Vec4 in CameraUBO: offset = sizeof(Mat4)*2 + sizeof(Vec4)*0
     // We write only the w component (byte offset +12 within the Vec4).
-    auto* ubo     = reinterpret_cast<CameraUBO*>(m_cameraMapped[frameIndex]);
+    auto* ubo     = reinterpret_cast<CameraUBO*>(m_cameraBuffers[frameIndex].mapped());
     ubo->camPos.w = wetness;
 }
 

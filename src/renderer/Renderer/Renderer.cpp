@@ -90,7 +90,8 @@ void Renderer::init(Window& window) {
     m_window->getFramebufferSize(&width, &height);
     m_swapchain->init(*m_device, m_context->getSurface(), static_cast<uint32_t>(width), static_cast<uint32_t>(height));
 
-    m_cameraUniforms->init(m_device->getDevice(), m_device->getPhysicalDevice(), MAX_FRAMES_IN_FLIGHT);
+    m_cameraUniforms->init(m_device->getDevice(), m_device->getPhysicalDevice(), m_device->getAllocator(),
+                           MAX_FRAMES_IN_FLIGHT);
     m_materialDescriptors->init(m_device->getDevice());
 
     m_commandManager->init(m_device->getDevice(), m_device->getQueueFamilies().graphicsFamily.value(),
@@ -209,7 +210,7 @@ ModelManager* Renderer::get_model_manager() const {
 RendererServices Renderer::services() const {
     return RendererServices{
         m_device->getDevice(),        m_device->getPhysicalDevice(), m_commandManager->getPool(),
-        m_device->getGraphicsQueue(), m_swapchain->getExtent(),
+        m_device->getGraphicsQueue(), m_swapchain->getExtent(),      m_device->getAllocator(),
     };
 }
 

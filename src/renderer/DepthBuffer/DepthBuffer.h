@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../GpuResource/GpuResource.h"
 #include "../Renderer/RendererServices.h"
 
 #include <vulkan/vulkan.h>
@@ -32,10 +33,9 @@ public:
     VkFormat    get_format() const { return m_format; }
 
 private:
-    VkImage        m_image  = VK_NULL_HANDLE;
-    VkDeviceMemory m_memory = VK_NULL_HANDLE;
-    VkImageView    m_view   = VK_NULL_HANDLE;
-    VkFormat       m_format = VK_FORMAT_UNDEFINED;
+    GpuImage    m_image;  // RAII (VMA-backed); replaces raw VkImage + VkDeviceMemory
+    VkImageView m_view   = VK_NULL_HANDLE;
+    VkFormat    m_format = VK_FORMAT_UNDEFINED;
 };
 
 }  // namespace swish

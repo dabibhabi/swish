@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../GpuResource/GpuResource.h"
 #include "../Renderer/RendererServices.h"
 
 #include <vulkan/vulkan.h>
@@ -15,12 +16,11 @@ namespace swish {
 // ══════════════════════════════════════════════════════════════════════
 
 struct Texture {
-    std::string    name;
-    VkImage        image  = VK_NULL_HANDLE;
-    VkDeviceMemory memory = VK_NULL_HANDLE;
-    VkImageView    view   = VK_NULL_HANDLE;
-    int            width  = 0;
-    int            height = 0;
+    std::string name;
+    GpuImage    image;                 // RAII (VMA); replaces raw VkImage + VkDeviceMemory
+    VkImageView view   = VK_NULL_HANDLE;
+    int         width  = 0;
+    int         height = 0;
 };
 
 // ══════════════════════════════════════════════════════════════════════
@@ -56,6 +56,7 @@ private:
     VkPhysicalDevice m_physicalDevice;
     VkCommandPool    m_commandPool;
     VkQueue          m_graphicsQueue;
+    VmaAllocator     m_allocator;
 
     std::unordered_map<std::string, Texture> m_textures;
     VkSampler                                m_sampler = VK_NULL_HANDLE;
