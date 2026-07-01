@@ -6,6 +6,24 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-06-30 — Added GitHub Actions CI (build tests + shaders, run ctest) as the P0 regression gate
+
+> New [`.github/workflows/ci.yml`](.github/workflows/ci.yml): on `ubuntu-latest`, installs the Vulkan SDK + GLFW + GLM, configures CMake, builds the `swish_tests` and `shaders` targets, and runs `ctest --output-on-failure`. No GPU needed — the test binary only links Camera/RoadScene/FileIO + GLM/GLFW/Catch2, and shaders are a static `glslc` → SPIR-V step.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** No `.github/` existed. Every specialist review recommended a CI gate *before* touching correctness code, so "fixed" stays fixed.
+
+**Approach.** The top-level `CMakeLists.txt` calls `find_package(Vulkan REQUIRED)` and `find_program(GLSLC glslc ...)` (fatal if missing) during configure, so even the GPU-free tests need Vulkan dev files + `glslc`. The LunarG apt repo (codename via `lsb_release -cs`) provides both; GLFW/GLM come from `libglfw3-dev`/`libglm-dev`. The job forces `-DSWISH_BACKEND=LINUX_VULKAN` and builds only `shaders` + `swish_tests` (not the MoltenVK-linked `swish` binary).
+
+| File | Change |
+|---|---|
+| [.github/workflows/ci.yml](.github/workflows/ci.yml) | New CI workflow: deps → configure → build shaders + tests → ctest |
+
+Verified: YAML validated with `yq`; the CI steps replicate the local build that was confirmed green (shaders compile, `ctest` 34/34). An actual Actions run requires a push (not performed here).
+</details>
+
 ### 2026-06-30 — Fixed RoadScene emitting geometry for degenerate (zero-lane / zero-length) configs
 
 > `RoadScene::generate()` now early-returns an empty scene when `lane_count <= 0` or `road_length <= 0`, so the two long-failing degenerate-input tests pass and the test suite is fully green — a prerequisite for the CI regression gate.

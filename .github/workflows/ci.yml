@@ -1,0 +1,60 @@
+name: CI
+
+# Regression gate for the Swish P0 remediation work and beyond.
+# Builds the GPU-free test binary (swish_tests) and compiles all shaders,
+# then runs the Catch2 suite via ctest. No GPU is required: swish_tests only
+# links Camera/RoadScene/FileIO + GLM/GLFW/Catch2, and shader compilation is
+# a static glslc -> SPIR-V step.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build tests + shaders, run ctest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools + GLFW + GLM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build build-essential git \
+            libglfw3-dev libglm-dev
+
+      - name: Install Vulkan SDK (headers, loader, glslc)
+        run: |
+          # The top-level CMakeLists does find_package(Vulkan REQUIRED) and
+          # requires glslc even to configure the tests target. The LunarG apt
+          # repo provides both Vulkan dev files and glslc on PATH.
+          CODENAME="$(lsb_release -cs)"
+          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
+            | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc >/dev/null
+          sudo wget -qO "/etc/apt/sources.list.d/lunarg-vulkan-${CODENAME}.list" \
+            "https://packages.lunarg.com/vulkan/lunarg-vulkan-${CODENAME}.list"
+          sudo apt-get update
+          sudo apt-get install -y vulkan-sdk
+          echo "glslc: $(command -v glslc)"
+          glslc --version || true
+
+      - name: Configure (Linux Vulkan backend)
+        run: cmake -B build -G Ninja -DSWISH_BACKEND=LINUX_VULKAN
+
+      - name: Build shaders
+        run: cmake --build build --target shaders
+
+      - name: Build tests
+        run: cmake --build build --target swish_tests
+
+      - name: Run ctest
+        run: ctest --test-dir build --output-on-failure
