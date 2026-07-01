@@ -1,5 +1,7 @@
 #include "CarEntity.h"
 
+#include "CarPhysics.h"
+
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
@@ -10,17 +12,19 @@
 namespace swish {
 
 void CarEntity::handle_input(GLFWwindow* window, float dt) {
-    // Throttle / brake (arrow keys so WASD camera remains independent)
+    // Throttle / brake (arrow keys so WASD camera remains independent).
+    // Set intent here; the longitudinal force model is integrated in update().
+    m_throttle = 0.f;
+    m_brake    = 0.f;
+    m_reverse  = false;
     if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
-        m_forward_speed += kAccel * dt;
+        m_throttle = 1.f;
     } else if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
-        if (m_forward_speed > 0.f)
-            m_forward_speed -= kBrakeAccel * dt;  // braking
+        if (m_forward_speed > kSpeedDeadZone)
+            m_brake = 1.f;      // braking while moving forward
         else
-            m_forward_speed -= kAccel * dt;  // reversing
+            m_reverse = true;   // creep backward once ~stopped
     }
-
-    m_forward_speed = std::clamp(m_forward_speed, -kMaxReverseSpeed, kMaxForwardSpeed);
 
     // Steering
     if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
@@ -40,11 +44,33 @@ void CarEntity::handle_input(GLFWwindow* window, float dt) {
 }
 
 void CarEntity::update(float dt) {
-    // Drag (true exponential decay)
-    m_forward_speed *= std::exp(-kDragCoeff * dt);
+    // ── Longitudinal force balance (SI), P0 #5 ────────────────────────
+    // m·v̇ = F_drive − ½ρC_dAv² − C_rr·mg, with F_drive power-limited and
+    // traction-capped (CarPhysics.h). Top speed emerges from the balance —
+    // no hard clamp — so it self-limits near ~205 mph.
+    const CarParams params;
+    float           v_mps = m_forward_speed / kWorldUnitsPerMeter;
 
-    // Dead-stop below threshold
-    if (std::abs(m_forward_speed) < kSpeedDeadZone)
+    if (m_reverse) {
+        v_mps -= (kReverseAccel / kWorldUnitsPerMeter) * dt;  // bounded low-speed reverse
+    } else {
+        const float prev = v_mps;
+        v_mps += longitudinal_accel(v_mps, m_throttle, m_brake, params) * dt;
+        // Braking must not drag the car backwards — stop at zero on a sign flip.
+        if (m_brake > 0.f && prev > 0.f && v_mps < 0.f)
+            v_mps = 0.f;
+    }
+
+    m_forward_speed = v_mps * kWorldUnitsPerMeter;
+
+    // Finite/NaN guard; cap reverse only (forward top speed stays emergent).
+    if (!std::isfinite(m_forward_speed))
+        m_forward_speed = 0.f;
+    if (m_forward_speed < -kMaxReverseSpeed)
+        m_forward_speed = -kMaxReverseSpeed;
+
+    // Dead-stop below threshold while coasting (no throttle / reverse input).
+    if (std::abs(m_forward_speed) < kSpeedDeadZone && m_throttle == 0.f && !m_reverse)
         m_forward_speed = 0.f;
 
     if (m_forward_speed == 0.f)

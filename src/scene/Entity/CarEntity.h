@@ -59,22 +59,21 @@ private:
     float m_steering_angle = 0.f;  // degrees, negative = left, positive = right
     float m_rain_intensity = 0.f;  // [0,1] — drives the interior cabin wash tint
 
+    // Per-frame longitudinal controls, set by handle_input(), applied in update().
+    float m_throttle = 0.f;        // [0,1]
+    float m_brake    = 0.f;        // [0,1]
+    bool  m_reverse  = false;      // DOWN held while ~stopped → creep backward
+
     float m_min_x = -1e9f;
     float m_max_x = 1e9f;
 
-    // Physics constants (tuned for the ~1000 WU/m scale, 1 mph ≈ 447 WU/s).
-    // Modeled on a 911 Turbo S: ~205 mph top speed, 0–60 mph in ≈2.6 s.
-    static constexpr float kWorldUnitsPerMeter = 1'000.f;      // 1 m = 1000 WU
-    static constexpr float kGravity            = 9.81f * kWorldUnitsPerMeter;  // WU/s²
-    static constexpr float kTireMu             = 1.1f;         // dry-asphalt μ (perf tires)
-
-    static constexpr float kMaxForwardSpeed = 92'000.f;  // ~205 mph top speed
+    // Kinematic / control constants (~1000 WU/m scale, 1 mph ≈ 447 WU/s).
+    // The longitudinal + tire DYNAMICS constants live in CarParams (CarPhysics.h);
+    // this header keeps only the steering and speed-cap knobs.
+    static constexpr float kWorldUnitsPerMeter = 1'000.f;  // 1 m = 1000 WU
+    static constexpr float kMaxForwardSpeed = 92'000.f;  // ~205 mph (only for kMaxSpeed normalization)
     static constexpr float kMaxReverseSpeed = 12'000.f;  // ~27 mph in reverse
-    static constexpr float kAccel           = 12'000.f;  // WU/s² (0–60 in ≈2.6 s)
-    // Braking is tire-limited: peak decel = μ·g, not a magic number. The old
-    // 36'000 WU/s² was ≈3.67 g — impossible on asphalt (μ≈1 → ~1 g max).
-    static constexpr float kBrakeAccel      = kTireMu * kGravity;  // ≈1.1 g
-    static constexpr float kDragCoeff       = 0.12f;     // light aero drag, per-second
+    static constexpr float kReverseAccel    = 6'000.f;   // WU/s²; gentle low-speed reverse
     static constexpr float kSpeedDeadZone   = 0.5f;
     static constexpr float kWheelLockToDeg  = 450.f;  // full lock-to-lock steering range
     static constexpr float kMaxSteer        = 35.f;   // degrees
@@ -84,8 +83,6 @@ private:
     // Real 992 Turbo S wheelbase ≈ 2.45 m (was 2.8 m).
     static constexpr float kWheelbase       = 2'450.f;  // 2.45 m in WU
 
-    // Sanity: braking must be tire-limited (≤ ~1.3 g even with sticky tires).
-    static_assert(kBrakeAccel <= 1.3f * kGravity, "braking exceeds tire-limited deceleration");
     // Speed-dependent steering authority (variable ratio): the effective lock
     // is scaled by kSteerRefSpeed / (kSteerRefSpeed + |v|), so steering is
     // sharp when parking and gentle at speed. This caps the bicycle-model yaw

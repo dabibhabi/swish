@@ -6,6 +6,31 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-06-30 — Physical longitudinal model: power-limited, traction-capped, emergent top speed (P0 #5)
+
+> Replaced constant-acceleration + lumped-exponential-drag + hard-clamped top speed with a real force balance. Throttle no longer adds a fixed acceleration; top speed now *emerges* (~205 mph) instead of being clamped.
+
+<details>
+<summary>Technical summary</summary>
+
+New pure, GPU-free physics header [CarPhysics.h](src/scene/Entity/CarPhysics.h) integrates
+
+$$ m\,\dot v = F_\text{drive} - \tfrac12 \rho\, C_d A\, v^2 - C_\text{rr}\,m g, \qquad F_\text{drive} = \min\!\Big(\frac{P_\text{max}\,\eta}{v},\ \mu\, m g\Big), $$
+
+i.e. power-limited thrust, traction-capped (AWD → all-wheel μ·m·g), with quadratic aero drag + rolling resistance. Anchors: `P_max=478 kW`, `η=0.85`, `C_d≈0.39` (effective, wing-deployed), `A=2.1 m²`, `C_rr=0.013`, `m=1670 kg`, `μ=1.1`. The `1/v` singularity is handled by flooring `v` (the traction cap dominates near standstill). The **hard top-speed clamp is removed** — only a finite/NaN guard and a reverse-speed cap remain, so top speed self-limits where thrust meets drag.
+
+`CarEntity::handle_input` now only sets throttle/brake/reverse intent; `update()` converts WU/s↔m/s and integrates the model. Obsolete constants (`kAccel`, `kBrakeAccel`, `kDragCoeff`, exponential drag) removed; dynamics constants now live in `CarParams`.
+
+| File | Change |
+|---|---|
+| [src/scene/Entity/CarPhysics.h](src/scene/Entity/CarPhysics.h) | new: `CarParams`, `longitudinal_accel`, `steady_state_top_speed` |
+| [src/scene/Entity/CarEntity.h](src/scene/Entity/CarEntity.h) | throttle/brake/reverse state; prune obsolete longitudinal constants |
+| [src/scene/Entity/CarEntity.cpp](src/scene/Entity/CarEntity.cpp) | intent in `handle_input`; force-balance integration in `update` |
+| [tests/test_car_physics.cpp](tests/test_car_physics.cpp) | launch≈μg, accel↓ with speed, emergent top speed ∈[88,96] m/s, brake ≤1.3 g, coast decel |
+
+Verified: `ctest` **44/44**. Emergent top speed ≈ 91.6 m/s (205 mph); launch ≈ 10.8 m/s² (traction-limited).
+</details>
+
 ### 2026-06-30 — Tire-limited braking + correct wheelbase (P0 #6)
 
 > `kBrakeAccel` was `36'000` WU/s² ≈ **3.67 g** — impossible on asphalt (μ≈1 gives ~1 g). It's now derived as `μ·g` (tire-limited). `kWheelbase` was 2.8 m; corrected to the real 992 Turbo S **2.45 m**.
