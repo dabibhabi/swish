@@ -256,8 +256,8 @@ endif()
 
 # --- Debug UI wiring (compiled only when SWISH_DEBUG_UI) ---
 if(SWISH_DEBUG_UI)
-    target_sources(swish PRIVATE src/debug/DebugUI.cpp src/debug/SceneParamsUniform.cpp)
-    target_link_libraries(swish PRIVATE imgui)
+    target_sources(swish PRIVATE src/debug/DebugUI.cpp src/debug/SceneParamsUniform.cpp src/debug/DebugParamsIO.cpp)
+    target_link_libraries(swish PRIVATE imgui tomlplusplus::tomlplusplus)
     target_compile_definitions(swish PRIVATE SWISH_DEBUG_UI)
     message(STATUS "swish: Dear ImGui debug UI ENABLED (make debug)")
 endif()

@@ -3,6 +3,8 @@
 // The whole translation unit is empty unless the debug UI is compiled in.
 #ifdef SWISH_DEBUG_UI
 
+#include "DebugParamsIO.h"
+
 #include "../utils/VulkanCheck.h"
 
 #include "imgui.h"
@@ -11,6 +13,8 @@
 
 #include <array>
 #include <cstdio>
+#include <cstring>
+#include <string>
 
 namespace swish {
 
@@ -288,6 +292,43 @@ void DebugUI::begin_frame(DebugParams& p) {
         ImGui::SameLine();
         if (ImGui::Button("Print values"))
             printValues(p);
+
+        // ── Named disk presets (toml save/load) ───────────────────────
+        // Persist the current look to CONFIG_DIR/presets/<name>.toml and reload
+        // it later — or pick an existing preset from the combo to load it live.
+        {
+            static char nameBuf[64]                 = "lie";
+            static std::vector<std::string> onDisk   = debugio::list_presets();
+            static char status[96]                   = "";
+
+            ImGui::InputText("Preset name", nameBuf, sizeof(nameBuf));
+            if (ImGui::Button("Save")) {
+                bool ok = debugio::save(p, nameBuf);
+                std::snprintf(status, sizeof(status), ok ? "saved '%s.toml'" : "SAVE FAILED '%s'", nameBuf);
+                onDisk = debugio::list_presets();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Load")) {
+                bool ok = debugio::load(p, nameBuf);
+                std::snprintf(status, sizeof(status), ok ? "loaded '%s.toml'" : "not found '%s'", nameBuf);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Refresh"))
+                onDisk = debugio::list_presets();
+
+            if (!onDisk.empty() && ImGui::BeginCombo("On disk", nameBuf)) {
+                for (const std::string& n : onDisk) {
+                    if (ImGui::Selectable(n.c_str(), n == nameBuf)) {
+                        std::snprintf(nameBuf, sizeof(nameBuf), "%s", n.c_str());
+                        debugio::load(p, n);
+                        std::snprintf(status, sizeof(status), "loaded '%s.toml'", n.c_str());
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (status[0])
+                ImGui::TextDisabled("%s", status);
+        }
 
         // ── Image / Grade ─────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Image / Grade", ImGuiTreeNodeFlags_DefaultOpen)) {

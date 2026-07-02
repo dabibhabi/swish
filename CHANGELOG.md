@@ -6,6 +6,30 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — Added named TOML preset save/load to the debug UI (persist a tuned look)
+
+> The debug panel could snap to canned looks (Reset / Overcast-LIE / Clear / Clear+Rain) and print values to stdout, but a look you tuned by hand vanished on quit. This adds **named presets on disk**: type a name, hit **Save** to write `config/presets/<name>.toml`, **Load** to restore it, and pick any existing preset from an "On disk" combo to load it live. Debug-only (`SWISH_DEBUG_UI`); uses the already-vendored toml++ (previously linked only into the `toml_baker` tool).
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** Tuning toward the real LIE photo is iterative — you need to keep a good look and come back to it. In-memory presets + `Print values` weren't enough; this makes a tuned look durable and shareable (the TOML is human-editable).
+
+**Approach.** New debug-only [`DebugParamsIO`](src/debug/DebugParamsIO.h) module with `save` / `load` / `list_presets`, writing under `CONFIG_DIR/presets/` (`CONFIG_DIR` is the compile-time config path, so it's cwd-independent). The document is grouped exactly like the panel (`[grade] [sky] [sun] [fog] [reflection] [shadow] [wet] [car] [quality]`) so it hand-edits cleanly. `vec3`s serialize as 3-element arrays. Transient UI state (`editMode` / `showPanel` / `ssaaApplyRequested`) is never written. **Load merges**: any key absent from the file keeps its current in-app value (`value_or(current)`), so old presets stay forward-compatible as new fields are added. The panel gained a name field + Save / Load / Refresh + an "On disk" combo (scanned via `std::filesystem`).
+
+**Verification.** A harness compiled against the real `DebugParamsIO.cpp` mutated 14 fields across every group, saved, loaded into fresh defaults, and asserted equality — **round-trip OK**, and an unwritten field (`bloomThreshold`) correctly stayed at its default (missing-key policy). Debug build clean; app runs validation-clean with the new panel section; window-captured screenshot confirms the Save/Load/Refresh row + preset combo render. Release build is unaffected (all `#ifdef SWISH_DEBUG_UI`; toml++ linked into `swish` only under the debug flag).
+
+**File-change table.**
+
+| File | Change |
+| --- | --- |
+| [src/debug/DebugParamsIO.h](src/debug/DebugParamsIO.h) | **New.** `save` / `load` / `list_presets` / `presets_dir` API (debug-only). |
+| [src/debug/DebugParamsIO.cpp](src/debug/DebugParamsIO.cpp) | **New.** toml++ serialize/parse of every scene field; `std::filesystem` preset scan; merge-load. |
+| [src/debug/DebugUI.cpp](src/debug/DebugUI.cpp) | Preset name field + Save/Load/Refresh buttons + "On disk" combo; status line. |
+| [CMakeLists.txt](CMakeLists.txt) | Add `DebugParamsIO.cpp` to debug sources; link `tomlplusplus::tomlplusplus` into `swish` under `SWISH_DEBUG_UI`. |
+
+</details>
+
 ### 2026-07-01 — Made the Sky/Fog/Reflection/Shadow/Wet debug sliders live via a scene-params UBO (set 3)
 
 > The debug panel already exposed sky-gradient colours, sun-disc sharpness, fog colour/distance/max, reflection gloss, shadow bias/floor, and wet porosity/roughness — but those were 13 constants **hardcoded** in `lighting.frag`, so dragging the sliders did nothing. This promotes them to a live uniform (**set 3, binding 0**) that the in-engine panel drives every frame, so the whole "look" now tunes in real time like the grade group. The change is compiled **only** under `SWISH_DEBUG_UI`: a normal `make run` build keeps the literal constants, never declares set 3, and — proven below — produces a byte-for-byte-equivalent shader.
