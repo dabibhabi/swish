@@ -14,6 +14,10 @@ public:
             VK_NULL_HANDLE;  // set 1 — from PostProcessManager (lighting tex layout)
         VkDescriptorSetLayout shadowSetLayout =
             VK_NULL_HANDLE;  // set 2 — from PostProcessManager (shadow-map sampler layout)
+#ifdef SWISH_DEBUG_UI
+        VkDescriptorSetLayout sceneParamsSetLayout =
+            VK_NULL_HANDLE;  // set 3 — from SceneParamsUniform (debug live-tunables UBO)
+#endif
         VkRenderPass lightingRenderPass = VK_NULL_HANDLE;
         VkExtent2D   extent             = {0, 0};
     };
@@ -31,8 +35,11 @@ public:
     // Bind pipeline + viewport/scissor, bind both descriptor sets, push
     // invView/invProj, and issue the fullscreen draw. One call per frame.
     void bind_and_record(VkCommandBuffer cmd, VkDescriptorSet cameraSet, VkDescriptorSet gbufferSet,
-                         VkDescriptorSet shadowSet, const Mat4& invView, const Mat4& invProj,
-                         VkExtent2D extent) const;
+                         VkDescriptorSet shadowSet,
+#ifdef SWISH_DEBUG_UI
+                         VkDescriptorSet sceneParamsSet,  // set 3 (debug live-tunables)
+#endif
+                         const Mat4& invView, const Mat4& invProj, VkExtent2D extent) const;
 
 private:
     void buildPipeline(VkDevice device, VkRenderPass renderPass, VkExtent2D extent);

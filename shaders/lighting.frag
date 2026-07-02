@@ -46,12 +46,63 @@ layout(location = 0) out vec4 outColor;
 
 const float PI = 3.14159265359;
 
-// Depth-resolved rain fog (R-P1-1). kFogColor = cool overcast airlight; kFogDist63
+// ── Scene "look" constants ────────────────────────────────────────────
+// These 13 values used to be hardcoded here. Under the debug UI they are
+// promoted to a live uniform (set 3) so the in-engine panel can drive the
+// look in real time; in a normal `make run` build the shader compiles
+// without SWISH_DEBUG_UI and keeps the exact literals below, so release
+// output is byte-for-byte unchanged (no set 3, no extra binding). The rest
+// of the shader reads them through the SP_* macros regardless of build.
+#ifdef SWISH_DEBUG_UI
+layout(set = 3, binding = 0) uniform SceneParamsUBO {
+    vec4 skyHorizonOvercast;  // rgb
+    vec4 skyHorizonClear;     // rgb
+    vec4 skyZenithOvercast;   // rgb
+    vec4 skyZenithClear;      // rgb
+    vec4 sunDisc;             // x=expMin y=expMax z=strMin w=strMax
+    vec4 fogColor;            // rgb
+    vec4 fogParams;           // x=dist63 y=max z=envGlossExp
+    vec4 shadowParams;        // x=bias y=floor
+    vec4 wetParams;           // x=porosity y=roughnessCollapse
+} sp;
+#define SP_SKY_HORIZON_OVERCAST sp.skyHorizonOvercast.rgb
+#define SP_SKY_HORIZON_CLEAR    sp.skyHorizonClear.rgb
+#define SP_SKY_ZENITH_OVERCAST  sp.skyZenithOvercast.rgb
+#define SP_SKY_ZENITH_CLEAR     sp.skyZenithClear.rgb
+#define SP_SUN_DISC_EXP_MIN     sp.sunDisc.x
+#define SP_SUN_DISC_EXP_MAX     sp.sunDisc.y
+#define SP_SUN_DISC_STR_MIN     sp.sunDisc.z
+#define SP_SUN_DISC_STR_MAX     sp.sunDisc.w
+#define SP_FOG_COLOR            sp.fogColor.rgb
+#define SP_FOG_DIST63           sp.fogParams.x
+#define SP_FOG_MAX              sp.fogParams.y
+#define SP_ENV_GLOSS_EXP        sp.fogParams.z
+#define SP_SHADOW_BIAS          sp.shadowParams.x
+#define SP_SHADOW_FLOOR         sp.shadowParams.y
+#define SP_WET_POROSITY         sp.wetParams.x
+#define SP_WET_ROUGHNESS        sp.wetParams.y
+#else
+// Release literals — identical to the previously-hardcoded values.
+#define SP_SKY_HORIZON_OVERCAST vec3(0.70, 0.80, 0.90)
+#define SP_SKY_HORIZON_CLEAR    vec3(0.62, 0.80, 0.98)
+#define SP_SKY_ZENITH_OVERCAST  vec3(0.35, 0.55, 0.85)
+#define SP_SKY_ZENITH_CLEAR     vec3(0.09, 0.36, 0.86)
+#define SP_SUN_DISC_EXP_MIN     32.0
+#define SP_SUN_DISC_EXP_MAX     220.0
+#define SP_SUN_DISC_STR_MIN     0.3
+#define SP_SUN_DISC_STR_MAX     0.9
+// Depth-resolved rain fog (R-P1-1). fog colour = cool overcast airlight; dist63
 // = distance (WU; 1 m = 1000 WU) at which fog reaches ~63% at full wetness. Large
 // enough that the near cabin (~1000 WU away) is essentially fog-free.
-const vec3  kFogColor   = vec3(0.52, 0.57, 0.63);
-const float kFogDist63  = 1200000.0;  // ~1.2 km to 63% at full rain (was 150 m — ~8× too dense)
-const float kFogMax     = 0.65;       // cap: distant geometry keeps ≥35% of its colour (no white-out)
+#define SP_FOG_COLOR            vec3(0.52, 0.57, 0.63)
+#define SP_FOG_DIST63           1200000.0  // ~1.2 km to 63% at full rain
+#define SP_FOG_MAX              0.65        // cap: distant geometry keeps ≥35% of its colour
+#define SP_ENV_GLOSS_EXP        3.0
+#define SP_SHADOW_BIAS          0.0018
+#define SP_SHADOW_FLOOR         0.25
+#define SP_WET_POROSITY         0.35
+#define SP_WET_ROUGHNESS        0.12
+#endif
 
 // ── Reconstruct world position from depth (rind pattern) ──────────
 // `depth` is the raw Vulkan depth-buffer value in [0,1]. pc.invProj is the
@@ -71,11 +122,12 @@ vec3 reconstructWorldPos(vec2 uv, float depth) {
 vec3 compute_sky_color(vec3 view_dir) {
     float t       = clamp(view_dir.y * 2.0 + 0.3, 0.0, 1.0);
     float clarity = camera.weather.x;
-    vec3 horizon  = mix(vec3(0.70, 0.80, 0.90), vec3(0.62, 0.80, 0.98), clarity);
-    vec3 zenith   = mix(vec3(0.35, 0.55, 0.85), vec3(0.09, 0.36, 0.86), clarity);
+    vec3 horizon  = mix(SP_SKY_HORIZON_OVERCAST, SP_SKY_HORIZON_CLEAR, clarity);
+    vec3 zenith   = mix(SP_SKY_ZENITH_OVERCAST, SP_SKY_ZENITH_CLEAR, clarity);
     vec3 sky = mix(horizon, zenith, pow(t, 1.5));
     float sun_dot = max(dot(view_dir, camera.sunDir.xyz), 0.0);
-    sky += camera.sunColor.rgb * pow(sun_dot, mix(32.0, 220.0, clarity)) * mix(0.3, 0.9, clarity);
+    sky += camera.sunColor.rgb * pow(sun_dot, mix(SP_SUN_DISC_EXP_MIN, SP_SUN_DISC_EXP_MAX, clarity))
+         * mix(SP_SUN_DISC_STR_MIN, SP_SUN_DISC_STR_MAX, clarity);
     return sky;
 }
 
@@ -116,12 +168,12 @@ void main() {
     // toward a mirror, and micro-normals on up-facing (road-like) surfaces flatten
     // toward the plane so reflections stay coherent. The grazing Fresnel surge that
     // actually reads as "wet" is added after lighting, below.
-    const float kPorosity = 0.35;  // asphalt diffuse floor when saturated
+    float kPorosity = SP_WET_POROSITY;  // asphalt diffuse floor when saturated
     float luma      = dot(albedo, vec3(0.299, 0.587, 0.114));
     vec3  wetAlbedo = mix(albedo * kPorosity, vec3(luma * kPorosity), 0.25);  // darken + desaturate
     albedo          = mix(albedo, wetAlbedo, wetLocal);
 
-    roughness = mix(roughness, roughness * 0.12, wetLocal);  // toward near-mirror, scaled by water
+    roughness = mix(roughness, roughness * SP_WET_ROUGHNESS, wetLocal);  // toward near-mirror, scaled by water
     roughness = clamp(roughness, 0.02, 1.0);
 
     // Flatten micro-normal toward the geometric plane on up-facing surfaces.
@@ -145,7 +197,7 @@ void main() {
     sc.xy    = sc.xy * 0.5 + 0.5;
     float vis = 0.0;
     vec2  tx  = 1.0 / vec2(textureSize(shadowMap, 0));
-    const float kShadowBias = 0.0018;  // depth-compare bias (tunable; complements raster depth-bias)
+    float kShadowBias = SP_SHADOW_BIAS;  // depth-compare bias (tunable; complements raster depth-bias)
     for (int y = -1; y <= 1; ++y)
         for (int x = -1; x <= 1; ++x) {
             float occluder = texture(shadowMap, sc.xy + vec2(x, y) * tx).r;
@@ -156,7 +208,7 @@ void main() {
         vis = 1.0;  // off-map = lit
     // Shadow floor 0.25: ambient still lights shadowed areas, so shadows read as
     // darkened rather than pitch black. Works in all weather (no clarity gate).
-    float sunShadow = mix(0.25, 1.0, vis);
+    float sunShadow = mix(SP_SHADOW_FLOOR, 1.0, vis);
 
     // ── PBR setup ─────────────────────────────────────────────────
     float a  = roughness * roughness;
@@ -224,7 +276,7 @@ void main() {
     // so the enclosed interior isn't frosted by the outdoor sky, while smooth paint and
     // the near-mirror wet road still reflect strongly. The sky is low-frequency, so a
     // single-sample reflection reads correctly without prefiltered roughness mips.
-    float envGloss = pow(1.0 - roughness, 3.0);
+    float envGloss = pow(1.0 - roughness, SP_ENV_GLOSS_EXP);
     lit_color     += envColor * F_env * envGloss;
 
     // ── Point light accumulation ──────────────────────────────────
@@ -298,8 +350,8 @@ void main() {
     // legible instead of dissolving into grey.
     float fogDist  = length(fragWorldPos - camera.camPos.xyz);   // WU (1 m = 1000 WU)
     float fogClear = 1.0 - camera.weather.x;                      // 1 overcast/rain .. 0 clear day
-    float fogT     = (1.0 - exp(-fogDist * wetness / kFogDist63)) * kFogMax * fogClear;
-    lit_color      = mix(lit_color, kFogColor, fogT);
+    float fogT     = (1.0 - exp(-fogDist * wetness / SP_FOG_DIST63)) * SP_FOG_MAX * fogClear;
+    lit_color      = mix(lit_color, SP_FOG_COLOR, fogT);
 
     outColor = vec4(lit_color, 1.0);
 }

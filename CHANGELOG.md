@@ -6,6 +6,59 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — Made the Sky/Fog/Reflection/Shadow/Wet debug sliders live via a scene-params UBO (set 3)
+
+> The debug panel already exposed sky-gradient colours, sun-disc sharpness, fog colour/distance/max, reflection gloss, shadow bias/floor, and wet porosity/roughness — but those were 13 constants **hardcoded** in `lighting.frag`, so dragging the sliders did nothing. This promotes them to a live uniform (**set 3, binding 0**) that the in-engine panel drives every frame, so the whole "look" now tunes in real time like the grade group. The change is compiled **only** under `SWISH_DEBUG_UI`: a normal `make run` build keeps the literal constants, never declares set 3, and — proven below — produces a byte-for-byte-equivalent shader.
+
+<details>
+<summary>Technical summary</summary>
+
+**Root cause.** Only *some* tunables reached the GPU (grade via the composite push-constant; sun/clarity/rain via `CameraUBO`). The sky/fog/reflection/shadow/wet knobs lived as literals inside `lighting.frag`'s deferred lighting math, invisible to the UI struct. Nothing carried an edit from `DebugParams` to the shader.
+
+**Fix — one std140 UBO on the lighting pipeline, gated by `SWISH_DEBUG_UI`.** A new debug-only [`SceneParamsUniform`](src/debug/SceneParamsUniform.h) owns one persistently-mapped host-visible buffer + descriptor set per frame-in-flight (bound as **set 3**; sets 0/1/2 are camera / G-buffer / shadow). Each frame `Renderer::drawFrame` repacks the live `DebugParams` into it right after the camera UBO write. `lighting.frag` reads the values through `SP_*` macros:
+
+```glsl
+#ifdef SWISH_DEBUG_UI
+  layout(set = 3, binding = 0) uniform SceneParamsUBO { ... } sp;
+  #define SP_FOG_DIST63 sp.fogParams.x   // …16 macros
+#else
+  #define SP_FOG_DIST63 1200000.0        // the exact old literal
+#endif
+```
+
+so `main()` is textually identical in both builds — only the *source* of each constant changes. The lighting pipeline layout appends the set-3 layout under `#ifdef`, and `bind_and_record` binds it under `#ifdef`.
+
+**std140 / MoltenVK safety.** Every UBO member is a `vec4` (scalars packed into lanes) so each field is 16-byte aligned — this sidesteps std140 `vec3`-padding entirely, which is the portability-subset-safe layout on MoltenVK. A `static_assert(sizeof(SceneParamsUBO) == 9*16)` pins it. Packing:
+
+$$\underbrace{4\times\text{vec4}}_{\text{sky h/z × overcast/clear}}\;+\;\underbrace{\text{sunDisc}}_{(e_{\min},e_{\max},s_{\min},s_{\max})}\;+\;\text{fogColor}\;+\;\underbrace{\text{fogParams}}_{(d_{63},\,\text{max},\,\text{glossExp})}\;+\;\underbrace{\text{shadowParams}}_{(\text{bias},\text{floor})}\;+\;\underbrace{\text{wetParams}}_{(\text{poros},\text{rough})}=144\,\text{B}$$
+
+**Release is provably unchanged.** Compiling the pre-change and post-change `lighting.frag` **without** `-DSWISH_DEBUG_UI` through `glslc -O` yields SPIR-V with an **identical 608-line opcode stream and identical constant set** (only internal SSA-id names differ). The release `.spv` also contains **zero** `DescriptorSet 3` references; the debug `.spv` contains it.
+
+**Verification.** Debug + release both build clean. Debug run is validation-clean (validation layer active in `Debug`; 0 `Validation:` messages) across many frames that bind + draw set 3. Live proof: temporarily defaulting the overcast sky endpoints to magenta rendered a **magenta sky *and* magenta reflections on the car paint** (confirming `SP_SKY_*` feeds both the sky pixels and the IBL-lite `envColor`); reverting restored the neutral overcast look.
+
+```mermaid
+graph LR
+  P["DebugUI panel<br/>(Sky/Fog/Reflect/Shadow/Wet sliders)"] --> D[DebugParams]
+  D -->|"drawFrame: update(frame)"| U["SceneParamsUniform<br/>set 3 UBO (144B)"]
+  U -->|"bind_and_record set 3"| L["lighting.frag<br/>SP_* macros"]
+  L --> S["sky + reflections + fog<br/>+ shadows + wet BRDF"]
+```
+
+**File-change table.**
+
+| File | Change |
+| --- | --- |
+| [src/debug/SceneParamsUniform.h](src/debug/SceneParamsUniform.h) | **New.** `SceneParamsUBO` (9×vec4 std140 mirror) + `SceneParamsUniform` class (per-frame UBO + set-3 layout/pool/sets). Entirely `#ifdef SWISH_DEBUG_UI`. |
+| [src/debug/SceneParamsUniform.cpp](src/debug/SceneParamsUniform.cpp) | **New.** init/cleanup/update; packs `DebugParams` → UBO; RAII VMA buffers. |
+| [shaders/lighting.frag](shaders/lighting.frag) | Set-3 UBO block + 16 `SP_*` macros (`#ifdef` UBO / `#else` literals); replaced 13 hardcoded constants in `compute_sky_color` + the wet/shadow/reflection/fog math with the macros. |
+| [src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.h](src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.h) | `Config` gains `sceneParamsSetLayout` (set 3); `bind_and_record` gains a `sceneParamsSet` param — both `#ifdef`. |
+| [src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.cpp](src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.cpp) | Append set-3 layout to the pipeline layout + bind set 3 at draw, both `#ifdef`; `#include <vector>`. |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) | Include `SceneParamsUniform.h`; add `m_sceneParams` member (all `#ifdef`). |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | Named-field lighting-pipeline `Config` init; `m_sceneParams.init` before pipeline build; per-frame `update`; pass set 3 into `bind_and_record`; `cleanup`. |
+| [CMakeLists.txt](CMakeLists.txt) | Add `src/debug/SceneParamsUniform.cpp` to the `SWISH_DEBUG_UI` target sources. |
+
+</details>
+
 ### 2026-07-01 — Added SSAA (internal supersampling) by splitting render vs swap extents
 
 > Rendered the entire offscreen chain (G-buffer, HDR color/depth, deferred lighting, bloom, AO, and the forward rain/glass/windshield passes) at a higher internal resolution — `renderExtent = swapExtent × kRenderScale` with `kRenderScale = 1.5f` (~2.25× the pixels/VRAM) — while the composite pass keeps outputting at the swapchain extent, sampling the high-res HDR through the existing LINEAR sampler. That single bilinear downsample IS the supersample-anti-aliasing resolve: edge shimmer/jaggies drop and detail sharpens, with zero shader changes.

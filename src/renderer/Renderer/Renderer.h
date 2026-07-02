@@ -10,6 +10,7 @@
 #ifdef SWISH_DEBUG_UI
 #include "../../debug/DebugParams.h"
 #include "../../debug/DebugUI.h"
+#include "../../debug/SceneParamsUniform.h"
 #endif
 
 #include <vulkan/vulkan.h>
@@ -182,6 +183,9 @@ private:
     // Live debug/tuning UI + its editable parameters (make debug only).
     DebugUI     m_debugUI;
     DebugParams m_debugParams;
+    // Set 3 on the deferred-lighting pipeline: the live-tunable "look" constants
+    // (sky/fog/reflection/shadow/wet) promoted out of lighting.frag.
+    SceneParamsUniform m_sceneParams;
 #endif
 
     // ── Glass + windshield state ──────────────────────────────────

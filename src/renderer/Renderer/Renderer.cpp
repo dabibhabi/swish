@@ -141,13 +141,20 @@ void Renderer::init(Window& window) {
                                                     m_postProcess->get_gbuffer_render_pass(),
                                                     renderExtent,
                                                 });
-    m_deferredLighting.init(m_device->getDevice(), {
-                                                       m_cameraUniforms->get_layout(),
-                                                       m_postProcess->get_lighting_tex_layout(),
-                                                       m_postProcess->get_shadow_tex_layout(),
-                                                       m_postProcess->get_lighting_render_pass(),
-                                                       renderExtent,
-                                                   });
+    // Named-field init (order-independent): the debug build appends an extra
+    // scene-params set layout, so positional aggregate init would shift.
+    DeferredLightingPipeline::Config lightingCfg{};
+    lightingCfg.cameraSetLayout    = m_cameraUniforms->get_layout();
+    lightingCfg.gbufferSetLayout   = m_postProcess->get_lighting_tex_layout();
+    lightingCfg.shadowSetLayout    = m_postProcess->get_shadow_tex_layout();
+    lightingCfg.lightingRenderPass = m_postProcess->get_lighting_render_pass();
+    lightingCfg.extent             = renderExtent;
+#ifdef SWISH_DEBUG_UI
+    // Live-tunables UBO (set 3) — must exist before the pipeline layout is built.
+    m_sceneParams.init(m_device->getDevice(), m_device->getAllocator(), MAX_FRAMES_IN_FLIGHT);
+    lightingCfg.sceneParamsSetLayout = m_sceneParams.get_layout();
+#endif
+    m_deferredLighting.init(m_device->getDevice(), lightingCfg);
 }
 
 void Renderer::cleanup() {
@@ -155,6 +162,7 @@ void Renderer::cleanup() {
 
 #ifdef SWISH_DEBUG_UI
     m_debugUI.cleanup();  // ImGui shutdown before device/instance teardown
+    m_sceneParams.cleanup(m_device->getDevice());  // set 3 UBO + pool + layout
 #endif
 
     m_camera.reset();
@@ -353,6 +361,12 @@ void Renderer::drawFrame(float deltaTime) {
 
     m_cameraUniforms->update(m_currentFrame, *m_camera);
 
+#ifdef SWISH_DEBUG_UI
+    // Push the live "look" tunables into set 3 for this frame (identity to the
+    // shipped constants at defaults, so nothing changes until a slider moves).
+    m_sceneParams.update(m_currentFrame, m_debugParams);
+#endif
+
     if (m_rainSystem) {
         // Time-varying gusts: superimpose a slow swing and a faster gust on the
         // base horizontal wind so the streaks visibly slant and the slant DRIFTS
@@ -533,7 +547,11 @@ void Renderer::recordLightingPass(VkCommandBuffer cmd, uint32_t frameIndex, VkEx
 
     m_deferredLighting.bind_and_record(cmd, m_cameraUniforms->get_set(frameIndex),
                                        m_postProcess->get_lighting_set(frameIndex),
-                                       m_postProcess->get_shadow_set(frameIndex), invView, invProj, extent);
+                                       m_postProcess->get_shadow_set(frameIndex),
+#ifdef SWISH_DEBUG_UI
+                                       m_sceneParams.get_set(frameIndex),
+#endif
+                                       invView, invProj, extent);
 }
 
 // ── Rain forward pass — additively onto existing HDR ──────────────────
