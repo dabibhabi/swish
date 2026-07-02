@@ -64,6 +64,11 @@ bool save(const DebugParams& p, const std::string& name) {
         {"fog",
          toml::table{{"color", arr3(p.fogColor)}, {"dist63", p.fogDist63}, {"max", p.fogMax}}},
         {"reflection", toml::table{{"env_gloss_exp", p.envGlossExp}}},
+        {"ssao",
+         toml::table{{"enabled", p.ssaoEnabled},
+                     {"radius", p.ssaoRadius},
+                     {"bias", p.ssaoBias},
+                     {"intensity", p.ssaoIntensity}}},
         {"shadow",
          toml::table{{"bias", p.shadowBias},
                      {"floor", p.shadowFloor},
@@ -128,6 +133,11 @@ bool load(DebugParams& p, const std::string& name) {
     p.fogMax    = tbl["fog"]["max"].value_or(p.fogMax);
 
     p.envGlossExp = tbl["reflection"]["env_gloss_exp"].value_or(p.envGlossExp);
+
+    p.ssaoEnabled   = tbl["ssao"]["enabled"].value_or(p.ssaoEnabled);
+    p.ssaoRadius    = tbl["ssao"]["radius"].value_or(p.ssaoRadius);
+    p.ssaoBias      = tbl["ssao"]["bias"].value_or(p.ssaoBias);
+    p.ssaoIntensity = tbl["ssao"]["intensity"].value_or(p.ssaoIntensity);
 
     p.shadowBias       = tbl["shadow"]["bias"].value_or(p.shadowBias);
     p.shadowFloor      = tbl["shadow"]["floor"].value_or(p.shadowFloor);

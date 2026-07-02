@@ -211,6 +211,12 @@ private:
     void recordWindshieldRainPass(VkCommandBuffer cmd, uint32_t frameIndex);
     void recordBloomExtract(VkCommandBuffer cmd, VkExtent2D extent);
     void recordBloomBlur(VkCommandBuffer cmd, VkExtent2D extent, bool horizontal);
+#ifdef SWISH_DEBUG_UI
+    // SSAO (depth → AO) + bilateral blur, recorded between lighting and the forward
+    // passes (depth is in DEPTH_STENCIL_READ_ONLY there). Debug-only; release keeps
+    // the primed-white AO image so the composite `hdr *= ao` is a no-op.
+    void recordSsaoPasses(VkCommandBuffer cmd, uint32_t frameIndex);
+#endif
     void recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t imageIndex, VkExtent2D extent);
 
     void recreateSwapchain();

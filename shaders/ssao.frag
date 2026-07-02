@@ -5,7 +5,8 @@ layout(location = 0) in vec2 fragUV;
 layout(set = 0, binding = 0) uniform sampler2D depthTex;
 
 layout(push_constant) uniform Params {
-    mat4 invProjection;
+    mat4 invProjection;  // clip → view
+    mat4 projection;     // view → clip (avoids a per-sample matrix inverse)
     float aoRadius;
     float aoBias;
     float aoIntensity;
@@ -76,13 +77,17 @@ void main() {
         // Compute sample position
         vec3 samplePos = fragPos + sampleDir * radius;
 
-        // Project sample to screen
-        vec4 sampleClip = inverse(params.invProjection) * vec4(samplePos, 1.0);
+        // Project sample to screen (view → clip via the supplied projection)
+        vec4 sampleClip = params.projection * vec4(samplePos, 1.0);
         sampleClip.xyz /= sampleClip.w;
         vec2 sampleUV = sampleClip.xy * 0.5 + 0.5;
 
-        // Sample depth at projected position
+        // Reject samples that fall outside the screen or on the sky (depth≈1):
+        // an unbounded far-plane position otherwise reads as a spurious occluder
+        // along every silhouette against the sky, which shows up as edge speckle.
+        if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0) continue;
         float sampleDepth = texture(depthTex, sampleUV).r;
+        if (sampleDepth > 0.9999) continue;
         vec3 sampledPos = viewPosFromDepth(sampleUV, sampleDepth);
 
         // Range check + occlusion test

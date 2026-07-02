@@ -53,6 +53,15 @@ struct DebugParams {
     // ── Reflection (environment / gloss) ──────────────────────────────
     float envGlossExp = 3.0f;  // Fresnel/gloss falloff exponent
 
+    // ── SSAO (screen-space ambient occlusion) ─────────────────────────
+    // Runs at 1/2 render res, multiplied into the composite. radius/bias are in
+    // view-space world units (1 m = 1000 WU); tune live toward subtle contact
+    // darkening. Disabled → intensity forced to 0 (shader outputs 1 = no AO).
+    bool  ssaoEnabled   = true;
+    float ssaoRadius    = 1200.0f;  // hemisphere sample radius (WU) — contact-focused
+    float ssaoBias      = 50.0f;    // view-space depth bias to fight self-occlusion (WU)
+    float ssaoIntensity = 1.0f;     // occlusion strength multiplier
+
     // ── Shadows (single sun shadow map + depth bias) ──────────────────
     float shadowBias        = 0.0018f;    // slope-scaled shadow-compare bias
     float shadowFloor       = 0.25f;      // min visibility in full shadow

@@ -122,6 +122,8 @@ set(SHADER_SOURCES
     ${SHADER_DIR}/fullscreen.vert
     ${SHADER_DIR}/bloom_extract.frag
     ${SHADER_DIR}/bloom_blur.frag
+    ${SHADER_DIR}/ssao.frag
+    ${SHADER_DIR}/ao_blur.frag
     ${SHADER_DIR}/composite.frag
     ${SHADER_DIR}/gbuffer.frag
     ${SHADER_DIR}/lighting.frag

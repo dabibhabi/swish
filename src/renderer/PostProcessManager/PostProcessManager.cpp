@@ -581,6 +581,15 @@ void PostProcessManager::createDescriptors() {
     m_postProcessLayout = Pipeline::createLayout(m_device, {m_singleTexLayout}, {pcRange});
     m_compositeLayout   = Pipeline::createLayout(m_device, {m_compositeTexLayout}, {pcRange});
 
+    // SSAO layout: single depth texture (set 0) + a larger 144-B push block
+    // (2×mat4 + params). Kept separate from m_postProcessLayout, whose push range
+    // is too small for it.
+    VkPushConstantRange ssaoPC{};
+    ssaoPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    ssaoPC.offset     = 0;
+    ssaoPC.size       = sizeof(SsaoParams);
+    m_ssaoLayout      = Pipeline::createLayout(m_device, {m_singleTexLayout}, {ssaoPC});
+
     // Lighting descriptor layout: 4 G-buffer textures (albedo, normal, material, depth)
     {
         std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
@@ -633,17 +642,18 @@ void PostProcessManager::createDescriptors() {
     // But we don't have the Renderer's set 0 layout here. So we'll create the lighting pipeline
     // layout in Renderer.cpp, not here. We'll just store the G-buffer descriptor set layout and sets.
 
-    // Descriptor pool — 5 single + 2 composite + 2 lighting + 2 shadow = 11 sets,
-    // max 21 samplers (5×1 + 2×3 + 2×4 + 2×1).
+    // Descriptor pool — 6 single (bloom×3 + AO-depth×PP_MAX_FRAMES + AO-blur) +
+    // 2 composite + 2 lighting + 2 shadow = 12 sets, 22 samplers. Sized to 16/32
+    // for headroom.
     VkDescriptorPoolSize poolSize{};
     poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = 21;
+    poolSize.descriptorCount = 32;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes    = &poolSize;
-    poolInfo.maxSets       = 11;
+    poolInfo.maxSets       = 16;
     VK_CHECK(vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool));
 
     // Allocate single-texture sets
@@ -661,7 +671,8 @@ void PostProcessManager::createDescriptors() {
     m_bloomExtractSet = allocSingleSet();
     m_bloomBlurHSet   = allocSingleSet();
     m_bloomBlurVSet   = allocSingleSet();
-    m_aoSet           = allocSingleSet();
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
+        m_aoSets[i] = allocSingleSet();  // per-frame: SSAO samples that frame's depth
     m_aoBlurSet       = allocSingleSet();
 
     // Allocate composite sets (per frame)
@@ -675,9 +686,9 @@ void PostProcessManager::createDescriptors() {
     }
 
     // Write descriptor sets
-    auto writeSingle = [&](VkDescriptorSet set, VkImageView view) {
+    auto writeSingleLayout = [&](VkDescriptorSet set, VkImageView view, VkImageLayout layout) {
         VkDescriptorImageInfo imgInfo{};
-        imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imgInfo.imageLayout = layout;
         imgInfo.imageView   = view;
         imgInfo.sampler     = m_sampler;
 
@@ -690,12 +701,18 @@ void PostProcessManager::createDescriptors() {
         write.pImageInfo      = &imgInfo;
         vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
     };
+    auto writeSingle = [&](VkDescriptorSet set, VkImageView view) {
+        writeSingleLayout(set, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    };
 
     // Bloom extract reads HDR (use frame 0 for now; we rebind per-frame in composite)
     writeSingle(m_bloomExtractSet, m_hdrViews[0]);
     writeSingle(m_bloomBlurHSet, m_bloomExtractView);
     writeSingle(m_bloomBlurVSet, m_bloomBlurHView);
-    writeSingle(m_aoSet, m_hdrDepthViews[0]);
+    // SSAO samples the scene depth (a depth image → DEPTH_STENCIL_READ_ONLY layout),
+    // per-frame so each frame reads its own depth (no cross-frame ghosting).
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
+        writeSingleLayout(m_aoSets[i], m_hdrDepthViews[i], VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
     writeSingle(m_aoBlurSet, m_aoView);
 
     // Composite sets: HDR (per-frame) + bloom (shared) + AO (shared)
@@ -784,6 +801,10 @@ void PostProcessManager::destroyDescriptors() {
         vkDestroyPipelineLayout(m_device, m_compositeLayout, nullptr);
         m_compositeLayout = VK_NULL_HANDLE;
     }
+    if (m_ssaoLayout != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(m_device, m_ssaoLayout, nullptr);
+        m_ssaoLayout = VK_NULL_HANDLE;
+    }
     if (m_singleTexLayout != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(m_device, m_singleTexLayout, nullptr);
         m_singleTexLayout = VK_NULL_HANDLE;
@@ -824,11 +845,13 @@ void PostProcessManager::createPipelines() {
         makeFullscreenPipeline("bloom_extract.frag", m_bloomRenderPass, m_postProcessLayout, m_bloomExtent);
     m_bloomBlurPipeline =
         makeFullscreenPipeline("bloom_blur.frag", m_bloomRenderPass, m_postProcessLayout, m_bloomExtent);
-    // SSAO + AO-blur pipelines intentionally not created. The shaders declare an
-    // 80-byte push block that doesn't fit m_postProcessLayout's 32-byte range
-    // (VUID-10069), and SSAO is bypassed for bring-up. The AO blur image is
-    // primed to white by primeAOTexture() so the composite shader's `hdr *= ao`
-    // is a no-op. Re-enable when SSAO is wired into the per-frame record path.
+    // SSAO (depth → AO) uses its own 144-B push layout; AO-blur has no push block
+    // so it reuses m_postProcessLayout (an unused push range is harmless). Both
+    // render at the AO extent (1/2 render res). SSAO is recorded per frame only
+    // under SWISH_DEBUG_UI; in release the AO blur image stays primed to white by
+    // primeAOTexture() so the composite `hdr *= ao` is a no-op (release unchanged).
+    m_ssaoPipeline   = makeFullscreenPipeline("ssao.frag", m_aoRenderPass, m_ssaoLayout, m_aoExtent);
+    m_aoBlurPipeline = makeFullscreenPipeline("ao_blur.frag", m_aoRenderPass, m_postProcessLayout, m_aoExtent);
     // Composite outputs at the swap extent (dynamic viewport/scissor make the
     // extent cosmetic, but keep it consistent with the composite FB size).
     m_compositePipeline =
@@ -845,6 +868,8 @@ void PostProcessManager::destroyPipelines() {
     destroy(m_bloomExtractPipeline);
     destroy(m_bloomBlurPipeline);
     destroy(m_compositePipeline);
+    destroy(m_ssaoPipeline);
+    destroy(m_aoBlurPipeline);
 }
 
 // SSAO is bypassed for bring-up; the composite shader still samples the AO

@@ -7,26 +7,18 @@ layout(set = 0, binding = 0) uniform sampler2D aoTex;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    // 4x4 bilateral-style blur (edge-preserving via simple averaging)
+    // Plain 5x5 box average. The SSAO pass rotates its kernel per-pixel, which
+    // leaves full-frequency noise; a uniform average resolves it far better than
+    // an edge-preserving (bilateral) weight, which by design keeps that noise.
+    // AO is low-frequency, so softening edges here is fine.
     vec2 texelSize = 1.0 / vec2(textureSize(aoTex, 0));
 
     float result = 0.0;
-    float totalWeight = 0.0;
-    float centerAO = texture(aoTex, fragUV).r;
-
     for (int x = -2; x <= 2; x++) {
         for (int y = -2; y <= 2; y++) {
-            vec2 offset = vec2(float(x), float(y)) * texelSize;
-            float sampleAO = texture(aoTex, fragUV + offset).r;
-
-            // Bilateral weight: reject samples too different from center
-            float diff = abs(sampleAO - centerAO);
-            float weight = exp(-diff * diff * 50.0);
-
-            result += sampleAO * weight;
-            totalWeight += weight;
+            result += texture(aoTex, fragUV + vec2(float(x), float(y)) * texelSize).r;
         }
     }
 
-    outColor = vec4(vec3(result / totalWeight), 1.0);
+    outColor = vec4(vec3(result / 25.0), 1.0);
 }

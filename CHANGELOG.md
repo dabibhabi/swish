@@ -6,6 +6,52 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — Enabled SSAO (screen-space ambient occlusion), tunable in the debug UI
+
+> The engine had SSAO **shaders, images, render pass, framebuffers, and descriptor sets** scaffolded but **bypassed** — the pipelines were never built (the shader's push block didn't fit the shared layout) and the AO image was primed to white so `composite`'s `hdr *= ao` was a no-op. This wires it up: SSAO now runs at ½ render resolution and darkens contact points/crevices (cabin seams, footwells, the dashboard-windshield gap), with an **SSAO** panel section (enable / radius / bias / intensity) and toml persistence. Gated to `make debug` — release keeps the primed-white no-op, so `make run` output is unchanged.
+
+<details>
+<summary>Technical summary</summary>
+
+**Why it was off.** `ssao.frag`/`ao_blur.frag` weren't even in the shader-compile list, no `m_ssaoPipeline` existed, and `primeAOTexture()` cleared the AO blur image to white so the always-present composite multiply was a no-op. `createPipelines` documented the blocker: the SSAO push block exceeded `m_postProcessLayout`'s 32-B range (VUID-10069).
+
+**Wiring.**
+- **Shaders compiled:** added `ssao.frag` + `ao_blur.frag` to `SHADER_SOURCES`.
+- **Dedicated layout:** new `m_ssaoLayout` (single depth-texture set + a 144-B push range). `SsaoParams` = `{mat4 invProjection; mat4 projection; float radius, bias, intensity, _pad}` — 144 B (16-aligned, MoltenVK-safe). Passing `projection` explicitly removes a **per-sample `inverse()`** the shader was doing (16 matrix inversions per pixel).
+- **Pipelines:** `m_ssaoPipeline` (own layout) + `m_aoBlurPipeline` (reuses `m_postProcessLayout`; AO-blur has no push block), both fullscreen over `m_aoRenderPass` at the AO extent.
+- **Per-frame depth sets:** the AO depth-input set was a single set pointed at frame 0's depth (cross-frame ghosting) **and** declared the wrong layout for a depth image. Fixed: `m_aoSets[PP_MAX_FRAMES]`, each sampling its own frame's depth in `DEPTH_STENCIL_READ_ONLY_OPTIMAL` (the layout the lighting pass leaves it in). Descriptor pool bumped 11→16 sets / 21→32 samplers.
+- **Record path (`recordSsaoPasses`, debug-only):** placed right after the lighting pass — depth is still `DEPTH_STENCIL_READ_ONLY` there and the forward passes haven't reclaimed it as an attachment. SSAO → barrier `COLOR_ATTACHMENT`→`SHADER_READ` → bilateral… →box blur → barrier → `SHADER_READ`, mirroring the bloom chain. The "Enabled" toggle forces `intensity = 0` (shader outputs 1.0) rather than leaving a stale AO in the image.
+
+**Quality fixes after first light.** Initial output speckled badly: (1) samples projecting onto the **sky** (depth≈1, unbounded far-plane position) read as spurious occluders along every silhouette — now skipped, along with off-screen sample UVs; (2) the "bilateral" blur *preserved* the per-pixel-rotation noise by design — replaced with a plain 5×5 box average (AO is low-frequency, so softening edges is fine). Result is smooth contact AO. Occlusion estimate:
+
+$$\mathrm{AO} = 1 - \frac{\text{intensity}}{N}\sum_{i=1}^{N}\big[\,z_{\text{sample}_i} \ge z_i + \text{bias}\,\big]\cdot \mathrm{smoothstep}\!\Big(0,1,\tfrac{r}{|z_{\text{frag}}-z_{\text{sample}_i}|}\Big),\quad N=16$$
+
+```mermaid
+graph LR
+  D["scene depth<br/>(DEPTH_READ_ONLY, per-frame)"] --> S["ssao.frag<br/>½ res, 16-sample hemisphere"]
+  S -->|"barrier → SHADER_READ"| B["ao_blur.frag<br/>5×5 box"]
+  B -->|"barrier → SHADER_READ"| C["composite: hdr *= ao"]
+```
+
+**Verification.** Debug builds clean; app runs **validation-clean** (0 messages) with the two new passes + barriers + per-frame sets recording every frame; screenshots show smooth contact darkening (no speckle) that the sliders scale. Release (`SWISH_DEBUG_UI=OFF`) builds clean and **52/52 tests pass** — SSAO code compiles but is never recorded, and `primeAOTexture` keeps the AO image white (composite unchanged).
+
+**File-change table.**
+
+| File | Change |
+| --- | --- |
+| [shaders/ssao.frag](shaders/ssao.frag) | Add `projection` push field (drop per-sample `inverse()`); skip sky / off-screen samples. |
+| [shaders/ao_blur.frag](shaders/ao_blur.frag) | Bilateral → plain 5×5 box average (kills rotation noise). |
+| [CMakeLists.txt](CMakeLists.txt) | Add `ssao.frag` + `ao_blur.frag` to `SHADER_SOURCES`. |
+| [src/renderer/PostProcessManager/PostProcessManager.h](src/renderer/PostProcessManager/PostProcessManager.h) | `SsaoParams` struct; `m_ssaoPipeline`/`m_aoBlurPipeline`/`m_ssaoLayout` + getters; per-frame `m_aoSets`. |
+| [src/renderer/PostProcessManager/PostProcessManager.cpp](src/renderer/PostProcessManager/PostProcessManager.cpp) | Build SSAO layout + both pipelines; per-frame AO depth sets in correct layout; pool bump; cleanup. |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) | `recordSsaoPasses` declaration (debug-only). |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | `recordSsaoPasses` (SSAO + blur + barriers) + call after the lighting pass. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) | `ssaoEnabled/Radius/Bias/Intensity`. |
+| [src/debug/DebugUI.cpp](src/debug/DebugUI.cpp) | SSAO panel section + print-values line. |
+| [src/debug/DebugParamsIO.cpp](src/debug/DebugParamsIO.cpp) | `[ssao]` save/load. |
+
+</details>
+
 ### 2026-07-01 — Made the last debug knobs live: dynamic shadow depth-bias, rain streak length, and SSAA rescale
 
 > The remaining "Class-B" debug controls were still inert C++ constants. This wires the three of them: **shadow depth-bias** (constant + slope) via `VK_DYNAMIC_STATE_DEPTH_BIAS`, **rain streak length** via a `RainSystem` setter, and **live SSAA rescale** — the "Apply SSAA" button now rebuilds the whole offscreen chain at the new supersample factor. With this, every slider in the panel drives the running game. Release output is unchanged (dynamic bias is set to the same 4.0/1.5; streak/scale defaults equal the old constants).

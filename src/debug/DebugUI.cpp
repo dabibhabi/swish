@@ -235,6 +235,8 @@ void printValues(const DebugParams& p) {
     std::printf("fogColor={%.3f,%.3f,%.3f} fogDist63=%.1f fogMax=%.3f\n", p.fogColor.x, p.fogColor.y, p.fogColor.z,
                 p.fogDist63, p.fogMax);
     std::printf("envGlossExp=%.3f\n", p.envGlossExp);
+    std::printf("ssaoEnabled=%d ssaoRadius=%.1f ssaoBias=%.1f ssaoIntensity=%.3f\n", p.ssaoEnabled ? 1 : 0,
+                p.ssaoRadius, p.ssaoBias, p.ssaoIntensity);
     std::printf("shadowBias=%.5f shadowFloor=%.3f shadowHalfExtent=%.1f shadowDepthRange=%.1f\n", p.shadowBias,
                 p.shadowFloor, p.shadowHalfExtent, p.shadowDepthRange);
     std::printf("depthBiasConst=%.3f depthBiasSlope=%.3f\n", p.depthBiasConst, p.depthBiasSlope);
@@ -376,6 +378,14 @@ void DebugUI::begin_frame(DebugParams& p) {
         // ── Reflections ───────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Reflections")) {
             ImGui::SliderFloat("Env gloss exp", &p.envGlossExp, 0.5f, 8.0f);
+        }
+
+        // ── SSAO ──────────────────────────────────────────────────────
+        if (ImGui::CollapsingHeader("SSAO")) {
+            ImGui::Checkbox("Enabled", &p.ssaoEnabled);
+            ImGui::SliderFloat("Radius (WU)", &p.ssaoRadius, 100.0f, 8000.0f, "%.0f");
+            ImGui::SliderFloat("Bias (WU)", &p.ssaoBias, 0.0f, 500.0f, "%.0f");
+            ImGui::SliderFloat("Intensity", &p.ssaoIntensity, 0.0f, 4.0f);
         }
 
         // ── Shadows ───────────────────────────────────────────────────

@@ -451,6 +451,13 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 
     recordLightingPass(cmd, frameIndex, renderExtent);
 
+#ifdef SWISH_DEBUG_UI
+    // SSAO here: the scene depth is still in DEPTH_STENCIL_READ_ONLY (set for the
+    // lighting pass, unchanged by it) and the forward passes haven't reclaimed it
+    // as a depth attachment yet. Writes the AO the composite pass multiplies in.
+    recordSsaoPasses(cmd, frameIndex);
+#endif
+
     // Rain forward pass — loads HDR, renders streaks additively, no barrier needed between
     recordRainPass(cmd, frameIndex);
 
@@ -665,6 +672,60 @@ void Renderer::recordBloomBlur(VkCommandBuffer cmd, VkExtent2D extent, bool hori
     vkCmdPushConstants(cmd, m_postProcess->get_postprocess_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
     vkCmdDraw(cmd, 3, 1, 0, 0);
 }
+
+#ifdef SWISH_DEBUG_UI
+// ── SSAO + bilateral AO blur (debug realism feature) ─────────────────
+// Runs at 1/2 render resolution into the AO images the composite multiplies in.
+// Depth is sampled in DEPTH_STENCIL_READ_ONLY (the layout the lighting pass left
+// it in). Each pass ends in COLOR_ATTACHMENT → barrier to SHADER_READ, mirroring
+// the bloom chain. When SSAO is toggled off the intensity is forced to 0, so the
+// shader outputs 1.0 (no darkening) rather than leaving a stale AO in the image.
+void Renderer::recordSsaoPasses(VkCommandBuffer cmd, uint32_t frameIndex) {
+    const VkExtent2D aoExtent = m_postProcess->get_ao_extent();
+    VkClearValue     clear{};
+    clear.color = {{1.0f, 1.0f, 1.0f, 1.0f}};  // 1 = unoccluded (safe if a pixel is skipped)
+
+    // SSAO: scene depth → raw AO.
+    {
+        ScopedRenderPass pass(cmd, m_postProcess->get_ao_render_pass(), m_postProcess->get_ao_framebuffer(), aoExtent,
+                              clear);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_ssao_pipeline());
+        setViewportAndScissor(cmd, aoExtent);
+
+        VkDescriptorSet depthSet = m_postProcess->get_ao_set(frameIndex);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_ssao_layout(), 0, 1, &depthSet,
+                                0, nullptr);
+
+        const Mat4 proj = m_camera->get_projection_matrix();
+        SsaoParams sp{};
+        sp.projection    = proj;
+        sp.invProjection = glm::inverse(proj);
+        sp.radius        = m_debugParams.ssaoRadius;
+        sp.bias          = m_debugParams.ssaoBias;
+        sp.intensity     = m_debugParams.ssaoEnabled ? m_debugParams.ssaoIntensity : 0.0f;
+        vkCmdPushConstants(cmd, m_postProcess->get_ssao_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(sp), &sp);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+    }
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_ao_image(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    // Bilateral blur: raw AO → smoothed AO (sampled by composite).
+    {
+        ScopedRenderPass pass(cmd, m_postProcess->get_ao_render_pass(), m_postProcess->get_ao_blur_framebuffer(),
+                              aoExtent, clear);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_ao_blur_pipeline());
+        setViewportAndScissor(cmd, aoExtent);
+
+        VkDescriptorSet aoSet = m_postProcess->get_ao_blur_set();
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_postprocess_layout(), 0, 1,
+                                &aoSet, 0, nullptr);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+    }
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_ao_blur_image(),
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+#endif
 
 // ── Pass 3: composite (HDR + bloom → swapchain, ACES tonemap) ────────
 void Renderer::recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t imageIndex, VkExtent2D extent) {

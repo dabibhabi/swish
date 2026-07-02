@@ -44,6 +44,17 @@ struct PostProcessParams {
     float tint        = 0.0f;
 };
 
+// SSAO push block (matches shaders/ssao.frag). 2×mat4 + 4 floats = 144 B, a
+// multiple of 16 (MoltenVK-safe). projection avoids a per-sample matrix inverse.
+struct SsaoParams {
+    Mat4  invProjection;  // clip → view (reconstruct view-space position)
+    Mat4  projection;     // view → clip (project a sample back to screen)
+    float radius;
+    float bias;
+    float intensity;
+    float _pad0 = 0.0f;
+};
+
 class PostProcessManager {
 public:
     PostProcessManager()  = default;
@@ -92,14 +103,17 @@ public:
     VkPipeline       get_bloom_extract_pipeline() const { return m_bloomExtractPipeline; }
     VkPipeline       get_bloom_blur_pipeline() const { return m_bloomBlurPipeline; }
     VkPipeline       get_composite_pipeline() const { return m_compositePipeline; }
+    VkPipeline       get_ssao_pipeline() const { return m_ssaoPipeline; }
+    VkPipeline       get_ao_blur_pipeline() const { return m_aoBlurPipeline; }
     VkPipelineLayout get_postprocess_layout() const { return m_postProcessLayout; }
     VkPipelineLayout get_composite_layout() const { return m_compositeLayout; }
+    VkPipelineLayout get_ssao_layout() const { return m_ssaoLayout; }
 
     // ── Descriptor set getters ───────────────────────────────────
     VkDescriptorSet get_bloom_extract_set() const { return m_bloomExtractSet; }
     VkDescriptorSet get_bloom_blur_h_set() const { return m_bloomBlurHSet; }
     VkDescriptorSet get_bloom_blur_v_set() const { return m_bloomBlurVSet; }
-    VkDescriptorSet get_ao_set() const { return m_aoSet; }
+    VkDescriptorSet get_ao_set(uint32_t frameIndex) const { return m_aoSets[frameIndex]; }
     VkDescriptorSet get_ao_blur_set() const { return m_aoBlurSet; }
     VkDescriptorSet get_composite_set(uint32_t frameIndex) const { return m_compositeSets[frameIndex]; }
 
@@ -239,13 +253,18 @@ private:
     VkPipeline m_bloomExtractPipeline = VK_NULL_HANDLE;
     VkPipeline m_bloomBlurPipeline    = VK_NULL_HANDLE;
     VkPipeline m_compositePipeline    = VK_NULL_HANDLE;
+    VkPipeline m_ssaoPipeline         = VK_NULL_HANDLE;  // SSAO (depth → AO)
+    VkPipeline m_aoBlurPipeline       = VK_NULL_HANDLE;  // bilateral AO blur
+    // SSAO reads a mat4×2 + params push block (144 B) that doesn't fit the shared
+    // 32-B postprocess layout, so it needs its own layout (single-tex set + push).
+    VkPipelineLayout m_ssaoLayout = VK_NULL_HANDLE;
 
     // ── Descriptor pool + sets ───────────────────────────────────
     VkDescriptorPool                           m_descriptorPool  = VK_NULL_HANDLE;
     VkDescriptorSet                            m_bloomExtractSet = VK_NULL_HANDLE;
     VkDescriptorSet                            m_bloomBlurHSet   = VK_NULL_HANDLE;
     VkDescriptorSet                            m_bloomBlurVSet   = VK_NULL_HANDLE;
-    VkDescriptorSet                            m_aoSet           = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, PP_MAX_FRAMES> m_aoSets{};  // per-frame: samples that frame's depth
     VkDescriptorSet                            m_aoBlurSet       = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, PP_MAX_FRAMES> m_compositeSets{};
 
