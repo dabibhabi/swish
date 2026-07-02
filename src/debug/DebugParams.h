@@ -118,6 +118,16 @@ struct DebugParams {
     bool      showSunGizmo = false;
     glm::mat4 sunGizmoRot  = glm::mat4(1.0f);
 
+    // ── Steering-wheel gizmo / override ───────────────────────────────
+    // steerOverride (edit mode) poses the wheel from steerAngleDeg instead of the
+    // sim. steerPivotWorld is written by App each frame so the gizmo sits on the
+    // wheel; showSteerGizmo draws the rotate handle. steerMaxDeg mirrors the lock.
+    bool      showSteerGizmo = false;
+    bool      steerOverride  = false;
+    float     steerAngleDeg  = 0.0f;
+    float     steerMaxDeg    = 35.0f;
+    glm::mat4 steerPivotWorld = glm::mat4(1.0f);
+
     // ── UI state (not a scene parameter, but lives with the rest) ─────
     bool editMode  = false;  // true = cursor free to drive the panel; false = drive-mode (panel ignores mouse)
     bool showPanel = true;   // master visibility toggle for the debug window

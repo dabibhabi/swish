@@ -119,6 +119,9 @@ public:
     // Call AFTER App installs its GLFW callbacks (ImGui chains onto them).
     void debug_init();
     void set_debug_edit_mode(bool edit);
+    // Live debug params — App writes the steering-wheel pivot + reads the steer
+    // override (the gizmo lives in the ImGui frame, which the Renderer drives).
+    DebugParams& debug_params() { return m_debugParams; }
 #endif
 
     // ── Glass + windshield rain (updated each frame by App) ───────────

@@ -139,6 +139,15 @@ std::vector<DrawCall> CarEntity::get_windshield_draw_calls() const {
     return result;
 }
 
+Mat4 CarEntity::get_steering_wheel_pivot_world() const {
+    const Mat4 car_model = get_model_matrix();
+    for (const auto& s : get_submeshes()) {
+        if (s.is_steering_wheel)
+            return car_model * s.sw_pivot_frame;
+    }
+    return car_model;
+}
+
 std::vector<DrawCall> CarEntity::get_draw_calls() const {
     std::vector<DrawCall> result;
     result.reserve(get_submeshes().size());

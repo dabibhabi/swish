@@ -38,6 +38,20 @@ public:
 
     float get_speed() const { return m_forward_speed; }
 
+    // Steering angle (degrees) get/set — the debug UI overrides this to pose the
+    // wheel. set clamps to the physical lock. kSteerRatio exposed for the gizmo.
+    float get_steering_angle() const { return m_steering_angle; }
+    void  set_steering_angle(float deg) {
+        m_steering_angle = deg < -kMaxSteer ? -kMaxSteer : (deg > kMaxSteer ? kMaxSteer : deg);
+    }
+    static constexpr float steer_max()   { return kMaxSteer; }
+    static constexpr float steer_ratio() { return kSteerRatio; }
+
+    // World-space pivot frame of the steering-wheel submesh (model * sw_pivot_frame),
+    // or the car model if there's no wheel submesh. Positions the steering gizmo; its
+    // local Z is the wheel's spin axis.
+    Mat4 get_steering_wheel_pivot_world() const;
+
     // Rain intensity [0,1] — drives the interior cabin "wash toward light gray"
     // tint applied in get_draw_calls (via the gbuffer.frag color.a sentinel).
     void set_rain_intensity(float intensity) { m_rain_intensity = intensity; }

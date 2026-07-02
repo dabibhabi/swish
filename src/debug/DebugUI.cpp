@@ -16,6 +16,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -393,6 +394,18 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
                 p.sunGizmoRot = glm::mat4(1.0f);
         }
 
+        // ── Steering (pose / fix the wheel rotation) ──────────────────
+        if (ImGui::CollapsingHeader("Steering")) {
+            ImGui::Checkbox("Override (pose wheel)", &p.steerOverride);
+            if (ImGui::SliderFloat("Angle (deg)", &p.steerAngleDeg, -p.steerMaxDeg, p.steerMaxDeg))
+                p.steerOverride = true;  // moving the slider takes control of the wheel
+            ImGui::SameLine();
+            if (ImGui::Button("Center"))
+                p.steerAngleDeg = 0.0f;
+            ImGui::Checkbox("Wheel gizmo (drag to turn)", &p.showSteerGizmo);
+            ImGui::TextDisabled("edit mode only; overrides the sim while on");
+        }
+
         // ── Fog ───────────────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Fog")) {
             ImGui::ColorEdit3("Fog color", &p.fogColor.x);
@@ -505,6 +518,32 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
         ImGuizmo::Manipulate(&view[0][0], &proj[0][0], ImGuizmo::ROTATE, ImGuizmo::WORLD, &display[0][0]);
         // Keep only the rotation (drop the cosmetic translation) for the sun dir.
         p.sunGizmoRot = Mat4(glm::mat3(display));
+    }
+
+    // ── Steering-wheel gizmo (rotate handle on the wheel's spin axis) ─
+    // The handle sits at the wheel pivot (fed by App); dragging it about the
+    // wheel's local Z updates the steer angle. The delta rotation is measured
+    // about that (arbitrary-in-world) axis via the trace formula.
+    if (p.editMode && p.showSteerGizmo) {
+        ImGuiIO& io = ImGui::GetIO();
+        ImGuizmo::SetOrthographic(false);
+        ImGuizmo::SetDrawlist(ImGui::GetForegroundDrawList());
+        ImGuizmo::SetRect(0.0f, 0.0f, io.DisplaySize.x, io.DisplaySize.y);
+
+        Mat4 m     = p.steerPivotWorld;
+        Mat4 delta = Mat4(1.0f);
+        ImGuizmo::Manipulate(&view[0][0], &proj[0][0], ImGuizmo::ROTATE_Z, ImGuizmo::LOCAL, &m[0][0], &delta[0][0]);
+        if (ImGuizmo::IsUsing()) {
+            glm::mat3 d      = glm::mat3(delta);
+            float     trace  = d[0][0] + d[1][1] + d[2][2];
+            float     angle  = std::acos(glm::clamp((trace - 1.0f) * 0.5f, -1.0f, 1.0f));  // magnitude
+            glm::vec3 axis   = glm::vec3(d[1][2] - d[2][1], d[2][0] - d[0][2], d[0][1] - d[1][0]);
+            glm::vec3 wheelZ = glm::normalize(glm::vec3(p.steerPivotWorld[2]));
+            if (glm::dot(axis, wheelZ) < 0.0f)
+                angle = -angle;
+            p.steerAngleDeg = glm::clamp(p.steerAngleDeg - glm::degrees(angle), -p.steerMaxDeg, p.steerMaxDeg);
+            p.steerOverride = true;
+        }
     }
 
     ImGui::Render();

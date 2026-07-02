@@ -328,6 +328,21 @@ int App::run() {
             pos.y    = road_surface_y(pos.x);
             m_car->set_position(pos);
 
+#ifdef SWISH_DEBUG_UI
+            // Steering-wheel gizmo: feed the current wheel pivot to the debug UI, and
+            // in edit mode pose the wheel from the gizmo/override angle (the sim is
+            // frozen then). The draw calls below re-generate with the new angle.
+            {
+                DebugParams& dp    = m_renderer->debug_params();
+                dp.steerPivotWorld = m_car->get_steering_wheel_pivot_world();
+                dp.steerMaxDeg     = CarEntity::steer_max();
+                if (debug_edit && dp.steerOverride)
+                    m_car->set_steering_angle(dp.steerAngleDeg);
+                else
+                    dp.steerAngleDeg = m_car->get_steering_angle();
+            }
+#endif
+
             m_renderer->update_dynamic_draw_calls(m_car->get_draw_calls());
             m_renderer->update_glass_draw_calls(m_car->get_glass_draw_calls());
             m_renderer->update_windshield_draw_calls(m_car->get_windshield_draw_calls());

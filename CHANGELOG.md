@@ -6,6 +6,30 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-02 — Added a steering-wheel gizmo + angle override to pose/fix the wheel
+
+> In edit mode you can now grab the steering wheel with a rotate gizmo (or drag an angle slider) to pose it — useful for checking/fixing the wheel's rotation and framing shots. The override drives `CarEntity::m_steering_angle`, so the front-wheel steer + car heading follow the same path the sim uses. Debug-only.
+
+<details>
+<summary>Technical summary</summary>
+
+**Plumbing.** `CarEntity` exposes `get/set_steering_angle` (set clamps to the physical lock), `steer_max/steer_ratio`, and `get_steering_wheel_pivot_world()` (`model · sw_pivot_frame` of the wheel submesh — its local Z is the spin axis, per `get_draw_calls`). The Renderer exposes `debug_params()` so `App` — which owns the car — can each frame feed the wheel pivot into `DebugParams` and, in edit mode with override on, set the car's steer angle from it before re-generating the car draw calls (already re-uploaded every frame, so the wheel re-poses immediately).
+
+**Gizmo.** `DebugUI` draws an `ImGuizmo::ROTATE_Z` (LOCAL) handle at the wheel pivot on the foreground draw list; the per-frame delta rotation about the wheel's (arbitrary-in-world) Z axis is recovered via the trace formula (`angle = acos((tr−1)/2)`, signed by the delta axis · wheel Z) and applied to the steer angle. A **Steering** panel section adds an Override toggle, an angle slider (moving it takes control), a Center button, and the gizmo toggle.
+
+**Verification.** Forcing an override angle turned the wheel in-app (spokes/logo clearly rotated vs centered), validation-clean; reverted. Debug + release build clean, **52/52 tests pass** (release ignores the debug-only override).
+
+**File-change table.**
+
+| File | Change |
+| --- | --- |
+| [src/scene/Entity/CarEntity.h](src/scene/Entity/CarEntity.h) / [.cpp](src/scene/Entity/CarEntity.cpp) | `get/set_steering_angle`, `steer_max/ratio`, `get_steering_wheel_pivot_world`. |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) | `debug_params()` accessor (debug-only). |
+| [src/core/App/App.cpp](src/core/App/App.cpp) | Feed wheel pivot to `DebugParams`; apply steer override in edit mode. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) · [DebugUI.cpp](src/debug/DebugUI.cpp) | Steer fields; **Steering** panel section + ImGuizmo wheel handle. |
+
+</details>
+
 ### 2026-07-02 — Added a transform gizmo (ImGuizmo) to orient the sun by dragging
 
 > Vendored **ImGuizmo** and wired a rotate gizmo that orients the sun by dragging, instead of only sliders. In edit mode, ticking "Sun gizmo" floats a 3-ring rotation handle in front of the camera; dragging it rotates a stored orientation from which the Renderer derives the sun direction (so shadows + sky + IBL all follow). Debug-only — release never fetches or builds ImGuizmo.
