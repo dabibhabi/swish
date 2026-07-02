@@ -6,6 +6,22 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-02 — Fixed steering axis-correction to reorient the whole wheel (not just the spin axis)
+
+> The pitch/roll/quaternion "axis correction" was applied to the wheel's *spin axis* — `rotate(−sw_angle, correction·Z)` — which is identity at 0 steer angle, so it did nothing visible and only the left-right steer ever showed. Now the correction `C` is a full **rest orientation** applied to the wheel about its pivot (`… · sw_pivot_frame · C · R · inverse(sw_pivot_frame)`), visible at any steer angle, so yaw/pitch/roll/quaternion actually reorient the wheel and you can straighten a tilted/misaligned one. Identity `C` still reproduces the original spin exactly (release unchanged).
+
+<details>
+<summary>Technical summary</summary>
+
+`CarEntity::get_draw_calls` now composes `C = glm::mat4_cast(correction)` (rest orientation) with the unchanged local-Z spin `R`, sandwiched in the pivot frame. Verified: forcing a 30° pitch tilted the wheel in-app at 0 steer angle (previously no effect), validation-clean; reverted. Debug + release build clean, **52/52 tests**.
+
+| File | Change |
+| --- | --- |
+| [src/scene/Entity/CarEntity.cpp](src/scene/Entity/CarEntity.cpp) / [.h](src/scene/Entity/CarEntity.h) | Correction is a rest-orientation `mat4_cast(quat)` about the pivot, not a spin-axis tweak. |
+| [src/debug/DebugUI.cpp](src/debug/DebugUI.cpp) | Panel comment updated (reorients the wheel, not the spin axis). |
+
+</details>
+
 ### 2026-07-02 — Steering gizmo: pitch/roll/quaternion spin-axis calibration
 
 > Extends the steering-wheel gizmo with a **spin-axis correction** so the wheel can be dialed to rotate about the right axis. The panel now edits pitch / yaw / roll (sliders) *and* the raw quaternion (x/y/z/w), kept in sync, and the correction is applied live to the wheel's rotation. Useful when the model's pivot axis is slightly off. Debug-only; identity default = unchanged. (Also parked the four remaining big GPU features — god-rays, HDRI IBL, puddles+spray, motion-vectors/TAA — in `tasks/todo.md` for later.)

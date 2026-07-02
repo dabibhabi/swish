@@ -171,11 +171,13 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
         dc.color       = s.is_interior ? Vec4(s.color.r, s.color.g, s.color.b, 1.0f + washAmount) : s.color;
 
         if (s.is_steering_wheel) {
-            // Spin axis is local +Z, reorientable by the debug correction quaternion
-            // (identity → unchanged) so the wheel can be calibrated to rotate right.
-            Vec3 axis = glm::normalize(m_steer_axis_correction * Vec3(0.f, 0.f, 1.f));
-            Mat4 R    = glm::rotate(Mat4(1.f), glm::radians(-sw_angle), axis);
-            dc.model  = car_model * s.sw_pivot_frame * R * glm::inverse(s.sw_pivot_frame);
+            // The wheel spins left-right about local +Z (R). The debug correction C
+            // is a full REST orientation of the wheel about the pivot (yaw/pitch/roll
+            // /quaternion) — visible at any steer angle — so the wheel can be dialed
+            // straight if the model's pivot is tilted. Identity C = unchanged.
+            Mat4 C   = glm::mat4_cast(m_steer_axis_correction);
+            Mat4 R   = glm::rotate(Mat4(1.f), glm::radians(-sw_angle), Vec3(0.f, 0.f, 1.f));
+            dc.model = car_model * s.sw_pivot_frame * C * R * glm::inverse(s.sw_pivot_frame);
         } else {
             dc.model = car_model;
         }

@@ -53,9 +53,10 @@ public:
     // local Z is the wheel's spin axis.
     Mat4 get_steering_wheel_pivot_world() const;
 
-    // Debug calibration: rotates the wheel's spin axis (default local +Z) so the
-    // debug UI can dial pitch/roll/quaternion until the wheel rotates correctly.
-    // Identity (default) → unchanged. Applied in get_draw_calls.
+    // Debug calibration: a full REST-orientation correction applied to the steering
+    // wheel about its pivot (yaw/pitch/roll/quaternion), visible at any steer angle,
+    // so the debug UI can straighten a tilted/misaligned wheel. The left-right spin
+    // still happens about local +Z. Identity (default) → unchanged.
     void set_steer_axis_correction(const glm::quat& q) { m_steer_axis_correction = q; }
 
     // Rain intensity [0,1] — drives the interior cabin "wash toward light gray"

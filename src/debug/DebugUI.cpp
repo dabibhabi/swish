@@ -420,8 +420,9 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::TextDisabled("edit mode only; overrides the sim while on");
 
             ImGui::Separator();
-            // Spin-axis calibration: edit pitch/yaw/roll OR the raw quaternion to
-            // reorient how the wheel rotates until it looks correct.
+            // Rest-orientation calibration: edit pitch/yaw/roll OR the raw quaternion
+            // to reorient the whole wheel (visible at any steer angle) until it sits
+            // straight. Applies in edit mode; independent of the left-right spin.
             ImGui::Checkbox("Axis correction", &p.steerAxisEdit);
             if (p.steerAxisEdit) {
                 bool ch = false;
