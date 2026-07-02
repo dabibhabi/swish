@@ -65,10 +65,13 @@ struct DebugParams {
     // ── Shadows (single sun shadow map + depth bias) ──────────────────
     float shadowBias        = 0.0018f;    // slope-scaled shadow-compare bias
     float shadowFloor       = 0.25f;      // min visibility in full shadow
-    float shadowHalfExtent  = 45000.0f;   // ortho half-extent of the shadow frustum
-    float shadowDepthRange  = 200000.0f;  // ortho near→far depth range
+    float shadowHalfExtent  = 45000.0f;   // (legacy single-map; unused by CSM)
+    float shadowDepthRange  = 200000.0f;  // (legacy single-map; unused by CSM)
     float depthBiasConst    = 4.0f;       // vkCmdSetDepthBias constant factor
     float depthBiasSlope    = 1.5f;       // vkCmdSetDepthBias slope factor
+    // ── CSM (cascaded shadow maps) ────────────────────────────────────
+    float csmShadowFar      = 400000.0f;  // furthest distance shadows are cast (WU ≈ 400 m)
+    float csmLambda         = 0.7f;       // split blend: 0 = uniform, 1 = logarithmic
 
     // ── Wet / rain ────────────────────────────────────────────────────
     float rainIntensity = 0.0f;    // [0, 1] rain amount (drives haze + wetness)

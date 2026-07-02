@@ -49,9 +49,15 @@ enum MaterialId : uint32_t {
     MAT_COUNT
 };
 
-// Matches the UBO in basic.vert/basic.frag (set=0, binding=0). `weather` is appended
-// at the END so vertex shaders that declare only the prefix (basic.vert, rain.vert)
-// stay layout-compatible; only lighting.frag declares + reads it.
+// Number of sun shadow cascades (CSM). Must match NUM_CASCADES in lighting.frag
+// and kNumCascades in PostProcessManager. 3 covers near→~400 m with crisp near
+// shadows on the 4.2 km road.
+static constexpr uint32_t NUM_CASCADES = 3;
+
+// Matches the UBO in basic.vert/basic.frag (set=0, binding=0). Everything past
+// `sunColor` is appended at the END so vertex shaders that declare only the prefix
+// (basic.vert, rain.vert, glass.vert, windshield_rain.vert stop at sunColor) stay
+// layout-compatible; only lighting.frag declares + reads the tail.
 struct CameraUBO {
     Mat4 view;
     Mat4 proj;
@@ -59,10 +65,13 @@ struct CameraUBO {
     Vec4 sunDir;    // xyz = normalized sun direction, w = intensity
     Vec4 sunColor;  // rgb = sun color, a = ambient strength
     Vec4 weather;   // x = clarity (0 overcast .. 1 clear day), yzw reserved
-    // Sun light-space view*projection for shadow mapping. Appended at the END so
-    // vertex shaders that declare only the prefix (basic.vert, rain.vert) stay
-    // layout-compatible; only lighting.frag declares + reads it. Stays 16-aligned.
-    Mat4 lightViewProj;
+    // ── CSM: per-cascade light-space view*proj + split far-distances ──
+    // cascadeViewProj[i] maps world → that cascade's [0,1] shadow-atlas clip.
+    // cascadeSplits.xyz = the view-space far distance (positive, +Z forward) of
+    // cascades 0/1/2; a fragment picks the first cascade whose split ≥ its depth.
+    // All 16-aligned; only lighting.frag reads these.
+    Mat4 cascadeViewProj[NUM_CASCADES];
+    Vec4 cascadeSplits;
 };
 
 // ── Point Light System (inspired by rind/Light.cpp) ──────────────────

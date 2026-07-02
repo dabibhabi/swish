@@ -40,10 +40,13 @@ public:
     // and a clarity scalar (0 = overcast, 1 = clear day). Set once on a toggle.
     void set_weather(const Vec4& sunDir, const Vec4& sunColor, float clarity);
 
-    // Sun light-space view*projection matrix, recomputed each frame by the
-    // Renderer from the camera position + sun direction. Written into the
-    // camera UBO by update() and consumed by lighting.frag for shadow lookup.
-    void set_light_matrix(const Mat4& lightViewProj) { m_lightViewProj = lightViewProj; }
+    // Per-cascade sun light-space view*projection + split far-distances (view
+    // space, +Z forward), recomputed each frame by the Renderer. Written into the
+    // camera UBO by update() and consumed by lighting.frag for CSM shadow lookup.
+    void set_cascades(const std::array<Mat4, NUM_CASCADES>& vps, const Vec3& splits) {
+        m_cascadeVP     = vps;
+        m_cascadeSplits = Vec4(splits, 0.0f);
+    }
 
     VkDescriptorSetLayout get_layout() const { return m_setLayout; }
     VkDescriptorSet       get_set(uint32_t frameIndex) const { return m_sets[frameIndex]; }
@@ -73,9 +76,10 @@ private:
     Vec4  m_sunColor = Vec4(1.0f, 0.95f, 0.85f, 0.22f);
     float m_clarity  = 0.0f;
 
-    // Sun light-space view*projection (identity until the Renderer sets it each
-    // frame). Written into CameraUBO::lightViewProj by update().
-    Mat4  m_lightViewProj = Mat4(1.0f);
+    // Per-cascade light-space view*proj + split distances (identity/zero until the
+    // Renderer sets them each frame). Written into the CameraUBO tail by update().
+    std::array<Mat4, NUM_CASCADES> m_cascadeVP{};
+    Vec4                           m_cascadeSplits{0.0f};
 };
 
 }  // namespace swish

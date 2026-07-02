@@ -237,8 +237,8 @@ void printValues(const DebugParams& p) {
     std::printf("envGlossExp=%.3f\n", p.envGlossExp);
     std::printf("ssaoEnabled=%d ssaoRadius=%.1f ssaoBias=%.1f ssaoIntensity=%.3f\n", p.ssaoEnabled ? 1 : 0,
                 p.ssaoRadius, p.ssaoBias, p.ssaoIntensity);
-    std::printf("shadowBias=%.5f shadowFloor=%.3f shadowHalfExtent=%.1f shadowDepthRange=%.1f\n", p.shadowBias,
-                p.shadowFloor, p.shadowHalfExtent, p.shadowDepthRange);
+    std::printf("shadowBias=%.5f shadowFloor=%.3f csmShadowFar=%.1f csmLambda=%.3f\n", p.shadowBias, p.shadowFloor,
+                p.csmShadowFar, p.csmLambda);
     std::printf("depthBiasConst=%.3f depthBiasSlope=%.3f\n", p.depthBiasConst, p.depthBiasSlope);
     std::printf("rainIntensity=%.3f wetPorosity=%.3f wetRoughness=%.3f streakLen=%.1f\n", p.rainIntensity,
                 p.wetPorosity, p.wetRoughness, p.streakLen);
@@ -388,12 +388,12 @@ void DebugUI::begin_frame(DebugParams& p) {
             ImGui::SliderFloat("Intensity", &p.ssaoIntensity, 0.0f, 4.0f);
         }
 
-        // ── Shadows ───────────────────────────────────────────────────
+        // ── Shadows (CSM) ─────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Shadows")) {
             ImGui::SliderFloat("Bias", &p.shadowBias, 0.0f, 0.02f, "%.5f");
             ImGui::SliderFloat("Floor", &p.shadowFloor, 0.0f, 1.0f);
-            ImGui::SliderFloat("Half extent", &p.shadowHalfExtent, 1000.0f, 200000.0f, "%.0f");
-            ImGui::SliderFloat("Depth range", &p.shadowDepthRange, 10000.0f, 1000000.0f, "%.0f");
+            ImGui::SliderFloat("CSM far (WU)", &p.csmShadowFar, 50000.0f, 1000000.0f, "%.0f");
+            ImGui::SliderFloat("CSM split lambda", &p.csmLambda, 0.0f, 1.0f);
             ImGui::SliderFloat("Depth bias const", &p.depthBiasConst, 0.0f, 16.0f);
             ImGui::SliderFloat("Depth bias slope", &p.depthBiasSlope, 0.0f, 8.0f);
         }

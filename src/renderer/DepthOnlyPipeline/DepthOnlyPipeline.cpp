@@ -199,19 +199,23 @@ void DepthOnlyPipeline::cleanup(VkDevice device) {
     }
 }
 
-void DepthOnlyPipeline::bind(VkCommandBuffer cmd, VkExtent2D extent, const Mat4& lightViewProj, float depthBiasConst,
-                            float depthBiasSlope) const {
+void DepthOnlyPipeline::bind(VkCommandBuffer cmd, float depthBiasConst, float depthBiasSlope) const {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
-
-    VkViewport vp{0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height), 0.0f, 1.0f};
-    vkCmdSetViewport(cmd, 0, 1, &vp);
-    VkRect2D sc{{0, 0}, extent};
-    vkCmdSetScissor(cmd, 0, 1, &sc);
-
     // Dynamic depth bias (constant, clamp, slope) — replaces the static factors.
     vkCmdSetDepthBias(cmd, depthBiasConst, 0.0f, depthBiasSlope);
+}
 
-    // Push the per-pass light-space matrix into the first 64 bytes.
+void DepthOnlyPipeline::set_cascade(VkCommandBuffer cmd, VkRect2D rect, const Mat4& lightViewProj) const {
+    VkViewport vp{static_cast<float>(rect.offset.x),
+                  static_cast<float>(rect.offset.y),
+                  static_cast<float>(rect.extent.width),
+                  static_cast<float>(rect.extent.height),
+                  0.0f,
+                  1.0f};
+    vkCmdSetViewport(cmd, 0, 1, &vp);
+    vkCmdSetScissor(cmd, 0, 1, &rect);
+
+    // Push this cascade's light-space matrix into the first 64 bytes.
     vkCmdPushConstants(cmd, m_layout, VK_SHADER_STAGE_VERTEX_BIT, offsetof(DepthPushConstants, lightViewProj),
                        static_cast<uint32_t>(sizeof(Mat4)), &lightViewProj);
 }

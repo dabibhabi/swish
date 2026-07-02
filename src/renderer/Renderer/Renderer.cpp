@@ -353,27 +353,9 @@ void Renderer::drawFrame(float deltaTime) {
     apply_debug_params();
 #endif
 
-    // ── Sun light-space matrix (shadow map), centered on the camera ────
-    // Orthographic sun projection framing a region around the camera. Units:
-    // 1 m = 1000 WU. halfExtent/depthRange are TUNABLE — they set the shadow
-    // coverage radius and the along-light depth range and want visual tuning.
-    // GLM_FORCE_DEPTH_ZERO_TO_ONE is defined project-wide, so glm::ortho yields
-    // [0,1] clip-Z (matches the depth pass VK_COMPARE_OP_LESS + shadow sampler);
-    // no Y-flip or Z remap beyond the shader's xy*0.5+0.5.
-    {
-        Vec3  center      = m_camera->get_position();
-        float halfExtent  = 45000.0f;   // ~45 m radius — TUNABLE
-        float depthRange  = 200000.0f;  // ~200 m along light dir — TUNABLE
-#ifdef SWISH_DEBUG_UI
-        halfExtent = m_debugParams.shadowHalfExtent;
-        depthRange = m_debugParams.shadowDepthRange;
-#endif
-        Vec3  eye         = center - m_sunDir * depthRange * 0.5f;
-        Mat4  lightView   = glm::lookAt(eye, center, Vec3(0.0f, 1.0f, 0.0f));
-        Mat4  lightProj   = glm::ortho(-halfExtent, halfExtent, -halfExtent, halfExtent, 1.0f, depthRange);
-        m_lightVP         = lightProj * lightView;
-        m_cameraUniforms->set_light_matrix(m_lightVP);
-    }
+    // ── CSM: fit per-cascade sun light-space matrices to the view frustum ──
+    computeCascades();
+    m_cameraUniforms->set_cascades(m_cascadeVP, m_cascadeSplits);
 
     m_cameraUniforms->update(m_currentFrame, *m_camera);
 
@@ -444,7 +426,7 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 
     // Sun shadow map first — depth-only from the sun POV, sampled by the
     // lighting pass. Must precede the G-buffer/lighting passes.
-    recordShadowPass(cmd, frameIndex, m_lightVP);
+    recordShadowPass(cmd, frameIndex);
 
     recordGBufferPass(cmd, frameIndex, renderExtent);
     transitionGBufferForLighting(cmd, frameIndex);
@@ -506,25 +488,105 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
     m_commandManager->endRecording(frameIndex);
 }
 
-// ── Pass 0: sun shadow map (depth-only, 2048²) ───────────────────────
-void Renderer::recordShadowPass(VkCommandBuffer cmd, uint32_t frameIndex, const Mat4& lightVP) {
-    const VkExtent2D shadowExtent{2048, 2048};
+// ── Pass 0: sun shadow map — CSM depth atlas (NUM_CASCADES slices side by side) ─
+// One depth-only render pass over the whole atlas (cleared once). Each cascade is
+// drawn into its horizontal sub-rect with its own light-space matrix; the scene
+// geometry is drawn once per cascade (viewport-scoped).
+void Renderer::recordShadowPass(VkCommandBuffer cmd, uint32_t frameIndex) {
+    const VkExtent2D atlasExtent = m_postProcess->get_shadow_atlas_extent();
+    const uint32_t   cascadeDim  = m_postProcess->get_shadow_cascade_dim();
 
     VkClearValue clear{};
     clear.depthStencil = {1.0f, 0};  // far = 1.0 (LESS compare, [0,1] clip-Z)
 
     ScopedRenderPass pass(cmd, m_postProcess->get_shadow_render_pass(),
-                          m_postProcess->get_shadow_framebuffer(frameIndex), shadowExtent, clear);
+                          m_postProcess->get_shadow_framebuffer(frameIndex), atlasExtent, clear);
 
+    float biasConst = DepthOnlyPipeline::kDefaultDepthBiasConst;
+    float biasSlope = DepthOnlyPipeline::kDefaultDepthBiasSlope;
 #ifdef SWISH_DEBUG_UI
-    m_depthOnlyPipeline.bind(cmd, shadowExtent, lightVP, m_debugParams.depthBiasConst, m_debugParams.depthBiasSlope);
-#else
-    m_depthOnlyPipeline.bind(cmd, shadowExtent, lightVP);
+    biasConst = m_debugParams.depthBiasConst;
+    biasSlope = m_debugParams.depthBiasSlope;
 #endif
+    m_depthOnlyPipeline.bind(cmd, biasConst, biasSlope);  // pipeline + dynamic depth bias
 
-    // Render both static and dynamic geometry depth-only (no material binds).
-    m_sceneGeometry.record_depth(cmd, m_depthOnlyPipeline);
-    m_dynamicGeometry.record_depth(cmd, m_depthOnlyPipeline);
+    for (uint32_t c = 0; c < NUM_CASCADES; ++c) {
+        VkRect2D subRect{{static_cast<int32_t>(c * cascadeDim), 0}, {cascadeDim, cascadeDim}};
+        m_depthOnlyPipeline.set_cascade(cmd, subRect, m_cascadeVP[c]);
+        m_sceneGeometry.record_depth(cmd, m_depthOnlyPipeline);
+        m_dynamicGeometry.record_depth(cmd, m_depthOnlyPipeline);
+    }
+}
+
+// ── CSM cascade fit — per-frame light-space matrices + split distances ───────
+void Renderer::computeCascades() {
+    const float camNear = m_camera->get_near();
+    const float camFar  = m_camera->get_far();
+
+    // Shadows only matter within a bounded range; cap the far cascade far short of
+    // the ~2 km camera far so cascades pack resolution where shadows are visible.
+    float shadowFar = 400000.0f;  // ~400 m
+    float lambda    = 0.7f;       // practical-split blend (log vs uniform)
+#ifdef SWISH_DEBUG_UI
+    shadowFar = m_debugParams.csmShadowFar;
+    lambda    = m_debugParams.csmLambda;
+#endif
+    shadowFar                = std::min(shadowFar, camFar);
+    const float shadowNear   = camNear;
+
+    // Practical split scheme (Zhang et al.): blend logarithmic and uniform splits.
+    float splitFar[NUM_CASCADES];
+    for (uint32_t i = 0; i < NUM_CASCADES; ++i) {
+        float p    = static_cast<float>(i + 1) / static_cast<float>(NUM_CASCADES);
+        float logS = shadowNear * std::pow(shadowFar / shadowNear, p);
+        float uniS = shadowNear + (shadowFar - shadowNear) * p;
+        splitFar[i] = lambda * logS + (1.0f - lambda) * uniS;
+    }
+
+    // Unproject the camera frustum's near/far corners to world (NDC z∈[0,1]).
+    const Mat4 invVP = glm::inverse(m_camera->get_projection_matrix() * m_camera->get_view_matrix());
+    Vec3       nearC[4], farC[4];
+    const Vec2 ndc[4] = {{-1.f, -1.f}, {1.f, -1.f}, {1.f, 1.f}, {-1.f, 1.f}};
+    for (int i = 0; i < 4; ++i) {
+        Vec4 n = invVP * Vec4(ndc[i], 0.0f, 1.0f);
+        Vec4 f = invVP * Vec4(ndc[i], 1.0f, 1.0f);
+        nearC[i] = Vec3(n) / n.w;
+        farC[i]  = Vec3(f) / f.w;
+    }
+
+    float prevFar = shadowNear;
+    for (uint32_t c = 0; c < NUM_CASCADES; ++c) {
+        const float tNear = (prevFar - camNear) / (camFar - camNear);
+        const float tFar  = (splitFar[c] - camNear) / (camFar - camNear);
+
+        // This cascade's 8 world corners (linear interp along each frustum edge).
+        Vec3 corners[8];
+        for (int i = 0; i < 4; ++i) {
+            const Vec3 edge = farC[i] - nearC[i];
+            corners[i]      = nearC[i] + edge * tNear;
+            corners[i + 4]  = nearC[i] + edge * tFar;
+        }
+
+        Vec3 center(0.0f);
+        for (const Vec3& p : corners)
+            center += p;
+        center /= 8.0f;
+
+        // Bounding-sphere fit → a stable square ortho (less shimmer than an AABB).
+        float radius = 0.0f;
+        for (const Vec3& p : corners)
+            radius = std::max(radius, glm::length(p - center));
+        radius = std::ceil(radius);
+
+        const float margin    = radius;  // pull the near plane back to catch occluders behind the slice
+        const Vec3  eye       = center - m_sunDir * (radius + margin);
+        const Mat4  lightView = glm::lookAt(eye, center, Vec3(0.0f, 1.0f, 0.0f));
+        const Mat4  lightProj = glm::ortho(-radius, radius, -radius, radius, 0.0f, 2.0f * radius + margin);
+
+        m_cascadeVP[c]     = lightProj * lightView;
+        m_cascadeSplits[c] = splitFar[c];
+        prevFar            = splitFar[c];
+    }
 }
 
 // ── Pass 1: scene → G-buffer ─────────────────────────────────────────

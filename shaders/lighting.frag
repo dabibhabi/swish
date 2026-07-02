@@ -5,6 +5,11 @@
 
 layout(location = 0) in vec2 fragUV;
 
+// Sun shadow cascades (CSM). MUST match swish::NUM_CASCADES (SceneTypes.h) and
+// kNumCascades (PostProcessManager). The shadow map is a horizontal atlas of
+// NUM_CASCADES square slices side by side.
+#define NUM_CASCADES 3
+
 // ── Camera + Lights (same UBOs as scene pass, set 0) ──────────────
 layout(set = 0, binding = 0) uniform CameraUBO {
     mat4 view;
@@ -13,7 +18,9 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     vec4 sunDir;
     vec4 sunColor;
     vec4 weather;   // x = clarity (0 overcast .. 1 clear day), yzw reserved
-    mat4 lightViewProj;  // sun ortho * lookAt for shadow lookup (appended AFTER weather)
+    // CSM tail (appended AFTER weather; only this shader reads it):
+    mat4 cascadeViewProj[NUM_CASCADES];  // world → cascade [0,1] clip
+    vec4 cascadeSplits;                  // xyz = view-space far distance of cascades 0/1/2
 } camera;
 
 struct PointLight {
@@ -192,20 +199,35 @@ void main() {
     // occluder depth (+ bias to fight self-shadow acne). Off-map / beyond the far
     // plane reads as fully lit. Applied to the sun term ONLY — ambient/sky/point
     // lights still illuminate shadowed surfaces.
-    vec4  lp = camera.lightViewProj * vec4(fragWorldPos, 1.0);
+    // Cascade selection: the fragment's view-space forward distance (+Z) picks the
+    // first cascade whose split far-distance covers it (crisp near, coverage far).
+    float viewDepth = -(camera.view * vec4(fragWorldPos, 1.0)).z;
+    int   cascade   = NUM_CASCADES - 1;
+    for (int i = 0; i < NUM_CASCADES; ++i) {
+        if (viewDepth <= camera.cascadeSplits[i]) { cascade = i; break; }
+    }
+    vec4  lp = camera.cascadeViewProj[cascade] * vec4(fragWorldPos, 1.0);
     vec3  sc = lp.xyz / lp.w;
     sc.xy    = sc.xy * 0.5 + 0.5;
+    // Remap into this cascade's horizontal atlas slice [cascade/N, (cascade+1)/N].
+    float invN     = 1.0 / float(NUM_CASCADES);
+    vec2  atlasUV  = vec2((float(cascade) + sc.x) * invN, sc.y);
     float vis = 0.0;
     vec2  tx  = 1.0 / vec2(textureSize(shadowMap, 0));
     float kShadowBias = SP_SHADOW_BIAS;  // depth-compare bias (tunable; complements raster depth-bias)
+    // Keep 3×3 PCF taps inside this cascade's slice so they can't sample a neighbour.
+    float uMin = float(cascade) * invN + tx.x;
+    float uMax = float(cascade + 1) * invN - tx.x;
     for (int y = -1; y <= 1; ++y)
         for (int x = -1; x <= 1; ++x) {
-            float occluder = texture(shadowMap, sc.xy + vec2(x, y) * tx).r;
+            vec2 suv = atlasUV + vec2(x, y) * tx;
+            suv.x    = clamp(suv.x, uMin, uMax);
+            float occluder = texture(shadowMap, suv).r;
             vis += (sc.z - kShadowBias <= occluder) ? 1.0 : 0.0;
         }
     vis /= 9.0;
     if (sc.z > 1.0 || any(lessThan(sc.xy, vec2(0.0))) || any(greaterThan(sc.xy, vec2(1.0))))
-        vis = 1.0;  // off-map = lit
+        vis = 1.0;  // outside this cascade's frustum = lit
     // Shadow floor 0.25: ambient still lights shadowed areas, so shadows read as
     // darkened rather than pitch black. Works in all weather (no clarity gate).
     float sunShadow = mix(SP_SHADOW_FLOOR, 1.0, vis);

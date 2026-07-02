@@ -6,6 +6,51 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — Replaced the single sun shadow map with 3-cascade shadow maps (CSM)
+
+> The sun shadow was one 2048² map framing a ~45 m radius around the camera — fine up close, nothing beyond. This replaces it with **3 cascades** packed into a single wide depth **atlas**: near fragments get a tight, crisp cascade and far ones a wide-covering cascade, so shadows now extend down the road instead of vanishing at 45 m. A **shadow atlas** (three 2048² slices side by side in one image, viewport-scoped draws) is used instead of a texture array — it keeps the existing single-image / single-`sampler2D` plumbing, avoiding array-view/MoltenVK complexity. CSM far distance + split-λ are tunable in the debug panel.
+
+<details>
+<summary>Technical summary</summary>
+
+**Atlas, not array.** The shadow image widened to `kShadowDim × NUM_CASCADES` (6144×2048); each cascade renders into its horizontal slice `[c·2048, 0, 2048, 2048]` via a per-cascade `vkCmdSetViewport` inside one depth-only render pass (cleared once). `lighting.frag` samples the one `sampler2D` and remaps into the slice: `atlasU = (c + uv.x)/N`, clamped within the slice so 3×3 PCF can't bleed across cascades. No texture arrays, no per-layer image views.
+
+**Cascade selection.** The `CameraUBO` tail changed from `mat4 lightViewProj` to `mat4 cascadeViewProj[3]` + `vec4 cascadeSplits` (view-space far distances) — still appended after the vertex-shader prefix (`…sunColor`), so `basic/rain/glass/windshield` vertex shaders stay layout-compatible. A fragment picks the first cascade whose split ≥ its view-space forward depth $-(\mathbf{V}\cdot p)_z$.
+
+**Cascade fit (`Renderer::computeCascades`, per frame).** Split distances via the practical scheme (Zhang et al.), blending logarithmic and uniform by λ:
+
+$$d_i = \lambda\, n\Big(\tfrac{f}{n}\Big)^{i/N} + (1-\lambda)\Big(n + (f-n)\tfrac{i}{N}\Big),\quad n=\text{near},\ f=\text{shadow far}$$
+
+For each cascade, the camera frustum's near/far world corners (unprojected from `inverse(proj·view)`, NDC z∈[0,1]) are interpolated to the slice's `[d_{i-1}, d_i]` range, and a **bounding-sphere** fit gives a stable square ortho (`radius×radius`, less shimmer than an AABB) with the near plane pulled back a `radius` margin to catch occluders behind the slice. `GLM_FORCE_DEPTH_ZERO_TO_ONE` → `[0,1]` clip-Z matches the depth pass + sampler.
+
+**Pipeline plumbing.** `DepthOnlyPipeline::bind` now sets only pipeline + dynamic depth bias; new `set_cascade(cmd, subRect, lightVP)` sets the sub-viewport/scissor and pushes that cascade's matrix. `recordShadowPass` loops `NUM_CASCADES`, drawing the scene once per cascade.
+
+```mermaid
+graph LR
+  CC["computeCascades<br/>(splits + fit)"] --> UBO["CameraUBO<br/>cascadeViewProj[3] + splits"]
+  CC --> SP["recordShadowPass<br/>3× viewport-scoped draws → atlas"]
+  UBO --> LF["lighting.frag<br/>pick cascade → atlas UV → PCF"]
+  SP --> LF
+```
+
+**Verification.** Debug builds clean and runs **validation-clean** (0 messages) — static, while **driving** (scripted Up-arrow via CGEvent), and across a weather toggle — with 3 cascade draws + the 6144-wide atlas each frame. A temporary per-cascade colour tint confirmed **cascade selection**: near cabin/foreground = cascade 0, mid road = cascade 1, distant overpasses = cascade 2, bands at increasing distance (then removed). Release (`SWISH_DEBUG_UI=OFF`) builds clean, **52/52 tests pass**.
+
+**Cost / caveats.** The scene geometry is now drawn **3× per frame** for shadows; debug FPS (validation layers on) dropped ~60→~35, so release (no validation) is the real number. Legacy single-map sliders ("Half extent" / "Depth range") are replaced by "CSM far" / "CSM split lambda"; the old `DebugParams` fields remain (unused) for preset back-compat. Future perf: per-cascade frustum culling, fewer/lower-res cascades, or texel-grid snapping for less shimmer.
+
+**File-change table.**
+
+| File | Change |
+| --- | --- |
+| [src/scene/SceneTypes.h](src/scene/SceneTypes.h) | `NUM_CASCADES`; `CameraUBO` `lightViewProj` → `cascadeViewProj[3]` + `cascadeSplits`. |
+| [shaders/lighting.frag](shaders/lighting.frag) | Cascade array in UBO; view-depth cascade select; atlas-slice UV remap + clamped PCF. |
+| [src/renderer/CameraUniforms/CameraUniforms.h](src/renderer/CameraUniforms/CameraUniforms.h) / [.cpp](src/renderer/CameraUniforms/CameraUniforms.cpp) | `set_cascades` + cascade members; write them in `update`. |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) / [.cpp](src/renderer/Renderer/Renderer.cpp) | `computeCascades`; `recordShadowPass` cascade loop; `m_cascadeVP`/`m_cascadeSplits`. |
+| [src/renderer/DepthOnlyPipeline/DepthOnlyPipeline.h](src/renderer/DepthOnlyPipeline/DepthOnlyPipeline.h) / [.cpp](src/renderer/DepthOnlyPipeline/DepthOnlyPipeline.cpp) | Split `bind` (pipeline+bias) + new `set_cascade` (sub-viewport + push matrix). |
+| [src/renderer/PostProcessManager/PostProcessManager.h](src/renderer/PostProcessManager/PostProcessManager.h) / [.cpp](src/renderer/PostProcessManager/PostProcessManager.cpp) | Shadow image/FB widened to the atlas; `get_shadow_atlas_extent` / `get_shadow_cascade_dim`. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) · [DebugUI.cpp](src/debug/DebugUI.cpp) · [DebugParamsIO.cpp](src/debug/DebugParamsIO.cpp) | `csmShadowFar`/`csmLambda` field, sliders, print, toml. |
+
+</details>
+
 ### 2026-07-01 — Enabled SSAO (screen-space ambient occlusion), tunable in the debug UI
 
 > The engine had SSAO **shaders, images, render pass, framebuffers, and descriptor sets** scaffolded but **bypassed** — the pipelines were never built (the shader's push block didn't fit the shared layout) and the AO image was primed to white so `composite`'s `hdr *= ao` was a no-op. This wires it up: SSAO now runs at ½ render resolution and darkens contact points/crevices (cabin seams, footwells, the dashboard-windshield gap), with an **SSAO** panel section (enable / radius / bias / intensity) and toml persistence. Gated to `make debug` — release keeps the primed-white no-op, so `make run` output is unchanged.

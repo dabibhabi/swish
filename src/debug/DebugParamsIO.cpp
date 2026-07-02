@@ -75,7 +75,9 @@ bool save(const DebugParams& p, const std::string& name) {
                      {"half_extent", p.shadowHalfExtent},
                      {"depth_range", p.shadowDepthRange},
                      {"depth_bias_const", p.depthBiasConst},
-                     {"depth_bias_slope", p.depthBiasSlope}}},
+                     {"depth_bias_slope", p.depthBiasSlope},
+                     {"csm_far", p.csmShadowFar},
+                     {"csm_lambda", p.csmLambda}}},
         {"wet",
          toml::table{{"rain_intensity", p.rainIntensity},
                      {"porosity", p.wetPorosity},
@@ -145,6 +147,8 @@ bool load(DebugParams& p, const std::string& name) {
     p.shadowDepthRange = tbl["shadow"]["depth_range"].value_or(p.shadowDepthRange);
     p.depthBiasConst   = tbl["shadow"]["depth_bias_const"].value_or(p.depthBiasConst);
     p.depthBiasSlope   = tbl["shadow"]["depth_bias_slope"].value_or(p.depthBiasSlope);
+    p.csmShadowFar     = tbl["shadow"]["csm_far"].value_or(p.csmShadowFar);
+    p.csmLambda        = tbl["shadow"]["csm_lambda"].value_or(p.csmLambda);
 
     p.rainIntensity = tbl["wet"]["rain_intensity"].value_or(p.rainIntensity);
     p.wetPorosity   = tbl["wet"]["porosity"].value_or(p.wetPorosity);

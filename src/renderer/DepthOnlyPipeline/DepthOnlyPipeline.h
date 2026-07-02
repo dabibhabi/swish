@@ -56,11 +56,13 @@ public:
     void init(VkDevice device, const Config& cfg);
     void cleanup(VkDevice device);  // idempotent + handle-guarded
 
-    // Bind the pipeline, set the (shadow-map-sized) viewport/scissor, set the
-    // dynamic depth bias, and push the per-pass light-space matrix. Call once at
-    // the start of the shadow pass; then call push_model() before each draw.
-    void bind(VkCommandBuffer cmd, VkExtent2D extent, const Mat4& lightViewProj,
-              float depthBiasConst = kDefaultDepthBiasConst, float depthBiasSlope = kDefaultDepthBiasSlope) const;
+    // Bind the pipeline + set the dynamic depth bias. Call once per shadow pass.
+    void bind(VkCommandBuffer cmd, float depthBiasConst = kDefaultDepthBiasConst,
+              float depthBiasSlope = kDefaultDepthBiasSlope) const;
+
+    // Begin a CSM cascade: set the viewport/scissor to its atlas sub-rect and push
+    // that cascade's light-space matrix. Call before the cascade's geometry draws.
+    void set_cascade(VkCommandBuffer cmd, VkRect2D rect, const Mat4& lightViewProj) const;
 
     // Push the per-object model matrix (offset 64 within the 128-byte block).
     void push_model(VkCommandBuffer cmd, const Mat4& model) const;

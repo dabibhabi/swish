@@ -15,6 +15,7 @@
 
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -175,9 +176,11 @@ private:
     // ── Sun direction (drives the shadow-map light-space matrix) ──
     // Kept in sync with the Vec3 passed to set_weather in set_clear_day.
     Vec3  m_sunDir        = glm::normalize(Vec3(0.3f, 0.6f, 0.15f));
-    // Sun light-space view*proj for the current frame (computed in drawFrame,
-    // consumed by recordShadowPass + written into the camera UBO).
-    Mat4  m_lightVP       = Mat4(1.0f);
+    // Per-cascade sun light-space view*proj + split far-distances (view space) for
+    // the current frame (computed in drawFrame, consumed by recordShadowPass +
+    // written into the camera UBO for CSM lookup).
+    std::array<Mat4, NUM_CASCADES> m_cascadeVP{};
+    Vec3                           m_cascadeSplits{0.0f};
 
 #ifdef SWISH_DEBUG_UI
     // Live debug/tuning UI + its editable parameters (make debug only).
@@ -202,7 +205,10 @@ private:
     void recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex);
 
     // Per-pass command recording (called by recordCommandBuffer)
-    void recordShadowPass(VkCommandBuffer cmd, uint32_t frameIndex, const Mat4& lightVP);
+    void recordShadowPass(VkCommandBuffer cmd, uint32_t frameIndex);  // CSM: reads m_cascadeVP
+    // Fit the per-cascade light-space matrices + split distances to the camera
+    // frustum for the current frame. Fills m_cascadeVP / m_cascadeSplits.
+    void computeCascades();
     void recordGBufferPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExtent2D extent);
     void transitionGBufferForLighting(VkCommandBuffer cmd, uint32_t frameIndex);
     void recordLightingPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExtent2D extent);

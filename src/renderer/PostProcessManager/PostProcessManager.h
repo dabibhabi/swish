@@ -78,11 +78,13 @@ public:
     VkDescriptorSetLayout get_lighting_tex_layout() const { return m_lightingTexLayout; }
     VkDescriptorSet       get_lighting_set(uint32_t frameIndex) const { return m_lightingSets[frameIndex]; }
 
-    // ── Shadow-map (single sun, 2048², depth-only) getters ─────────
+    // ── Shadow-map (CSM depth atlas: NUM_CASCADES × 2048² slices) getters ──
     VkRenderPass  get_shadow_render_pass() const { return m_shadowRenderPass; }
     VkFramebuffer get_shadow_framebuffer(uint32_t frameIndex) const { return m_shadowFramebuffers[frameIndex]; }
     VkDescriptorSetLayout get_shadow_tex_layout() const { return m_shadowTexLayout; }
     VkDescriptorSet       get_shadow_set(uint32_t frameIndex) const { return m_shadowSets[frameIndex]; }
+    VkExtent2D            get_shadow_atlas_extent() const { return {kShadowDim * kNumCascades, kShadowDim}; }
+    uint32_t              get_shadow_cascade_dim() const { return kShadowDim; }
 
     // ── Render pass getters ──────────────────────────────────────
     VkRenderPass get_hdr_render_pass() const { return m_hdrRenderPass; }
@@ -189,11 +191,13 @@ private:
     VkDescriptorSetLayout                      m_lightingTexLayout = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, PP_MAX_FRAMES> m_lightingSets{};
 
-    // ── Sun shadow map (single, non-cascaded) ────────────────────
-    // Fixed 2048² depth-only target rendered from the sun POV each frame, then
-    // sampled by lighting.frag (set 2) with a hardware-PCF compare sampler.
-    // NOT tied to swapchain extent, but created/destroyed in the normal flow.
-    static constexpr uint32_t kShadowDim = 2048;
+    // ── Sun shadow map (CSM depth atlas) ─────────────────────────
+    // A 2048² slice per cascade, laid out side by side in one depth image
+    // (kShadowDim × kNumCascades wide, kShadowDim tall), rendered from the sun POV
+    // each frame and sampled by lighting.frag (set 2). NOT tied to swapchain extent.
+    static constexpr uint32_t kShadowDim    = 2048;
+    static constexpr uint32_t kNumCascades  = NUM_CASCADES;  // shared with SceneTypes / lighting.frag
+    static constexpr uint32_t kShadowAtlasW = kShadowDim * kNumCascades;
 
     VkRenderPass                               m_shadowRenderPass = VK_NULL_HANDLE;
     std::array<GpuImage, PP_MAX_FRAMES>        m_shadowImages{};

@@ -419,11 +419,12 @@ void PostProcessManager::createImages() {
     makeColorImage(m_aoExtent.width, m_aoExtent.height, aoFormat, m_aoImage, m_aoView);
     makeColorImage(m_aoExtent.width, m_aoExtent.height, aoFormat, m_aoBlurImage, m_aoBlurView);
 
-    // Shadow maps (fixed 2048², D32_SFLOAT, per frame): DEPTH_STENCIL_ATTACHMENT
-    // (written by the depth pass) + SAMPLED (read by lighting.frag).
+    // CSM shadow atlas (kShadowAtlasW × kShadowDim, D32_SFLOAT, per frame):
+    // DEPTH_STENCIL_ATTACHMENT (written by the depth pass, one cascade per slice)
+    // + SAMPLED (read by lighting.frag).
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
         m_shadowImages[i] =
-            gpu::deviceLocalImage(m_allocator, kShadowDim, kShadowDim, VK_FORMAT_D32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
+            gpu::deviceLocalImage(m_allocator, kShadowAtlasW, kShadowDim, VK_FORMAT_D32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
                                   VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
         m_shadowViews[i] = createImageView(m_shadowImages[i].handle(), VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT);
     }
@@ -504,9 +505,9 @@ void PostProcessManager::createFramebuffers(const std::vector<VkImageView>& swap
         m_compositeFBs[i] = makeFB(m_compositeRenderPass, {swapchainImageViews[i]}, m_swapExtent);
     }
 
-    // Shadow framebuffers (fixed 2048², one depth attachment per frame)
+    // Shadow atlas framebuffers (kShadowAtlasW × kShadowDim, one depth attachment per frame)
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
-        m_shadowFramebuffers[i] = makeFB(m_shadowRenderPass, {m_shadowViews[i]}, {kShadowDim, kShadowDim});
+        m_shadowFramebuffers[i] = makeFB(m_shadowRenderPass, {m_shadowViews[i]}, {kShadowAtlasW, kShadowDim});
     }
 }
 
