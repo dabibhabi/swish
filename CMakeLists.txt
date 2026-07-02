@@ -91,6 +91,23 @@ if(SWISH_DEBUG_UI)
         GIT_TAG        v1.91.5
     )
     FetchContent_MakeAvailable(imgui)
+
+    # ImGuizmo (transform gizmos) — populated without its own CMakeLists (which
+    # would try to build against an `imgui` target of its own); we compile its one
+    # .cpp into our imgui lib so it shares the same ImGui headers.
+    FetchContent_Declare(
+        imguizmo
+        GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
+        GIT_TAG        master
+    )
+    FetchContent_MakeAvailable(imguizmo)
+    # ImGuizmo ships a CMakeLists that builds a standalone `imguizmo` target with no
+    # ImGui includes (it fetches imgui only for its example). We don't use it — we
+    # compile src/ImGuizmo.cpp into our own imgui lib below — so drop it from `all`.
+    if(TARGET imguizmo)
+        set_target_properties(imguizmo PROPERTIES EXCLUDE_FROM_ALL TRUE)
+    endif()
+
     add_library(imgui STATIC
         ${imgui_SOURCE_DIR}/imgui.cpp
         ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -98,10 +115,12 @@ if(SWISH_DEBUG_UI)
         ${imgui_SOURCE_DIR}/imgui_widgets.cpp
         ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
         ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+        ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
     )
     target_include_directories(imgui PUBLIC
         ${imgui_SOURCE_DIR}
         ${imgui_SOURCE_DIR}/backends
+        ${imguizmo_SOURCE_DIR}/src
     )
     target_link_libraries(imgui PUBLIC glfw Vulkan::Vulkan)
 endif()

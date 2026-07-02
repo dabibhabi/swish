@@ -18,6 +18,8 @@
 
 #include "DebugParams.h"
 
+#include "../utils/Types.h"  // Mat4
+
 #include <vulkan/vulkan.h>
 
 #include <GLFW/glfw3.h>
@@ -55,9 +57,10 @@ public:
     // Create ImGui context + GLFW/Vulkan backends + our own pool/pass/FBs.
     void init(const DebugUIInitInfo& info);
 
-    // ImGui NewFrame → build the panel (mutates `p`) → ImGui::Render.
-    // Call once per frame BEFORE record().
-    void begin_frame(DebugParams& p);
+    // ImGui NewFrame → build the panel (mutates `p`) → ImGui::Render. The camera
+    // view/proj drive the ImGuizmo sun-orientation handle. Call once per frame
+    // BEFORE record().
+    void begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj);
 
     // Begin our render pass on framebuffer[imageIndex] and emit ImGui draws.
     // Call inside the frame's primary command buffer, AFTER the composite pass.

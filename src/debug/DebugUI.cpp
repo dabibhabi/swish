@@ -11,6 +11,10 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_vulkan.h"
 
+#include "ImGuizmo.h"
+
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -274,13 +278,14 @@ void printValues(const DebugParams& p) {
 // begin_frame — new frame, build the panel (mutates p), then render.
 // ══════════════════════════════════════════════════════════════════════
 
-void DebugUI::begin_frame(DebugParams& p) {
+void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
     if (!m_init)
         return;
 
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+    ImGuizmo::BeginFrame();
 
     // In drive-mode (!editMode) the cursor is locked to steer the car; tell
     // ImGui to ignore the mouse so it doesn't fight the grab. In edit-mode the
@@ -383,6 +388,9 @@ void DebugUI::begin_frame(DebugParams& p) {
             ImGui::SliderFloat("Ambient", &p.sunAmbient, 0.0f, 1.0f);
             ImGui::SliderFloat("Azimuth", &p.sunAzimuth, -kPi, kPi);
             ImGui::SliderFloat("Elevation", &p.sunElevation, 0.0f, kPi * 0.5f);
+            ImGui::Checkbox("Sun gizmo (drag to orient)", &p.showSunGizmo);
+            if (p.showSunGizmo && ImGui::Button("Reset gizmo"))
+                p.sunGizmoRot = glm::mat4(1.0f);
         }
 
         // ── Fog ───────────────────────────────────────────────────────
@@ -475,6 +483,28 @@ void DebugUI::begin_frame(DebugParams& p) {
         }
 
         ImGui::End();
+    }
+
+    // ── Sun-orientation gizmo (ImGuizmo) ──────────────────────────────
+    // A rotate handle floated ~20 m in front of the camera (so it's always in
+    // view — its world position is cosmetic; only its rotation matters). Dragging
+    // it rotates sunGizmoRot, from which the Renderer derives the sun direction.
+    // Only in edit mode (the cursor is free) so it doesn't fight drive-mode input.
+    if (p.editMode && p.showSunGizmo) {
+        ImGuiIO& io = ImGui::GetIO();
+        ImGuizmo::SetOrthographic(false);
+        ImGuizmo::SetDrawlist(ImGui::GetForegroundDrawList());
+        ImGuizmo::SetRect(0.0f, 0.0f, io.DisplaySize.x, io.DisplaySize.y);
+
+        // Place the handle in front of the camera; carry only sunGizmoRot's rotation.
+        Mat4 invView = glm::inverse(view);
+        Vec3 camPos  = Vec3(invView[3]);
+        Vec3 fwd     = -glm::normalize(Vec3(invView[2]));
+        Mat4 display = glm::translate(Mat4(1.0f), camPos + fwd * 20000.0f) * Mat4(glm::mat3(p.sunGizmoRot));
+
+        ImGuizmo::Manipulate(&view[0][0], &proj[0][0], ImGuizmo::ROTATE, ImGuizmo::WORLD, &display[0][0]);
+        // Keep only the rotation (drop the cosmetic translation) for the sun dir.
+        p.sunGizmoRot = Mat4(glm::mat3(display));
     }
 
     ImGui::Render();

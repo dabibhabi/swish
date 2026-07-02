@@ -6,6 +6,30 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-02 — Added a transform gizmo (ImGuizmo) to orient the sun by dragging
+
+> Vendored **ImGuizmo** and wired a rotate gizmo that orients the sun by dragging, instead of only sliders. In edit mode, ticking "Sun gizmo" floats a 3-ring rotation handle in front of the camera; dragging it rotates a stored orientation from which the Renderer derives the sun direction (so shadows + sky + IBL all follow). Debug-only — release never fetches or builds ImGuizmo.
+
+<details>
+<summary>Technical summary</summary>
+
+**Vendoring.** ImGuizmo is fetched (FetchContent) inside the existing `if(SWISH_DEBUG_UI)` block and its `src/ImGuizmo.cpp` is compiled into the project's `imgui` static lib (sharing the same ImGui headers). ImGuizmo ships its own CMakeLists that defines a standalone `imguizmo` target with no ImGui includes; that target is set `EXCLUDE_FROM_ALL` so it never builds. It compiled cleanly against the pinned imgui v1.91.5.
+
+**Gizmo.** `DebugUI::begin_frame` now takes the camera `view`/`proj`. After the panel, if edit mode + "Sun gizmo" is on, it calls `ImGuizmo::Manipulate(view, proj, ROTATE, WORLD, …)` on a matrix floated ~20 m in front of the camera (position is cosmetic, kept in-view; only the rotation is read back into `DebugParams::sunGizmoRot`). Drawn to the foreground draw list so it overlays the scene. The Renderer derives the sun direction as `normalize(mat3(sunGizmoRot) · baseSunDir)` in `apply_debug_params`, feeding the shadow CSM fit, sky, and IBL.
+
+**Verification.** Forcing the gizmo on rendered the rotate rings correctly over the scene, validation-clean. Debug + release build clean, **52/52 tests pass**; release (`SWISH_DEBUG_UI=OFF`) doesn't fetch/compile ImGuizmo at all. Note: the camera projection is Vulkan-style, so the drag mapping may feel Y-inverted vs an OpenGL gizmo — a cosmetic follow-up if it bothers.
+
+**File-change table.**
+
+| File | Change |
+| --- | --- |
+| [CMakeLists.txt](CMakeLists.txt) | FetchContent ImGuizmo; compile `src/ImGuizmo.cpp` into the imgui lib; `EXCLUDE_FROM_ALL` its own target. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) | `showSunGizmo` + `sunGizmoRot`. |
+| [src/debug/DebugUI.h](src/debug/DebugUI.h) / [.cpp](src/debug/DebugUI.cpp) | `begin_frame(p, view, proj)`; `ImGuizmo::BeginFrame` + rotate handle + "Sun gizmo" toggle. |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | Pass camera matrices to `begin_frame`; derive sun direction from the gizmo. |
+
+</details>
+
 ### 2026-07-02 — Added a per-material debug editor (live metalness / roughness / colour per slot)
 
 > The debug panel's "Car" override existed but was never wired to the draw. This replaces it with a real **per-material editor**: pick any material slot (asphalt, concrete, sign, or a car sub-material `MAT_CAR_0..19`), toggle Override, and edit its metalness / roughness-multiplier / colour live — the change flows straight into the G-buffer draw. Overrides persist in presets (`[[materials]]`). Release is unaffected (no override table → identity).

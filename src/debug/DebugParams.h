@@ -111,6 +111,13 @@ struct DebugParams {
     float ssaaScale          = 1.5f;    // internal supersample factor (matches PostProcessManager::kRenderScale)
     bool  ssaaApplyRequested = false;   // set by the UI "Apply" button; Renderer consumes + clears it
 
+    // ── Sun-direction gizmo (ImGuizmo rotate handle) ──────────────────
+    // When on (and in edit mode), a rotate gizmo at the origin orients the sun.
+    // sunGizmoRot accumulates the rotation; the Renderer derives the sun direction
+    // as normalize(mat3(sunGizmoRot) * baseSunDir).
+    bool      showSunGizmo = false;
+    glm::mat4 sunGizmoRot  = glm::mat4(1.0f);
+
     // ── UI state (not a scene parameter, but lives with the rest) ─────
     bool editMode  = false;  // true = cursor free to drive the panel; false = drive-mode (panel ignores mouse)
     bool showPanel = true;   // master visibility toggle for the debug window

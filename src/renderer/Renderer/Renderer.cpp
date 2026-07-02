@@ -349,7 +349,7 @@ void Renderer::drawFrame(float deltaTime) {
 #ifdef SWISH_DEBUG_UI
     // Build the debug panel (mutates m_debugParams) and push the edits into the
     // live uniforms BEFORE the camera UBO is written below — so drags update now.
-    m_debugUI.begin_frame(m_debugParams);
+    m_debugUI.begin_frame(m_debugParams, m_camera->get_view_matrix(), m_camera->get_projection_matrix());
     apply_debug_params();
 #endif
 
@@ -990,6 +990,14 @@ void Renderer::set_debug_edit_mode(bool edit) {
 }
 
 void Renderer::apply_debug_params() {
+    // Sun-orientation gizmo: derive the sun direction from the gizmo's rotation
+    // (applied to the shipped base direction) before it feeds set_weather below.
+    if (m_debugParams.showSunGizmo) {
+        static const Vec3 kBaseSunDir = glm::normalize(Vec3(0.3f, 0.6f, 0.15f));
+        Vec3 d = glm::mat3(m_debugParams.sunGizmoRot) * kBaseSunDir;
+        if (glm::length(d) > 1e-4f)
+            m_sunDir = glm::normalize(d);
+    }
     // Rain intensity slider drives the same scalar as the R-key cycle.
     m_rainIntensity = m_debugParams.rainIntensity;
     // Sun colour/ambient/clarity feed the CameraUBO (written by update() right after).
