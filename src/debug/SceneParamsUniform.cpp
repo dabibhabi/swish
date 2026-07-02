@@ -41,6 +41,7 @@ void SceneParamsUniform::update(uint32_t frameIndex, const DebugParams& p) {
     ubo.fogParams          = glm::vec4(p.fogDist63, p.fogMax, p.envGlossExp, 0.0f);
     ubo.shadowParams       = glm::vec4(p.shadowBias, p.shadowFloor, 0.0f, 0.0f);
     ubo.wetParams          = glm::vec4(p.wetPorosity, p.wetRoughness, 0.0f, 0.0f);
+    ubo.iblParams          = glm::vec4(p.iblDiffuse, p.iblSpecular, 0.0f, 0.0f);
     std::memcpy(m_buffers[frameIndex].mapped(), &ubo, sizeof(ubo));
 }
 

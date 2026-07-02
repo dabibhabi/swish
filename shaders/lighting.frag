@@ -71,6 +71,7 @@ layout(set = 3, binding = 0) uniform SceneParamsUBO {
     vec4 fogParams;           // x=dist63 y=max z=envGlossExp
     vec4 shadowParams;        // x=bias y=floor
     vec4 wetParams;           // x=porosity y=roughnessCollapse
+    vec4 iblParams;           // x=diffuse intensity y=specular intensity
 } sp;
 #define SP_SKY_HORIZON_OVERCAST sp.skyHorizonOvercast.rgb
 #define SP_SKY_HORIZON_CLEAR    sp.skyHorizonClear.rgb
@@ -88,6 +89,8 @@ layout(set = 3, binding = 0) uniform SceneParamsUBO {
 #define SP_SHADOW_FLOOR         sp.shadowParams.y
 #define SP_WET_POROSITY         sp.wetParams.x
 #define SP_WET_ROUGHNESS        sp.wetParams.y
+#define SP_IBL_DIFFUSE          sp.iblParams.x
+#define SP_IBL_SPECULAR         sp.iblParams.y
 #else
 // Release literals — identical to the previously-hardcoded values.
 #define SP_SKY_HORIZON_OVERCAST vec3(0.70, 0.80, 0.90)
@@ -109,6 +112,8 @@ layout(set = 3, binding = 0) uniform SceneParamsUBO {
 #define SP_SHADOW_FLOOR         0.25
 #define SP_WET_POROSITY         0.35
 #define SP_WET_ROUGHNESS        0.12
+#define SP_IBL_DIFFUSE          1.0
+#define SP_IBL_SPECULAR         1.0
 #endif
 
 // ── Reconstruct world position from depth (rind pattern) ──────────
@@ -136,6 +141,30 @@ vec3 compute_sky_color(vec3 view_dir) {
     sky += camera.sunColor.rgb * pow(sun_dot, mix(SP_SUN_DISC_EXP_MIN, SP_SUN_DISC_EXP_MAX, clarity))
          * mix(SP_SUN_DISC_STR_MIN, SP_SUN_DISC_STR_MAX, clarity);
     return sky;
+}
+
+// ── IBL from the procedural sky (split-sum, no cubemap) ───────────
+// Diffuse irradiance: an orientation-dependent integral of the sky hemisphere.
+// The sky is low-frequency, so a zenith/horizon/ground blend along N approximates
+// the cosine-weighted integral well and stays coloured with the current weather
+// (overcast grey vs clear blue) — a real upgrade over the old fixed skyTint term.
+vec3 skyIrradiance(vec3 n) {
+    vec3  zenith  = compute_sky_color(vec3(0.0, 1.0, 0.0));
+    vec3  horizon = compute_sky_color(normalize(vec3(n.x, 0.15, n.z)));
+    vec3  ground  = 0.25 * horizon;                 // dim tinted ground bounce
+    vec3  base    = mix(horizon, zenith, clamp(n.y, 0.0, 1.0));  // side → up
+    return mix(base, ground, clamp(-n.y, 0.0, 1.0));            // → ground when down-facing
+}
+
+// Analytic environment-BRDF (Karis "Mobile") — the split-sum scale+bias that
+// weights the prefiltered environment, replacing an ad-hoc gloss falloff with an
+// energy-conserving, roughness-aware Fresnel term (no precomputed LUT needed).
+vec2 envBRDFApprox(float NoV, float rough) {
+    const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+    const vec4 c1 = vec4( 1.0,  0.0425,  1.040, -0.040);
+    vec4  r    = rough * c0 + c1;
+    float a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
+    return vec2(-1.04, 1.04) * a004 + r.zw;
 }
 
 void main() {
@@ -267,39 +296,35 @@ void main() {
     // Energy conservation: diffuse reduces with Fresnel
     vec3 kD = (vec3(1.0) - F_sun) * (1.0 - metallic);
 
-    // ── Ambient: flat fill + hemispheric sky boost (P0 #3) ────────────
-    // The flat term is kept as a floor; a cool sky term is *added* on up-facing
-    // surfaces for directionality. Additive-only so it never darkens a surface
-    // below the previous fill (dark interior panels can't crush to black).
+    // ── Diffuse IBL: cosine-weighted sky irradiance (G-P0-3) ──────────
+    // Replaces the old fixed cool-tint hemisphere boost with the actual sky
+    // irradiance in the surface's orientation, so ambient tracks the weather
+    // (grey overcast vs blue clear) and reads directionally. `ambient` (sunColor.a)
+    // stays the overall floor/scale; SP_IBL_DIFFUSE tunes the sky contribution.
+    // Additive so dark interior panels can't crush to black; gated (1-metallic)
+    // because metals have no diffuse (their env response is the specular term).
     float ambient      = camera.sunColor.a;
     vec3  sun_radiance = camera.sunColor.rgb;
-    float skyFacing    = max(N.y, 0.0);              // 0 (down/side) .. 1 (up)
-    const vec3 skyTint = vec3(0.55, 0.70, 1.00);     // cool overcast sky
-    vec3  ambientIrr   = sun_radiance + skyFacing * skyTint * 0.5;
+    vec3  skyIrr       = skyIrradiance(N);
+    vec3  ambientIrr   = sun_radiance + skyIrr * SP_IBL_DIFFUSE;
     // Sun (direct) term is shadowed; ambient/sky fill is not (see sunShadow above).
     vec3  sun_term  = (kD * albedo / PI + specular_sun) * NdotL * sun_radiance;
-    vec3  lit_color = albedo * ambient * ambientIrr
+    vec3  lit_color = albedo * ambient * ambientIrr * (1.0 - metallic * 0.5)
                    + sun_term * sunShadow;
 
-    // ── Ambient sky reflection (IBL-lite — G-P1-2 / G-P0-3) ───────────
-    // No environment cubemap yet, so reflect the procedural sky AS the
-    // environment. This is the dominant "Blender gloss" cue on paint/glass:
-    // the surface mirrors the sky, Fresnel-weighted (grazing/rims brighten,
-    // head-on stays dark on a black dielectric) and faded out as roughness
-    // rises so dry rough asphalt doesn't become a mirror. The sky is low-
-    // frequency, so a single-sample reflection reads correctly at any gloss.
-    // Reuses the sky pixels' overcast greying so reflections match in rain.
-    vec3  R        = reflect(-V, N);
-    vec3  envColor = compute_sky_color(R);
-    envColor       = mix(envColor, envColor * (1.0 - wetness * 0.45), wetness * 0.9);
-    vec3  F_env    = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - NdotV, 5.0);
-    // Concentrate the reflection on genuinely glossy surfaces (car paint, wet road):
-    // a cubic gloss weight means matte cabin materials (high roughness) barely reflect,
-    // so the enclosed interior isn't frosted by the outdoor sky, while smooth paint and
-    // the near-mirror wet road still reflect strongly. The sky is low-frequency, so a
-    // single-sample reflection reads correctly without prefiltered roughness mips.
-    float envGloss = pow(1.0 - roughness, SP_ENV_GLOSS_EXP);
-    lit_color     += envColor * F_env * envGloss;
+    // ── Specular IBL: prefiltered sky reflection × split-sum env BRDF ──
+    // The dominant "Blender gloss" cue: surfaces mirror the environment. With no
+    // cubemap, reflect the procedural sky and approximate a roughness prefilter by
+    // blurring toward the low-frequency sky irradiance as roughness rises (glossy
+    // paint → sharp sky, rough asphalt → soft ambient). The Karis env-BRDF then
+    // weights it energy-conservingly (grazing rims brighten; matte cabin barely
+    // reflects, so the interior isn't frosted). Reuses the overcast greying.
+    vec3  R          = reflect(-V, N);
+    vec3  envSharp   = compute_sky_color(R);
+    vec3  envColor   = mix(envSharp, skyIrr, roughness);           // cheap prefilter
+    envColor         = mix(envColor, envColor * (1.0 - wetness * 0.45), wetness * 0.9);
+    vec2  envBRDF    = envBRDFApprox(NdotV, roughness);
+    lit_color       += envColor * (F0 * envBRDF.x + envBRDF.y) * SP_IBL_SPECULAR;
 
     // ── Point light accumulation ──────────────────────────────────
     for (uint i = 0u; i < lights.numPointLights.x; ++i) {
@@ -354,12 +379,12 @@ void main() {
 
     // ── Wet grazing Fresnel surge (P0 #9) ─────────────────────────────
     // At grazing view angles a wet surface reflects the environment with F→1 —
-    // the surge that makes a wet night road mirror the sky and lamps. With no
-    // IBL/SSR yet (P1), reflect the cool sky ambient; the point-light loop above
-    // supplies the sharp lamp streaks (now that wet roughness is near-zero).
+    // the surge that makes a wet night road mirror the sky and lamps. Reflect the
+    // sky irradiance (skyIrr, computed above); the point-light loop supplies the
+    // sharp lamp streaks (now that wet roughness is near-zero).
     float grazing  = pow(1.0 - NdotV, 5.0);
-    vec3  Fgraze   = F0 + (1.0 - F0) * grazing;              // Schlick, → 1 at grazing
-    vec3  wetSheen = Fgraze * skyTint * ambient * wetLocal;  // reflect sky, gated by exposure·wetness
+    vec3  Fgraze   = F0 + (1.0 - F0) * grazing;             // Schlick, → 1 at grazing
+    vec3  wetSheen = Fgraze * skyIrr * ambient * wetLocal;  // reflect sky, gated by exposure·wetness
     lit_color += wetSheen;
 
     // ── Depth-resolved rain fog (R-P1-1, Koschmieder) ─────────────────

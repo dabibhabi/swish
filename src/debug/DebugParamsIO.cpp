@@ -63,7 +63,10 @@ bool save(const DebugParams& p, const std::string& name) {
                      {"elevation", p.sunElevation}}},
         {"fog",
          toml::table{{"color", arr3(p.fogColor)}, {"dist63", p.fogDist63}, {"max", p.fogMax}}},
-        {"reflection", toml::table{{"env_gloss_exp", p.envGlossExp}}},
+        {"reflection",
+         toml::table{{"env_gloss_exp", p.envGlossExp},
+                     {"ibl_diffuse", p.iblDiffuse},
+                     {"ibl_specular", p.iblSpecular}}},
         {"ssao",
          toml::table{{"enabled", p.ssaoEnabled},
                      {"radius", p.ssaoRadius},
@@ -135,6 +138,8 @@ bool load(DebugParams& p, const std::string& name) {
     p.fogMax    = tbl["fog"]["max"].value_or(p.fogMax);
 
     p.envGlossExp = tbl["reflection"]["env_gloss_exp"].value_or(p.envGlossExp);
+    p.iblDiffuse  = tbl["reflection"]["ibl_diffuse"].value_or(p.iblDiffuse);
+    p.iblSpecular = tbl["reflection"]["ibl_specular"].value_or(p.iblSpecular);
 
     p.ssaoEnabled   = tbl["ssao"]["enabled"].value_or(p.ssaoEnabled);
     p.ssaoRadius    = tbl["ssao"]["radius"].value_or(p.ssaoRadius);

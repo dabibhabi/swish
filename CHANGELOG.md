@@ -6,6 +6,35 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — Split-sum IBL: real environment lighting from the procedural sky
+
+> The ambient was a fixed cool tint plus a flat fill, and the reflection was a single sharp sky sample faded by an ad-hoc gloss exponent. This replaces both with proper **split-sum image-based lighting** driven by the actual procedural sky: **diffuse** = orientation-dependent sky irradiance (so ambient tracks the weather — grey overcast vs blue clear — and reads directionally), **specular** = a roughness-prefiltered sky reflection weighted by the analytic Karis environment-BRDF (glossy paint gets a sharp sky, rough surfaces a soft one; energy-conserving, no more frosted matte cabin). No cubemap or HDRI asset needed; a photo HDRI can slot into the same `skyIrradiance`/reflection hooks later. IBL diffuse/specular intensities are tunable in the debug panel.
+
+<details>
+<summary>Technical summary</summary>
+
+**Diffuse IBL.** `skyIrradiance(N)` blends the sky sampled overhead (zenith), at the horizon in N's azimuth, and a dim tinted ground bounce, by `N.y` — a cheap but faithful stand-in for the cosine-weighted hemisphere integral of a low-frequency sky. It replaces the old `sun_radiance + skyFacing·skyTint·0.5`; ambient now = `sun_radiance + skyIrradiance(N)·SP_IBL_DIFFUSE`, gated `(1 - 0.5·metallic)` since metals carry their environment response in the specular term.
+
+**Specular IBL (split-sum).** With no cubemap, reflect the procedural sky (`compute_sky_color(reflect(-V,N))`) and approximate a roughness prefilter by lerping toward `skyIrradiance` as roughness rises (the sky is low-frequency, so lerp-to-average ≈ a mip chain). The Karis "Mobile" analytic env-BRDF gives the scale+bias:
+
+$$\text{spec} = \text{prefiltered}\cdot\big(F_0\cdot \text{ab}.x + \text{ab}.y\big),\quad \text{ab} = \text{envBRDFApprox}(N\!\cdot\!V,\ \text{rough})$$
+
+replacing the previous `F_env · (1-rough)^n`. This is energy-conserving and roughness-aware: glossy paint reflects a crisp sky, matte cabin materials barely reflect (~1–2%), grazing rims brighten. The wet grazing-Fresnel sheen now also reflects `skyIrradiance` instead of a fixed tint.
+
+**Tuning + gating.** `iblParams` (a 10th vec4) was appended to the debug scene-params UBO (set 3); `SP_IBL_DIFFUSE`/`SP_IBL_SPECULAR` resolve to `sp.iblParams.xy` under `SWISH_DEBUG_UI` and to literal `1.0` in release — so IBL is **always on** (a genuine lighting upgrade, release included) while its strength is live-tunable in `make debug`. The now-unused `SP_ENV_GLOSS_EXP` slider is kept as a labelled legacy control.
+
+**Verification.** Debug builds clean, runs **validation-clean** (0 messages), overcast renders coherently (no blow-out/crush, no artifacts). Release (`SWISH_DEBUG_UI=OFF`) builds clean, **52/52 tests pass**, and the release `lighting.frag.spv` has **zero `DescriptorSet 3`** references (IBL uses the literal intensities; the debug UBO is absent). The clear-day specular is best seen live (toggle `G`) — headless key-posting for that shot was unreliable.
+
+**File-change table.**
+
+| File | Change |
+| --- | --- |
+| [shaders/lighting.frag](shaders/lighting.frag) | `skyIrradiance` + `envBRDFApprox` helpers; rewrote ambient (diffuse IBL) + reflection (split-sum specular); `iblParams` in set-3 UBO + `SP_IBL_*` macros; wet sheen uses `skyIrradiance`. |
+| [src/debug/SceneParamsUniform.h](src/debug/SceneParamsUniform.h) / [.cpp](src/debug/SceneParamsUniform.cpp) | `iblParams` vec4 (10th row; `static_assert` → 10×16); pack `iblDiffuse/iblSpecular`. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) · [DebugUI.cpp](src/debug/DebugUI.cpp) · [DebugParamsIO.cpp](src/debug/DebugParamsIO.cpp) | `iblDiffuse`/`iblSpecular` fields, "Reflections / IBL" sliders, print, toml. |
+
+</details>
+
 ### 2026-07-01 — Replaced the single sun shadow map with 3-cascade shadow maps (CSM)
 
 > The sun shadow was one 2048² map framing a ~45 m radius around the camera — fine up close, nothing beyond. This replaces it with **3 cascades** packed into a single wide depth **atlas**: near fragments get a tight, crisp cascade and far ones a wide-covering cascade, so shadows now extend down the road instead of vanishing at 45 m. A **shadow atlas** (three 2048² slices side by side in one image, viewport-scoped draws) is used instead of a texture array — it keeps the existing single-image / single-`sampler2D` plumbing, avoiding array-view/MoltenVK complexity. CSM far distance + split-λ are tunable in the debug panel.

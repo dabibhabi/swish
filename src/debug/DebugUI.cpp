@@ -234,7 +234,7 @@ void printValues(const DebugParams& p) {
                 p.sunColor.y, p.sunColor.z, p.sunAmbient, p.sunAzimuth, p.sunElevation);
     std::printf("fogColor={%.3f,%.3f,%.3f} fogDist63=%.1f fogMax=%.3f\n", p.fogColor.x, p.fogColor.y, p.fogColor.z,
                 p.fogDist63, p.fogMax);
-    std::printf("envGlossExp=%.3f\n", p.envGlossExp);
+    std::printf("envGlossExp=%.3f iblDiffuse=%.3f iblSpecular=%.3f\n", p.envGlossExp, p.iblDiffuse, p.iblSpecular);
     std::printf("ssaoEnabled=%d ssaoRadius=%.1f ssaoBias=%.1f ssaoIntensity=%.3f\n", p.ssaoEnabled ? 1 : 0,
                 p.ssaoRadius, p.ssaoBias, p.ssaoIntensity);
     std::printf("shadowBias=%.5f shadowFloor=%.3f csmShadowFar=%.1f csmLambda=%.3f\n", p.shadowBias, p.shadowFloor,
@@ -375,9 +375,11 @@ void DebugUI::begin_frame(DebugParams& p) {
             ImGui::SliderFloat("Fog max", &p.fogMax, 0.0f, 1.0f);
         }
 
-        // ── Reflections ───────────────────────────────────────────────
-        if (ImGui::CollapsingHeader("Reflections")) {
-            ImGui::SliderFloat("Env gloss exp", &p.envGlossExp, 0.5f, 8.0f);
+        // ── Reflections / IBL ─────────────────────────────────────────
+        if (ImGui::CollapsingHeader("Reflections / IBL")) {
+            ImGui::SliderFloat("IBL diffuse", &p.iblDiffuse, 0.0f, 3.0f);
+            ImGui::SliderFloat("IBL specular", &p.iblSpecular, 0.0f, 3.0f);
+            ImGui::SliderFloat("Env gloss exp (legacy)", &p.envGlossExp, 0.5f, 8.0f);
         }
 
         // ── SSAO ──────────────────────────────────────────────────────

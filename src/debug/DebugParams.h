@@ -53,6 +53,12 @@ struct DebugParams {
     // ── Reflection (environment / gloss) ──────────────────────────────
     float envGlossExp = 3.0f;  // Fresnel/gloss falloff exponent
 
+    // ── IBL (split-sum environment lighting from the procedural sky) ──
+    // Diffuse = cosine-weighted sky irradiance; specular = prefiltered sky
+    // reflection × Karis env-BRDF. 1.0 = physically-scaled; tune to taste.
+    float iblDiffuse  = 1.0f;
+    float iblSpecular = 1.0f;
+
     // ── SSAO (screen-space ambient occlusion) ─────────────────────────
     // Runs at 1/2 render res, multiplied into the composite. radius/bias are in
     // view-space world units (1 m = 1000 WU); tune live toward subtle contact
