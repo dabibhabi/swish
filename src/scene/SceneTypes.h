@@ -74,6 +74,17 @@ struct CameraUBO {
     Vec4 cascadeSplits;
 };
 
+// Per-material debug override (debug UI). One entry per MaterialId; when `enabled`
+// the draw for that material uses these instead of its asset values. Defaults are
+// no-ops (metalness/roughnessMul applied only when enabled), so release — which
+// never passes an override table — is unaffected.
+struct MaterialOverride {
+    bool  enabled      = false;
+    float metalness    = 0.0f;
+    float roughnessMul = 1.0f;
+    Vec3  color        = Vec3(1.0f);
+};
+
 // ── Point Light System (inspired by rind/Light.cpp) ──────────────────
 static constexpr uint32_t MAX_POINT_LIGHTS = 32;
 

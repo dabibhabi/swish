@@ -37,7 +37,11 @@ public:
     // (material) and pushing per-draw constants. Caller must have already
     // bound the pipeline + set 0 (camera) via ScenePipeline::bind. No-op
     // if no geometry has been uploaded.
-    void record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials) const;
+    // `overrides` (optional) is a table indexed by MaterialId; when a draw's material
+    // has an enabled entry, its metalness / roughness-mult / colour replace the
+    // asset values (debug material editor). Pass nullptr for none (release path).
+    void record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials,
+                      const MaterialOverride* overrides = nullptr) const;
 
     // Depth-only pass (shadow map): bind vertex/index buffers, then for each
     // draw call push only the per-object model matrix (no material/descriptor

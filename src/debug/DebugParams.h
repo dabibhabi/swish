@@ -1,6 +1,7 @@
 #pragma once
 
-#include "../utils/Types.h"  // swish::Vec3 / Vec4 (glm aliases)
+#include "../scene/SceneTypes.h"  // MaterialOverride, MAT_COUNT, MaterialId
+#include "../utils/Types.h"       // swish::Vec3 / Vec4 (glm aliases)
 
 #include <glm/glm.hpp>
 
@@ -99,6 +100,12 @@ struct DebugParams {
     glm::vec3 carPaint{1.0f, 1.0f, 1.0f};
     float     carRoughnessMul = 1.0f;
     bool      carOverride     = false;  // when true, use the above instead of the asset's material
+
+    // ── Per-material override table (per-submesh material editor) ─────
+    // Indexed by MaterialId; an enabled entry replaces that material's metalness /
+    // roughness / colour in the G-buffer draw. matEditSlot is the panel's selection.
+    MaterialOverride matOverrides[MAT_COUNT];
+    int              matEditSlot = MAT_CAR_0;
 
     // ── Quality ───────────────────────────────────────────────────────
     float ssaaScale          = 1.5f;    // internal supersample factor (matches PostProcessManager::kRenderScale)

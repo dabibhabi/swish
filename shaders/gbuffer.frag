@@ -78,6 +78,10 @@ void main() {
     // ── Normal mapping via TBN matrix ─────────────────────────────
     vec3 N = normalize(fragTBN * normalMap);
 
+    // Debug per-material roughness multiplier (material.z; 1.0 = unchanged, so
+    // release — which always pushes 1.0 — is unaffected).
+    roughness = clamp(roughness * push.material.z, 0.0, 1.0);
+
     // ── Specular anti-aliasing ────────────────────────────────────
     float filterWidth = length(fwidth(N));
     roughness = max(roughness, sqrt(2.0 * filterWidth));

@@ -100,6 +100,19 @@ bool save(const DebugParams& p, const std::string& name) {
         {"quality", toml::table{{"ssaa_scale", p.ssaaScale}}},
     };
 
+    // Per-material overrides → an array of tables ([[materials]]), enabled slots only.
+    toml::array mats;
+    for (uint32_t i = 0; i < MAT_COUNT; ++i) {
+        const MaterialOverride& o = p.matOverrides[i];
+        if (!o.enabled)
+            continue;
+        mats.push_back(toml::table{{"slot", static_cast<int64_t>(i)},
+                                   {"metalness", o.metalness},
+                                   {"roughness_mul", o.roughnessMul},
+                                   {"color", arr3(o.color)}});
+    }
+    tbl.insert_or_assign("materials", std::move(mats));
+
     std::ofstream f(presets_dir() + name + ".toml", std::ios::trunc);
     if (!f)
         return false;
@@ -151,6 +164,31 @@ bool load(DebugParams& p, const std::string& name) {
     p.ssaoRadius    = tbl["ssao"]["radius"].value_or(p.ssaoRadius);
     p.ssaoBias      = tbl["ssao"]["bias"].value_or(p.ssaoBias);
     p.ssaoIntensity = tbl["ssao"]["intensity"].value_or(p.ssaoIntensity);
+
+    // Per-material overrides: only touch them if the file defines [[materials]]
+    // (preserves the merge policy — an older preset without them won't clobber the
+    // current table). When present, it fully replaces the override state.
+    if (const toml::array* mats = tbl["materials"].as_array()) {
+        for (uint32_t i = 0; i < MAT_COUNT; ++i)
+            p.matOverrides[i] = MaterialOverride{};
+        for (const toml::node& node : *mats) {
+            const toml::table* t = node.as_table();
+            if (!t)
+                continue;
+            int slot = static_cast<int>((*t)["slot"].value_or(-1));
+            if (slot < 0 || slot >= static_cast<int>(MAT_COUNT))
+                continue;
+            MaterialOverride& o = p.matOverrides[slot];
+            o.enabled           = true;
+            o.metalness         = (*t)["metalness"].value_or(o.metalness);
+            o.roughnessMul      = (*t)["roughness_mul"].value_or(o.roughnessMul);
+            if (const toml::array* c = (*t)["color"].as_array(); c && c->size() == 3) {
+                o.color.x = static_cast<float>(c->get(0)->value_or(static_cast<double>(o.color.x)));
+                o.color.y = static_cast<float>(c->get(1)->value_or(static_cast<double>(o.color.y)));
+                o.color.z = static_cast<float>(c->get(2)->value_or(static_cast<double>(o.color.z)));
+            }
+        }
+    }
 
     p.ssrEnabled   = tbl["ssr"]["enabled"].value_or(p.ssrEnabled);
     p.ssrIntensity = tbl["ssr"]["intensity"].value_or(p.ssrIntensity);

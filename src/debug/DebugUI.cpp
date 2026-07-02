@@ -216,6 +216,24 @@ void presetClearRain(DebugParams& p) {
     p.sunAmbient    = 0.28f;
 }
 
+// Human-readable category for a MaterialId slot (for the material editor).
+const char* materialName(int i) {
+    switch (i) {
+        case MAT_ASPHALT:  return "asphalt";
+        case MAT_GRASS:    return "grass";
+        case MAT_CONCRETE: return "concrete";
+        case MAT_METAL:    return "metal";
+        case MAT_DEFAULT:  return "default";
+        case MAT_RUMBLE:   return "rumble";
+        case MAT_DIRT:     return "dirt";
+        case MAT_TREE:     return "tree";
+        default:           break;
+    }
+    if (i >= MAT_SIGN_0 && i <= MAT_SIGN_7)  return "sign";
+    if (i >= MAT_CAR_0 && i <= MAT_CAR_19)   return "car";
+    return "?";
+}
+
 void printValues(const DebugParams& p) {
     std::printf("═══ DebugParams ═══\n");
     std::printf("exposure=%.4f bloomThreshold=%.4f bloomIntensity=%.4f\n", p.exposure, p.bloomThreshold,
@@ -419,12 +437,34 @@ void DebugUI::begin_frame(DebugParams& p) {
             ImGui::SliderFloat("Streak length", &p.streakLen, 0.0f, 10000.0f, "%.0f");
         }
 
-        // ── Car ───────────────────────────────────────────────────────
-        if (ImGui::CollapsingHeader("Car")) {
-            ImGui::Checkbox("Override material", &p.carOverride);
-            ImGui::SliderFloat("Metalness", &p.carMetalness, 0.0f, 1.0f);
-            ImGui::ColorEdit3("Paint", &p.carPaint.x);
-            ImGui::SliderFloat("Roughness mul", &p.carRoughnessMul, 0.0f, 2.0f);
+        // ── Materials (per-submesh / per-material-slot editor) ────────
+        if (ImGui::CollapsingHeader("Materials")) {
+            if (p.matEditSlot < 0)
+                p.matEditSlot = 0;
+            if (p.matEditSlot >= static_cast<int>(MAT_COUNT))
+                p.matEditSlot = static_cast<int>(MAT_COUNT) - 1;
+            ImGui::SliderInt("Slot", &p.matEditSlot, 0, static_cast<int>(MAT_COUNT) - 1);
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", materialName(p.matEditSlot));
+
+            MaterialOverride& o = p.matOverrides[p.matEditSlot];
+            ImGui::Checkbox("Override##mat", &o.enabled);
+            ImGui::SliderFloat("Metalness##mat", &o.metalness, 0.0f, 1.0f);
+            ImGui::SliderFloat("Roughness mul##mat", &o.roughnessMul, 0.0f, 2.0f);
+            ImGui::ColorEdit3("Color##mat", &o.color.x);
+            if (ImGui::Button("Clear this slot"))
+                o = MaterialOverride{};
+            ImGui::SameLine();
+            if (ImGui::Button("Clear all")) {
+                for (uint32_t i = 0; i < MAT_COUNT; ++i)
+                    p.matOverrides[i] = MaterialOverride{};
+            }
+            // Count how many slots are currently overridden (quick status).
+            int active = 0;
+            for (uint32_t i = 0; i < MAT_COUNT; ++i)
+                if (p.matOverrides[i].enabled)
+                    ++active;
+            ImGui::TextDisabled("%d slot(s) overridden", active);
         }
 
         // ── Quality ───────────────────────────────────────────────────

@@ -83,7 +83,7 @@ void SceneGeometry::upload(const RendererServices& s, const MeshData& mesh, cons
 }
 
 void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline,
-                                 MaterialDescriptors& materials) const {
+                                 MaterialDescriptors& materials, const MaterialOverride* overrides) const {
     if (!has_geometry())
         return;
 
@@ -108,6 +108,18 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
         // to outMaterial.b in gbuffer.frag and used by lighting.frag to keep wet-road
         // effects (darkening, sheen, halos) off the car — they wash the cabin out.
         pushData.material.y = dc.dry ? 0.0f : 1.0f;
+        // Roughness multiplier (gbuffer.frag: roughness *= material.z). 1 = no change.
+        pushData.material.z = 1.0f;
+
+        // Debug material override for this slot (metalness / roughness / colour).
+        if (overrides != nullptr) {
+            const MaterialOverride& o = overrides[dc.material];
+            if (o.enabled) {
+                pushData.color      = Vec4(o.color, dc.color.a);  // keep .a (wash sentinel)
+                pushData.material.x = o.metalness;
+                pushData.material.z = o.roughnessMul;
+            }
+        }
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(PushConstantData), &pushData);
         vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, 0, 0);

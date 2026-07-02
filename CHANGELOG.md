@@ -6,6 +6,31 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-02 — Added a per-material debug editor (live metalness / roughness / colour per slot)
+
+> The debug panel's "Car" override existed but was never wired to the draw. This replaces it with a real **per-material editor**: pick any material slot (asphalt, concrete, sign, or a car sub-material `MAT_CAR_0..19`), toggle Override, and edit its metalness / roughness-multiplier / colour live — the change flows straight into the G-buffer draw. Overrides persist in presets (`[[materials]]`). Release is unaffected (no override table → identity).
+
+<details>
+<summary>Technical summary</summary>
+
+**Path.** `SceneGeometry::record_draws` gained an optional `const MaterialOverride*` table (indexed by `MaterialId`); when a draw's slot has an enabled entry, its colour → `push.color.rgb` (keeping `.a`, the interior-wash sentinel), metalness → `push.material.x`, and a new **roughness multiplier** → `push.material.z`. `gbuffer.frag` now does `roughness *= push.material.z` (previously roughness was texture-only and un-tweakable). The multiplier defaults to `1.0` and `record_draws` sets it to `1.0` whenever there's no override, so release — which passes `nullptr` — writes an identity multiplier and is unchanged.
+
+**UI + persistence.** `DebugParams` holds `MaterialOverride matOverrides[MAT_COUNT]` + a `matEditSlot`. The panel's **Materials** section is a slot picker (with a readable category label — "car" / "sign" / "asphalt" …) plus Override / metalness / roughness-mult / colour for the selected slot, Clear-this-slot / Clear-all, and an "N overridden" status. `DebugParamsIO` serialises enabled slots as a `[[materials]]` array of tables; load only touches them when that key is present (keeps the merge policy — old presets don't clobber the table).
+
+**Verification.** Forcing every car slot to red-metal turned the whole cabin red-metallic in-app (validation-clean), proving colour + metalness + roughness reach the draw; reverted. Debug + release build clean, **52/52 tests pass** (release identity multiplier confirmed).
+
+**File-change table.**
+
+| File | Change |
+| --- | --- |
+| [src/scene/SceneTypes.h](src/scene/SceneTypes.h) | `MaterialOverride` struct. |
+| [src/renderer/SceneGeometry/SceneGeometry.h](src/renderer/SceneGeometry/SceneGeometry.h) / [.cpp](src/renderer/SceneGeometry/SceneGeometry.cpp) | `record_draws` takes an override table; applies colour/metalness/roughness-mult; sets `material.z`. |
+| [shaders/gbuffer.frag](shaders/gbuffer.frag) | `roughness *= push.material.z` (identity at 1.0). |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | Pass `m_debugParams.matOverrides` (debug) / `nullptr` (release) into both `record_draws`. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) · [DebugUI.cpp](src/debug/DebugUI.cpp) · [DebugParamsIO.cpp](src/debug/DebugParamsIO.cpp) | `matOverrides`/`matEditSlot`; **Materials** panel section + name helper; `[[materials]]` toml. |
+
+</details>
+
 ### 2026-07-02 — Added SSR (screen-space reflections), tunable in the debug UI
 
 > Real geometry reflections: a post-lighting pass ray-marches the depth buffer along each fragment's reflected view ray and samples the already-lit HDR at the hit, so the road/car/scene reflect actual on-screen geometry (not just the sky IBL). It's Fresnel-weighted (strongest at grazing angles — the wet/glossy look) and **added** on top of the HDR in composite; on a ray miss nothing is added, so the split-sum sky IBL already in the HDR is the graceful fallback. Debug-only and fully tunable (enable / intensity / max-dist / thickness / stride) — SSR quality is scene-dependent and artifact-prone, so it wants live tuning; release primes the SSR image black (composite add is a no-op → release output unchanged).
