@@ -6,6 +6,47 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-01 — Made the last debug knobs live: dynamic shadow depth-bias, rain streak length, and SSAA rescale
+
+> The remaining "Class-B" debug controls were still inert C++ constants. This wires the three of them: **shadow depth-bias** (constant + slope) via `VK_DYNAMIC_STATE_DEPTH_BIAS`, **rain streak length** via a `RainSystem` setter, and **live SSAA rescale** — the "Apply SSAA" button now rebuilds the whole offscreen chain at the new supersample factor. With this, every slider in the panel drives the running game. Release output is unchanged (dynamic bias is set to the same 4.0/1.5; streak/scale defaults equal the old constants).
+
+<details>
+<summary>Technical summary</summary>
+
+**Shadow depth-bias (live).** `DepthOnlyPipeline` baked `depthBiasConstantFactor=4.0 / slopeFactor=1.5` into its rasterizer, so acne/peter-panning couldn't be tuned without a rebuild. Added `VK_DYNAMIC_STATE_DEPTH_BIAS` to the pipeline and a `vkCmdSetDepthBias(const, 0, slope)` call in `bind()` (the static factors are ignored once dynamic). `recordShadowPass` feeds `DebugParams.depthBiasConst/Slope` in debug, and the exposed `kDefaultDepthBiasConst/Slope` (= 4.0/1.5) in release — identical to before.
+
+**Rain streak length (live).** `RainSystem` computed the streak from a file-scope `kStreakLen=3200`. Promoted to an instance field `m_streakLen` (default 3200 WU ≈ 3.2 m) with `set_streak_len()`, fed from `DebugParams.streakLen` in `apply_debug_params`. The per-frame intensity scaling (`streak = base·(0.5+0.5·intensity)`) and the far parallax layer's `×0.8` are unchanged.
+
+**Live SSAA rescale.** `PostProcessManager::kRenderScale` (a compile-time `1.5`) became a runtime member `m_renderScale` (default `kRenderScale`) with `set_render_scale()`; `scaleExtent` reads it, so a `recreate()` re-derives `renderExtent = swap × scale` (still clamped to `maxImageDimension2D`, floored at 1.0). The "Apply SSAA" button sets `ssaaApplyRequested`; the Renderer consumes it at the **top of `drawFrame`** — after the fence wait, before image acquire — so `recreateSwapchain()` (which rebuilds the swapchain, offscreen chain, lighting pipeline, and the forward rain/glass/windshield passes) never runs mid-frame. That frame is skipped; the next renders at the new resolution.
+
+```mermaid
+sequenceDiagram
+  participant UI as Apply SSAA (frame N)
+  participant DF as drawFrame top (frame N+1)
+  participant PP as PostProcess + passes
+  UI->>UI: ssaaApplyRequested = true
+  DF->>DF: waitForFence (no frame in flight)
+  DF->>PP: set_render_scale(s); recreateSwapchain()
+  DF-->>DF: return (skip frame N+1)
+  Note over PP: frame N+2 renders at swap × s
+```
+
+**Verification.** Debug + release build clean; **52/52** release tests pass. Forcing the SSAA path on startup (temp defaults `ssaaScale=1.0`, `ssaaApplyRequested=true`) rebuilt the chain and rendered the scene intact at the new scale, **validation-clean** (0 messages), then reverted. Default-scale run is validation-clean with the dynamic depth-bias shadow pass executing every frame (proves `vkCmdSetDepthBias` satisfies the dynamic state).
+
+**File-change table.**
+
+| File | Change |
+| --- | --- |
+| [src/renderer/DepthOnlyPipeline/DepthOnlyPipeline.h](src/renderer/DepthOnlyPipeline/DepthOnlyPipeline.h) | Expose `kDefaultDepthBiasConst/Slope`; `bind()` takes bias params (defaulted). |
+| [src/renderer/DepthOnlyPipeline/DepthOnlyPipeline.cpp](src/renderer/DepthOnlyPipeline/DepthOnlyPipeline.cpp) | Add `VK_DYNAMIC_STATE_DEPTH_BIAS`; `vkCmdSetDepthBias` in `bind()`. |
+| [src/renderer/RainSystem/RainSystem.h](src/renderer/RainSystem/RainSystem.h) | `set_streak_len()` + `m_streakLen` field. |
+| [src/renderer/RainSystem/RainSystem.cpp](src/renderer/RainSystem/RainSystem.cpp) | Use `m_streakLen`; drop the now-unused `kStreakLen`. |
+| [src/renderer/PostProcessManager/PostProcessManager.h](src/renderer/PostProcessManager/PostProcessManager.h) | `set_render_scale()`/`get_render_scale()` + `m_renderScale` member. |
+| [src/renderer/PostProcessManager/PostProcessManager.cpp](src/renderer/PostProcessManager/PostProcessManager.cpp) | `scaleExtent` reads `m_renderScale`. |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | Feed bias in `recordShadowPass`; consume `ssaaApplyRequested` at top of `drawFrame`; set streak in `apply_debug_params`. |
+
+</details>
+
 ### 2026-07-01 — Added named TOML preset save/load to the debug UI (persist a tuned look)
 
 > The debug panel could snap to canned looks (Reset / Overcast-LIE / Clear / Clear+Rain) and print values to stdout, but a look you tuned by hand vanished on quit. This adds **named presets on disk**: type a name, hit **Save** to write `config/presets/<name>.toml`, **Load** to restore it, and pick any existing preset from an "On disk" combo to load it live. Debug-only (`SWISH_DEBUG_UI`); uses the already-vendored toml++ (previously linked only into the `toml_baker` tool).

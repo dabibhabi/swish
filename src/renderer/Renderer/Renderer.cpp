@@ -267,6 +267,22 @@ void Renderer::wait_for_idle() {
 void Renderer::drawFrame(float deltaTime) {
     m_syncObjects->waitForFence(m_device->getDevice(), m_currentFrame);
 
+#ifdef SWISH_DEBUG_UI
+    // Live SSAA rescale: the "Apply SSAA" button set this flag last frame. Rebuild
+    // the whole offscreen chain at the new scale here — before acquiring an image,
+    // and after the fence wait — so no frame is in flight during the recreate. The
+    // flag is consumed here (not in apply_debug_params) so the recreate never runs
+    // mid-frame. Skip this frame; the next renders at the new resolution.
+    if (m_debugParams.ssaaApplyRequested) {
+        m_debugParams.ssaaApplyRequested = false;
+        if (has_post_process() && m_postProcess->get_render_scale() != m_debugParams.ssaaScale) {
+            m_postProcess->set_render_scale(m_debugParams.ssaaScale);
+            recreateSwapchain();
+        }
+        return;
+    }
+#endif
+
     // Each frame phase is a named lambda — the state machine reads as
     // (acquire) → record → (submit) → (present) → handlePresent.
     auto acquireImage = [&]() -> std::optional<uint32_t> {
@@ -493,7 +509,11 @@ void Renderer::recordShadowPass(VkCommandBuffer cmd, uint32_t frameIndex, const 
     ScopedRenderPass pass(cmd, m_postProcess->get_shadow_render_pass(),
                           m_postProcess->get_shadow_framebuffer(frameIndex), shadowExtent, clear);
 
+#ifdef SWISH_DEBUG_UI
+    m_depthOnlyPipeline.bind(cmd, shadowExtent, lightVP, m_debugParams.depthBiasConst, m_debugParams.depthBiasSlope);
+#else
     m_depthOnlyPipeline.bind(cmd, shadowExtent, lightVP);
+#endif
 
     // Render both static and dynamic geometry depth-only (no material binds).
     m_sceneGeometry.record_depth(cmd, m_depthOnlyPipeline);
@@ -801,11 +821,11 @@ void Renderer::apply_debug_params() {
     m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f),
                                   Vec4(m_debugParams.sunColor, m_debugParams.sunAmbient),
                                   m_debugParams.clarity);
-    // SSAA rescale (Apply button) — recreate the offscreen chain at the new scale.
-    if (m_debugParams.ssaaApplyRequested) {
-        m_debugParams.ssaaApplyRequested = false;
-        // Phase 5 recreates PostProcess at m_debugParams.ssaaScale here.
-    }
+    // Rain streak length (base, before intensity scaling).
+    if (m_rainSystem)
+        m_rainSystem->set_streak_len(m_debugParams.streakLen);
+    // NOTE: ssaaApplyRequested is consumed at the top of drawFrame (recreate must
+    // not run mid-frame), not here — shadow depth-bias is fed in recordShadowPass.
 }
 #endif
 

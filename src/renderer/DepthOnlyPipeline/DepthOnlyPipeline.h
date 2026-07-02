@@ -45,15 +45,22 @@ public:
         VkExtent2D extent = {0, 0};
     };
 
+    // Default depth-bias factors (see .cpp for the reasoning). Exposed so the
+    // shadow pass can pass them explicitly now that depth bias is a DYNAMIC
+    // pipeline state (the static rasterizer factors are ignored when dynamic).
+    static constexpr float kDefaultDepthBiasConst = 4.0f;
+    static constexpr float kDefaultDepthBiasSlope = 1.5f;
+
     DepthOnlyPipeline() = default;
 
     void init(VkDevice device, const Config& cfg);
     void cleanup(VkDevice device);  // idempotent + handle-guarded
 
-    // Bind the pipeline, set the (shadow-map-sized) viewport/scissor, and
-    // push the per-pass light-space matrix. Call once at the start of the
-    // shadow pass; then call push_model() before each geometry draw.
-    void bind(VkCommandBuffer cmd, VkExtent2D extent, const Mat4& lightViewProj) const;
+    // Bind the pipeline, set the (shadow-map-sized) viewport/scissor, set the
+    // dynamic depth bias, and push the per-pass light-space matrix. Call once at
+    // the start of the shadow pass; then call push_model() before each draw.
+    void bind(VkCommandBuffer cmd, VkExtent2D extent, const Mat4& lightViewProj,
+              float depthBiasConst = kDefaultDepthBiasConst, float depthBiasSlope = kDefaultDepthBiasSlope) const;
 
     // Push the per-object model matrix (offset 64 within the 128-byte block).
     void push_model(VkCommandBuffer cmd, const Mat4& model) const;

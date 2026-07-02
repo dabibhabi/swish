@@ -133,6 +133,12 @@ public:
     // (1.5² = 2.25×). Tunable; clamped per-device to maxImageDimension2D.
     static constexpr float kRenderScale = 1.5f;
 
+    // Live SSAA scale (debug UI). Takes effect on the next recreate() — the
+    // Renderer sets this then rebuilds the offscreen chain. Defaults to the
+    // shipped kRenderScale so release behaviour is unchanged.
+    void  set_render_scale(float s) { m_renderScale = s; }
+    float get_render_scale() const { return m_renderScale; }
+
 private:
     VkDevice         m_device         = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
@@ -147,6 +153,7 @@ private:
     VkExtent2D m_swapExtent   = {};
     VkExtent2D m_bloomExtent  = {};  // m_renderExtent / 4
     VkExtent2D m_aoExtent     = {};  // m_renderExtent / 2
+    float      m_renderScale  = kRenderScale;  // live SSAA factor (see set_render_scale)
 
     // ── G-Buffer (per frame-in-flight) ─────────────────────────────
     VkRenderPass                             m_gbufferRenderPass = VK_NULL_HANDLE;

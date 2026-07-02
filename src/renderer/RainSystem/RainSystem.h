@@ -69,6 +69,10 @@ public:
     float            get_intensity() const { return m_intensity; }
     VkPipelineLayout get_pipeline_layout() const { return m_pipeLayout; }
 
+    // Base streak length (WU) before the per-frame intensity scaling. Debug UI
+    // drives this live; defaults to the shipped kStreakLen.
+    void set_streak_len(float len) { m_streakLen = len; }
+
 private:
     void createRenderPass(VkDevice device);
     void createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
@@ -114,6 +118,7 @@ private:
     float m_time      = 0.0f;
     float m_intensity = 0.0f;
     float m_wetness   = 0.0f;
+    float m_streakLen = 3200.0f;  // base streak length (WU) ≈ 3.2 m (shipped default)
 };
 
 }  // namespace swish

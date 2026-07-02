@@ -21,7 +21,8 @@ namespace swish {
 // ── Rain volume parameters ─────────────────────────────────────────────
 static constexpr float kHalfExtent = 20000.0f;  // 20 m radius around camera
 static constexpr float kDropSpeed  = 9000.0f;   // 9 m/s — reference speed for the wind cap only
-static constexpr float kStreakLen  = 3200.0f;   // 3.2 m streak length — long, thin, motion-blurred
+// Base streak length now lives on the instance (m_streakLen, default 3200 WU =
+// 3.2 m) so the debug UI can tune it live.
 static constexpr float kMaxRainRate = 25.0f;    // mm/hr at intensity 1.0 (heavy rain)
 static constexpr float kWetRate    = 0.08f;     // wetness accumulation rate (s⁻¹)
 static constexpr float kDryRate    = 0.012f;    // wetness decay rate (s⁻¹)
@@ -56,7 +57,7 @@ void RainSystem::update(uint32_t frameIndex, float deltaTime, float intensity, V
     m_wetness += (m_intensity - m_wetness) * rate * deltaTime;
     m_wetness = std::clamp(m_wetness, 0.0f, 1.0f);
 
-    float streakLen = kStreakLen * (0.5f + 0.5f * m_intensity);
+    float streakLen = m_streakLen * (0.5f + 0.5f * m_intensity);
 
     // Keep the vertical fall dominant. The caller subtracts the car velocity
     // (up to kMaxForwardSpeed ≈ 30000 WU/s) from the wind, which can far exceed

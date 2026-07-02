@@ -355,7 +355,7 @@ VkExtent2D PostProcessManager::scaleExtent(VkExtent2D swap) const {
     vkGetPhysicalDeviceProperties(m_physicalDevice, &props);
     const uint32_t maxDim = props.limits.maxImageDimension2D;
 
-    float scale = kRenderScale;
+    float scale = m_renderScale;  // live SSAA factor (defaults to kRenderScale)
     // Largest scaled dimension must fit in maxDim; clamp the factor if not.
     const uint32_t largestSwap = swap.width > swap.height ? swap.width : swap.height;
     if (largestSwap > 0 && static_cast<float>(largestSwap) * scale > static_cast<float>(maxDim)) {

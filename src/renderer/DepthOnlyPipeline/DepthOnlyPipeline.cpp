@@ -103,8 +103,11 @@ void DepthOnlyPipeline::init(VkDevice device, const Config& cfg) {
     inputAssembly.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-    // ── Dynamic viewport + scissor (no pipeline recreation on resize). ──
-    std::array<VkDynamicState, 2>    dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    // ── Dynamic viewport + scissor + depth bias (no pipeline recreation). ──
+    // Depth bias is dynamic so the debug UI can tune constant/slope factors live
+    // (vkCmdSetDepthBias per shadow pass); the static factors below are ignored.
+    std::array<VkDynamicState, 3> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,
+                                                   VK_DYNAMIC_STATE_DEPTH_BIAS};
     VkPipelineDynamicStateCreateInfo dynamicState{};
     dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
@@ -196,13 +199,17 @@ void DepthOnlyPipeline::cleanup(VkDevice device) {
     }
 }
 
-void DepthOnlyPipeline::bind(VkCommandBuffer cmd, VkExtent2D extent, const Mat4& lightViewProj) const {
+void DepthOnlyPipeline::bind(VkCommandBuffer cmd, VkExtent2D extent, const Mat4& lightViewProj, float depthBiasConst,
+                            float depthBiasSlope) const {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 
     VkViewport vp{0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height), 0.0f, 1.0f};
     vkCmdSetViewport(cmd, 0, 1, &vp);
     VkRect2D sc{{0, 0}, extent};
     vkCmdSetScissor(cmd, 0, 1, &sc);
+
+    // Dynamic depth bias (constant, clamp, slope) — replaces the static factors.
+    vkCmdSetDepthBias(cmd, depthBiasConst, 0.0f, depthBiasSlope);
 
     // Push the per-pass light-space matrix into the first 64 bytes.
     vkCmdPushConstants(cmd, m_layout, VK_SHADER_STAGE_VERTEX_BIT, offsetof(DepthPushConstants, lightViewProj),
