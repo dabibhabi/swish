@@ -824,6 +824,7 @@ void Renderer::recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex) {
         sp.thickness = m_debugParams.ssrThickness;
         sp.stride    = m_debugParams.ssrStride;
         sp.intensity = m_debugParams.ssrEnabled ? m_debugParams.ssrIntensity : 0.0f;
+        sp.wetness   = m_rainSystem ? m_rainSystem->get_wetness() : 0.0f;
         vkCmdPushConstants(cmd, m_postProcess->get_ssr_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(sp), &sp);
         vkCmdDraw(cmd, 3, 1, 0, 0);
     }

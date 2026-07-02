@@ -55,7 +55,7 @@ struct SsaoParams {
     float _pad0 = 0.0f;
 };
 
-// SSR push block (matches shaders/ssr.frag). 2×mat4 + 4 floats = 144 B.
+// SSR push block (matches shaders/ssr.frag). 2×mat4 + 8 floats = 160 B (16-aligned).
 struct SsrParams {
     Mat4  proj;       // view → clip
     Mat4  invProj;    // clip → view
@@ -63,6 +63,10 @@ struct SsrParams {
     float thickness;
     float stride;
     float intensity;
+    float wetness = 0.0f;  // global wetness [0,1] (wet surfaces reflect even if dry-rough)
+    float _pad0   = 0.0f;
+    float _pad1   = 0.0f;
+    float _pad2   = 0.0f;
 };
 
 class PostProcessManager {

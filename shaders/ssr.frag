@@ -32,6 +32,10 @@ layout(push_constant) uniform Params {
     float thickness;  // depth-intersection tolerance (WU)
     float stride;     // initial march step (WU)
     float intensity;  // reflection strength
+    float wetness;    // global wetness [0,1] (wet surfaces reflect even if dry-rough)
+    float _pad0;
+    float _pad1;
+    float _pad2;
 } pc;
 
 layout(location = 0) out vec4 outColor;
@@ -44,6 +48,21 @@ vec3 viewFromDepth(vec2 uv, float d) {
 void main() {
     float d = texture(gbDepth, fragUV).r;
     if (d > 0.9999) {  // sky pixel — nothing to reflect from
+        outColor = vec4(0.0);
+        return;
+    }
+
+    // Reflectivity gate: only glossy (and wet) surfaces reflect. Wetness collapses
+    // roughness toward a mirror (matching lighting.frag's wet model), so a wet road
+    // reflects even though its dry material roughness is high; the matte cabin
+    // interior (rough, not wet-exposed) is skipped entirely — no more frosting.
+    vec4  matv        = texture(gbMaterial, fragUV);
+    float roughness   = matv.g;
+    float wettable    = matv.b;
+    float wetLocal    = pc.wetness * wettable;
+    float effRough    = clamp(roughness * mix(1.0, 0.12, wetLocal), 0.0, 1.0);
+    float reflectivity = (1.0 - effRough) * (1.0 - effRough);
+    if (reflectivity < 0.02) {  // matte: skip the whole march
         outColor = vec4(0.0);
         return;
     }
@@ -88,11 +107,15 @@ void main() {
         step *= 1.4;
     }
 
-    // Grazing-weighted Fresnel — reflections read strongest at glancing angles.
-    float fres = pow(1.0 - max(dot(N, V), 0.0), 4.0);
+    // Schlick-ish Fresnel: a small head-on reflection on glossy surfaces plus a
+    // grazing surge (dielectric F0≈0.04). Combined with the gloss gate above so
+    // glossy paint reflects at all angles while matte surfaces stay dark.
+    float grazing = pow(1.0 - max(dot(N, V), 0.0), 4.0);
+    float fres    = 0.04 + 0.96 * grazing;
     // Fade toward screen edges of the hit so reflections don't pop at the border.
     vec2  edge = smoothstep(0.0, 0.15, hitUV) * smoothstep(0.0, 0.15, 1.0 - hitUV);
     float fade = hit * edge.x * edge.y;
 
-    outColor = vec4(hitCol * fade * fres * pc.intensity, fade);
+    float weight = reflectivity * fres * pc.intensity;
+    outColor = vec4(hitCol * fade * weight, fade * weight);
 }
