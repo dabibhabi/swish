@@ -153,6 +153,10 @@ void Renderer::init(Window& window) {
 void Renderer::cleanup() {
     vkDeviceWaitIdle(m_device->getDevice());
 
+#ifdef SWISH_DEBUG_UI
+    m_debugUI.cleanup();  // ImGui shutdown before device/instance teardown
+#endif
+
     m_camera.reset();
 
     destroy_scene_geometry();
@@ -318,6 +322,13 @@ void Renderer::drawFrame(float deltaTime) {
     m_syncObjects->resetFence(m_device->getDevice(), m_currentFrame);
     m_commandManager->resetBuffer(m_currentFrame);
 
+#ifdef SWISH_DEBUG_UI
+    // Build the debug panel (mutates m_debugParams) and push the edits into the
+    // live uniforms BEFORE the camera UBO is written below — so drags update now.
+    m_debugUI.begin_frame(m_debugParams);
+    apply_debug_params();
+#endif
+
     // ── Sun light-space matrix (shadow map), centered on the camera ────
     // Orthographic sun projection framing a region around the camera. Units:
     // 1 m = 1000 WU. halfExtent/depthRange are TUNABLE — they set the shadow
@@ -329,6 +340,10 @@ void Renderer::drawFrame(float deltaTime) {
         Vec3  center      = m_camera->get_position();
         float halfExtent  = 45000.0f;   // ~45 m radius — TUNABLE
         float depthRange  = 200000.0f;  // ~200 m along light dir — TUNABLE
+#ifdef SWISH_DEBUG_UI
+        halfExtent = m_debugParams.shadowHalfExtent;
+        depthRange = m_debugParams.shadowDepthRange;
+#endif
         Vec3  eye         = center - m_sunDir * depthRange * 0.5f;
         Mat4  lightView   = glm::lookAt(eye, center, Vec3(0.0f, 1.0f, 0.0f));
         Mat4  lightProj   = glm::ortho(-halfExtent, halfExtent, -halfExtent, halfExtent, 1.0f, depthRange);
@@ -444,6 +459,12 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     recordCompositePass(cmd, frameIndex, imageIndex, swapExtent);
+
+#ifdef SWISH_DEBUG_UI
+    // Debug overlay last — own LOAD render pass over the swapchain image (composite
+    // left it in PRESENT_SRC), so the panel sits on top of the final frame.
+    m_debugUI.record(cmd, imageIndex, swapExtent);
+#endif
 
     m_commandManager->endRecording(frameIndex);
 }
@@ -574,6 +595,10 @@ void Renderer::recordBloomExtract(VkCommandBuffer cmd, VkExtent2D extent) {
     pp.threshold       = 1.0f;
     pp.bloom_intensity = 0.3f;
     pp.exposure        = 1.0f;
+#ifdef SWISH_DEBUG_UI
+    pp.threshold       = m_debugParams.bloomThreshold;
+    pp.bloom_intensity = m_debugParams.bloomIntensity;
+#endif
     vkCmdPushConstants(cmd, m_postProcess->get_postprocess_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
     vkCmdDraw(cmd, 3, 1, 0, 0);
 }
@@ -624,6 +649,10 @@ void Renderer::recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uin
     // running hot / over-exposed; pulled well below 1.0 now that sun shadows
     // restore contrast. Tune to taste.
     pp.exposure        = 0.45f;
+#ifdef SWISH_DEBUG_UI
+    pp.bloom_intensity = m_debugParams.bloomIntensity;
+    pp.exposure        = m_debugParams.exposure;
+#endif
     pp.rain_intensity  = m_rainSystem ? m_rainSystem->get_intensity() : 0.0f;
     pp.fog_density     = 0.04f;  // multiplied by rain_intensity in the shader
     vkCmdPushConstants(cmd, m_postProcess->get_composite_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
@@ -674,6 +703,10 @@ void Renderer::recreateSwapchain() {
                 m_windshieldRainPass->recreate(hdrViews, depthViews, renderExtent, m_device->getDevice());
         }
     }
+
+#ifdef SWISH_DEBUG_UI
+    m_debugUI.recreate(m_swapchain->getImageFormat(), m_swapchain->getImageViews(), m_swapchain->getExtent());
+#endif
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -715,6 +748,43 @@ void Renderer::set_clear_day(bool clear) {
         m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(1.0f, 0.95f, 0.85f, 0.22f), 0.0f);
     }
 }
+
+#ifdef SWISH_DEBUG_UI
+void Renderer::debug_init() {
+    DebugUIInitInfo info{};
+    info.instance            = m_context->getInstance();
+    info.physicalDevice      = m_device->getPhysicalDevice();
+    info.device              = m_device->getDevice();
+    info.graphicsQueue       = m_device->getGraphicsQueue();
+    info.graphicsQueueFamily = m_device->getQueueFamilies().graphicsFamily.value();
+    info.window              = m_window->getHandle();
+    info.swapchainFormat     = m_swapchain->getImageFormat();
+    info.swapchainViews      = m_swapchain->getImageViews();
+    info.extent              = m_swapchain->getExtent();
+    info.imageCount          = m_swapchain->getImageCount();
+    info.minImageCount       = m_swapchain->getImageCount();
+    m_debugUI.init(info);
+}
+
+void Renderer::set_debug_edit_mode(bool edit) {
+    m_debugParams.editMode = edit;
+}
+
+void Renderer::apply_debug_params() {
+    // Rain intensity slider drives the same scalar as the R-key cycle.
+    m_rainIntensity = m_debugParams.rainIntensity;
+    // Sun colour/ambient/clarity feed the CameraUBO (written by update() right after).
+    // Direction stays m_sunDir for now (azimuth/elevation wiring is a later phase).
+    m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f),
+                                  Vec4(m_debugParams.sunColor, m_debugParams.sunAmbient),
+                                  m_debugParams.clarity);
+    // SSAA rescale (Apply button) — recreate the offscreen chain at the new scale.
+    if (m_debugParams.ssaaApplyRequested) {
+        m_debugParams.ssaaApplyRequested = false;
+        // Phase 5 recreates PostProcess at m_debugParams.ssaaScale here.
+    }
+}
+#endif
 
 void Renderer::update_glass_draw_calls(const std::vector<DrawCall>& glassDCs) {
     m_glassDrawCalls = glassDCs;

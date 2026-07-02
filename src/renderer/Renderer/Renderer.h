@@ -7,6 +7,11 @@
 #include "../ScenePipeline/ScenePipeline.h"
 #include "RendererServices.h"
 
+#ifdef SWISH_DEBUG_UI
+#include "../../debug/DebugParams.h"
+#include "../../debug/DebugUI.h"
+#endif
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -107,6 +112,13 @@ public:
     // it forces rain off. Overcast restores the original rainy-capable look.
     void set_clear_day(bool clear);
 
+#ifdef SWISH_DEBUG_UI
+    // ── Live debug/tuning UI (make debug) ─────────────────────────────
+    // Call AFTER App installs its GLFW callbacks (ImGui chains onto them).
+    void debug_init();
+    void set_debug_edit_mode(bool edit);
+#endif
+
     // ── Glass + windshield rain (updated each frame by App) ───────────
     // Replaces the stored glass draw call list (call after update_dynamic_draw_calls).
     void update_glass_draw_calls(const std::vector<DrawCall>& glassDCs);
@@ -166,6 +178,12 @@ private:
     // consumed by recordShadowPass + written into the camera UBO).
     Mat4  m_lightVP       = Mat4(1.0f);
 
+#ifdef SWISH_DEBUG_UI
+    // Live debug/tuning UI + its editable parameters (make debug only).
+    DebugUI     m_debugUI;
+    DebugParams m_debugParams;
+#endif
+
     // ── Glass + windshield state ──────────────────────────────────
     std::vector<DrawCall> m_glassDrawCalls;
     std::vector<DrawCall> m_windshieldDrawCalls;
@@ -192,6 +210,11 @@ private:
     void recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t imageIndex, VkExtent2D extent);
 
     void recreateSwapchain();
+
+#ifdef SWISH_DEBUG_UI
+    // Push the current DebugParams into the live uniforms each frame.
+    void apply_debug_params();
+#endif
 };
 
 }  // namespace swish

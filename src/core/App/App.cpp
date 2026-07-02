@@ -108,6 +108,11 @@ int App::run() {
     glfwSetFramebufferSizeCallback(glfw_window, framebuffer_resize_callback);
     glfwSetInputMode(glfw_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
+#ifdef SWISH_DEBUG_UI
+    // ImGui must init AFTER our GLFW callbacks above — its backend chains onto them.
+    m_renderer->debug_init();
+#endif
+
     // ── 3. TextureManager — load all material textures ────────────
     m_textureManager = std::make_unique<TextureManager>(m_renderer->services());
 
@@ -217,6 +222,12 @@ int App::run() {
         last_frame_time    = current_time;
         delta_time         = std::min(delta_time, 1.0f / 15.0f);  // cap at ~67ms to prevent physics explosion
 
+        // In debug edit-mode the scene freezes so you can tune a static frame.
+        bool debug_edit = false;
+#ifdef SWISH_DEBUG_UI
+        debug_edit = m_debug_edit_mode;
+#endif
+
         m_window->pollEvents();
 
         // Note: drawFrame's handlePresent also checks wasResized, but checking here
@@ -285,16 +296,32 @@ int App::run() {
         }
         m_g_key_prev = g_down;
 
+#ifdef SWISH_DEBUG_UI
+        // Backtick (`) toggles debug edit-mode: free the cursor for the panel and
+        // freeze the sim; press again to return to driving.
+        bool bt_down = glfwGetKey(glfw_window, GLFW_KEY_GRAVE_ACCENT) == GLFW_PRESS;
+        if (bt_down && !m_backtick_prev) {
+            m_debug_edit_mode = !m_debug_edit_mode;
+            glfwSetInputMode(glfw_window, GLFW_CURSOR,
+                             m_debug_edit_mode ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+            m_first_mouse = true;
+            m_renderer->set_debug_edit_mode(m_debug_edit_mode);
+        }
+        m_backtick_prev = bt_down;
+#endif
+
         // Process camera input (WASD) — free-fly mode only
         Camera* camera = m_renderer->get_camera();
-        if (camera && m_cursor_captured && !m_cockpit) {
+        if (camera && m_cursor_captured && !m_cockpit && !debug_edit) {
             camera->process_keyboard(glfw_window, delta_time);
         }
 
         // Drive the car (arrow keys)
         if (m_car) {
-            m_car->handle_input(glfw_window, delta_time);
-            m_car->update(delta_time);
+            if (!debug_edit) {
+                m_car->handle_input(glfw_window, delta_time);
+                m_car->update(delta_time);
+            }
 
             // Snap Y to road crown so wheels sit on the surface as the car steers.
             Vec3 pos = m_car->get_position();

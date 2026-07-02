@@ -58,6 +58,13 @@ private:
     bool m_clear_day  = false;
     bool m_g_key_prev = false;
 
+#ifdef SWISH_DEBUG_UI
+    // Debug edit-mode (backtick `): frees the cursor for the ImGui panel and
+    // freezes the sim so you can tune a static frame.
+    bool m_debug_edit_mode = false;
+    bool m_backtick_prev   = false;
+#endif
+
     static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
     // Owns the GLFW user pointer once App::run sets it, so the framebuffer
     // resize callback must also be App's — otherwise GLFW would still call

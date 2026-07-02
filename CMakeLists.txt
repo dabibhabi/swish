@@ -53,6 +53,11 @@ endif()
 # --- Vulkan ---
 find_package(Vulkan REQUIRED)
 
+# --- Debug UI (Dear ImGui) — opt-in via `make debug` / -DSWISH_DEBUG_UI=ON ---
+# When OFF (the default / `make run`), none of the ImGui code or the scene-params
+# UBO shader path is compiled, so release output is unchanged.
+option(SWISH_DEBUG_UI "Build the in-engine Dear ImGui debug/tuning UI" OFF)
+
 # --- toml++ (header-only, for config baker) ---
 include(FetchContent)
 FetchContent_Declare(
@@ -77,6 +82,29 @@ FetchContent_Declare(
     GIT_TAG        v3.1.0
 )
 FetchContent_MakeAvailable(VulkanMemoryAllocator)
+
+# --- Dear ImGui (debug UI only) — no upstream CMakeLists, so build a small static lib ---
+if(SWISH_DEBUG_UI)
+    FetchContent_Declare(
+        imgui
+        GIT_REPOSITORY https://github.com/ocornut/imgui.git
+        GIT_TAG        v1.91.5
+    )
+    FetchContent_MakeAvailable(imgui)
+    add_library(imgui STATIC
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+    )
+    target_include_directories(imgui PUBLIC
+        ${imgui_SOURCE_DIR}
+        ${imgui_SOURCE_DIR}/backends
+    )
+    target_link_libraries(imgui PUBLIC glfw Vulkan::Vulkan)
+endif()
 
 # --- Shader compilation ---
 find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/bin)
@@ -108,12 +136,19 @@ set(SHADER_SOURCES
     ${SHADER_DIR}/windshield_wetness.frag
 )
 
+# In debug builds, shaders that read the scene-params UBO switch on this define
+# (release keeps the literal constants → identical output). Empty list = no extra args.
+set(SHADER_DEFINES)
+if(SWISH_DEBUG_UI)
+    set(SHADER_DEFINES -DSWISH_DEBUG_UI)
+endif()
+
 foreach(SHADER ${SHADER_SOURCES})
     get_filename_component(SHADER_NAME ${SHADER} NAME)
     set(SHADER_SPV ${SHADER_OUTPUT_DIR}/${SHADER_NAME}.spv)
     add_custom_command(
         OUTPUT ${SHADER_SPV}
-        COMMAND ${GLSLC} ${SHADER} -o ${SHADER_SPV}
+        COMMAND ${GLSLC} ${SHADER_DEFINES} ${SHADER} -o ${SHADER_SPV}
         DEPENDS ${SHADER}
         COMMENT "Compiling shader ${SHADER_NAME}"
     )
@@ -217,6 +252,14 @@ if(SWISH_BACKEND STREQUAL "APPLE_METAL")
         ${COCOA_LIBRARY}
         ${IOKIT_LIBRARY}
     )
+endif()
+
+# --- Debug UI wiring (compiled only when SWISH_DEBUG_UI) ---
+if(SWISH_DEBUG_UI)
+    target_sources(swish PRIVATE src/debug/DebugUI.cpp)
+    target_link_libraries(swish PRIVATE imgui)
+    target_compile_definitions(swish PRIVATE SWISH_DEBUG_UI)
+    message(STATUS "swish: Dear ImGui debug UI ENABLED (make debug)")
 endif()
 
 # --- Tests ---
