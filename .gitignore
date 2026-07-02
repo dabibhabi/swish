@@ -35,6 +35,9 @@
 build/
 cmake-build-*/
 
+# Dear ImGui writes its window-layout state here (debug UI only)
+imgui.ini
+
 # IDE
 .vscode/
 .idea/
