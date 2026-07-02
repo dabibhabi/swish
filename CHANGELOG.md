@@ -6,6 +6,43 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-02 — Added SSR (screen-space reflections), tunable in the debug UI
+
+> Real geometry reflections: a post-lighting pass ray-marches the depth buffer along each fragment's reflected view ray and samples the already-lit HDR at the hit, so the road/car/scene reflect actual on-screen geometry (not just the sky IBL). It's Fresnel-weighted (strongest at grazing angles — the wet/glossy look) and **added** on top of the HDR in composite; on a ray miss nothing is added, so the split-sum sky IBL already in the HDR is the graceful fallback. Debug-only and fully tunable (enable / intensity / max-dist / thickness / stride) — SSR quality is scene-dependent and artifact-prone, so it wants live tuning; release primes the SSR image black (composite add is a no-op → release output unchanged).
+
+<details>
+<summary>Technical summary</summary>
+
+**Pass.** `shaders/ssr.frag` reconstructs the view-space position from depth, derives a geometric normal (`cross(dFdx,dFdy)` — same trick as SSAO), reflects the view ray, and marches it in view space with geometric stride growth (40 steps). At each step it projects to screen, samples depth, and tests whether the ray has passed *behind* the sampled surface within `thickness`; on a hit it reads the lit HDR there. Off-screen / sky / too-far rays terminate (→ 0). The result is grazing-Fresnel × edge-fade × intensity, with the hit mask in alpha.
+
+**Plumbing.** New `m_ssrImage` (render-res, HDR format) + `m_ssrPipeline` + `m_ssrLayout` (set 0 = G-buffer `lightingTexLayout` for depth, set 1 = lit HDR `singleTexLayout`, + a 144-B `SsrParams` push = proj/invProj/maxDist/thickness/stride/intensity); per-frame `m_ssrHdrSets` sample each frame's HDR. It reuses the lighting render pass (same R16F format). The composite texture layout grew 3→4 bindings; `composite.frag` does `hdr += texture(ssrTex).rgb` before bloom/tonemap.
+
+**Ordering + barriers.** `recordSsrPass` runs right after the lighting pass (HDR = the lit deferred scene; depth still `DEPTH_STENCIL_READ_ONLY`). It barriers the lit HDR `COLOR_ATTACHMENT → SHADER_READ` so the march can sample it, marches into the SSR image, then restores HDR `→ COLOR_ATTACHMENT` for the forward rain/glass passes and transitions the SSR image `→ SHADER_READ` for composite.
+
+```mermaid
+graph LR
+  L["lighting → lit HDR"] -->|"barrier HDR→READ"| S["ssr.frag<br/>march depth, sample HDR"]
+  S -->|"barrier HDR→ATTACH, SSR→READ"| F["forward passes"]
+  S --> C["composite: hdr += ssr"]
+```
+
+**Debug-gated (unlike CSM/IBL).** SSAO/CSM/IBL were verifiable as objective improvements, so they ship in release. SSR's look is a judgment call best tuned live and is artifact-prone, so `recordSsrPass` is `#ifdef SWISH_DEBUG_UI` only; `primeAOTexture` now also primes the SSR image **black** so release's always-present composite add is a no-op — release output is unchanged.
+
+**Verification.** Debug builds clean and runs **validation-clean** (0 messages) with the barrier dance + SSR pass + 4-binding composite each frame; the screenshot shows reflections appearing on grazing surfaces (tunable — currently a touch strong on the cabin interior, which the intensity slider dials). Release (`SWISH_DEBUG_UI=OFF`) builds clean, **52/52 tests pass**. Known v1 limitation: reflections are gated only by grazing Fresnel (not surface roughness), so matte grazing surfaces reflect a little; a roughness/wetness gate is a future refinement.
+
+**File-change table.**
+
+| File | Change |
+| --- | --- |
+| [shaders/ssr.frag](shaders/ssr.frag) | **New.** View-space depth ray-march sampling the lit HDR; Fresnel + edge-fade weighted. |
+| [shaders/composite.frag](shaders/composite.frag) | +`ssrTex` (binding 3); `hdr += texture(ssrTex).rgb`. |
+| [CMakeLists.txt](CMakeLists.txt) | Add `ssr.frag` to `SHADER_SOURCES`. |
+| [src/renderer/PostProcessManager/PostProcessManager.h](src/renderer/PostProcessManager/PostProcessManager.h) / [.cpp](src/renderer/PostProcessManager/PostProcessManager.cpp) | `SsrParams`; SSR image/view/fb, pipeline, layout, per-frame HDR sets; composite layout 3→4; prime SSR black. |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) / [.cpp](src/renderer/Renderer/Renderer.cpp) | `recordSsrPass` (barriers + march) + call after lighting. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) · [DebugUI.cpp](src/debug/DebugUI.cpp) · [DebugParamsIO.cpp](src/debug/DebugParamsIO.cpp) | `ssrEnabled`/intensity/maxDist/thickness/stride; SSR sliders; print; toml. |
+
+</details>
+
 ### 2026-07-01 — Split-sum IBL: real environment lighting from the procedural sky
 
 > The ambient was a fixed cool tint plus a flat fill, and the reflection was a single sharp sky sample faded by an ad-hoc gloss exponent. This replaces both with proper **split-sum image-based lighting** driven by the actual procedural sky: **diffuse** = orientation-dependent sky irradiance (so ambient tracks the weather — grey overcast vs blue clear — and reads directionally), **specular** = a roughness-prefiltered sky reflection weighted by the analytic Karis environment-BRDF (glossy paint gets a sharp sky, rough surfaces a soft one; energy-conserving, no more frosted matte cabin). No cubemap or HDRI asset needed; a photo HDRI can slot into the same `skyIrradiance`/reflection hooks later. IBL diffuse/specular intensities are tunable in the debug panel.

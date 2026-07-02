@@ -59,6 +59,15 @@ struct DebugParams {
     float iblDiffuse  = 1.0f;
     float iblSpecular = 1.0f;
 
+    // ── SSR (screen-space reflections) ────────────────────────────────
+    // View-space ray-march of the depth buffer, added to the composite. Units are
+    // world units (1 m = 1000 WU). Artifact-prone — tune live against the scene.
+    bool  ssrEnabled   = true;
+    float ssrMaxDist   = 120000.0f;  // max reflected-ray travel (WU ≈ 120 m)
+    float ssrThickness = 4000.0f;    // depth-intersection tolerance (WU)
+    float ssrStride    = 2500.0f;    // initial march step (WU)
+    float ssrIntensity = 0.6f;       // reflection strength
+
     // ── SSAO (screen-space ambient occlusion) ─────────────────────────
     // Runs at 1/2 render res, multiplied into the composite. radius/bias are in
     // view-space world units (1 m = 1000 WU); tune live toward subtle contact

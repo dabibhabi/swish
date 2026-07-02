@@ -419,6 +419,9 @@ void PostProcessManager::createImages() {
     makeColorImage(m_aoExtent.width, m_aoExtent.height, aoFormat, m_aoImage, m_aoView);
     makeColorImage(m_aoExtent.width, m_aoExtent.height, aoFormat, m_aoBlurImage, m_aoBlurView);
 
+    // SSR reflection (full render res, HDR format so reflected radiance survives)
+    makeColorImage(m_renderExtent.width, m_renderExtent.height, hdrFormat, m_ssrImage, m_ssrView);
+
     // CSM shadow atlas (kShadowAtlasW × kShadowDim, D32_SFLOAT, per frame):
     // DEPTH_STENCIL_ATTACHMENT (written by the depth pass, one cascade per slice)
     // + SAMPLED (read by lighting.frag).
@@ -451,6 +454,7 @@ void PostProcessManager::destroyImages() {
     destroy(m_bloomBlurVImage, m_bloomBlurVView);
     destroy(m_aoImage, m_aoView);
     destroy(m_aoBlurImage, m_aoBlurView);
+    destroy(m_ssrImage, m_ssrView);
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
         destroy(m_shadowImages[i], m_shadowViews[i]);
 }
@@ -497,6 +501,9 @@ void PostProcessManager::createFramebuffers(const std::vector<VkImageView>& swap
     m_aoFB     = makeFB(m_aoRenderPass, {m_aoView}, m_aoExtent);
     m_aoBlurFB = makeFB(m_aoRenderPass, {m_aoBlurView}, m_aoExtent);
 
+    // SSR framebuffer (render extent) — reuses the lighting render pass (same fmt)
+    m_ssrFB = makeFB(m_lightingRenderPass, {m_ssrView}, m_renderExtent);
+
     // Composite framebuffers (one per swapchain image) — SWAP extent, NOT the
     // render extent: these wrap the swapchain images, and the composite pass
     // downsamples the high-res HDR into them (the SSAA resolve).
@@ -529,6 +536,7 @@ void PostProcessManager::destroyFramebuffers() {
     destroy(m_bloomBlurVFB);
     destroy(m_aoFB);
     destroy(m_aoBlurFB);
+    destroy(m_ssrFB);
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
         destroy(m_shadowFramebuffers[i]);
     for (auto& fb : m_compositeFBs)
@@ -556,10 +564,10 @@ void PostProcessManager::createDescriptors() {
         VK_CHECK(vkCreateDescriptorSetLayout(m_device, &info, nullptr, &m_singleTexLayout));
     }
 
-    // Layout: 3 combined_image_samplers (HDR + bloom + AO)
+    // Layout: 4 combined_image_samplers (HDR + bloom + AO + SSR)
     {
-        std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
-        for (uint32_t i = 0; i < 3; i++) {
+        std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
+        for (uint32_t i = 0; i < bindings.size(); i++) {
             bindings[i].binding         = i;
             bindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             bindings[i].descriptorCount = 1;
@@ -568,7 +576,7 @@ void PostProcessManager::createDescriptors() {
 
         VkDescriptorSetLayoutCreateInfo info{};
         info.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        info.bindingCount = 3;
+        info.bindingCount = static_cast<uint32_t>(bindings.size());
         info.pBindings    = bindings.data();
         VK_CHECK(vkCreateDescriptorSetLayout(m_device, &info, nullptr, &m_compositeTexLayout));
     }
@@ -606,6 +614,14 @@ void PostProcessManager::createDescriptors() {
         info.pBindings    = bindings.data();
         VK_CHECK(vkCreateDescriptorSetLayout(m_device, &info, nullptr, &m_lightingTexLayout));
     }
+
+    // SSR layout (needs m_lightingTexLayout, created just above): set 0 = G-buffer
+    // (depth/normal/material), set 1 = lit HDR + a 144-B push block.
+    VkPushConstantRange ssrPC{};
+    ssrPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    ssrPC.offset     = 0;
+    ssrPC.size       = sizeof(SsrParams);
+    m_ssrLayout      = Pipeline::createLayout(m_device, {m_lightingTexLayout, m_singleTexLayout}, {ssrPC});
 
     // Shadow descriptor layout: 1 combined_image_sampler (sampler2DShadow), fragment
     // stage — set 2 in the lighting pipeline.
@@ -675,6 +691,8 @@ void PostProcessManager::createDescriptors() {
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
         m_aoSets[i] = allocSingleSet();  // per-frame: SSAO samples that frame's depth
     m_aoBlurSet       = allocSingleSet();
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
+        m_ssrHdrSets[i] = allocSingleSet();  // per-frame: SSR samples that frame's lit HDR
 
     // Allocate composite sets (per frame)
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
@@ -715,16 +733,20 @@ void PostProcessManager::createDescriptors() {
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
         writeSingleLayout(m_aoSets[i], m_hdrDepthViews[i], VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
     writeSingle(m_aoBlurSet, m_aoView);
+    // SSR samples each frame's lit HDR (colour, SHADER_READ).
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
+        writeSingle(m_ssrHdrSets[i], m_hdrViews[i]);
 
-    // Composite sets: HDR (per-frame) + bloom (shared) + AO (shared)
+    // Composite sets: HDR (per-frame) + bloom (shared) + AO (shared) + SSR (shared)
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
-        std::array<VkDescriptorImageInfo, 3> imgInfos{};
+        std::array<VkDescriptorImageInfo, 4> imgInfos{};
         imgInfos[0] = {m_sampler, m_hdrViews[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         imgInfos[1] = {m_sampler, m_bloomBlurVView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         imgInfos[2] = {m_sampler, m_aoBlurView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        imgInfos[3] = {m_sampler, m_ssrView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
-        std::array<VkWriteDescriptorSet, 3> writes{};
-        for (uint32_t b = 0; b < 3; b++) {
+        std::array<VkWriteDescriptorSet, 4> writes{};
+        for (uint32_t b = 0; b < imgInfos.size(); b++) {
             writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[b].dstSet          = m_compositeSets[i];
             writes[b].dstBinding      = b;
@@ -732,7 +754,7 @@ void PostProcessManager::createDescriptors() {
             writes[b].descriptorCount = 1;
             writes[b].pImageInfo      = &imgInfos[b];
         }
-        vkUpdateDescriptorSets(m_device, 3, writes.data(), 0, nullptr);
+        vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
 
     // Lighting sets: 4 G-buffer textures per frame (albedo, normal, material, depth)
@@ -806,6 +828,10 @@ void PostProcessManager::destroyDescriptors() {
         vkDestroyPipelineLayout(m_device, m_ssaoLayout, nullptr);
         m_ssaoLayout = VK_NULL_HANDLE;
     }
+    if (m_ssrLayout != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(m_device, m_ssrLayout, nullptr);
+        m_ssrLayout = VK_NULL_HANDLE;
+    }
     if (m_singleTexLayout != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(m_device, m_singleTexLayout, nullptr);
         m_singleTexLayout = VK_NULL_HANDLE;
@@ -853,6 +879,8 @@ void PostProcessManager::createPipelines() {
     // primeAOTexture() so the composite `hdr *= ao` is a no-op (release unchanged).
     m_ssaoPipeline   = makeFullscreenPipeline("ssao.frag", m_aoRenderPass, m_ssaoLayout, m_aoExtent);
     m_aoBlurPipeline = makeFullscreenPipeline("ao_blur.frag", m_aoRenderPass, m_postProcessLayout, m_aoExtent);
+    // SSR: full render-res reflection, reuses the lighting render pass (R16F color).
+    m_ssrPipeline    = makeFullscreenPipeline("ssr.frag", m_lightingRenderPass, m_ssrLayout, m_renderExtent);
     // Composite outputs at the swap extent (dynamic viewport/scissor make the
     // extent cosmetic, but keep it consistent with the composite FB size).
     m_compositePipeline =
@@ -871,11 +899,13 @@ void PostProcessManager::destroyPipelines() {
     destroy(m_compositePipeline);
     destroy(m_ssaoPipeline);
     destroy(m_aoBlurPipeline);
+    destroy(m_ssrPipeline);
 }
 
-// SSAO is bypassed for bring-up; the composite shader still samples the AO
-// blur image every frame. Clear it to white once so `hdr *= ao` is a no-op
-// and leave it in SHADER_READ_ONLY_OPTIMAL for the lifetime of the image.
+// The composite shader always samples the AO blur image (`hdr *= ao`) and the SSR
+// image (`hdr += ssr`). When those passes are bypassed (SSAO/SSR are debug-only),
+// prime the images once so those ops are no-ops: AO → white, SSR → black. Leaves
+// both in SHADER_READ_ONLY_OPTIMAL. In debug the per-frame passes overwrite them.
 void PostProcessManager::primeAOTexture() {
     VkCommandBufferAllocateInfo ai{};
     ai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -906,6 +936,21 @@ void PostProcessManager::primeAOTexture() {
     vkCmdEndRenderPass(cmd);
 
     ResourceManager::insertImageBarrier(cmd, m_aoBlurImage.handle(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    // SSR image → black (composite `hdr += ssr` is then a no-op until SSR runs).
+    VkClearValue ssrClear{};
+    ssrClear.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+    VkRenderPassBeginInfo ssrRp{};
+    ssrRp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    ssrRp.renderPass        = m_lightingRenderPass;  // SSR reuses this pass
+    ssrRp.framebuffer       = m_ssrFB;
+    ssrRp.renderArea.extent = m_renderExtent;
+    ssrRp.clearValueCount   = 1;
+    ssrRp.pClearValues      = &ssrClear;
+    vkCmdBeginRenderPass(cmd, &ssrRp, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdEndRenderPass(cmd);
+    ResourceManager::insertImageBarrier(cmd, m_ssrImage.handle(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     VK_CHECK(vkEndCommandBuffer(cmd));

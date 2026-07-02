@@ -5,6 +5,7 @@ layout(location = 0) in vec2 fragUV;
 layout(set = 0, binding = 0) uniform sampler2D hdrScene;
 layout(set = 0, binding = 1) uniform sampler2D bloomTex;
 layout(set = 0, binding = 2) uniform sampler2D aoTex;
+layout(set = 0, binding = 3) uniform sampler2D ssrTex;   // SSR reflection (rgb = radiance, a = mask)
 
 layout(push_constant) uniform Params {
     float threshold;
@@ -64,6 +65,11 @@ void main() {
 
     // Apply ambient occlusion
     hdr *= ao;
+
+    // Screen-space reflections: add the reflected radiance on top of the lit HDR
+    // (already Fresnel/intensity-weighted in the SSR pass; zero on a miss, where
+    // the sky IBL baked into hdr is the fallback).
+    hdr += texture(ssrTex, fragUV).rgb;
 
     // Add bloom
     hdr += bloom * params.bloom_intensity;

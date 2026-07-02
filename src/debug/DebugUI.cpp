@@ -237,6 +237,8 @@ void printValues(const DebugParams& p) {
     std::printf("envGlossExp=%.3f iblDiffuse=%.3f iblSpecular=%.3f\n", p.envGlossExp, p.iblDiffuse, p.iblSpecular);
     std::printf("ssaoEnabled=%d ssaoRadius=%.1f ssaoBias=%.1f ssaoIntensity=%.3f\n", p.ssaoEnabled ? 1 : 0,
                 p.ssaoRadius, p.ssaoBias, p.ssaoIntensity);
+    std::printf("ssrEnabled=%d ssrIntensity=%.3f ssrMaxDist=%.1f ssrThickness=%.1f ssrStride=%.1f\n",
+                p.ssrEnabled ? 1 : 0, p.ssrIntensity, p.ssrMaxDist, p.ssrThickness, p.ssrStride);
     std::printf("shadowBias=%.5f shadowFloor=%.3f csmShadowFar=%.1f csmLambda=%.3f\n", p.shadowBias, p.shadowFloor,
                 p.csmShadowFar, p.csmLambda);
     std::printf("depthBiasConst=%.3f depthBiasSlope=%.3f\n", p.depthBiasConst, p.depthBiasSlope);
@@ -380,6 +382,15 @@ void DebugUI::begin_frame(DebugParams& p) {
             ImGui::SliderFloat("IBL diffuse", &p.iblDiffuse, 0.0f, 3.0f);
             ImGui::SliderFloat("IBL specular", &p.iblSpecular, 0.0f, 3.0f);
             ImGui::SliderFloat("Env gloss exp (legacy)", &p.envGlossExp, 0.5f, 8.0f);
+        }
+
+        // ── SSR (screen-space reflections) ────────────────────────────
+        if (ImGui::CollapsingHeader("SSR")) {
+            ImGui::Checkbox("Enabled##ssr", &p.ssrEnabled);
+            ImGui::SliderFloat("Intensity##ssr", &p.ssrIntensity, 0.0f, 2.0f);
+            ImGui::SliderFloat("Max dist (WU)", &p.ssrMaxDist, 10000.0f, 500000.0f, "%.0f");
+            ImGui::SliderFloat("Thickness (WU)", &p.ssrThickness, 200.0f, 20000.0f, "%.0f");
+            ImGui::SliderFloat("Stride (WU)", &p.ssrStride, 200.0f, 10000.0f, "%.0f");
         }
 
         // ── SSAO ──────────────────────────────────────────────────────

@@ -222,6 +222,10 @@ private:
     // passes (depth is in DEPTH_STENCIL_READ_ONLY there). Debug-only; release keeps
     // the primed-white AO image so the composite `hdr *= ao` is a no-op.
     void recordSsaoPasses(VkCommandBuffer cmd, uint32_t frameIndex);
+    // SSR: barrier the lit HDR to readable, ray-march reflections into the SSR
+    // image, restore HDR for the forward passes. Debug-only; release primes the
+    // SSR image black so the composite add is a no-op.
+    void recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex);
 #endif
     void recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t imageIndex, VkExtent2D extent);
 

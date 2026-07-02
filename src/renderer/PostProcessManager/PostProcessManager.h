@@ -55,6 +55,16 @@ struct SsaoParams {
     float _pad0 = 0.0f;
 };
 
+// SSR push block (matches shaders/ssr.frag). 2×mat4 + 4 floats = 144 B.
+struct SsrParams {
+    Mat4  proj;       // view → clip
+    Mat4  invProj;    // clip → view
+    float maxDist;
+    float thickness;
+    float stride;
+    float intensity;
+};
+
 class PostProcessManager {
 public:
     PostProcessManager()  = default;
@@ -107,9 +117,16 @@ public:
     VkPipeline       get_composite_pipeline() const { return m_compositePipeline; }
     VkPipeline       get_ssao_pipeline() const { return m_ssaoPipeline; }
     VkPipeline       get_ao_blur_pipeline() const { return m_aoBlurPipeline; }
+    VkPipeline       get_ssr_pipeline() const { return m_ssrPipeline; }
     VkPipelineLayout get_postprocess_layout() const { return m_postProcessLayout; }
     VkPipelineLayout get_composite_layout() const { return m_compositeLayout; }
     VkPipelineLayout get_ssao_layout() const { return m_ssaoLayout; }
+    VkPipelineLayout get_ssr_layout() const { return m_ssrLayout; }
+    // SSR reuses the lighting render pass (same R16F colour format + final layout).
+    VkRenderPass     get_ssr_render_pass() const { return m_lightingRenderPass; }
+    VkFramebuffer    get_ssr_framebuffer() const { return m_ssrFB; }
+    VkImage          get_ssr_image() const { return m_ssrImage.handle(); }
+    VkDescriptorSet  get_ssr_hdr_set(uint32_t frameIndex) const { return m_ssrHdrSets[frameIndex]; }
 
     // ── Descriptor set getters ───────────────────────────────────
     VkDescriptorSet get_bloom_extract_set() const { return m_bloomExtractSet; }
@@ -242,6 +259,11 @@ private:
     VkImageView   m_aoBlurView = VK_NULL_HANDLE;
     VkFramebuffer m_aoBlurFB   = VK_NULL_HANDLE;
 
+    // ── SSR reflection image (render extent, R16G16B16A16_SFLOAT) ─
+    GpuImage      m_ssrImage;
+    VkImageView   m_ssrView = VK_NULL_HANDLE;
+    VkFramebuffer m_ssrFB   = VK_NULL_HANDLE;
+
     // ── Composite framebuffers (one per swapchain image) ─────────
     std::vector<VkFramebuffer> m_compositeFBs;
 
@@ -259,9 +281,12 @@ private:
     VkPipeline m_compositePipeline    = VK_NULL_HANDLE;
     VkPipeline m_ssaoPipeline         = VK_NULL_HANDLE;  // SSAO (depth → AO)
     VkPipeline m_aoBlurPipeline       = VK_NULL_HANDLE;  // bilateral AO blur
-    // SSAO reads a mat4×2 + params push block (144 B) that doesn't fit the shared
-    // 32-B postprocess layout, so it needs its own layout (single-tex set + push).
+    VkPipeline m_ssrPipeline          = VK_NULL_HANDLE;  // screen-space reflections
+    // SSAO/SSR read a mat4×2 + params push block (144 B) that doesn't fit the shared
+    // 32-B postprocess layout, so they need their own layouts.
     VkPipelineLayout m_ssaoLayout = VK_NULL_HANDLE;
+    // SSR layout: set 0 = G-buffer (lightingTexLayout), set 1 = HDR (singleTexLayout) + 144-B push.
+    VkPipelineLayout m_ssrLayout = VK_NULL_HANDLE;
 
     // ── Descriptor pool + sets ───────────────────────────────────
     VkDescriptorPool                           m_descriptorPool  = VK_NULL_HANDLE;
@@ -270,6 +295,7 @@ private:
     VkDescriptorSet                            m_bloomBlurVSet   = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, PP_MAX_FRAMES> m_aoSets{};  // per-frame: samples that frame's depth
     VkDescriptorSet                            m_aoBlurSet       = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, PP_MAX_FRAMES> m_ssrHdrSets{};  // per-frame: SSR samples that frame's lit HDR
     std::array<VkDescriptorSet, PP_MAX_FRAMES> m_compositeSets{};
 
     // ── Private helpers ──────────────────────────────────────────

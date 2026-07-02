@@ -72,6 +72,12 @@ bool save(const DebugParams& p, const std::string& name) {
                      {"radius", p.ssaoRadius},
                      {"bias", p.ssaoBias},
                      {"intensity", p.ssaoIntensity}}},
+        {"ssr",
+         toml::table{{"enabled", p.ssrEnabled},
+                     {"intensity", p.ssrIntensity},
+                     {"max_dist", p.ssrMaxDist},
+                     {"thickness", p.ssrThickness},
+                     {"stride", p.ssrStride}}},
         {"shadow",
          toml::table{{"bias", p.shadowBias},
                      {"floor", p.shadowFloor},
@@ -145,6 +151,12 @@ bool load(DebugParams& p, const std::string& name) {
     p.ssaoRadius    = tbl["ssao"]["radius"].value_or(p.ssaoRadius);
     p.ssaoBias      = tbl["ssao"]["bias"].value_or(p.ssaoBias);
     p.ssaoIntensity = tbl["ssao"]["intensity"].value_or(p.ssaoIntensity);
+
+    p.ssrEnabled   = tbl["ssr"]["enabled"].value_or(p.ssrEnabled);
+    p.ssrIntensity = tbl["ssr"]["intensity"].value_or(p.ssrIntensity);
+    p.ssrMaxDist   = tbl["ssr"]["max_dist"].value_or(p.ssrMaxDist);
+    p.ssrThickness = tbl["ssr"]["thickness"].value_or(p.ssrThickness);
+    p.ssrStride    = tbl["ssr"]["stride"].value_or(p.ssrStride);
 
     p.shadowBias       = tbl["shadow"]["bias"].value_or(p.shadowBias);
     p.shadowFloor      = tbl["shadow"]["floor"].value_or(p.shadowFloor);

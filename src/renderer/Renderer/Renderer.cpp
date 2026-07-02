@@ -434,10 +434,13 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
     recordLightingPass(cmd, frameIndex, renderExtent);
 
 #ifdef SWISH_DEBUG_UI
-    // SSAO here: the scene depth is still in DEPTH_STENCIL_READ_ONLY (set for the
-    // lighting pass, unchanged by it) and the forward passes haven't reclaimed it
-    // as a depth attachment yet. Writes the AO the composite pass multiplies in.
+    // SSAO + SSR here: the scene depth is still in DEPTH_STENCIL_READ_ONLY (set for
+    // the lighting pass, unchanged by it) and the forward passes haven't reclaimed
+    // it as a depth attachment yet. SSAO writes the AO the composite multiplies in;
+    // SSR reads the lit HDR (reflecting the deferred scene) into the SSR image the
+    // composite adds. Both must run before the forward rain/glass passes.
     recordSsaoPasses(cmd, frameIndex);
+    recordSsrPass(cmd, frameIndex);
 #endif
 
     // Rain forward pass — loads HDR, renders streaks additively, no barrier needed between
@@ -784,6 +787,51 @@ void Renderer::recordSsaoPasses(VkCommandBuffer cmd, uint32_t frameIndex) {
         vkCmdDraw(cmd, 3, 1, 0, 0);
     }
     ResourceManager::insertImageBarrier(cmd, m_postProcess->get_ao_blur_image(),
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+// ── SSR (screen-space reflections, debug realism feature) ────────────
+// Runs after lighting (HDR = the lit deferred scene, depth still readable). The
+// lit HDR is briefly transitioned to SHADER_READ so the ray-march can sample it
+// as the reflected colour, then restored to COLOR_ATTACHMENT for the forward
+// passes; the SSR image is left SHADER_READ for the composite add.
+void Renderer::recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex) {
+    const VkExtent2D ext = m_postProcess->get_render_extent();
+
+    // Lit HDR → readable.
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_hdr_image(frameIndex),
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    {
+        VkClearValue clear{};
+        clear.color = {{0.0f, 0.0f, 0.0f, 0.0f}};  // miss → 0 (composite add is a no-op)
+        ScopedRenderPass pass(cmd, m_postProcess->get_ssr_render_pass(), m_postProcess->get_ssr_framebuffer(), ext,
+                              clear);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_ssr_pipeline());
+        setViewportAndScissor(cmd, ext);
+
+        VkDescriptorSet sets[2] = {m_postProcess->get_lighting_set(frameIndex),   // set 0: G-buffer
+                                   m_postProcess->get_ssr_hdr_set(frameIndex)};   // set 1: lit HDR
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_ssr_layout(), 0, 2, sets, 0,
+                                nullptr);
+
+        const Mat4 proj = m_camera->get_projection_matrix();
+        SsrParams  sp{};
+        sp.proj      = proj;
+        sp.invProj   = glm::inverse(proj);
+        sp.maxDist   = m_debugParams.ssrMaxDist;
+        sp.thickness = m_debugParams.ssrThickness;
+        sp.stride    = m_debugParams.ssrStride;
+        sp.intensity = m_debugParams.ssrEnabled ? m_debugParams.ssrIntensity : 0.0f;
+        vkCmdPushConstants(cmd, m_postProcess->get_ssr_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(sp), &sp);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+    }
+    // Restore HDR for the forward passes; SSR image → readable for the composite.
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_hdr_image(frameIndex),
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_ssr_image(),
                                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
