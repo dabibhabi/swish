@@ -652,6 +652,11 @@ void Renderer::recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uin
 #ifdef SWISH_DEBUG_UI
     pp.bloom_intensity = m_debugParams.bloomIntensity;
     pp.exposure        = m_debugParams.exposure;
+    pp.brightness      = m_debugParams.brightness;
+    pp.contrast        = m_debugParams.contrast;
+    pp.saturation      = m_debugParams.saturation;
+    pp.temperature     = m_debugParams.temperature;
+    pp.tint            = m_debugParams.tint;
 #endif
     pp.rain_intensity  = m_rainSystem ? m_rainSystem->get_intensity() : 0.0f;
     pp.fog_density     = 0.04f;  // multiplied by rain_intensity in the shader

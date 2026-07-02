@@ -35,6 +35,13 @@ struct PostProcessParams {
     float texel_y;          // 1.0/height for blur passes
     float fog_density;      // atmospheric fog blend per rain_intensity unit — repurposed from _pad1
     float _pad2;
+    // Camera-app grade (debug UI). Defaults = identity so release output is unchanged
+    // (recordCompositePass only overrides these under SWISH_DEBUG_UI).
+    float brightness  = 0.0f;
+    float contrast    = 1.0f;
+    float saturation  = 1.0f;
+    float temperature = 0.0f;
+    float tint        = 0.0f;
 };
 
 class PostProcessManager {

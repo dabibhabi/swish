@@ -14,6 +14,12 @@ layout(push_constant) uniform Params {
     vec2  texelSize;
     float fog_density;     // atmospheric grey blend strength per rain_intensity unit
     float _pad1;
+    // Camera-app grade (debug UI); identity at defaults → no-op in release.
+    float brightness;
+    float contrast;
+    float saturation;
+    float temperature;
+    float tint;
 } params;
 
 layout(location = 0) out vec4 outColor;
@@ -65,6 +71,9 @@ void main() {
     // Exposure adjustment
     hdr *= params.exposure;
 
+    // White balance (linear, pre-tonemap): temperature warms (+R/-B), tint -G (magenta).
+    hdr *= vec3(1.0 + params.temperature * 0.20, 1.0 - params.tint * 0.20, 1.0 - params.temperature * 0.20);
+
     // Rain fog is now applied per-fragment and depth-resolved in lighting.frag
     // (Koschmieder), so near surfaces like the cabin stay crisp. The old flat
     // screen-wide grey blend here washed the whole frame (including the interior)
@@ -73,6 +82,14 @@ void main() {
 
     // AgX tone mapping (HDR → LDR)
     vec3 mapped = AgX(hdr);
+
+    // Post-tonemap grade (camera-app style). Identity at defaults (sat=1, contrast=1,
+    // brightness=0), so release — which passes those defaults — is unchanged.
+    float gLuma = dot(mapped, vec3(0.2126, 0.7152, 0.0722));
+    mapped = mix(vec3(gLuma), mapped, params.saturation);   // saturation
+    mapped = (mapped - 0.5) * params.contrast + 0.5;        // contrast about mid-grey
+    mapped += params.brightness;                            // brightness
+    mapped = clamp(mapped, 0.0, 1.0);
 
     outColor = vec4(mapped, 1.0);
 }

@@ -268,7 +268,7 @@ void DebugUI::begin_frame(DebugParams& p) {
     constexpr float kPi = 3.14159265358979323846f;
 
     if (p.showPanel) {
-        ImGui::Begin("swish — debug");
+        ImGui::Begin("swish - debug");
 
         ImGui::Text("%.1f FPS", io.Framerate);
         ImGui::Checkbox("Edit mode (free cursor)", &p.editMode);
