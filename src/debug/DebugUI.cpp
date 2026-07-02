@@ -245,6 +245,8 @@ void printValues(const DebugParams& p) {
                 p.bloomIntensity);
     std::printf("brightness=%.4f contrast=%.4f saturation=%.4f temperature=%.4f tint=%.4f\n", p.brightness, p.contrast,
                 p.saturation, p.temperature, p.tint);
+    std::printf("autoExposure=%d aeKey=%.3f aeSpeed=%.2f aeMin=%.3f aeMax=%.3f\n", p.autoExposure ? 1 : 0, p.aeKey,
+                p.aeSpeed, p.aeMin, p.aeMax);
     std::printf("skyHorizonOvercast={%.3f,%.3f,%.3f} skyHorizonClear={%.3f,%.3f,%.3f}\n", p.skyHorizonOvercast.x,
                 p.skyHorizonOvercast.y, p.skyHorizonOvercast.z, p.skyHorizonClear.x, p.skyHorizonClear.y,
                 p.skyHorizonClear.z);
@@ -360,7 +362,15 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
 
         // ── Image / Grade ─────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Image / Grade", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::SliderFloat("Exposure", &p.exposure, 0.0f, 2.0f);
+            ImGui::Checkbox("Auto-exposure", &p.autoExposure);
+            if (p.autoExposure) {
+                ImGui::SliderFloat("AE key (grey)", &p.aeKey, 0.05f, 1.0f);
+                ImGui::SliderFloat("AE speed", &p.aeSpeed, 0.1f, 8.0f);
+                ImGui::SliderFloat("AE min", &p.aeMin, 0.01f, 1.0f);
+                ImGui::SliderFloat("AE max", &p.aeMax, 0.5f, 4.0f);
+            } else {
+                ImGui::SliderFloat("Exposure", &p.exposure, 0.0f, 2.0f);
+            }
             ImGui::SliderFloat("Brightness", &p.brightness, -1.0f, 1.0f);
             ImGui::SliderFloat("Contrast", &p.contrast, 0.0f, 2.0f);
             ImGui::SliderFloat("Saturation", &p.saturation, 0.0f, 2.0f);

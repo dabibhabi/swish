@@ -24,6 +24,7 @@
 #include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/packing.hpp>
 #include <optional>
 
 namespace swish {
@@ -351,6 +352,7 @@ void Renderer::drawFrame(float deltaTime) {
     // live uniforms BEFORE the camera UBO is written below — so drags update now.
     m_debugUI.begin_frame(m_debugParams, m_camera->get_view_matrix(), m_camera->get_projection_matrix());
     apply_debug_params();
+    updateAutoExposure(deltaTime);  // reads last frame's luminance → m_aeExposure
 #endif
 
     // ── CSM: fit per-cascade sun light-space matrices to the view frustum ──
@@ -461,9 +463,18 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
     // Windshield rain — refractive water drops on the front windshield
     recordWindshieldRainPass(cmd, frameIndex);
 
-    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_hdr_image(frameIndex),
-                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+#ifdef SWISH_DEBUG_UI
+    if (m_debugParams.autoExposure) {
+        // Blits the lit HDR down to 1×1 (average) for auto-exposure, then leaves
+        // the HDR in SHADER_READ (so it replaces the barrier below).
+        recordLuminancePyramid(cmd, frameIndex);
+    } else
+#endif
+    {
+        ResourceManager::insertImageBarrier(cmd, m_postProcess->get_hdr_image(frameIndex),
+                                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
 
     recordBloomExtract(cmd, bloomExtent);
     ResourceManager::insertImageBarrier(cmd, m_postProcess->get_bloom_extract_image(),
@@ -840,6 +851,91 @@ void Renderer::recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex) {
                                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
+
+// ── Auto-exposure: blit the lit HDR down a mip chain to 1×1 (average) ────────
+// Leaves the HDR in SHADER_READ (replaces the pre-bloom barrier). The 1×1 mip is
+// copied to a host buffer the CPU reads next frame (updateAutoExposure).
+void Renderer::recordLuminancePyramid(VkCommandBuffer cmd, uint32_t frameIndex) {
+    VkImage        hdr    = m_postProcess->get_hdr_image(frameIndex);
+    VkImage        lum    = m_postProcess->get_lum_image();
+    const uint32_t mips   = m_postProcess->get_lum_mips();
+    const int32_t  dim    = static_cast<int32_t>(m_postProcess->get_lum_dim());
+    const VkExtent2D rext = m_postProcess->get_render_extent();
+
+    auto mipBarrier = [&](uint32_t mip, uint32_t count, VkImageLayout oldL, VkImageLayout newL, VkAccessFlags srcA,
+                          VkAccessFlags dstA) {
+        VkImageMemoryBarrier b{};
+        b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        b.oldLayout           = oldL;
+        b.newLayout           = newL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image               = lum;
+        b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, mip, count, 0, 1};
+        b.srcAccessMask       = srcA;
+        b.dstAccessMask       = dstA;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                             nullptr, 1, &b);
+    };
+
+    // HDR (COLOR_ATTACHMENT after the forward passes) → TRANSFER_SRC.
+    ResourceManager::insertImageBarrier(cmd, hdr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    // All lum mips → TRANSFER_DST.
+    mipBarrier(0, mips, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+               VK_ACCESS_TRANSFER_WRITE_BIT);
+
+    // HDR (full render extent) → lum mip 0 (dim²), LINEAR box-ish downsample.
+    VkImageBlit b0{};
+    b0.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    b0.srcOffsets[1]  = {static_cast<int32_t>(rext.width), static_cast<int32_t>(rext.height), 1};
+    b0.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    b0.dstOffsets[1]  = {dim, dim, 1};
+    vkCmdBlitImage(cmd, hdr, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, lum, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b0,
+                   VK_FILTER_LINEAR);
+
+    // Generate the mip chain (each level halves; LINEAR = 2×2 box average → true avg at 1×1).
+    for (uint32_t i = 1; i < mips; ++i) {
+        mipBarrier(i - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+        int32_t     src = dim >> (i - 1), dst = dim >> i;
+        VkImageBlit b{};
+        b.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, i - 1, 0, 1};
+        b.srcOffsets[1]  = {src, src, 1};
+        b.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, i, 0, 1};
+        b.dstOffsets[1]  = {dst > 0 ? dst : 1, dst > 0 ? dst : 1, 1};
+        vkCmdBlitImage(cmd, lum, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, lum, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b,
+                       VK_FILTER_LINEAR);
+    }
+
+    // Last mip (1×1) is still TRANSFER_DST → TRANSFER_SRC, then copy to the host buffer.
+    mipBarrier(mips - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+               VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+    VkBufferImageCopy c{};
+    c.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, mips - 1, 0, 1};
+    c.imageExtent      = {1, 1, 1};
+    vkCmdCopyImageToBuffer(cmd, lum, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           m_postProcess->get_lum_readback_buffer(frameIndex), 1, &c);
+
+    // HDR → SHADER_READ for bloom + composite.
+    ResourceManager::insertImageBarrier(cmd, hdr, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+// Read the previous frame's average luminance, adapt, and compute the exposure.
+void Renderer::updateAutoExposure(float dt) {
+    if (!m_debugParams.autoExposure || !has_post_process())
+        return;
+    const void* mapped = m_postProcess->get_lum_readback_mapped(m_currentFrame);
+    if (!mapped)
+        return;
+    const uint16_t* h = reinterpret_cast<const uint16_t*>(mapped);  // RGBA16F, 4 halfs
+    Vec3  avg(glm::unpackHalf1x16(h[0]), glm::unpackHalf1x16(h[1]), glm::unpackHalf1x16(h[2]));
+    float lum  = std::max(glm::dot(avg, Vec3(0.2126f, 0.7152f, 0.0722f)), 1e-4f);
+    float rate = glm::clamp(1.0f - std::exp(-dt * std::max(m_debugParams.aeSpeed, 0.0f)), 0.0f, 1.0f);
+    m_aeAdaptedLum = std::max(m_aeAdaptedLum + (lum - m_aeAdaptedLum) * rate, 1e-4f);
+    m_aeExposure   = glm::clamp(m_debugParams.aeKey / m_aeAdaptedLum, m_debugParams.aeMin, m_debugParams.aeMax);
+}
 #endif
 
 // ── Pass 3: composite (HDR + bloom → swapchain, ACES tonemap) ────────
@@ -865,7 +961,8 @@ void Renderer::recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uin
     pp.exposure        = 0.45f;
 #ifdef SWISH_DEBUG_UI
     pp.bloom_intensity = m_debugParams.bloomIntensity;
-    pp.exposure        = m_debugParams.exposure;
+    // Auto-exposure drives the exposure when enabled; else the manual slider.
+    pp.exposure        = m_debugParams.autoExposure ? m_aeExposure : m_debugParams.exposure;
     pp.brightness      = m_debugParams.brightness;
     pp.contrast        = m_debugParams.contrast;
     pp.saturation      = m_debugParams.saturation;

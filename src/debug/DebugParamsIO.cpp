@@ -45,7 +45,12 @@ bool save(const DebugParams& p, const std::string& name) {
                      {"contrast", p.contrast},
                      {"saturation", p.saturation},
                      {"temperature", p.temperature},
-                     {"tint", p.tint}}},
+                     {"tint", p.tint},
+                     {"auto_exposure", p.autoExposure},
+                     {"ae_key", p.aeKey},
+                     {"ae_speed", p.aeSpeed},
+                     {"ae_min", p.aeMin},
+                     {"ae_max", p.aeMax}}},
         {"sky",
          toml::table{{"horizon_overcast", arr3(p.skyHorizonOvercast)},
                      {"horizon_clear", arr3(p.skyHorizonClear)},
@@ -136,6 +141,11 @@ bool load(DebugParams& p, const std::string& name) {
     p.saturation     = tbl["grade"]["saturation"].value_or(p.saturation);
     p.temperature    = tbl["grade"]["temperature"].value_or(p.temperature);
     p.tint           = tbl["grade"]["tint"].value_or(p.tint);
+    p.autoExposure   = tbl["grade"]["auto_exposure"].value_or(p.autoExposure);
+    p.aeKey          = tbl["grade"]["ae_key"].value_or(p.aeKey);
+    p.aeSpeed        = tbl["grade"]["ae_speed"].value_or(p.aeSpeed);
+    p.aeMin          = tbl["grade"]["ae_min"].value_or(p.aeMin);
+    p.aeMax          = tbl["grade"]["ae_max"].value_or(p.aeMax);
 
     rd3(tbl["sky"]["horizon_overcast"], p.skyHorizonOvercast);
     rd3(tbl["sky"]["horizon_clear"], p.skyHorizonClear);

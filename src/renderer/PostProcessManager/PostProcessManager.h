@@ -132,6 +132,13 @@ public:
     VkImage          get_ssr_image() const { return m_ssrImage.handle(); }
     VkDescriptorSet  get_ssr_hdr_set(uint32_t frameIndex) const { return m_ssrHdrSets[frameIndex]; }
 
+    // Auto-exposure luminance pyramid.
+    VkImage    get_lum_image() const { return m_lumImage.handle(); }
+    uint32_t   get_lum_dim() const { return kLumDim; }
+    uint32_t   get_lum_mips() const { return kLumMips; }
+    VkBuffer   get_lum_readback_buffer(uint32_t frameIndex) const { return m_lumReadback[frameIndex].handle(); }
+    const void* get_lum_readback_mapped(uint32_t frameIndex) const { return m_lumReadback[frameIndex].mapped(); }
+
     // ── Descriptor set getters ───────────────────────────────────
     VkDescriptorSet get_bloom_extract_set() const { return m_bloomExtractSet; }
     VkDescriptorSet get_bloom_blur_h_set() const { return m_bloomBlurHSet; }
@@ -267,6 +274,16 @@ private:
     GpuImage      m_ssrImage;
     VkImageView   m_ssrView = VK_NULL_HANDLE;
     VkFramebuffer m_ssrFB   = VK_NULL_HANDLE;
+
+    // ── Auto-exposure luminance pyramid (fixed 128², full mip chain to 1×1) ──
+    // The HDR is blit into mip 0 then box-downsampled (LINEAR blits) to 1×1 =
+    // average colour; that texel is copied to a per-frame host buffer the CPU
+    // reads (previous frame, no stall) to drive the composite exposure. Same
+    // format as the HDR so the blit needs no format conversion (MoltenVK-safe).
+    static constexpr uint32_t kLumDim  = 128;
+    static constexpr uint32_t kLumMips = 8;  // 128,64,32,16,8,4,2,1
+    GpuImage                  m_lumImage;
+    std::array<GpuBuffer, PP_MAX_FRAMES> m_lumReadback{};  // host-readable 1px (RGBA16F = 8 B)
 
     // ── Composite framebuffers (one per swapchain image) ─────────
     std::vector<VkFramebuffer> m_compositeFBs;

@@ -422,6 +422,38 @@ void PostProcessManager::createImages() {
     // SSR reflection (full render res, HDR format so reflected radiance survives)
     makeColorImage(m_renderExtent.width, m_renderExtent.height, hdrFormat, m_ssrImage, m_ssrView);
 
+    // Auto-exposure luminance pyramid: 128², full mip chain, HDR format (no blit
+    // conversion). TRANSFER_DST (blit in) + TRANSFER_SRC (mip downsample + copy out).
+    {
+        VkImageCreateInfo ii{};
+        ii.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        ii.imageType     = VK_IMAGE_TYPE_2D;
+        ii.extent        = {kLumDim, kLumDim, 1};
+        ii.mipLevels     = kLumMips;
+        ii.arrayLayers   = 1;
+        ii.format        = hdrFormat;
+        ii.tiling        = VK_IMAGE_TILING_OPTIMAL;
+        ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ii.usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        ii.samples       = VK_SAMPLE_COUNT_1_BIT;
+        ii.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo ai{};
+        ai.usage   = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+        m_lumImage = GpuImage(m_allocator, ii, ai);
+
+        // Host-readable 1-pixel destination (RGBA16F = 8 B) per frame in flight.
+        VkBufferCreateInfo bi{};
+        bi.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bi.size        = 8;
+        bi.usage       = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo bai{};
+        bai.usage = VMA_MEMORY_USAGE_AUTO;
+        bai.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
+            m_lumReadback[i] = GpuBuffer(m_allocator, bi, bai);
+    }
+
     // CSM shadow atlas (kShadowAtlasW × kShadowDim, D32_SFLOAT, per frame):
     // DEPTH_STENCIL_ATTACHMENT (written by the depth pass, one cascade per slice)
     // + SAMPLED (read by lighting.frag).
@@ -455,6 +487,9 @@ void PostProcessManager::destroyImages() {
     destroy(m_aoImage, m_aoView);
     destroy(m_aoBlurImage, m_aoBlurView);
     destroy(m_ssrImage, m_ssrView);
+    m_lumImage.reset();  // no view (transfer-only)
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
+        m_lumReadback[i].reset();
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
         destroy(m_shadowImages[i], m_shadowViews[i]);
 }

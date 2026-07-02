@@ -18,9 +18,18 @@ namespace swish {
 // ══════════════════════════════════════════════════════════════════════
 struct DebugParams {
     // ── Grade / composite (tone map + color grade in composite.frag) ──
-    float exposure       = 0.45f;  // tone-mapping exposure
+    float exposure       = 0.45f;  // tone-mapping exposure (manual, when autoExposure off)
     float bloomThreshold = 1.0f;   // luminance above which bloom extracts
     float bloomIntensity = 0.3f;   // additive bloom blend strength
+
+    // ── Auto-exposure (eye adaptation) ────────────────────────────────
+    // When on, the composite exposure is driven by the smoothed scene luminance
+    // (exposure = aeKey / adaptedLum, clamped) instead of the manual value above.
+    bool  autoExposure = false;
+    float aeKey        = 0.30f;   // target mid-grey the average maps toward
+    float aeSpeed      = 2.0f;    // adaptation rate (per second)
+    float aeMin        = 0.05f;   // exposure clamp (min)
+    float aeMax        = 2.0f;    // exposure clamp (max)
     float brightness     = 0.0f;   // post-grade lift   [-1, 1]
     float contrast       = 1.0f;   // post-grade contrast around 0.5
     float saturation     = 1.0f;   // 0 = greyscale, 1 = neutral

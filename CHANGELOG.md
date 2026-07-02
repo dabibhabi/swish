@@ -6,6 +6,29 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-02 — Added auto-exposure (eye adaptation) driving the composite exposure
+
+> A luminance-measurement + adaptation loop that sets the exposure automatically instead of the manual slider — enable "Auto-exposure" and the scene settles to a target brightness (dark cabin brightens, bright sky pulls back), the way a camera/eye adapts. Debug-only; release keeps the fixed exposure.
+
+<details>
+<summary>Technical summary</summary>
+
+**Measurement (no compute, no stall).** After the forward passes, the lit HDR is blit into mip 0 of a fixed 128² luminance image (same format, so no blit conversion), then box-downsampled through its mip chain (LINEAR blits) to 1×1 = the average scene colour. That texel is copied to a **per-frame host buffer**. The CPU reads the buffer at the *next* frame's start (`updateAutoExposure`) — the value is 1–2 frames old but adaptation is slow, so there's no GPU→CPU stall. The luminance blit replaces the pre-bloom `HDR→SHADER_READ` barrier (HDR goes `COLOR_ATTACHMENT→TRANSFER_SRC→SHADER_READ` around it).
+
+**Adaptation.** `avgLum = luma(unpackHalf(readback))`; the smoothed value eases toward it, `adapted += (avgLum − adapted)·(1 − e^{−dt·speed})`, and the exposure is `clamp(aeKey / adapted, aeMin, aeMax)`, fed into the existing composite exposure push-constant (no shader change). Panel: Auto-exposure toggle + key / speed / min / max.
+
+**Verification.** Enabling it rendered a sanely auto-exposed frame (overcast → exposure pushed up), validation-clean (the mip-blit chain, per-mip transfer barriers, and image→buffer copy all correct). Debug + release build clean, **52/52 tests pass**; release never records the blit and keeps the fixed exposure.
+
+**File-change table.**
+
+| File | Change |
+| --- | --- |
+| [src/renderer/PostProcessManager/PostProcessManager.h](src/renderer/PostProcessManager/PostProcessManager.h) / [.cpp](src/renderer/PostProcessManager/PostProcessManager.cpp) | 128² mip-chained luminance image + per-frame host readback buffers, getters, cleanup. |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) / [.cpp](src/renderer/Renderer/Renderer.cpp) | `recordLuminancePyramid` (blit chain + copy), `updateAutoExposure` (adapt), gate the pre-bloom HDR barrier, drive composite exposure. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) · [DebugUI.cpp](src/debug/DebugUI.cpp) · [DebugParamsIO.cpp](src/debug/DebugParamsIO.cpp) | `autoExposure`/`aeKey`/`aeSpeed`/`aeMin`/`aeMax`; panel controls; print; toml. |
+
+</details>
+
 ### 2026-07-02 — Added a steering-wheel gizmo + angle override to pose/fix the wheel
 
 > In edit mode you can now grab the steering wheel with a rotate gizmo (or drag an angle slider) to pose it — useful for checking/fixing the wheel's rotation and framing shots. The override drives `CarEntity::m_steering_angle`, so the front-wheel steer + car heading follow the same path the sim uses. Debug-only.

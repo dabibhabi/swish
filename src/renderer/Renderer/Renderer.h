@@ -192,6 +192,10 @@ private:
     // Set 3 on the deferred-lighting pipeline: the live-tunable "look" constants
     // (sky/fog/reflection/shadow/wet) promoted out of lighting.frag.
     SceneParamsUniform m_sceneParams;
+
+    // Auto-exposure state: smoothed scene luminance + the exposure it yields.
+    float m_aeAdaptedLum = 0.5f;
+    float m_aeExposure   = 0.45f;
 #endif
 
     // ── Glass + windshield state ──────────────────────────────────
@@ -229,6 +233,12 @@ private:
     // image, restore HDR for the forward passes. Debug-only; release primes the
     // SSR image black so the composite add is a no-op.
     void recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex);
+    // Auto-exposure: blit the lit HDR down a mip chain to 1×1 (average) and copy
+    // that pixel to a host buffer; leaves the HDR in SHADER_READ for bloom.
+    void recordLuminancePyramid(VkCommandBuffer cmd, uint32_t frameIndex);
+    // Read the previous frame's average luminance, smooth it (eye adaptation), and
+    // set m_aeExposure. Call at drawFrame start.
+    void updateAutoExposure(float dt);
 #endif
     void recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t imageIndex, VkExtent2D extent);
 
