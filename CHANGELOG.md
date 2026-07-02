@@ -6,6 +6,26 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-02 — Steering gizmo: pitch/roll/quaternion spin-axis calibration
+
+> Extends the steering-wheel gizmo with a **spin-axis correction** so the wheel can be dialed to rotate about the right axis. The panel now edits pitch / yaw / roll (sliders) *and* the raw quaternion (x/y/z/w), kept in sync, and the correction is applied live to the wheel's rotation. Useful when the model's pivot axis is slightly off. Debug-only; identity default = unchanged. (Also parked the four remaining big GPU features — god-rays, HDRI IBL, puddles+spray, motion-vectors/TAA — in `tasks/todo.md` for later.)
+
+<details>
+<summary>Technical summary</summary>
+
+`CarEntity` gains `set_steer_axis_correction(quat)` (default identity) and rotates the wheel's spin axis by it — `axis = normalize(q · (0,0,1))`, `R = rotate(−sw_angle, axis)` inside the existing pivot-frame sandwich — so identity reproduces the old local-Z spin exactly (release unchanged). `App` sets it each frame in edit mode from `DebugParams`. The panel's Steering section adds an "Axis correction" toggle with pitch/yaw/roll sliders (→ quaternion) and a `DragFloat4` quaternion editor (→ normalized, → euler sliders synced via `glm::eulerAngles`); the quaternion is stored as a `vec4` (xyzw) to avoid GLM's quat memory-layout ambiguity, and rebuilt as `glm::quat(w,x,y,z)` when applied. Persisted under `[steering]` in presets; printed by Print-values.
+
+Verified: debug + release build clean, validation-clean, **52/52 tests** (identity correction = old behaviour). The correct axis is the user's to dial live.
+
+| File | Change |
+| --- | --- |
+| [src/scene/Entity/CarEntity.h](src/scene/Entity/CarEntity.h) / [.cpp](src/scene/Entity/CarEntity.cpp) | `set_steer_axis_correction`; rotate the spin axis by it. |
+| [src/core/App/App.cpp](src/core/App/App.cpp) | Feed the correction quaternion in edit mode. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) · [DebugUI.cpp](src/debug/DebugUI.cpp) · [DebugParamsIO.cpp](src/debug/DebugParamsIO.cpp) | `steerAxisEdit`/`steerEuler`/`steerQuat`; pitch/roll/quat editors; `[steering]` toml; print. |
+| [tasks/todo.md](tasks/todo.md) | Deferred: god-rays, HDRI IBL, puddles+spray, motion-vectors/TAA. |
+
+</details>
+
 ### 2026-07-02 — Added auto-exposure (eye adaptation) driving the composite exposure
 
 > A luminance-measurement + adaptation loop that sets the exposure automatically instead of the manual slider — enable "Auto-exposure" and the scene settles to a target brightness (dark cabin brightens, bright sky pulls back), the way a camera/eye adapts. Debug-only; release keeps the fixed exposure.

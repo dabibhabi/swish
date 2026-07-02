@@ -83,6 +83,10 @@ bool save(const DebugParams& p, const std::string& name) {
                      {"max_dist", p.ssrMaxDist},
                      {"thickness", p.ssrThickness},
                      {"stride", p.ssrStride}}},
+        {"steering",
+         toml::table{{"axis_edit", p.steerAxisEdit},
+                     {"euler", arr3(p.steerEuler)},
+                     {"quat", toml::array{p.steerQuat.x, p.steerQuat.y, p.steerQuat.z, p.steerQuat.w}}}},
         {"shadow",
          toml::table{{"bias", p.shadowBias},
                      {"floor", p.shadowFloor},
@@ -205,6 +209,15 @@ bool load(DebugParams& p, const std::string& name) {
     p.ssrMaxDist   = tbl["ssr"]["max_dist"].value_or(p.ssrMaxDist);
     p.ssrThickness = tbl["ssr"]["thickness"].value_or(p.ssrThickness);
     p.ssrStride    = tbl["ssr"]["stride"].value_or(p.ssrStride);
+
+    p.steerAxisEdit = tbl["steering"]["axis_edit"].value_or(p.steerAxisEdit);
+    rd3(tbl["steering"]["euler"], p.steerEuler);
+    if (const toml::array* q = tbl["steering"]["quat"].as_array(); q && q->size() == 4) {
+        p.steerQuat.x = static_cast<float>(q->get(0)->value_or(0.0));
+        p.steerQuat.y = static_cast<float>(q->get(1)->value_or(0.0));
+        p.steerQuat.z = static_cast<float>(q->get(2)->value_or(0.0));
+        p.steerQuat.w = static_cast<float>(q->get(3)->value_or(1.0));
+    }
 
     p.shadowBias       = tbl["shadow"]["bias"].value_or(p.shadowBias);
     p.shadowFloor      = tbl["shadow"]["floor"].value_or(p.shadowFloor);

@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 struct GLFWwindow;
 
@@ -52,6 +53,11 @@ public:
     // local Z is the wheel's spin axis.
     Mat4 get_steering_wheel_pivot_world() const;
 
+    // Debug calibration: rotates the wheel's spin axis (default local +Z) so the
+    // debug UI can dial pitch/roll/quaternion until the wheel rotates correctly.
+    // Identity (default) → unchanged. Applied in get_draw_calls.
+    void set_steer_axis_correction(const glm::quat& q) { m_steer_axis_correction = q; }
+
     // Rain intensity [0,1] — drives the interior cabin "wash toward light gray"
     // tint applied in get_draw_calls (via the gbuffer.frag color.a sentinel).
     void set_rain_intensity(float intensity) { m_rain_intensity = intensity; }
@@ -72,6 +78,7 @@ private:
     float m_forward_speed  = 0.f;  // world units / second, positive = forward
     float m_steering_angle = 0.f;  // degrees, negative = left, positive = right
     float m_rain_intensity = 0.f;  // [0,1] — drives the interior cabin wash tint
+    glm::quat m_steer_axis_correction{1.f, 0.f, 0.f, 0.f};  // debug spin-axis fix (identity = none)
 
     // Per-frame longitudinal controls, set by handle_input(), applied in update().
     float m_throttle = 0.f;        // [0,1]

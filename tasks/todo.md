@@ -39,6 +39,22 @@ strength.
 Rules: full-execution (user-authorized for Swish); CHANGELOG per feature; verify each (build, ctest
 52/52, validation-clean) before next; update Obsidian RFI note (G-P1-2/G-P0-3/G-P1-3) when landed.
 
+## Deferred — big GPU features (paused 2026-07-02, user requested, do 1 per turn)
+
+All debug-UI tunable + release-safe like the landed realism features. Order = ROI/effort.
+- [ ] **God-rays / volumetric light shafts** — sun screen-pos → occlusion-masked radial-blur pass,
+      composited additively; later froxel volumetric fog. Debug density/decay/weight sliders. (Medium.)
+- [ ] **Real HDRI IBL** — load an `.hdr` equirect → cubemap → irradiance convolution + specular
+      prefilter mips + BRDF LUT → sample via the existing `skyIrradiance`/reflection hooks in
+      `lighting.frag`. Needs an `.hdr` asset (or bake the procedural sky into the cubemap). (Large.)
+- [ ] **Puddles + road spray** — screen-space puddle mask reflecting through the existing SSR; GPU
+      particle spray/mist behind the car (compute). (Large.)
+- [ ] **Motion vectors → TAA + motion blur** — velocity G-buffer target (prev vs cur clip pos),
+      history buffer + reproject/neighborhood-clamp TAA (replacing SSAA), per-pixel motion blur. (Largest.)
+
+Already landed this run (branch `debug-ui`, not pushed): live SSAA · toml presets · SSAO · CSM · IBL ·
+SSR (+roughness gate) · per-material editor · sun gizmo · steering gizmo (+pitch/roll/quat) · auto-exposure.
+
 ## Next plans (post realism-pass, 2026-07-01)
 
 Ordered by visual-impact-per-effort, building on what just landed.

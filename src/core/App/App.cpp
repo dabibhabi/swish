@@ -340,6 +340,11 @@ int App::run() {
                     m_car->set_steering_angle(dp.steerAngleDeg);
                 else
                     dp.steerAngleDeg = m_car->get_steering_angle();
+                // Spin-axis calibration correction (edit mode); identity otherwise.
+                m_car->set_steer_axis_correction(
+                    (debug_edit && dp.steerAxisEdit)
+                        ? glm::quat(dp.steerQuat.w, dp.steerQuat.x, dp.steerQuat.y, dp.steerQuat.z)
+                        : glm::quat(1.f, 0.f, 0.f, 0.f));
             }
 #endif
 

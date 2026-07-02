@@ -136,6 +136,11 @@ struct DebugParams {
     float     steerAngleDeg  = 0.0f;
     float     steerMaxDeg    = 35.0f;
     glm::mat4 steerPivotWorld = glm::mat4(1.0f);
+    // Spin-axis calibration: edit pitch/yaw/roll OR the raw quaternion (canonical)
+    // to reorient how the wheel rotates. steerAxisEdit applies it (edit mode).
+    bool      steerAxisEdit = false;
+    glm::vec3 steerEuler{0.0f, 0.0f, 0.0f};   // pitch, yaw, roll (degrees) — slider state
+    glm::vec4 steerQuat{0.0f, 0.0f, 0.0f, 1.0f};  // x, y, z, w — quaternion editor (applied)
 
     // ── UI state (not a scene parameter, but lives with the rest) ─────
     bool editMode  = false;  // true = cursor free to drive the panel; false = drive-mode (panel ignores mouse)

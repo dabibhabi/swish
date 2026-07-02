@@ -14,6 +14,7 @@
 #include "ImGuizmo.h"
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <array>
 #include <cmath>
@@ -264,6 +265,9 @@ void printValues(const DebugParams& p) {
                 p.ssaoRadius, p.ssaoBias, p.ssaoIntensity);
     std::printf("ssrEnabled=%d ssrIntensity=%.3f ssrMaxDist=%.1f ssrThickness=%.1f ssrStride=%.1f\n",
                 p.ssrEnabled ? 1 : 0, p.ssrIntensity, p.ssrMaxDist, p.ssrThickness, p.ssrStride);
+    std::printf("steerAxisEdit=%d steerEuler={%.2f,%.2f,%.2f} steerQuat={%.4f,%.4f,%.4f,%.4f}\n",
+                p.steerAxisEdit ? 1 : 0, p.steerEuler.x, p.steerEuler.y, p.steerEuler.z, p.steerQuat.x, p.steerQuat.y,
+                p.steerQuat.z, p.steerQuat.w);
     std::printf("shadowBias=%.5f shadowFloor=%.3f csmShadowFar=%.1f csmLambda=%.3f\n", p.shadowBias, p.shadowFloor,
                 p.csmShadowFar, p.csmLambda);
     std::printf("depthBiasConst=%.3f depthBiasSlope=%.3f\n", p.depthBiasConst, p.depthBiasSlope);
@@ -414,6 +418,31 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
                 p.steerAngleDeg = 0.0f;
             ImGui::Checkbox("Wheel gizmo (drag to turn)", &p.showSteerGizmo);
             ImGui::TextDisabled("edit mode only; overrides the sim while on");
+
+            ImGui::Separator();
+            // Spin-axis calibration: edit pitch/yaw/roll OR the raw quaternion to
+            // reorient how the wheel rotates until it looks correct.
+            ImGui::Checkbox("Axis correction", &p.steerAxisEdit);
+            if (p.steerAxisEdit) {
+                bool ch = false;
+                ch |= ImGui::SliderFloat("Pitch", &p.steerEuler.x, -180.0f, 180.0f);
+                ch |= ImGui::SliderFloat("Yaw", &p.steerEuler.y, -180.0f, 180.0f);
+                ch |= ImGui::SliderFloat("Roll", &p.steerEuler.z, -180.0f, 180.0f);
+                if (ch) {  // euler → quaternion (radians; pitch,yaw,roll)
+                    glm::quat q = glm::quat(glm::radians(glm::vec3(p.steerEuler)));
+                    p.steerQuat = glm::vec4(q.x, q.y, q.z, q.w);
+                }
+                if (ImGui::DragFloat4("Quat xyzw", &p.steerQuat.x, 0.005f, -1.0f, 1.0f)) {
+                    glm::quat q =
+                        glm::normalize(glm::quat(p.steerQuat.w, p.steerQuat.x, p.steerQuat.y, p.steerQuat.z));
+                    p.steerQuat  = glm::vec4(q.x, q.y, q.z, q.w);
+                    p.steerEuler = glm::degrees(glm::eulerAngles(q));  // sync sliders
+                }
+                if (ImGui::Button("Reset axis")) {
+                    p.steerEuler = glm::vec3(0.0f);
+                    p.steerQuat  = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                }
+            }
         }
 
         // ── Fog ───────────────────────────────────────────────────────
