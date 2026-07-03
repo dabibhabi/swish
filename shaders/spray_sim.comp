@@ -1,0 +1,82 @@
+#version 450
+
+// ── GPU road-spray particle simulation (W9) — the project's FIRST compute pass ──
+// One invocation advances one particle IN PLACE: dead particles may respawn behind
+// the car's rear axle (emission gated by wetness × speed, folded into emitProb on
+// the CPU), live ones integrate under gravity + drag and age out. A single shared
+// SSBO is simulated continuously (one dt step per frame → correct speed, one smooth
+// population). 4096 particles, local size 64 (4096 % 64 == 0 → no bounds guard).
+
+layout(local_size_x = 64) in;
+
+struct Particle {
+    vec4 posLife;  // xyz = world position (WU), w = life [0,1] (0 = dead)
+    vec4 velSize;  // xyz = velocity (WU/s), w = billboard size (WU)
+};
+
+layout(set = 0, binding = 0) buffer Particles { Particle particles[]; };
+
+layout(set = 0, binding = 1) uniform Sim {
+    vec4 spawnPosDt;  // xyz = rear-axle spawn centre (WU), w = dt (s)
+    vec4 carVel;      // xyz = car velocity (WU/s), w = emit probability [0,1]
+    vec4 params;      // x = lifetime (s), y = size base (WU), z = gravity (WU/s²), w = drag (1/s)
+    vec4 params2;     // x = lateral spread (WU), y = frame seed, z = up speed (WU/s), w = back speed (WU/s)
+} sim;
+
+// Hash-based RNG (bit-mixing) → [0,1).
+float hash11(uint n) {
+    n = (n ^ 61u) ^ (n >> 16);
+    n *= 9u;
+    n = n ^ (n >> 4);
+    n *= 0x27d4eb2du;
+    n = n ^ (n >> 15);
+    return float(n & 0x00ffffffu) / float(0x01000000u);
+}
+
+void main() {
+    uint  i  = gl_GlobalInvocationID.x;
+    float dt = sim.spawnPosDt.w;
+
+    Particle pt   = particles[i];
+    float    life = pt.posLife.w;
+
+    // Per-particle, per-frame seed so respawns + directions decorrelate over time.
+    uint  s  = i * 747796405u + uint(sim.params2.y) * 2891336453u;
+    float r0 = hash11(s);
+    float r1 = hash11(s + 1u);
+    float r2 = hash11(s + 2u);
+    float r3 = hash11(s + 3u);
+
+    if (life <= 0.0) {
+        // Respawn (probabilistic) behind the rear axle, biased backward + upward.
+        if (r0 < sim.carVel.w) {
+            vec3  fwd = sim.carVel.xyz;
+            float sp  = length(fwd);
+            fwd       = (sp > 1.0) ? fwd / sp : vec3(0.0, 0.0, -1.0);
+            vec3 lateral = normalize(cross(fwd, vec3(0.0, 1.0, 0.0)) + vec3(1e-4, 0.0, 0.0));
+
+            vec3 pos = sim.spawnPosDt.xyz
+                     + lateral * (r1 * 2.0 - 1.0) * sim.params2.x          // ± lateral spread
+                     + vec3(0.0, r2 * 0.15 * sim.params2.x, 0.0);          // slight launch height
+            // Kicked back relative to travel + up, with lateral scatter (rooster tail).
+            vec3 vel = -fwd * sim.params2.w
+                     + vec3(0.0, 1.0, 0.0) * sim.params2.z * (0.6 + 0.4 * r3)
+                     + lateral * (r2 * 2.0 - 1.0) * sim.params2.z * 0.5;
+
+            pt.posLife = vec4(pos, 1.0);
+            pt.velSize = vec4(vel, sim.params.y * (0.6 + 0.8 * r1));
+        } else {
+            pt.posLife.w = 0.0;  // stay dead
+        }
+    } else {
+        vec3 vel = pt.velSize.xyz;
+        vel.y   += sim.params.z * dt;                 // gravity (params.z is negative)
+        vel     *= max(1.0 - sim.params.w * dt, 0.0); // air drag
+        vec3 pos = pt.posLife.xyz + vel * dt;
+        life    -= dt / max(sim.params.x, 0.01);
+        pt.posLife     = vec4(pos, max(life, 0.0));
+        pt.velSize.xyz = vel;
+    }
+
+    particles[i] = pt;
+}

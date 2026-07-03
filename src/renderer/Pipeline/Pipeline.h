@@ -40,6 +40,11 @@ public:
     static VkPipelineLayout createLayout(VkDevice device, const std::vector<VkDescriptorSetLayout>& setLayouts,
                                          const std::vector<VkPushConstantRange>& pushConstants = {});
 
+    // Compute pipeline from a single .comp SPIR-V module + a prebuilt layout. Feeds
+    // the same process-wide cache as create(). Used by SpraySystem (the first — and
+    // so far only — compute pass in the renderer).
+    static VkPipeline createCompute(VkDevice device, const std::string& compShaderPath, VkPipelineLayout layout);
+
     // Process-wide VkPipelineCache. Owned/loaded/saved by Device; set here once
     // after the device is up so every create() feeds the same cache — repeat
     // launches and swapchain recreations reuse compiled pipelines instead of

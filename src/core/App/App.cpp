@@ -357,6 +357,8 @@ int App::run() {
             float yaw_rad = m_car->get_rotation().y * (3.14159265f / 180.0f);
             Vec3  carFwd(std::cos(yaw_rad), 0.f, -std::sin(yaw_rad));
             m_renderer->set_car_velocity(carFwd * m_car->get_speed());
+            // Car world position drives the GPU road-spray spawn origin (rear axle).
+            m_renderer->set_car_position(m_car->get_position());
         }
 
         // Cockpit camera: the eye rides the car at the driver's seat.

@@ -8,7 +8,7 @@ BLENDER ?= blender
 .PHONY: build run swish debug clean format glslc-test car-analyze test
 
 build:
-	@cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug -DSWISH_DEBUG_UI=OFF
+	@cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DSWISH_DEBUG_UI=OFF
 	@cmake --build $(BUILD_DIR)
 
 run:
@@ -16,8 +16,11 @@ run:
 
 # In-engine live debug/tuning UI (Dear ImGui). Configures with the debug-UI
 # option ON, builds, and runs. Backtick (`) toggles edit vs drive mode.
+# RelWithDebInfo = -O2 + symbols: the live-tuning UI needs a real framerate — an
+# unoptimized -O0 build ran ~4× slower (36 vs ~140 fps at 1.5× SSAA) — while
+# keeping debug symbols for the occasional lldb session. Validation still runs.
 debug:
-	@cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug -DSWISH_DEBUG_UI=ON
+	@cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=RelWithDebInfo -DSWISH_DEBUG_UI=ON
 	@cmake --build $(BUILD_DIR)
 	@./$(EXECUTABLE)
 

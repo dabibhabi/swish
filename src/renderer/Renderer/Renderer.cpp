@@ -9,10 +9,15 @@
 #include "../CameraUniforms/CameraUniforms.h"
 #include "../CommandManager/CommandManager.h"
 #include "../GlassPass/GlassPass.h"
+#include "../IBLManager/IBLManager.h"
 #include "../MaterialDescriptors/MaterialDescriptors.h"
 #include "../Pipeline/Device/Device.h"
 #include "../PostProcessManager/PostProcessManager.h"
 #include "../RainSystem/RainSystem.h"
+#include "../SpraySystem/SpraySystem.h"
+#ifdef SWISH_DEBUG_UI
+#include "../TaaPass/TaaPass.h"
+#endif
 #include "../ResourceManager/ResourceManager.h"
 #include "../Swapchain/Swapchain.h"
 #include "../SyncObjects/SyncObjects.h"
@@ -30,6 +35,19 @@
 namespace swish {
 
 namespace {
+
+#ifdef SWISH_DEBUG_UI
+// Halton low-discrepancy sample in [0,1) — the TAA sub-pixel jitter sequence.
+float halton(uint32_t index, uint32_t base) {
+    float f = 1.0f, r = 0.0f;
+    while (index > 0) {
+        f /= static_cast<float>(base);
+        r += f * static_cast<float>(index % base);
+        index /= base;
+    }
+    return r;
+}
+#endif
 
 void setViewportAndScissor(VkCommandBuffer cmd, VkExtent2D ext) {
     VkViewport vp{0.0f, 0.0f, static_cast<float>(ext.width), static_cast<float>(ext.height), 0.0f, 1.0f};
@@ -121,6 +139,17 @@ void Renderer::init(Window& window) {
         m_rainSystem = std::make_unique<RainSystem>();
         m_rainSystem->init(services(), hdrViews, depthViews, renderExtent, m_cameraUniforms->get_layout());
 
+        // GPU road-spray (first compute pass) — shares the HDR/depth forward targets.
+        m_spraySystem = std::make_unique<SpraySystem>();
+        m_spraySystem->init(services(), hdrViews, depthViews, renderExtent, m_cameraUniforms->get_layout());
+
+#ifdef SWISH_DEBUG_UI
+        // TAA resolve (debug-only; SSAA stays the release default). Reads HDR + depth,
+        // copies its result back into HDR so the bloom/composite chain is untouched.
+        m_taa = std::make_unique<TaaPass>();
+        m_taa->init(services(), hdrViews, depthViews, renderExtent);
+#endif
+
         m_glassPass = std::make_unique<GlassPass>();
         m_glassPass->init(services(), hdrViews, depthViews, renderExtent, m_cameraUniforms->get_layout());
 
@@ -144,10 +173,16 @@ void Renderer::init(Window& window) {
                                                 });
     // Named-field init (order-independent): the debug build appends an extra
     // scene-params set layout, so positional aggregate init would shift.
+    // Baked-sky prefiltered-cubemap IBL (set 3). Built before the lighting pipeline
+    // layout, which references its descriptor-set layout.
+    m_ibl = std::make_unique<IBLManager>();
+    m_ibl->init(services());
+
     DeferredLightingPipeline::Config lightingCfg{};
     lightingCfg.cameraSetLayout    = m_cameraUniforms->get_layout();
     lightingCfg.gbufferSetLayout   = m_postProcess->get_lighting_tex_layout();
     lightingCfg.shadowSetLayout    = m_postProcess->get_shadow_tex_layout();
+    lightingCfg.iblSetLayout       = m_ibl->get_set_layout();
     lightingCfg.lightingRenderPass = m_postProcess->get_lighting_render_pass();
     lightingCfg.extent             = renderExtent;
 #ifdef SWISH_DEBUG_UI
@@ -156,13 +191,17 @@ void Renderer::init(Window& window) {
     lightingCfg.sceneParamsSetLayout = m_sceneParams.get_layout();
 #endif
     m_deferredLighting.init(m_device->getDevice(), lightingCfg);
+
+    // Initial IBL bake (default overcast sky). The baked-state cache starts at a
+    // sentinel, so maybeRebakeIBL bakes the cubemaps now.
+    maybeRebakeIBL();
 }
 
 void Renderer::cleanup() {
     vkDeviceWaitIdle(m_device->getDevice());
 
 #ifdef SWISH_DEBUG_UI
-    m_debugUI.cleanup();  // ImGui shutdown before device/instance teardown
+    m_debugUI.cleanup();                           // ImGui shutdown before device/instance teardown
     m_sceneParams.cleanup(m_device->getDevice());  // set 3 UBO + pool + layout
 #endif
 
@@ -177,6 +216,18 @@ void Renderer::cleanup() {
         m_rainSystem.reset();
     }
 
+    if (m_spraySystem) {
+        m_spraySystem->cleanup(m_device->getDevice());
+        m_spraySystem.reset();
+    }
+
+#ifdef SWISH_DEBUG_UI
+    if (m_taa) {
+        m_taa->cleanup(m_device->getDevice());
+        m_taa.reset();
+    }
+#endif
+
     if (m_glassPass) {
         m_glassPass->cleanup(m_device->getDevice());
         m_glassPass.reset();
@@ -185,6 +236,11 @@ void Renderer::cleanup() {
     if (m_windshieldRainPass) {
         m_windshieldRainPass->cleanup(m_device->getDevice());
         m_windshieldRainPass.reset();
+    }
+
+    if (m_ibl) {
+        m_ibl->cleanup();
+        m_ibl.reset();
     }
 
     if (has_post_process()) {
@@ -355,6 +411,24 @@ void Renderer::drawFrame(float deltaTime) {
     updateAutoExposure(deltaTime);  // reads last frame's luminance → m_aeExposure
 #endif
 
+#ifdef SWISH_DEBUG_UI
+    // TAA sub-pixel jitter: offset the projection a fraction of a pixel each frame
+    // (Halton 2,3) BEFORE the camera UBO / lighting invProj are built, so the whole
+    // frame + its depth reconstruction stay self-consistent. Zero when TAA is off →
+    // the projection is exactly the unjittered matrix (SSAA / release unaffected).
+    if (m_camera) {
+        if (m_debugParams.taaEnabled) {
+            const VkExtent2D re = m_postProcess->get_render_extent();
+            const uint32_t   n  = (m_taaFrameCounter % 8u) + 1u;
+            m_camera->set_jitter(Vec2((halton(n, 2) - 0.5f) * 2.0f / static_cast<float>(re.width),
+                                      (halton(n, 3) - 0.5f) * 2.0f / static_cast<float>(re.height)));
+            m_taaFrameCounter++;
+        } else {
+            m_camera->set_jitter(Vec2(0.0f, 0.0f));
+        }
+    }
+#endif
+
     // ── CSM: fit per-cascade sun light-space matrices to the view frustum ──
     computeCascades();
     m_cameraUniforms->set_cascades(m_cascadeVP, m_cascadeSplits);
@@ -382,6 +456,26 @@ void Renderer::drawFrame(float deltaTime) {
         Vec3 effectiveWind = gustWind - m_carVelocity;
         m_rainSystem->update(m_currentFrame, deltaTime, m_rainIntensity, effectiveWind);
         m_cameraUniforms->set_wetness(m_currentFrame, m_rainSystem->get_wetness());
+    }
+
+    if (m_spraySystem) {
+        // Spawn spray behind the rear axle: offset the car origin backward along its
+        // heading. Emission is gated inside SpraySystem by wetness × speed, so a dry
+        // road (and the release build, which can't get wet) produces nothing.
+        Vec3  fwd         = (glm::length(m_carVelocity) > 1.0f) ? glm::normalize(m_carVelocity) : Vec3(0.0f, 0.0f, -1.0f);
+        Vec3  carVel      = m_carVelocity;
+        Vec3  spawnCentre = m_carPosition - fwd * 1500.0f;  // ≈ 1.5 m behind the origin
+        float wetness     = m_rainSystem ? m_rainSystem->get_wetness() : 0.0f;
+
+        SprayParams sprayParams;  // defaults = shipped look
+#ifdef SWISH_DEBUG_UI
+        sprayParams.enabled  = m_debugParams.sprayEnabled;
+        sprayParams.density  = m_debugParams.sprayDensity;
+        sprayParams.lifetime = m_debugParams.sprayLifetime;
+        sprayParams.size     = m_debugParams.spraySize;
+        sprayParams.opacity  = m_debugParams.sprayOpacity;
+#endif
+        m_spraySystem->update(m_currentFrame, deltaTime, spawnCentre, carVel, wetness, sprayParams);
     }
 
     if (m_windshieldRainPass) {
@@ -445,8 +539,21 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
     recordSsrPass(cmd, frameIndex);
 #endif
 
+    // God-rays (ships in release): sun-anchored radial blur of the lit HDR, added at
+    // composite. Reads depth + HDR like SSR, so it shares that post-lighting slot
+    // (depth still DEPTH_STENCIL_READ_ONLY, forward passes haven't reclaimed it).
+    recordGodRaysPass(cmd, frameIndex);
+
+    // GPU road-spray sim — advance the particles (compute; MUST be outside any render
+    // pass) before the forward passes read the buffer. Emits nothing on a dry road.
+    if (m_spraySystem)
+        m_spraySystem->record_compute(cmd, frameIndex);
+
     // Rain forward pass — loads HDR, renders streaks additively, no barrier needed between
     recordRainPass(cmd, frameIndex);
+
+    // Road-spray forward pass — additive particle billboards behind the car (wet only).
+    recordSprayPass(cmd, frameIndex);
 
     // Glass forward transparent pass — renders BLEND windows onto HDR with alpha blending
     recordGlassPass(cmd, frameIndex);
@@ -464,6 +571,24 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
     recordWindshieldRainPass(cmd, frameIndex);
 
 #ifdef SWISH_DEBUG_UI
+    // TAA resolve (debug-only): reproject + blend history, motion blur, copy back into
+    // HDR. Runs after ALL forward passes (so it resolves the final scene) and before
+    // auto-exposure/bloom; it restores HDR to COLOR_ATTACHMENT so the block below is
+    // unchanged. The reprojection uses last frame's un-jittered VP + this frame's
+    // jittered clip→world (matching the depth).
+    if (m_taa && m_debugParams.taaEnabled && m_camera) {
+        const Mat4 view    = m_camera->get_view_matrix();
+        const Mat4 curInvVP = glm::inverse(m_camera->get_projection_matrix() * view);
+        TaaParams  tp;
+        tp.enabled         = true;
+        tp.historyBlend    = m_debugParams.taaHistoryBlend;
+        tp.motionBlur      = m_debugParams.motionBlurEnabled;
+        tp.motionBlurScale = m_debugParams.motionBlurScale;
+        m_taa->record(cmd, frameIndex, m_postProcess->get_hdr_image(frameIndex), tp, m_prevViewProjUnjit, curInvVP);
+        // Store this frame's un-jittered VP as next frame's reprojection source.
+        m_prevViewProjUnjit = m_camera->get_projection_matrix_unjittered() * view;
+    }
+
     if (m_debugParams.autoExposure) {
         // Blits the lit HDR down to 1×1 (average) for auto-exposure, then leaves
         // the HDR in SHADER_READ (so it replaces the barrier below).
@@ -545,15 +670,15 @@ void Renderer::computeCascades() {
     shadowFar = m_debugParams.csmShadowFar;
     lambda    = m_debugParams.csmLambda;
 #endif
-    shadowFar                = std::min(shadowFar, camFar);
-    const float shadowNear   = camNear;
+    shadowFar              = std::min(shadowFar, camFar);
+    const float shadowNear = camNear;
 
     // Practical split scheme (Zhang et al.): blend logarithmic and uniform splits.
     float splitFar[NUM_CASCADES];
     for (uint32_t i = 0; i < NUM_CASCADES; ++i) {
-        float p    = static_cast<float>(i + 1) / static_cast<float>(NUM_CASCADES);
-        float logS = shadowNear * std::pow(shadowFar / shadowNear, p);
-        float uniS = shadowNear + (shadowFar - shadowNear) * p;
+        float p     = static_cast<float>(i + 1) / static_cast<float>(NUM_CASCADES);
+        float logS  = shadowNear * std::pow(shadowFar / shadowNear, p);
+        float uniS  = shadowNear + (shadowFar - shadowNear) * p;
         splitFar[i] = lambda * logS + (1.0f - lambda) * uniS;
     }
 
@@ -562,8 +687,8 @@ void Renderer::computeCascades() {
     Vec3       nearC[4], farC[4];
     const Vec2 ndc[4] = {{-1.f, -1.f}, {1.f, -1.f}, {1.f, 1.f}, {-1.f, 1.f}};
     for (int i = 0; i < 4; ++i) {
-        Vec4 n = invVP * Vec4(ndc[i], 0.0f, 1.0f);
-        Vec4 f = invVP * Vec4(ndc[i], 1.0f, 1.0f);
+        Vec4 n   = invVP * Vec4(ndc[i], 0.0f, 1.0f);
+        Vec4 f   = invVP * Vec4(ndc[i], 1.0f, 1.0f);
         nearC[i] = Vec3(n) / n.w;
         farC[i]  = Vec3(f) / f.w;
     }
@@ -654,7 +779,7 @@ void Renderer::recordLightingPass(VkCommandBuffer cmd, uint32_t frameIndex, VkEx
 
     m_deferredLighting.bind_and_record(cmd, m_cameraUniforms->get_set(frameIndex),
                                        m_postProcess->get_lighting_set(frameIndex),
-                                       m_postProcess->get_shadow_set(frameIndex),
+                                       m_postProcess->get_shadow_set(frameIndex), m_ibl->get_set(),
 #ifdef SWISH_DEBUG_UI
                                        m_sceneParams.get_set(frameIndex),
 #endif
@@ -671,6 +796,18 @@ void Renderer::recordRainPass(VkCommandBuffer cmd, uint32_t frameIndex) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_rainSystem->get_pipeline_layout(), 0, 1, &camSet, 0,
                             nullptr);
     m_rainSystem->record_draws(cmd, frameIndex);
+}
+
+// ── Road-spray forward pass — additive GPU particle billboards ────────
+void Renderer::recordSprayPass(VkCommandBuffer cmd, uint32_t frameIndex) {
+    if (!m_spraySystem)
+        return;
+    // Bind camera set (set 0) via the spray pipeline layout; SpraySystem::record_draws
+    // binds its own set 1 (particle SSBO) and begins its render pass internally.
+    VkDescriptorSet camSet = m_cameraUniforms->get_set(frameIndex);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_spraySystem->get_pipeline_layout(), 0, 1, &camSet, 0,
+                            nullptr);
+    m_spraySystem->record_draws(cmd, frameIndex);
 }
 
 // ── Glass forward pass — alpha-blended windows onto HDR ───────────────
@@ -753,6 +890,67 @@ void Renderer::recordBloomBlur(VkCommandBuffer cmd, VkExtent2D extent, bool hori
     vkCmdDraw(cmd, 3, 1, 0, 0);
 }
 
+// ── God-rays / volumetric light shafts (ships in release) ────────────
+// A half-render-res radial blur of the lit HDR toward the projected sun, occluded
+// by scene geometry (Mitchell 2007 / GPU Gems 3 Ch.13). Added on top of the HDR in
+// the composite. Runs every frame in BOTH builds: the tunables come from the live
+// DebugParams in debug, and from the same struct's defaults (the shipped look) in
+// release. Mirrors recordSsrPass's HDR read → restore barriers; the god-rays image
+// is left SHADER_READ for the composite add.
+void Renderer::recordGodRaysPass(VkCommandBuffer cmd, uint32_t frameIndex) {
+    const VkExtent2D ext = m_postProcess->get_godrays_extent();
+
+    // Project the sun (a world-space direction → point at infinity) to screen space
+    // and fade the effect out as it leaves the frame (or goes behind the camera).
+    const Mat4 view = m_camera->get_view_matrix();
+    const Mat4 proj = m_camera->get_projection_matrix();
+    Vec4       clip = proj * view * Vec4(m_sunDir, 0.0f);
+    Vec2       sunUV(0.0f);
+    float      vis = 0.0f;
+    if (clip.w > 1e-4f) {  // sun in front of the camera
+        sunUV       = (Vec2(clip.x, clip.y) / clip.w) * 0.5f + 0.5f;
+        Vec2 loFade = glm::smoothstep(Vec2(-0.2f), Vec2(0.0f), sunUV);  // fade in from the low edge
+        Vec2 hiFade = glm::smoothstep(Vec2(1.2f), Vec2(1.0f), sunUV);   // fade out past the high edge
+        vis         = loFade.x * loFade.y * hiFade.x * hiFade.y;
+    }
+
+    // Lit HDR → readable (the shaft source).
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_hdr_image(frameIndex),
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    {
+        VkClearValue clear{};
+        clear.color = {{0.0f, 0.0f, 0.0f, 0.0f}};  // off-screen sun → 0 (composite add is a no-op)
+        ScopedRenderPass pass(cmd, m_postProcess->get_godrays_render_pass(), m_postProcess->get_godrays_framebuffer(),
+                              ext, clear);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_godrays_pipeline());
+        setViewportAndScissor(cmd, ext);
+
+        VkDescriptorSet sets[2] = {m_postProcess->get_lighting_set(frameIndex),      // set 0: G-buffer (depth)
+                                   m_postProcess->get_godrays_hdr_set(frameIndex)};  // set 1: lit HDR
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_godrays_layout(), 0, 2, sets,
+                                0, nullptr);
+
+#ifdef SWISH_DEBUG_UI
+        const DebugParams& d = m_debugParams;
+#else
+        const DebugParams d{};  // defaults = the shipped look (single source of truth)
+#endif
+        GodRaysParams gp{};
+        gp.sunUV = Vec4(sunUV, vis, 0.0f);
+        gp.tune  = Vec4(d.godrayDensity, d.godrayDecay, d.godrayWeight, d.godraysEnabled ? d.godrayIntensity : 0.0f);
+        vkCmdPushConstants(cmd, m_postProcess->get_godrays_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(gp), &gp);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+    }
+    // Restore HDR for the forward passes; god-rays image → readable for the composite.
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_hdr_image(frameIndex),
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_godrays_image(),
+                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
 #ifdef SWISH_DEBUG_UI
 // ── SSAO + bilateral AO blur (debug realism feature) ─────────────────
 // Runs at 1/2 render resolution into the AO images the composite multiplies in.
@@ -826,20 +1024,22 @@ void Renderer::recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_ssr_pipeline());
         setViewportAndScissor(cmd, ext);
 
-        VkDescriptorSet sets[2] = {m_postProcess->get_lighting_set(frameIndex),   // set 0: G-buffer
-                                   m_postProcess->get_ssr_hdr_set(frameIndex)};   // set 1: lit HDR
+        VkDescriptorSet sets[2] = {m_postProcess->get_lighting_set(frameIndex),  // set 0: G-buffer
+                                   m_postProcess->get_ssr_hdr_set(frameIndex)};  // set 1: lit HDR
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_ssr_layout(), 0, 2, sets, 0,
                                 nullptr);
 
         const Mat4 proj = m_camera->get_projection_matrix();
         SsrParams  sp{};
-        sp.proj      = proj;
-        sp.invProj   = glm::inverse(proj);
-        sp.maxDist   = m_debugParams.ssrMaxDist;
-        sp.thickness = m_debugParams.ssrThickness;
-        sp.stride    = m_debugParams.ssrStride;
-        sp.intensity = m_debugParams.ssrEnabled ? m_debugParams.ssrIntensity : 0.0f;
-        sp.wetness   = m_rainSystem ? m_rainSystem->get_wetness() : 0.0f;
+        sp.proj           = proj;
+        sp.invProj        = glm::inverse(proj);
+        sp.invView        = glm::inverse(m_camera->get_view_matrix());
+        sp.maxDist        = m_debugParams.ssrMaxDist;
+        sp.thickness      = m_debugParams.ssrThickness;
+        sp.stride         = m_debugParams.ssrStride;
+        sp.intensity      = m_debugParams.ssrEnabled ? m_debugParams.ssrIntensity : 0.0f;
+        sp.wetness        = m_rainSystem ? m_rainSystem->get_wetness() : 0.0f;
+        sp.puddleCoverage = m_debugParams.puddlesEnabled ? m_debugParams.puddleCoverage : 0.0f;
         vkCmdPushConstants(cmd, m_postProcess->get_ssr_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(sp), &sp);
         vkCmdDraw(cmd, 3, 1, 0, 0);
     }
@@ -847,8 +1047,7 @@ void Renderer::recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex) {
     ResourceManager::insertImageBarrier(cmd, m_postProcess->get_hdr_image(frameIndex),
                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_ssr_image(),
-                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    ResourceManager::insertImageBarrier(cmd, m_postProcess->get_ssr_image(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
@@ -856,10 +1055,10 @@ void Renderer::recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex) {
 // Leaves the HDR in SHADER_READ (replaces the pre-bloom barrier). The 1×1 mip is
 // copied to a host buffer the CPU reads next frame (updateAutoExposure).
 void Renderer::recordLuminancePyramid(VkCommandBuffer cmd, uint32_t frameIndex) {
-    VkImage        hdr    = m_postProcess->get_hdr_image(frameIndex);
-    VkImage        lum    = m_postProcess->get_lum_image();
-    const uint32_t mips   = m_postProcess->get_lum_mips();
-    const int32_t  dim    = static_cast<int32_t>(m_postProcess->get_lum_dim());
+    VkImage          hdr  = m_postProcess->get_hdr_image(frameIndex);
+    VkImage          lum  = m_postProcess->get_lum_image();
+    const uint32_t   mips = m_postProcess->get_lum_mips();
+    const int32_t    dim  = static_cast<int32_t>(m_postProcess->get_lum_dim());
     const VkExtent2D rext = m_postProcess->get_render_extent();
 
     auto mipBarrier = [&](uint32_t mip, uint32_t count, VkImageLayout oldL, VkImageLayout newL, VkAccessFlags srcA,
@@ -930,11 +1129,11 @@ void Renderer::updateAutoExposure(float dt) {
     if (!mapped)
         return;
     const uint16_t* h = reinterpret_cast<const uint16_t*>(mapped);  // RGBA16F, 4 halfs
-    Vec3  avg(glm::unpackHalf1x16(h[0]), glm::unpackHalf1x16(h[1]), glm::unpackHalf1x16(h[2]));
-    float lum  = std::max(glm::dot(avg, Vec3(0.2126f, 0.7152f, 0.0722f)), 1e-4f);
-    float rate = glm::clamp(1.0f - std::exp(-dt * std::max(m_debugParams.aeSpeed, 0.0f)), 0.0f, 1.0f);
-    m_aeAdaptedLum = std::max(m_aeAdaptedLum + (lum - m_aeAdaptedLum) * rate, 1e-4f);
-    m_aeExposure   = glm::clamp(m_debugParams.aeKey / m_aeAdaptedLum, m_debugParams.aeMin, m_debugParams.aeMax);
+    Vec3            avg(glm::unpackHalf1x16(h[0]), glm::unpackHalf1x16(h[1]), glm::unpackHalf1x16(h[2]));
+    float           lum  = std::max(glm::dot(avg, Vec3(0.2126f, 0.7152f, 0.0722f)), 1e-4f);
+    float           rate = glm::clamp(1.0f - std::exp(-dt * std::max(m_debugParams.aeSpeed, 0.0f)), 0.0f, 1.0f);
+    m_aeAdaptedLum       = std::max(m_aeAdaptedLum + (lum - m_aeAdaptedLum) * rate, 1e-4f);
+    m_aeExposure         = glm::clamp(m_debugParams.aeKey / m_aeAdaptedLum, m_debugParams.aeMin, m_debugParams.aeMax);
 }
 #endif
 
@@ -958,19 +1157,19 @@ void Renderer::recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uin
     // Global exposure trim applied before AgX (composite.frag). The scene was
     // running hot / over-exposed; pulled well below 1.0 now that sun shadows
     // restore contrast. Tune to taste.
-    pp.exposure        = 0.45f;
+    pp.exposure = 0.45f;
 #ifdef SWISH_DEBUG_UI
     pp.bloom_intensity = m_debugParams.bloomIntensity;
     // Auto-exposure drives the exposure when enabled; else the manual slider.
-    pp.exposure        = m_debugParams.autoExposure ? m_aeExposure : m_debugParams.exposure;
-    pp.brightness      = m_debugParams.brightness;
-    pp.contrast        = m_debugParams.contrast;
-    pp.saturation      = m_debugParams.saturation;
-    pp.temperature     = m_debugParams.temperature;
-    pp.tint            = m_debugParams.tint;
+    pp.exposure    = m_debugParams.autoExposure ? m_aeExposure : m_debugParams.exposure;
+    pp.brightness  = m_debugParams.brightness;
+    pp.contrast    = m_debugParams.contrast;
+    pp.saturation  = m_debugParams.saturation;
+    pp.temperature = m_debugParams.temperature;
+    pp.tint        = m_debugParams.tint;
 #endif
-    pp.rain_intensity  = m_rainSystem ? m_rainSystem->get_intensity() : 0.0f;
-    pp.fog_density     = 0.04f;  // multiplied by rain_intensity in the shader
+    pp.rain_intensity = m_rainSystem ? m_rainSystem->get_intensity() : 0.0f;
+    pp.fog_density    = 0.04f;  // multiplied by rain_intensity in the shader
     vkCmdPushConstants(cmd, m_postProcess->get_composite_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pp), &pp);
     vkCmdDraw(cmd, 3, 1, 0, 0);
 }
@@ -1012,6 +1211,14 @@ void Renderer::recreateSwapchain() {
             }
             m_rainSystem->recreate(hdrViews, depthViews, renderExtent, m_device->getDevice());
 
+            if (m_spraySystem)
+                m_spraySystem->recreate(hdrViews, depthViews, renderExtent, m_device->getDevice());
+
+#ifdef SWISH_DEBUG_UI
+            if (m_taa)
+                m_taa->recreate(hdrViews, depthViews, renderExtent, m_device->getDevice());
+#endif
+
             if (m_glassPass)
                 m_glassPass->recreate(hdrViews, depthViews, renderExtent, m_device->getDevice());
 
@@ -1041,6 +1248,10 @@ void Renderer::set_car_velocity(Vec3 v) {
     m_carVelocity = v;
 }
 
+void Renderer::set_car_position(Vec3 position) {
+    m_carPosition = position;
+}
+
 void Renderer::set_wiper_enabled(bool enabled) {
     m_wiperEnabled = enabled;
 }
@@ -1056,13 +1267,48 @@ void Renderer::set_clear_day(bool clear) {
         // (0.24) — the enclosed cabin gets no direct sun, so a high ambient fill is
         // exactly what over-exposed it; shadows + the sun disc do the lifting now.
         // clarity = 1 deepens the sky gradient + sharpens the sun disc.
-        m_sunDir = glm::normalize(Vec3(0.25f, 0.85f, 0.20f));
-        m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(1.00f, 0.98f, 0.92f, 0.24f), 1.0f);
+        m_sunDir   = glm::normalize(Vec3(0.25f, 0.85f, 0.20f));
+        m_sunColor = Vec3(1.00f, 0.98f, 0.92f);
+        m_clarity  = 1.0f;
+        m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(m_sunColor, 0.24f), m_clarity);
     } else {
         // Original overcast preset (matches the pre-existing hardcoded sun).
-        m_sunDir = glm::normalize(Vec3(0.3f, 0.6f, 0.15f));
-        m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(1.0f, 0.95f, 0.85f, 0.22f), 0.0f);
+        m_sunDir   = glm::normalize(Vec3(0.3f, 0.6f, 0.15f));
+        m_sunColor = Vec3(1.0f, 0.95f, 0.85f);
+        m_clarity  = 0.0f;
+        m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(m_sunColor, 0.22f), m_clarity);
     }
+    // Re-bake the sky cubemaps for the new weather (dirty-checked; only on change).
+    maybeRebakeIBL();
+}
+
+// (Re)bake the baked-sky IBL when the weather changed since the last bake.
+void Renderer::maybeRebakeIBL() {
+    if (!m_ibl)
+        return;
+    if (m_sunDir == m_bakedSunDir && m_clarity == m_bakedClarity && m_sunColor == m_bakedSunColor)
+        return;  // sky unchanged — nothing to re-bake
+
+    // Fold the clarity blend on the CPU (matches compute_sky_color). Sky gradient
+    // endpoints + sun-disc params come from DebugParams — the live values in a debug
+    // build, and the struct defaults (== lighting.frag's release literals) otherwise.
+#ifdef SWISH_DEBUG_UI
+    const DebugParams& d = m_debugParams;
+#else
+    const DebugParams d{};
+#endif
+    IBLManager::SkyBakeParams sky;
+    sky.horizon  = glm::mix(d.skyHorizonOvercast, d.skyHorizonClear, m_clarity);
+    sky.zenith   = glm::mix(d.skyZenithOvercast, d.skyZenithClear, m_clarity);
+    sky.discExp  = glm::mix(d.sunDiscExpMin, d.sunDiscExpMax, m_clarity);
+    sky.discStr  = glm::mix(d.sunDiscStrMin, d.sunDiscStrMax, m_clarity);
+    sky.sunDir   = m_sunDir;
+    sky.sunColor = m_sunColor;
+    m_ibl->bake(sky);
+
+    m_bakedSunDir   = m_sunDir;
+    m_bakedClarity  = m_clarity;
+    m_bakedSunColor = m_sunColor;
 }
 
 #ifdef SWISH_DEBUG_UI
@@ -1091,7 +1337,7 @@ void Renderer::apply_debug_params() {
     // (applied to the shipped base direction) before it feeds set_weather below.
     if (m_debugParams.showSunGizmo) {
         static const Vec3 kBaseSunDir = glm::normalize(Vec3(0.3f, 0.6f, 0.15f));
-        Vec3 d = glm::mat3(m_debugParams.sunGizmoRot) * kBaseSunDir;
+        Vec3              d           = glm::mat3(m_debugParams.sunGizmoRot) * kBaseSunDir;
         if (glm::length(d) > 1e-4f)
             m_sunDir = glm::normalize(d);
     }
@@ -1099,12 +1345,14 @@ void Renderer::apply_debug_params() {
     m_rainIntensity = m_debugParams.rainIntensity;
     // Sun colour/ambient/clarity feed the CameraUBO (written by update() right after).
     // Direction stays m_sunDir for now (azimuth/elevation wiring is a later phase).
-    m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f),
-                                  Vec4(m_debugParams.sunColor, m_debugParams.sunAmbient),
-                                  m_debugParams.clarity);
+    m_clarity  = m_debugParams.clarity;
+    m_sunColor = m_debugParams.sunColor;
+    m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(m_sunColor, m_debugParams.sunAmbient), m_clarity);
     // Rain streak length (base, before intensity scaling).
     if (m_rainSystem)
         m_rainSystem->set_streak_len(m_debugParams.streakLen);
+    // Re-bake the sky cubemaps if the weather changed (dirty-checked; only on change).
+    maybeRebakeIBL();
     // NOTE: ssaaApplyRequested is consumed at the top of drawFrame (recreate must
     // not run mid-frame), not here — shadow depth-bias is fed in recordShadowPass.
 }

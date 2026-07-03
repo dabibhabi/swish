@@ -144,6 +144,11 @@ set(SHADER_SOURCES
     ${SHADER_DIR}/ssao.frag
     ${SHADER_DIR}/ao_blur.frag
     ${SHADER_DIR}/ssr.frag
+    ${SHADER_DIR}/godrays.frag
+    ${SHADER_DIR}/ibl_sky.frag
+    ${SHADER_DIR}/ibl_irradiance.frag
+    ${SHADER_DIR}/ibl_prefilter.frag
+    ${SHADER_DIR}/ibl_brdf.frag
     ${SHADER_DIR}/composite.frag
     ${SHADER_DIR}/gbuffer.frag
     ${SHADER_DIR}/lighting.frag
@@ -156,6 +161,10 @@ set(SHADER_SOURCES
     ${SHADER_DIR}/windshield_rain.vert
     ${SHADER_DIR}/windshield_rain.frag
     ${SHADER_DIR}/windshield_wetness.frag
+    ${SHADER_DIR}/spray_sim.comp
+    ${SHADER_DIR}/spray.vert
+    ${SHADER_DIR}/spray.frag
+    ${SHADER_DIR}/taa.frag
 )
 
 # In debug builds, shaders that read the scene-params UBO switch on this define
@@ -222,6 +231,7 @@ add_executable(swish
     src/scene/Entity/CarEntity.cpp
     src/renderer/TextureManager/TextureManager.cpp
     src/renderer/PostProcessManager/PostProcessManager.cpp
+    src/renderer/IBLManager/IBLManager.cpp
     src/renderer/CameraUniforms/CameraUniforms.cpp
     src/renderer/MaterialDescriptors/MaterialDescriptors.cpp
     src/renderer/DepthBuffer/DepthBuffer.cpp
@@ -230,6 +240,8 @@ add_executable(swish
     src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.cpp
     src/renderer/DepthOnlyPipeline/DepthOnlyPipeline.cpp
     src/renderer/RainSystem/RainSystem.cpp
+    src/renderer/SpraySystem/SpraySystem.cpp
+    src/renderer/TaaPass/TaaPass.cpp
     src/renderer/GlassPass/GlassPass.cpp
     src/renderer/WindshieldRainPass/WindshieldRainPass.cpp
     src/utils/StbImage.cpp

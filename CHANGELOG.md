@@ -6,6 +6,266 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-03 — 4× framerate from an optimized build + TAA quality fix
+
+> Fixed the two issues found once the realism passes were driven live: (1) **the framerate was capped by an unoptimized build** — the Makefile compiled *every* target (`make build`/`make run` included) with `CMAKE_BUILD_TYPE=Debug` (`-O0`); switching to Release / RelWithDebInfo took `make debug` from **36 → 118 fps** (release ~140), identical scene/settings, no quality change. (2) The **TAA looked foggy/grainy in motion** — the neighborhood clamp ran in raw linear-HDR RGB (far too loose); reworked to a **YCoCg** clamp + **velocity-adaptive, inverse-luma-weighted** blend, which resolves sharp under motion. Verified: 52/52 in Release, validation-clean, TAA sharp under forced motion, 118 fps in `make debug` with all passes on.
+
+<details>
+<summary>Technical summary</summary>
+
+**Perf — the real bottleneck was the compiler, not the GPU.** A framerate that didn't change when the SSAA render scale dropped from 1.5× (2.25× the pixels) to 1.0× (native) proved the bottleneck was **CPU/fixed-cost, not pixel-bound**. Root cause: the [Makefile](Makefile) built `-DCMAKE_BUILD_TYPE=Debug` for all targets, so the entire engine ran at `-O0`. Measured on this machine at 1.5× SSAA:
+
+| Build | `make debug` (all debug passes) | release |
+|-------|--------------------------------|---------|
+| `Debug` (`-O0`) | **36 fps** | (was also `-O0`) |
+| optimized (`-O2`) | **118 fps** | **~140 fps** |
+
+Fix: `build`/`run` → `Release`; `debug` → `RelWithDebInfo` (`-O2` + symbols, so the live-tuning UI is fast *and* still debuggable / validation-capable). `NDEBUG` strips `assert()`, but the test suite uses its own macros — `make test` stays 52/52.
+
+**TAA quality.** The reprojection resolve neighborhood-clamped history in raw linear HDR, where the min/max box spans the full dynamic range and barely constrains — stale reprojected history leaked through as the "fog". Rework ([shaders/taa.frag](shaders/taa.frag)):
+- clamp the reprojected history to the current 3×3 box in **YCoCg** (tight luma/chroma bounds);
+- **velocity-adaptive** blend — trust history less as pixels/frame speed rises (`mix(blend, 0.6, pxSpeed/24)`), killing the smear-tail;
+- **inverse-luma-weighted** blend (Karis) — a bright jittered sample contributes less, suppressing the sparkle/grain.
+
+Also added a one-click **"Perf: native + TAA"** (and "Quality: 1.5× SSAA") button in the debug Quality header: native render scale + TAA is the cheap-AA fast path now that TAA resolves cleanly.
+
+**File changes**
+
+| File | Change |
+|------|--------|
+| [Makefile](Makefile) | `build`/`run` → `CMAKE_BUILD_TYPE=Release`; `debug` → `RelWithDebInfo` (was `Debug`/`-O0` everywhere) |
+| [shaders/taa.frag](shaders/taa.frag) | YCoCg neighborhood clamp + velocity-adaptive + inverse-luma-weighted blend |
+| [src/debug/DebugUI.cpp](src/debug/DebugUI.cpp) | "Perf: native + TAA" / "Quality: 1.5× SSAA" one-click buttons |
+
+</details>
+
+### 2026-07-03 — TAA + per-pixel motion blur (deferred GPU feature 4 of 4, debug-gated)
+
+> Added reprojection **temporal anti-aliasing** (per-frame Halton sub-pixel jitter → history reproject via depth → 3×3 neighborhood-clamp blend) and **per-pixel motion blur** (smear along the reprojection velocity), as a self-contained **debug-only** `TaaPass` that copies its result back into the HDR buffer so the bloom/composite chain is untouched. Per the user decision, **SSAA remains the release default** — TAA is a live toggle to trial (flip `taaEnabled` + drop the SSAA scale to 1.0); release never compiles `TaaPass` and is byte-identical. Build-clean both configs · `ctest` 52/52 · validation-clean · TAA static frame verified sharp/coherent · motion blur verified via a temp-forced velocity. **This completes all four paused GPU features** (god-rays, IBL, puddles+spray, TAA). *Caveat: in-motion TAA quality (ghosting/disocclusion) needs a human at the wheel to judge — synthetic input can't drive the window here.*
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** Last of the four paused GPU features (W9), and the largest. TAA's value is purely temporal, so it can't be visually verified without driving (synthetic input doesn't reach the GLFW window); and "replacing SSAA" is a shipping-quality swap. So it landed **debug-gated with SSAA kept as the release AA** — the user trials TAA in motion via `make debug`, then a one-flag change promotes it. This keeps release byte-identical while delivering the full machinery.
+
+**Approach — camera-reprojection motion vectors (no velocity G-buffer).** Rather than add a velocity MRT target + per-object previous-model push constant (which would rewrite the G-buffer attachment count and the 96-byte push block — a MoltenVK-fragile change across every draw path), velocity is derived in the resolve shader from **depth + the previous/current view-proj**: reconstruct world position from depth, project through last frame's un-jittered VP, `velocity = uv − prevUV`. This captures the dominant motion (the world streaming past the cockpit camera) with zero change to the geometry pipeline.
+
+$$\text{world}=P^{-1}_\text{cur,jit}\,\text{ndc}(uv,\,\text{depth}),\quad uv_\text{prev}=\Pi(VP_\text{prev,unjit}\cdot\text{world}),\quad \vec v=uv-uv_\text{prev}$$
+
+TAA blend clamps the reprojected history to the current 3×3 colour AABB (kills ghosting) and rejects off-screen reprojection; with the per-frame Halton(2,3) jitter it converges to supersampled detail.
+
+**Jitter correctness.** `Camera::set_jitter` offsets the projection's clip-space XY; it's applied *uniformly* (geometry, lighting `invProj`, SSAO/SSR) so depth and every reconstruction stay self-consistent per frame. Velocity reprojection uses the **un-jittered** VP (`get_projection_matrix_unjittered`) so jitter isn't mistaken for motion. Jitter is 0 unless TAA is on ⇒ SSAA/release get the exact prior matrix.
+
+```mermaid
+graph LR
+  FWD["forward passes done<br/>(HDR = final scene)"] --> TAA["TaaPass: reproject + clamp<br/>+ blend history + motion blur"]
+  TAA -->|copy back| HDR[(HDR buffer)]
+  HDR --> BLOOM[bloom → composite<br/>UNCHANGED]
+```
+
+**Release-safety.** `TaaPass.{h,cpp}` are wholly inside `#ifdef SWISH_DEBUG_UI`; the Renderer only instantiates/records it under the same guard, and the HDR `TRANSFER_DST` usage (for the copy-back) is added only in debug. `taaEnabled` defaults false, so even a debug build is identical until toggled. A validation bug found + fixed during verification: the depth descriptor must declare `DEPTH_STENCIL_READ_ONLY_OPTIMAL` (its actual layout), not the generic `SHADER_READ`.
+
+**File changes**
+
+| File | Change |
+|------|--------|
+| [src/renderer/TaaPass/TaaPass.h](src/renderer/TaaPass/TaaPass.h) · [.cpp](src/renderer/TaaPass/TaaPass.cpp) | **New** (debug-only) — ping-pong history images, resolve render pass + pipeline, descriptors, copy-back, one-time history prime |
+| [shaders/taa.frag](shaders/taa.frag) | **New** — reproject + neighborhood-clamp history blend + velocity motion blur |
+| [src/scene/Camera/Camera.h](src/scene/Camera/Camera.h) · [.cpp](src/scene/Camera/Camera.cpp) | `set_jitter` + `get_projection_matrix_unjittered`; jitter added to the projection (0 = identity) |
+| [src/renderer/PostProcessManager/PostProcessManager.cpp](src/renderer/PostProcessManager/PostProcessManager.cpp) | HDR gains `TRANSFER_DST` **only under `SWISH_DEBUG_UI`** (TAA copy-back) |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) · [.cpp](src/renderer/Renderer/Renderer.cpp) | Own/init/cleanup/recreate `TaaPass`; Halton jitter per frame; `m_prevViewProjUnjit`; record TAA after the forward passes (all `#ifdef`) |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) · [DebugUI.cpp](src/debug/DebugUI.cpp) · [DebugParamsIO.cpp](src/debug/DebugParamsIO.cpp) | `taaEnabled`/`taaHistoryBlend`/`motionBlurEnabled`/`motionBlurScale` + Quality-header sliders + TOML persistence |
+| [CMakeLists.txt](CMakeLists.txt) | Register `taa.frag` + `TaaPass.cpp` |
+
+</details>
+
+### 2026-07-03 — Road puddles + GPU compute road-spray (deferred GPU feature 3 of 4)
+
+> Added **screen-space road puddles** (a world-space procedural pool mask on the asphalt that locally saturates the existing wet model to a mirror — reflecting the sky through IBL, and the scene through SSR in debug) and **GPU road-spray**: the project's **first compute pipeline**, a 4096-particle system simulated in a `.comp` shader and drawn as additive camera-facing billboards kicked up behind the car. Both are gated by wetness × (speed, for spray), so the dry default — and the entire release build, which can't get wet — is byte-identical. Build-clean both configs · `ctest` 52/52 · validation-clean (core layer) · spray billboards + compute path visually verified · release dry scene confirmed unchanged. One paused GPU feature remains: motion-vectors → TAA + motion blur.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** Third of the four paused GPU features (W9). Puddles extend the rain "wetness" system with spatial variation (standing water pools), and road-spray adds the mist a car throws off a wet road at speed — which also stands up the renderer's first-ever **compute** pipeline (a reusable `Pipeline::createCompute` + the first `VK_DESCRIPTOR_TYPE_STORAGE_BUFFER` SSBO).
+
+**Puddles.** A road tag rides the previously-constant `gbMaterial.a` (written from `MAT_ASPHALT` via `push.material.w`), so `lighting.frag` and `ssr.frag` can tell asphalt from grass/car. A cheap world-space value-noise mask thresholded by a `coverage` knob gives patchy pools; inside a pool the *existing* wet model does the work — roughness collapses toward a mirror and the micro-normal flattens, so the prefiltered-sky IBL reflection (and, in debug, the SSR march) resolve as a coherent puddle reflection. The mask is faded in by wetness, so a dry road never pools. Evaluated in world space (from reconstructed position) so puddles stay put as the camera moves.
+
+$$\text{puddle}=\operatorname{smoothstep}\!\big(1-c,\;1-c+0.12,\;\text{noise}(xz)\big)\cdot\operatorname{smoothstep}(0.05,0.5,\text{wet})\cdot\text{road},\qquad \text{wetLocal}=\max(\text{wet}\cdot\text{wettable},\ \text{puddle})$$
+
+Release ships `SP_PUDDLE_COVERAGE = 0.0` (literal), so the puddle term is identically zero — no G-buffer/lighting change.
+
+**Road-spray (first compute pass).** A single shared particle SSBO (4096 × `{vec4 posLife, vec4 velSize}`) is advanced **in place** each frame by [`spray_sim.comp`](shaders/spray_sim.comp): dead particles respawn (probabilistically, behind the rear axle) when the CPU-folded emit probability $p=\text{density}\cdot\text{wet}\cdot\min(\text{speed}/v_\text{ref},1)$ fires; live ones integrate under gravity + drag and age out. A compute→vertex buffer barrier orders the write before [`spray.vert`](shaders/spray.vert) expands each live particle into an additive billboard ([`spray.frag`](shaders/spray.frag)). One continuous buffer (not per-frame) keeps the population smooth and the step rate correct; `4096 % 64 == 0` so the single dispatch needs no bounds guard. Emission gated by wetness × speed ⇒ the dry release scene emits nothing and the pass early-outs entirely.
+
+```mermaid
+graph LR
+  U[SpraySystem::update<br/>emit=density·wet·speed] --> C[spray_sim.comp<br/>dispatch 4096/64]
+  C -->|SSBO write→read barrier| D[spray.vert/frag<br/>6 verts × 4096 additive]
+  D --> HDR[(HDR buffer)]
+```
+
+Pass order (unchanged except the two new spray steps): `… → god-rays → spray compute (no render pass) → rain → spray draw → glass → …`.
+
+**Release-safety.** Both features compile into release but produce zero output on the dry default (`rainIntensity = 0`, no debug UI to change it): puddle coverage literal is 0; spray emission gates to 0 and the pass early-outs. Verified: release dry scene screenshot unchanged, validation-clean.
+
+**File changes**
+
+| File | Change |
+|------|--------|
+| [shaders/gbuffer.frag](shaders/gbuffer.frag) | Write road tag (`push.material.w`) to `outMaterial.a` (was constant `1.0`; no release consumer read it) |
+| [shaders/lighting.frag](shaders/lighting.frag) | `SP_PUDDLE_COVERAGE` macro (debug `wetParams.z` / release `0.0`); world-space `puddleAmount()` noise; puddle folds into `wetLocal`, extra roughness collapse + normal flatten; `fragWorldPos` hoisted earlier |
+| [shaders/ssr.frag](shaders/ssr.frag) | `invView` + `puddleCoverage` push fields; duplicate `puddleAmount()`; puddle folds into the reflectivity gate (reorder so `P` precedes the gate) |
+| [shaders/spray_sim.comp](shaders/spray_sim.comp) | **New** — particle simulation compute shader (respawn/integrate/age) |
+| [shaders/spray.vert](shaders/spray.vert) · [shaders/spray.frag](shaders/spray.frag) | **New** — additive billboard expand + soft round sprite |
+| [src/renderer/SpraySystem/SpraySystem.h](src/renderer/SpraySystem/SpraySystem.h) · [.cpp](src/renderer/SpraySystem/SpraySystem.cpp) | **New** — owns the SSBO, sim UBOs, compute + graphics pipelines, render pass, descriptors; zero-fills the buffer once |
+| [src/renderer/Pipeline/Pipeline.h](src/renderer/Pipeline/Pipeline.h) · [.cpp](src/renderer/Pipeline/Pipeline.cpp) | Added `createCompute()` (first `vkCreateComputePipelines` path) |
+| [src/renderer/PostProcessManager/PostProcessManager.h](src/renderer/PostProcessManager/PostProcessManager.h) | `SsrParams` gained `invView` + `puddleCoverage` (160 → 224 B) |
+| [src/renderer/SceneGeometry/SceneGeometry.cpp](src/renderer/SceneGeometry/SceneGeometry.cpp) | Set `pushData.material.w` = road tag (`MAT_ASPHALT`) |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) · [.cpp](src/renderer/Renderer/Renderer.cpp) | Own/init/cleanup/recreate `SpraySystem`; `set_car_position`; `recordSprayPass` + compute dispatch in the frame; fill SSR `invView`/`puddleCoverage` |
+| [src/core/App/App.cpp](src/core/App/App.cpp) | Feed `set_car_position` (spray spawn origin) |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) | `puddlesEnabled`/`puddleCoverage` + `sprayEnabled`/`sprayDensity`/`sprayLifetime`/`spraySize`/`sprayOpacity` |
+| [src/debug/SceneParamsUniform.h](src/debug/SceneParamsUniform.h) · [.cpp](src/debug/SceneParamsUniform.cpp) | Pack `puddleCoverage` into `wetParams.z` |
+| [src/debug/DebugUI.cpp](src/debug/DebugUI.cpp) · [DebugParamsIO.cpp](src/debug/DebugParamsIO.cpp) | Wet/Rain header sliders + TOML persistence for puddles + spray |
+| [CMakeLists.txt](CMakeLists.txt) | Register 3 spray shaders + `SpraySystem.cpp` |
+
+</details>
+
+### 2026-07-03 — Real prefiltered-cubemap IBL, baked from the procedural sky (deferred GPU feature 2 of 4)
+
+> Replaced the analytic per-fragment "IBL-lite" with a real **prefiltered-cubemap** image-based-lighting chain baked from the procedural sky: environment cube → diffuse-irradiance cube → GGX-prefiltered specular cube (roughness mips) → split-sum BRDF LUT, sampled by `lighting.frag` (new descriptor **set 3**). Baked once at init, re-baked when the weather (sun/clarity/colour) changes. Ships in release. Build-clean both configs · `ctest` 52/52 · validation-clean (both binaries) · reflections visually verified coherent on overcast + clear-day. Two of the four paused GPU features remain: puddles+spray, motion-vectors→TAA.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** Second of the four paused GPU features (W10, resumed one-per-turn). The prior IBL was an analytic approximation evaluated per fragment (`skyIrradiance()` hemisphere blend + `compute_sky_color(reflect)` roughness lerp + `envBRDFApprox()`). This lands the physically-correct split-sum machinery: proper cosine-weighted irradiance, GGX-prefiltered specular mips, and a real BRDF integration LUT — sampled as textures instead of recomputed each fragment. Per the user decision, the environment is **baked from the existing procedural sky** (no external `.hdr` asset), so reflections stay consistent with the sky the scene is lit under.
+
+**Bake chain** (a new `IBLManager`; a one-time GPU precompute — the sky is static per weather):
+
+```mermaid
+graph LR
+  SKY["procedural sky<br/>(compute_sky_color)"] -->|6 faces| ENV["env cube 128²"]
+  ENV --> IRR["irradiance cube 32²<br/>(cosine convolution)"]
+  ENV --> PRE["prefiltered cube 128²<br/>5 roughness mips (GGX)"]
+  BRDF["BRDF LUT 256² (once)"]
+  IRR & PRE & BRDF -->|set 3| LIT["lighting.frag<br/>diffuse·irr + spec·prefilter·BRDF"]
+```
+
+$$L_o \approx \underbrace{\text{irradiance}(N)}_{\text{diffuse}} + \underbrace{\text{prefiltered}(R,\ \text{rough}\cdot\text{mip}_{\max})\cdot\bigl(F_0\,\text{LUT}(N\!\cdot\!V,\text{rough})_x + \text{LUT}_y\bigr)}_{\text{split-sum specular}}$$
+
+**Baking without the camera UBO.** The bake runs at init before the camera/scene exist, so the sky params are pushed as constants — the CPU folds the clarity blend (matching `compute_sky_color`) and supplies each cube face's basis (`dir = normalize(F + s·R + t·U)`). Cube faces are rendered into per-face 2D image views; a cube-aware barrier (all 6 layers + mips → `SHADER_READ`) replaces `ResourceManager::insertImageBarrier` (1-layer/1-mip). `bake()` is a self-contained one-time submit with a `vkQueueWaitIdle` before (no in-flight frame samples the cubes) and after.
+
+**Descriptor-set trick (release-safe).** The IBL textures need to be present in **both** builds, but the debug scene-params UBO occupied set 3. Since a pipeline layout's set array can't have a hole, IBL takes the fixed **set 3** and the debug UBO moves to **set 4** (`#ifdef`-gated) — so the shader's IBL binding index is constant across builds (only the debug UBO's set number changes, one `#ifdef`'d line). Release compiles a 4-set lighting layout `{camera, gbuffer, shadow, ibl}`.
+
+**Re-bake.** `Renderer::maybeRebakeIBL()` dirty-checks (sun/clarity/colour vs last-baked) and re-bakes on change — fired from `set_clear_day` (both builds) and `apply_debug_params` (debug gizmo/sliders). The `DebugParams` struct (Vulkan-free, already included unconditionally) supplies the sky-gradient endpoints — live in debug, defaults (== `lighting.frag` release literals) otherwise.
+
+| File | Change |
+| --- | --- |
+| [shaders/ibl_sky.frag](shaders/ibl_sky.frag) · [ibl_irradiance.frag](shaders/ibl_irradiance.frag) · [ibl_prefilter.frag](shaders/ibl_prefilter.frag) · [ibl_brdf.frag](shaders/ibl_brdf.frag) | **NEW** — the 4 bake stages (sky→face, cosine convolution, GGX prefilter, split-sum LUT). |
+| [src/renderer/IBLManager/IBLManager.h](src/renderer/IBLManager/IBLManager.h) · [.cpp](src/renderer/IBLManager/IBLManager.cpp) | **NEW** — cube/mip images + per-face/per-mip views, samplers, IBL descriptor set (set 3), 4 bake pipelines/passes, `bake(SkyBakeParams)` one-time submit, cube-aware barriers. |
+| [shaders/lighting.frag](shaders/lighting.frag) | set-3 IBL samplers (`irradianceMap`/`prefilteredMap`/`brdfLUT`); scene-params UBO moved set 3→4; diffuse `skyIrradiance(N)`→`texture(irradianceMap,N)`, specular analytic→`textureLod(prefilteredMap, R, rough·maxMip)` × `texture(brdfLUT, …)`. |
+| [src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.h](src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.h) · [.cpp](src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.cpp) | Added `iblSetLayout` (set 3) to the layout + bind; sceneParams pushed to set 4 in debug. |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) · [.cpp](src/renderer/Renderer/Renderer.cpp) | Own + init `IBLManager` before the lighting layout; bind set 3; bake at init; `maybeRebakeIBL()` dirty-checked from `set_clear_day`/`apply_debug_params`; track `m_clarity`/`m_sunColor`. |
+| [CMakeLists.txt](CMakeLists.txt) | Registered the 4 IBL shaders + `IBLManager.cpp`. |
+
+</details>
+
+### 2026-07-03 — God-rays / volumetric light shafts (deferred GPU feature 1 of 4)
+
+> Added sun-anchored screen-space god-rays — a half-res, occlusion-masked radial blur of the lit HDR composited additively (Mitchell 2007 / GPU Gems 3 Ch.13). **Ships in release AND is live-tunable in `make debug`** (density/decay/weight/intensity). Build-clean both configs · `ctest` 52/52 · validation-clean · visually verified. The other three paused GPU features (real HDRI IBL, puddles+spray, motion-vectors→TAA) remain **paused**.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** First of the four big GPU features paused on 2026-07-02, resumed one-per-turn by user approval (W7 — best ROI/effort of the four). Crepuscular light shafts are a recurring cue in the UE reference frames; this is a cheap analytic precursor to true froxel volumetrics (still deferred).
+
+**Approach.** A new half-render-res pass [`shaders/godrays.frag`](shaders/godrays.frag), modeled on the SSR pass. The sun (a world-space *direction* in the camera UBO) is projected to screen space on the CPU as a point at infinity; each fragment marches `NUM_SAMPLES = 48` steps toward it, summing lit-HDR radiance **only at sky pixels** (depth ≥ 0.9999) with exponential decay — scene geometry (car/signs/road) contributes nothing and so punches dark shafts into the light. The result is added on top of the HDR in the composite (new binding 4). It reuses the bloom render pass (same R16F format), the lighting G-buffer set (for depth) and a per-frame HDR set; the HDR read → restore barriers mirror `recordSsrPass`.
+
+$$uv_{sun} = \frac{(P\,V\,[\hat s,\,0])_{xy}}{(P\,V\,[\hat s,\,0])_w}\cdot0.5+0.5, \qquad \text{accum} = \Bigl(\sum_{i=1}^{N} \text{sky}\bigl(uv - i\,\tfrac{\text{density}}{N}(uv-uv_{sun})\bigr)\cdot \text{weight}\cdot \text{decay}^{\,i}\Bigr)\cdot \text{intensity}\cdot \text{vis}$$
+
+`vis` fades to 0 as the sun leaves the frame or goes behind the camera ($\text{clip}_w \le 0$), so off-screen-sun frames add nothing (verified).
+
+**Release-safety.** `recordGodRaysPass` is **not** `#ifdef`-gated (unlike the debug-only SSR/SSAO) — god-rays run in both builds. In debug the tunables come from `m_debugParams`; in release from a default-constructed `DebugParams{}` (the struct is Vulkan/ImGui-free, now included unconditionally in [Renderer.h](src/renderer/Renderer/Renderer.h)), so the debug defaults are the single source of truth for the shipped literals — no drift. This is an **intentional, verified** addition to the release image (density 0.9, decay 0.95, weight 0.35, intensity 0.04).
+
+**Verification.** Build clean at `SWISH_DEBUG_UI` ON and OFF; `ctest` 52/52; validation-clean run. Visually (temp-forced sun on-screen → reverted): shafts fan from the sun and are occluded by the cockpit; intensity 0.04 is visible but tasteful (cockpit not blown out). Real path with the sun off-screen (default cockpit view) → no shafts, no artifacts (matches the pre-feature baseline).
+
+```mermaid
+graph LR
+  L[Lighting → HDR] --> D{"#ifdef DEBUG"}
+  D -- debug --> S[SSAO + SSR]
+  S --> G[God-rays half-res]
+  D -- release --> G
+  G --> F[Rain / glass / windshield] --> B[Bloom] --> C["Composite: HDR ×AO +bloom +SSR +god-rays → AgX"]
+```
+
+| File | Change |
+| --- | --- |
+| [shaders/godrays.frag](shaders/godrays.frag) | **NEW** — sun-anchored radial blur; sky-gated occlusion mask; 32-B push block (`sunUV`+visibility, `tune`). Reuses `fullscreen.vert`. |
+| [shaders/composite.frag](shaders/composite.frag) | Added `set 0 binding 4` god-rays sampler + `hdr += texture(godraysTex, …).rgb`. |
+| [CMakeLists.txt](CMakeLists.txt) | Registered `godrays.frag` in `SHADER_SOURCES`. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) | `godraysEnabled` + `godrayDensity/Decay/Weight/Intensity` (defaults = shipped look). |
+| [src/debug/DebugUI.cpp](src/debug/DebugUI.cpp) | "God Rays" collapsing header with the four sliders. |
+| [src/renderer/PostProcessManager/PostProcessManager.h](src/renderer/PostProcessManager/PostProcessManager.h) · [.cpp](src/renderer/PostProcessManager/PostProcessManager.cpp) | `GodRaysParams`, half-res image/view/FB (reuses bloom pass), pipeline+layout, per-frame HDR sets, composite descriptor set/layout 4→5 bindings, pool 16/32→20/48, destroy paths. |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) · [.cpp](src/renderer/Renderer/Renderer.cpp) | Hoisted `DebugParams.h` out of the `#ifdef` (release reads its defaults); `recordGodRaysPass` (sun projection + HDR read/restore barriers) called un-gated in the post-lighting slot. |
+
+</details>
+
+### 2026-07-03 — Glossary realism-pass sync + SSAA checkbox reconciled + stale CSM comment fixed
+
+> Synced [docs/GLOSSARY.md](docs/GLOSSARY.md) with the landed realism suite (SSAA · SSR · SSAO · CSM · IBL-lite · auto-exposure · AgX + the debug-UI vocabulary), corrected two stale labels the shipped code had outgrown, and checked off SSAA in the plan after verifying it against the renderer. **Docs + one comment line only — no source or behaviour change; release output unaffected.**
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** The glossary predated the "Blender-look" realism pass, so its entire vocabulary was missing, and two labels had gone stale against the shipped code: the composite tonemap was still called **ACES** (the shader uses **AgX** — the 2026-07-02 entry already flagged this for `render-pipeline.md`), and `shaders/lighting.frag` carried a `// single non-cascaded` comment directly above real **3-cascade CSM** code. A third inconsistency: the **Review** section of `tasks/todo.md` still had an unchecked `[ ]` SSAA box that contradicted both the ACTIVE section and the code.
+
+**Verification (SSAA is genuinely done).** Confirmed in the renderer, not just the checkbox: `kRenderScale = 1.5f` ([PostProcessManager.h](src/renderer/PostProcessManager/PostProcessManager.h)), clamped so the largest scaled dimension ≤ `maxImageDimension2D` in `scaleExtent()` ([PostProcessManager.cpp](src/renderer/PostProcessManager/PostProcessManager.cpp)); the whole offscreen chain (G-buffer/HDR/SSAO/SSR/bloom) is built at `m_renderExtent` while only the composite writes swapchain-sized images — i.e. the composite is the supersample downsample. Always-on in release; the debug build adds a live "SSAA scale" slider.
+
+$$\text{renderExtent} = \text{swapExtent} \times \min\!\Big(k_{\text{scale}},\ \tfrac{\text{maxImageDimension2D}}{\max(\text{swap}_w,\text{swap}_h)}\Big),\quad k_{\text{scale}}=1.5$$
+
+**Fix.** Glossary additions + corrections (below), a one-line comment correction in the shader, and the checkbox flip. The Obsidian RFI note (`Swish — Room for Improvement`, outside the repo) also got a dated `2026-07-03` status callout marking G-P1-2/G-P0-3/G-P1-3/G-P1-4 + auto-exposure/AgX/SSAA as landed.
+
+| File | Change |
+| --- | --- |
+| [docs/GLOSSARY.md](docs/GLOSSARY.md) | Added **SSAA/SSR/CSM/IBL/PCF** abbreviations; new **Lighting & realism** and **Debug UI (live-tuning)** sections; shadow/SSAO/AO-blur/SSR/luminance-pyramid pass rows; **ACES→AgX** correction; descriptor-set map extended to sets 2–3; light/cascade coordinate space; `SceneParamsUniform`+`DebugUI` class rows; `G` + backtick controls. |
+| [shaders/lighting.frag](shaders/lighting.frag) | Corrected the stale `// single non-cascaded` shadow-map comment to describe the actual CSM atlas of `NUM_CASCADES` slices (comment only — no code/behaviour change). |
+| [tasks/todo.md](tasks/todo.md) | Checked the stale SSAA `[ ]` box in the Review section to match the ACTIVE section + the verified code. |
+
+</details>
+
+### 2026-07-02 — Documentation pass: debug-UI + realism docs, 9 diagrams, project CLAUDE.md, wow-factor roadmap
+
+> Documented the entire `debug-ui` branch (the live tuning UI + the SSAO / CSM / IBL / SSR / auto-exposure realism suite) with three new reference pages, nine new Excalidraw diagrams, a project-root `CLAUDE.md` that leads with the paused-GPU-feature reminder, and a triaged "wow-factor" planning section in the roadmap. **Docs-only — no source, shader, or behaviour change; release output unaffected.**
+
+<details>
+<summary>Technical summary</summary>
+
+Produced by three parallel subagents on disjoint files (`CLAUDE.md` · `docs/*.md` · `docs/diagrams/*.excalidraw`), then reconciled: all 9 diagrams parse as valid JSON, every diagram link and every `../` source link in the new docs resolves, and the docs were verified against the actual shaders/source (via direct reads + Explore agents) rather than the changelog alone.
+
+Two accuracy corrections surfaced and are reflected in the new docs (older docs left as-is, flagged for a follow-up): the scene-params UBO is **160 B = 10 × vec4** (the `iblParams` row was added after the changelog's earlier `9×16` text — `static_assert(sizeof(SceneParamsUBO) == 10*16)`), and the composite tonemap is **AgX** (Sobotka/Blender), not ACES as [docs/render-pipeline.md](docs/render-pipeline.md) still labels it.
+
+`tasks/todo.md` gained a triaged wow-factor section (Tracks **D**–**G**) that separates genuinely-new ideas from those already on the roadmap (froxel = C4, clustered culling = C6, motion blur/velocity = C7, Purkinje = C8, bokeh = C9, Karis bloom = C2, chromatic aberration = R-P1-3, HDRI IBL = Deferred). The top new near-term wins are registered as tasks **#32–35**.
+
+```mermaid
+graph LR
+  CL[CLAUDE.md] --> RM[docs/README.md index]
+  DUI[docs/debug-ui.md] --> RM
+  RF[docs/realism-features.md] --> RM
+  CN[docs/concepts.md] --> RM
+  DG[9× docs/diagrams/*.excalidraw] --> DUI
+  DG --> RF
+```
+
+| File | Change |
+| --- | --- |
+| [CLAUDE.md](CLAUDE.md) | **NEW** project-root guide; leads with the paused-GPU-feature reminder, `make run`/`debug`/test commands, conventions, MoltenVK gotchas, docs map. |
+| [docs/debug-ui.md](docs/debug-ui.md) | **NEW** — live tuning UI: `DebugParams` flow, edit/drive mode, `SP_*` release-safety proof, set-3 UBO (160 B), gizmos, toml presets, library vendoring (ImGui/ImGuizmo/toml++). |
+| [docs/realism-features.md](docs/realism-features.md) | **NEW** — SSAO · CSM · split-sum IBL · SSR · SSAA · auto-exposure, each with verified LaTeX + mermaid + file pointers. |
+| [docs/concepts.md](docs/concepts.md) | **NEW** — OOP/OOD + GPU "concepts to learn" study aid, each row pointing at the repo file/shader. |
+| [docs/README.md](docs/README.md) | Indexed the 3 new pages + all 9 new diagrams. |
+| docs/diagrams/*.excalidraw (×9) | **NEW**: debug-ui-dataflow · deferred-pipeline-extended · descriptor-sets-scene-params · csm-cascades · ssr-raymarch · auto-exposure-loop · ibl-split-sum · steering-transform · ood-ownership. |
+| [tasks/todo.md](tasks/todo.md) | **NEW** wow-factor planning section (Tracks D–G + "magic five"), cross-referenced to existing roadmap codes. |
+
+</details>
+
 ### 2026-07-02 — Fixed steering axis-correction to reorient the whole wheel (not just the spin axis)
 
 > The pitch/roll/quaternion "axis correction" was applied to the wheel's *spin axis* — `rotate(−sw_angle, correction·Z)` — which is identity at 0 steer angle, so it did nothing visible and only the left-right steer ever showed. Now the correction `C` is a full **rest orientation** applied to the wheel about its pivot (`… · sw_pivot_frame · C · R · inverse(sw_pivot_frame)`), visible at any steer angle, so yaw/pitch/roll/quaternion actually reorient the wheel and you can straighten a tilted/misaligned one. Identity `C` still reproduces the original spin exactly (release unchanged).

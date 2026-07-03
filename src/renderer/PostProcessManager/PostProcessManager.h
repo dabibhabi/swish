@@ -55,18 +55,25 @@ struct SsaoParams {
     float _pad0 = 0.0f;
 };
 
-// SSR push block (matches shaders/ssr.frag). 2×mat4 + 8 floats = 160 B (16-aligned).
+// SSR push block (matches shaders/ssr.frag). 3×mat4 + 8 floats = 224 B (16-aligned).
 struct SsrParams {
-    Mat4  proj;       // view → clip
-    Mat4  invProj;    // clip → view
+    Mat4  proj;     // view → clip
+    Mat4  invProj;  // clip → view
+    Mat4  invView;  // view → world (world-space puddle mask)
     float maxDist;
     float thickness;
     float stride;
     float intensity;
-    float wetness = 0.0f;  // global wetness [0,1] (wet surfaces reflect even if dry-rough)
-    float _pad0   = 0.0f;
-    float _pad1   = 0.0f;
-    float _pad2   = 0.0f;
+    float wetness        = 0.0f;  // global wetness [0,1] (wet surfaces reflect even if dry-rough)
+    float puddleCoverage = 0.0f;  // road puddle coverage [0,1] (0 = off)
+    float _pad1          = 0.0f;
+    float _pad2          = 0.0f;
+};
+
+// God-rays push block (matches shaders/godrays.frag). 2×vec4 = 32 B (16-aligned).
+struct GodRaysParams {
+    Vec4 sunUV;  // xy = screen-space sun position, z = visibility [0,1], w = pad
+    Vec4 tune;   // x = density, y = decay, z = weight, w = intensity
 };
 
 class PostProcessManager {
@@ -85,7 +92,7 @@ public:
     VkFramebuffer get_gbuffer_framebuffer(uint32_t frameIndex) const { return m_gbufferFramebuffers[frameIndex]; }
     VkImage       get_gbuffer_albedo_image(uint32_t frameIndex) const { return m_gbAlbedoImages[frameIndex].handle(); }
     VkImage       get_gbuffer_normal_image(uint32_t frameIndex) const { return m_gbNormalImages[frameIndex].handle(); }
-    VkImage       get_gbuffer_material_image(uint32_t frameIndex) const { return m_gbMaterialImages[frameIndex].handle(); }
+    VkImage get_gbuffer_material_image(uint32_t frameIndex) const { return m_gbMaterialImages[frameIndex].handle(); }
 
     VkRenderPass  get_lighting_render_pass() const { return m_lightingRenderPass; }
     VkFramebuffer get_lighting_framebuffer(uint32_t frameIndex) const { return m_lightingFramebuffers[frameIndex]; }
@@ -93,8 +100,8 @@ public:
     VkDescriptorSet       get_lighting_set(uint32_t frameIndex) const { return m_lightingSets[frameIndex]; }
 
     // ── Shadow-map (CSM depth atlas: NUM_CASCADES × 2048² slices) getters ──
-    VkRenderPass  get_shadow_render_pass() const { return m_shadowRenderPass; }
-    VkFramebuffer get_shadow_framebuffer(uint32_t frameIndex) const { return m_shadowFramebuffers[frameIndex]; }
+    VkRenderPass          get_shadow_render_pass() const { return m_shadowRenderPass; }
+    VkFramebuffer         get_shadow_framebuffer(uint32_t frameIndex) const { return m_shadowFramebuffers[frameIndex]; }
     VkDescriptorSetLayout get_shadow_tex_layout() const { return m_shadowTexLayout; }
     VkDescriptorSet       get_shadow_set(uint32_t frameIndex) const { return m_shadowSets[frameIndex]; }
     VkExtent2D            get_shadow_atlas_extent() const { return {kShadowDim * kNumCascades, kShadowDim}; }
@@ -127,16 +134,25 @@ public:
     VkPipelineLayout get_ssao_layout() const { return m_ssaoLayout; }
     VkPipelineLayout get_ssr_layout() const { return m_ssrLayout; }
     // SSR reuses the lighting render pass (same R16F colour format + final layout).
-    VkRenderPass     get_ssr_render_pass() const { return m_lightingRenderPass; }
-    VkFramebuffer    get_ssr_framebuffer() const { return m_ssrFB; }
-    VkImage          get_ssr_image() const { return m_ssrImage.handle(); }
-    VkDescriptorSet  get_ssr_hdr_set(uint32_t frameIndex) const { return m_ssrHdrSets[frameIndex]; }
+    VkRenderPass    get_ssr_render_pass() const { return m_lightingRenderPass; }
+    VkFramebuffer   get_ssr_framebuffer() const { return m_ssrFB; }
+    VkImage         get_ssr_image() const { return m_ssrImage.handle(); }
+    VkDescriptorSet get_ssr_hdr_set(uint32_t frameIndex) const { return m_ssrHdrSets[frameIndex]; }
+
+    // God-rays: a half-render-res radial-blur pass. Reuses the bloom render pass
+    // (same R16F colour format + final layout). Ships in release (un-gated).
+    VkPipeline       get_godrays_pipeline() const { return m_godraysPipeline; }
+    VkPipelineLayout get_godrays_layout() const { return m_godraysLayout; }
+    VkRenderPass     get_godrays_render_pass() const { return m_bloomRenderPass; }
+    VkFramebuffer    get_godrays_framebuffer() const { return m_godraysFB; }
+    VkImage          get_godrays_image() const { return m_godraysImage.handle(); }
+    VkDescriptorSet  get_godrays_hdr_set(uint32_t frameIndex) const { return m_godraysHdrSets[frameIndex]; }
 
     // Auto-exposure luminance pyramid.
-    VkImage    get_lum_image() const { return m_lumImage.handle(); }
-    uint32_t   get_lum_dim() const { return kLumDim; }
-    uint32_t   get_lum_mips() const { return kLumMips; }
-    VkBuffer   get_lum_readback_buffer(uint32_t frameIndex) const { return m_lumReadback[frameIndex].handle(); }
+    VkImage     get_lum_image() const { return m_lumImage.handle(); }
+    uint32_t    get_lum_dim() const { return kLumDim; }
+    uint32_t    get_lum_mips() const { return kLumMips; }
+    VkBuffer    get_lum_readback_buffer(uint32_t frameIndex) const { return m_lumReadback[frameIndex].handle(); }
     const void* get_lum_readback_mapped(uint32_t frameIndex) const { return m_lumReadback[frameIndex].mapped(); }
 
     // ── Descriptor set getters ───────────────────────────────────
@@ -172,6 +188,7 @@ public:
     VkExtent2D get_swap_extent() const { return m_swapExtent; }
     VkExtent2D get_bloom_extent() const { return m_bloomExtent; }
     VkExtent2D get_ao_extent() const { return m_aoExtent; }
+    VkExtent2D get_godrays_extent() const { return m_godraysExtent; }
 
     // Internal supersampling factor. ~kRenderScale² the pixels/VRAM
     // (1.5² = 2.25×). Tunable; clamped per-device to maxImageDimension2D.
@@ -193,11 +210,12 @@ private:
     // SSAA extents: m_renderExtent (== swap × kRenderScale, clamped to
     // maxImageDimension2D) sizes every offscreen image/FB; m_swapExtent sizes
     // only the composite framebuffers (swapchain images) + composite viewport.
-    VkExtent2D m_renderExtent = {};
-    VkExtent2D m_swapExtent   = {};
-    VkExtent2D m_bloomExtent  = {};  // m_renderExtent / 4
-    VkExtent2D m_aoExtent     = {};  // m_renderExtent / 2
-    float      m_renderScale  = kRenderScale;  // live SSAA factor (see set_render_scale)
+    VkExtent2D m_renderExtent  = {};
+    VkExtent2D m_swapExtent    = {};
+    VkExtent2D m_bloomExtent   = {};            // m_renderExtent / 4
+    VkExtent2D m_aoExtent      = {};            // m_renderExtent / 2
+    VkExtent2D m_godraysExtent = {};            // m_renderExtent / 2
+    float      m_renderScale   = kRenderScale;  // live SSAA factor (see set_render_scale)
 
     // ── G-Buffer (per frame-in-flight) ─────────────────────────────
     VkRenderPass                             m_gbufferRenderPass = VK_NULL_HANDLE;
@@ -231,7 +249,7 @@ private:
     std::array<GpuImage, PP_MAX_FRAMES>        m_shadowImages{};
     std::array<VkImageView, PP_MAX_FRAMES>     m_shadowViews{};
     std::array<VkFramebuffer, PP_MAX_FRAMES>   m_shadowFramebuffers{};
-    VkSampler                                  m_shadowSampler = VK_NULL_HANDLE;  // compare sampler (hardware PCF)
+    VkSampler                                  m_shadowSampler   = VK_NULL_HANDLE;  // compare sampler (hardware PCF)
     VkDescriptorSetLayout                      m_shadowTexLayout = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, PP_MAX_FRAMES> m_shadowSets{};
 
@@ -275,14 +293,19 @@ private:
     VkImageView   m_ssrView = VK_NULL_HANDLE;
     VkFramebuffer m_ssrFB   = VK_NULL_HANDLE;
 
+    // ── God-rays image (1/2 render extent, R16G16B16A16_SFLOAT) ───
+    GpuImage      m_godraysImage;
+    VkImageView   m_godraysView = VK_NULL_HANDLE;
+    VkFramebuffer m_godraysFB   = VK_NULL_HANDLE;
+
     // ── Auto-exposure luminance pyramid (fixed 128², full mip chain to 1×1) ──
     // The HDR is blit into mip 0 then box-downsampled (LINEAR blits) to 1×1 =
     // average colour; that texel is copied to a per-frame host buffer the CPU
     // reads (previous frame, no stall) to drive the composite exposure. Same
     // format as the HDR so the blit needs no format conversion (MoltenVK-safe).
-    static constexpr uint32_t kLumDim  = 128;
-    static constexpr uint32_t kLumMips = 8;  // 128,64,32,16,8,4,2,1
-    GpuImage                  m_lumImage;
+    static constexpr uint32_t            kLumDim  = 128;
+    static constexpr uint32_t            kLumMips = 8;  // 128,64,32,16,8,4,2,1
+    GpuImage                             m_lumImage;
     std::array<GpuBuffer, PP_MAX_FRAMES> m_lumReadback{};  // host-readable 1px (RGBA16F = 8 B)
 
     // ── Composite framebuffers (one per swapchain image) ─────────
@@ -303,11 +326,14 @@ private:
     VkPipeline m_ssaoPipeline         = VK_NULL_HANDLE;  // SSAO (depth → AO)
     VkPipeline m_aoBlurPipeline       = VK_NULL_HANDLE;  // bilateral AO blur
     VkPipeline m_ssrPipeline          = VK_NULL_HANDLE;  // screen-space reflections
+    VkPipeline m_godraysPipeline      = VK_NULL_HANDLE;  // god-rays (screen-space light shafts)
     // SSAO/SSR read a mat4×2 + params push block (144 B) that doesn't fit the shared
     // 32-B postprocess layout, so they need their own layouts.
     VkPipelineLayout m_ssaoLayout = VK_NULL_HANDLE;
     // SSR layout: set 0 = G-buffer (lightingTexLayout), set 1 = HDR (singleTexLayout) + 144-B push.
     VkPipelineLayout m_ssrLayout = VK_NULL_HANDLE;
+    // God-rays layout: set 0 = G-buffer (lightingTexLayout), set 1 = HDR (singleTexLayout) + 32-B push.
+    VkPipelineLayout m_godraysLayout = VK_NULL_HANDLE;
 
     // ── Descriptor pool + sets ───────────────────────────────────
     VkDescriptorPool                           m_descriptorPool  = VK_NULL_HANDLE;
@@ -315,8 +341,9 @@ private:
     VkDescriptorSet                            m_bloomBlurHSet   = VK_NULL_HANDLE;
     VkDescriptorSet                            m_bloomBlurVSet   = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, PP_MAX_FRAMES> m_aoSets{};  // per-frame: samples that frame's depth
-    VkDescriptorSet                            m_aoBlurSet       = VK_NULL_HANDLE;
-    std::array<VkDescriptorSet, PP_MAX_FRAMES> m_ssrHdrSets{};  // per-frame: SSR samples that frame's lit HDR
+    VkDescriptorSet                            m_aoBlurSet = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, PP_MAX_FRAMES> m_ssrHdrSets{};      // per-frame: SSR samples that frame's lit HDR
+    std::array<VkDescriptorSet, PP_MAX_FRAMES> m_godraysHdrSets{};  // per-frame: god-rays samples that frame's lit HDR
     std::array<VkDescriptorSet, PP_MAX_FRAMES> m_compositeSets{};
 
     // ── Private helpers ──────────────────────────────────────────

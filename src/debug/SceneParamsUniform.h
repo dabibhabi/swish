@@ -29,7 +29,7 @@ struct SceneParamsUBO {
     glm::vec4 fogColor;            // rgb (w unused)
     glm::vec4 fogParams;           // x=dist63 y=max z=envGlossExp (w unused)
     glm::vec4 shadowParams;        // x=bias y=floor (zw unused)
-    glm::vec4 wetParams;           // x=porosity y=roughnessCollapse (zw unused)
+    glm::vec4 wetParams;           // x=porosity y=roughnessCollapse z=puddleCoverage (w unused)
     glm::vec4 iblParams;           // x=diffuse intensity y=specular intensity (zw unused)
 };
 static_assert(sizeof(SceneParamsUBO) == 10 * 16, "SceneParamsUBO must stay 16-aligned vec4 rows");

@@ -185,9 +185,19 @@ Mat4 Camera::get_view_matrix() const {
     return glm::lookAt(m_position, m_position + get_forward(), m_up);
 }
 
-Mat4 Camera::get_projection_matrix() const {
+Mat4 Camera::get_projection_matrix_unjittered() const {
     Mat4 proj = glm::perspective(glm::radians(m_fov), m_aspect, m_near, m_far);
     proj[1][1] *= -1.0f;  // Vulkan clip space Y is inverted vs OpenGL
+    return proj;
+}
+
+Mat4 Camera::get_projection_matrix() const {
+    // Sub-pixel TAA jitter as a clip-space translation on XY (0 unless TAA sets it,
+    // so SSAA / release paths get the exact unjittered matrix). Applied uniformly so
+    // depth + every reconstruction that uses this proj stay self-consistent per frame.
+    Mat4 proj = get_projection_matrix_unjittered();
+    proj[2][0] += m_jitter.x;
+    proj[2][1] += m_jitter.y;
     return proj;
 }
 

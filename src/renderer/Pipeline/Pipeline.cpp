@@ -180,6 +180,28 @@ VkPipelineLayout Pipeline::createLayout(VkDevice device, const std::vector<VkDes
     return layout;
 }
 
+VkPipeline Pipeline::createCompute(VkDevice device, const std::string& compShaderPath, VkPipelineLayout layout) {
+    auto           code = FileIO::readBinaryFile(compShaderPath);
+    VkShaderModule mod  = createShaderModule(device, code);
+
+    VkPipelineShaderStageCreateInfo stage{};
+    stage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stage.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
+    stage.module = mod;
+    stage.pName  = "main";
+
+    VkComputePipelineCreateInfo info{};
+    info.sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    info.stage  = stage;
+    info.layout = layout;
+
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    VK_CHECK(vkCreateComputePipelines(device, s_pipelineCache, 1, &info, nullptr, &pipeline));
+
+    vkDestroyShaderModule(device, mod, nullptr);
+    return pipeline;
+}
+
 VkShaderModule Pipeline::createShaderModule(VkDevice device, const std::vector<char>& code) {
     VkShaderModuleCreateInfo createInfo{};
     createInfo.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;

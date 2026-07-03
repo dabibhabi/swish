@@ -26,15 +26,15 @@ struct DebugParams {
     // When on, the composite exposure is driven by the smoothed scene luminance
     // (exposure = aeKey / adaptedLum, clamped) instead of the manual value above.
     bool  autoExposure = false;
-    float aeKey        = 0.30f;   // target mid-grey the average maps toward
-    float aeSpeed      = 2.0f;    // adaptation rate (per second)
-    float aeMin        = 0.05f;   // exposure clamp (min)
-    float aeMax        = 2.0f;    // exposure clamp (max)
-    float brightness     = 0.0f;   // post-grade lift   [-1, 1]
-    float contrast       = 1.0f;   // post-grade contrast around 0.5
-    float saturation     = 1.0f;   // 0 = greyscale, 1 = neutral
-    float temperature    = 0.0f;   // warm/cool shift   [-1, 1]
-    float tint           = 0.0f;   // green/magenta shift [-1, 1]
+    float aeKey        = 0.30f;  // target mid-grey the average maps toward
+    float aeSpeed      = 2.0f;   // adaptation rate (per second)
+    float aeMin        = 0.05f;  // exposure clamp (min)
+    float aeMax        = 2.0f;   // exposure clamp (max)
+    float brightness   = 0.0f;   // post-grade lift   [-1, 1]
+    float contrast     = 1.0f;   // post-grade contrast around 0.5
+    float saturation   = 1.0f;   // 0 = greyscale, 1 = neutral
+    float temperature  = 0.0f;   // warm/cool shift   [-1, 1]
+    float tint         = 0.0f;   // green/magenta shift [-1, 1]
 
     // ── Sky (gradient endpoints lerped by `clarity`; sun disc) ────────
     glm::vec3 skyHorizonOvercast{0.70f, 0.80f, 0.90f};
@@ -78,6 +78,17 @@ struct DebugParams {
     float ssrStride    = 2500.0f;    // initial march step (WU)
     float ssrIntensity = 0.6f;       // reflection strength
 
+    // ── God-rays (screen-space light shafts, Mitchell 2007) ───────────
+    // Sun-anchored radial blur of the lit HDR, added at composite. UN-gated in the
+    // renderer (ships in release); these defaults ARE the release look — the record
+    // path reads them via a default-constructed DebugParams when SWISH_DEBUG_UI is off,
+    // so the debug defaults and the shipped literals are the same source of truth.
+    bool  godraysEnabled  = true;
+    float godrayDensity   = 0.9f;   // how far the samples span toward the sun (0..1)
+    float godrayDecay     = 0.95f;  // per-step attenuation along the march
+    float godrayWeight    = 0.35f;  // per-sample weight
+    float godrayIntensity = 0.04f;  // overall additive strength (gain ≈ weight×Σdecayⁱ is large)
+
     // ── SSAO (screen-space ambient occlusion) ─────────────────────────
     // Runs at 1/2 render res, multiplied into the composite. radius/bias are in
     // view-space world units (1 m = 1000 WU); tune live toward subtle contact
@@ -88,24 +99,40 @@ struct DebugParams {
     float ssaoIntensity = 1.0f;     // occlusion strength multiplier
 
     // ── Shadows (single sun shadow map + depth bias) ──────────────────
-    float shadowBias        = 0.0018f;    // slope-scaled shadow-compare bias
-    float shadowFloor       = 0.25f;      // min visibility in full shadow
-    float shadowHalfExtent  = 45000.0f;   // (legacy single-map; unused by CSM)
-    float shadowDepthRange  = 200000.0f;  // (legacy single-map; unused by CSM)
-    float depthBiasConst    = 4.0f;       // vkCmdSetDepthBias constant factor
-    float depthBiasSlope    = 1.5f;       // vkCmdSetDepthBias slope factor
+    float shadowBias       = 0.0018f;    // slope-scaled shadow-compare bias
+    float shadowFloor      = 0.25f;      // min visibility in full shadow
+    float shadowHalfExtent = 45000.0f;   // (legacy single-map; unused by CSM)
+    float shadowDepthRange = 200000.0f;  // (legacy single-map; unused by CSM)
+    float depthBiasConst   = 4.0f;       // vkCmdSetDepthBias constant factor
+    float depthBiasSlope   = 1.5f;       // vkCmdSetDepthBias slope factor
     // ── CSM (cascaded shadow maps) ────────────────────────────────────
-    float csmShadowFar      = 400000.0f;  // furthest distance shadows are cast (WU ≈ 400 m)
-    float csmLambda         = 0.7f;       // split blend: 0 = uniform, 1 = logarithmic
+    float csmShadowFar = 400000.0f;  // furthest distance shadows are cast (WU ≈ 400 m)
+    float csmLambda    = 0.7f;       // split blend: 0 = uniform, 1 = logarithmic
 
     // ── Wet / rain ────────────────────────────────────────────────────
-    float rainIntensity = 0.0f;    // [0, 1] rain amount (drives haze + wetness)
-    float wetPorosity   = 0.35f;   // how much water darkens/soaks the surface
-    float wetRoughness  = 0.12f;   // roughness of wet (specular) surfaces
-    float streakLen     = 3200.0f; // windshield / surface streak length
+    float rainIntensity = 0.0f;     // [0, 1] rain amount (drives haze + wetness)
+    float wetPorosity   = 0.35f;    // how much water darkens/soaks the surface
+    float wetRoughness  = 0.12f;    // roughness of wet (specular) surfaces
+    float streakLen     = 3200.0f;  // windshield / surface streak length
+
+    // ── Puddles (W9 — road-gated standing water; ships, but dry release = off) ──
+    // A world-space procedural pool mask on the asphalt (gbMaterial.a road tag) that
+    // locally saturates the wet model to a mirror, reflecting the sky (IBL) and — in
+    // debug — the scene (SSR). Faded in with wetness, so only shows when raining.
+    bool  puddlesEnabled = true;
+    float puddleCoverage = 0.5f;  // [0, 1] fraction of road that pools water
+
+    // ── Road spray (W9 — GPU compute particles behind the car) ──────────
+    // Additive mist kicked up off a wet road at speed. Emission is gated by
+    // wetness × speed, so a dry road (and the release build) shows nothing.
+    bool  sprayEnabled  = true;
+    float sprayDensity  = 0.35f;   // per-dead-particle respawn chance at full wetness × speed
+    float sprayLifetime = 1.4f;    // particle lifetime (s)
+    float spraySize     = 700.0f;  // billboard size (WU ≈ 0.7 m)
+    float sprayOpacity  = 0.12f;   // additive strength
 
     // ── Car (paint override for tuning) ───────────────────────────────
-    float     carMetalness    = 0.0f;
+    float     carMetalness = 0.0f;
     glm::vec3 carPaint{1.0f, 1.0f, 1.0f};
     float     carRoughnessMul = 1.0f;
     bool      carOverride     = false;  // when true, use the above instead of the asset's material
@@ -117,8 +144,17 @@ struct DebugParams {
     int              matEditSlot = MAT_CAR_0;
 
     // ── Quality ───────────────────────────────────────────────────────
-    float ssaaScale          = 1.5f;    // internal supersample factor (matches PostProcessManager::kRenderScale)
-    bool  ssaaApplyRequested = false;   // set by the UI "Apply" button; Renderer consumes + clears it
+    float ssaaScale          = 1.5f;   // internal supersample factor (matches PostProcessManager::kRenderScale)
+    bool  ssaaApplyRequested = false;  // set by the UI "Apply" button; Renderer consumes + clears it
+
+    // ── TAA + motion blur (W9 — debug-only alternative to SSAA) ────────
+    // Reprojection TAA with per-frame sub-pixel jitter + neighborhood clamp. Off by
+    // default → the frame is identical to today until toggled. SSAA remains the
+    // shipped release AA; flip taaEnabled (+ drop SSAA scale to 1.0) to trial TAA.
+    bool  taaEnabled       = false;
+    float taaHistoryBlend  = 0.9f;   // reprojected-history weight [0, 1]
+    bool  motionBlurEnabled = false;
+    float motionBlurScale  = 1.0f;   // velocity smear strength
 
     // ── Sun-direction gizmo (ImGuizmo rotate handle) ──────────────────
     // When on (and in edit mode), a rotate gizmo at the origin orients the sun.
@@ -131,15 +167,15 @@ struct DebugParams {
     // steerOverride (edit mode) poses the wheel from steerAngleDeg instead of the
     // sim. steerPivotWorld is written by App each frame so the gizmo sits on the
     // wheel; showSteerGizmo draws the rotate handle. steerMaxDeg mirrors the lock.
-    bool      showSteerGizmo = false;
-    bool      steerOverride  = false;
-    float     steerAngleDeg  = 0.0f;
-    float     steerMaxDeg    = 35.0f;
+    bool      showSteerGizmo  = false;
+    bool      steerOverride   = false;
+    float     steerAngleDeg   = 0.0f;
+    float     steerMaxDeg     = 35.0f;
     glm::mat4 steerPivotWorld = glm::mat4(1.0f);
     // Spin-axis calibration: edit pitch/yaw/roll OR the raw quaternion (canonical)
     // to reorient how the wheel rotates. steerAxisEdit applies it (edit mode).
     bool      steerAxisEdit = false;
-    glm::vec3 steerEuler{0.0f, 0.0f, 0.0f};   // pitch, yaw, roll (degrees) — slider state
+    glm::vec3 steerEuler{0.0f, 0.0f, 0.0f};       // pitch, yaw, roll (degrees) — slider state
     glm::vec4 steerQuat{0.0f, 0.0f, 0.0f, 1.0f};  // x, y, z, w — quaternion editor (applied)
 
     // ── UI state (not a scene parameter, but lives with the rest) ─────

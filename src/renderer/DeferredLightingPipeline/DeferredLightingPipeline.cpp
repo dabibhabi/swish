@@ -25,9 +25,10 @@ void DeferredLightingPipeline::init(VkDevice device, const Config& cfg) {
     lightPC.offset     = 0;
     lightPC.size       = kLightingPushConstSize;
 
-    std::vector<VkDescriptorSetLayout> setLayouts = {cfg.cameraSetLayout, cfg.gbufferSetLayout, cfg.shadowSetLayout};
+    std::vector<VkDescriptorSetLayout> setLayouts = {cfg.cameraSetLayout, cfg.gbufferSetLayout, cfg.shadowSetLayout,
+                                                     cfg.iblSetLayout};
 #ifdef SWISH_DEBUG_UI
-    setLayouts.push_back(cfg.sceneParamsSetLayout);  // set 3 — live-tunables UBO
+    setLayouts.push_back(cfg.sceneParamsSetLayout);  // set 4 — live-tunables UBO
 #endif
     m_layout = Pipeline::createLayout(device, setLayouts, {lightPC});
 
@@ -49,6 +50,7 @@ void DeferredLightingPipeline::cleanup(VkDevice device) {
 
 void DeferredLightingPipeline::bind_and_record(VkCommandBuffer cmd, VkDescriptorSet cameraSet,
                                                VkDescriptorSet gbufferSet, VkDescriptorSet shadowSet,
+                                               VkDescriptorSet iblSet,
 #ifdef SWISH_DEBUG_UI
                                                VkDescriptorSet sceneParamsSet,
 #endif
@@ -63,8 +65,9 @@ void DeferredLightingPipeline::bind_and_record(VkCommandBuffer cmd, VkDescriptor
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout, 0, 1, &cameraSet, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout, 1, 1, &gbufferSet, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout, 2, 1, &shadowSet, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout, 3, 1, &iblSet, 0, nullptr);
 #ifdef SWISH_DEBUG_UI
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout, 3, 1, &sceneParamsSet, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout, 4, 1, &sceneParamsSet, 0, nullptr);
 #endif
 
     LightingPushConstants pc{invView, invProj};

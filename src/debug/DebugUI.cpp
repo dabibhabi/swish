@@ -472,6 +472,15 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::SliderFloat("Stride (WU)", &p.ssrStride, 200.0f, 10000.0f, "%.0f");
         }
 
+        // ── God Rays (screen-space light shafts) ──────────────────────
+        if (ImGui::CollapsingHeader("God Rays")) {
+            ImGui::Checkbox("Enabled##godrays", &p.godraysEnabled);
+            ImGui::SliderFloat("Density##godrays", &p.godrayDensity, 0.0f, 1.5f);
+            ImGui::SliderFloat("Decay##godrays", &p.godrayDecay, 0.80f, 1.0f);
+            ImGui::SliderFloat("Weight##godrays", &p.godrayWeight, 0.0f, 2.0f);
+            ImGui::SliderFloat("Intensity##godrays", &p.godrayIntensity, 0.0f, 2.0f);
+        }
+
         // ── SSAO ──────────────────────────────────────────────────────
         if (ImGui::CollapsingHeader("SSAO")) {
             ImGui::Checkbox("Enabled", &p.ssaoEnabled);
@@ -496,6 +505,14 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::SliderFloat("Wet porosity", &p.wetPorosity, 0.0f, 1.0f);
             ImGui::SliderFloat("Wet roughness", &p.wetRoughness, 0.0f, 1.0f);
             ImGui::SliderFloat("Streak length", &p.streakLen, 0.0f, 10000.0f, "%.0f");
+            ImGui::Checkbox("Puddles##puddle", &p.puddlesEnabled);
+            ImGui::SliderFloat("Puddle coverage", &p.puddleCoverage, 0.0f, 1.0f);
+            ImGui::Separator();
+            ImGui::Checkbox("Road spray##spray", &p.sprayEnabled);
+            ImGui::SliderFloat("Spray density", &p.sprayDensity, 0.0f, 1.0f);
+            ImGui::SliderFloat("Spray lifetime (s)", &p.sprayLifetime, 0.2f, 4.0f);
+            ImGui::SliderFloat("Spray size (WU)", &p.spraySize, 100.0f, 3000.0f, "%.0f");
+            ImGui::SliderFloat("Spray opacity", &p.sprayOpacity, 0.0f, 1.0f);
         }
 
         // ── Materials (per-submesh / per-material-slot editor) ────────
@@ -533,6 +550,25 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::SliderFloat("SSAA scale", &p.ssaaScale, 1.0f, 2.0f);
             if (ImGui::Button("Apply SSAA"))
                 p.ssaaApplyRequested = true;
+            ImGui::Separator();
+            ImGui::TextDisabled("TAA (alternative to SSAA — drop SSAA to 1.0 to compare)");
+            ImGui::Checkbox("TAA##taa", &p.taaEnabled);
+            ImGui::SliderFloat("History blend", &p.taaHistoryBlend, 0.0f, 0.98f);
+            ImGui::Checkbox("Motion blur##taa", &p.motionBlurEnabled);
+            ImGui::SliderFloat("Motion blur scale", &p.motionBlurScale, 0.0f, 4.0f);
+            // One-click 60fps AA path: native render scale + TAA (cheap AA instead of
+            // 2.25× supersampling). Re-applies the render scale immediately.
+            if (ImGui::Button("Perf: native + TAA")) {
+                p.ssaaScale          = 1.0f;
+                p.taaEnabled         = true;
+                p.ssaaApplyRequested = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Quality: 1.5x SSAA")) {
+                p.ssaaScale          = 1.5f;
+                p.taaEnabled         = false;
+                p.ssaaApplyRequested = true;
+            }
         }
 
         ImGui::End();

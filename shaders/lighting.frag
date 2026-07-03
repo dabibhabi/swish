@@ -39,9 +39,20 @@ layout(set = 1, binding = 1) uniform sampler2D gbNormal;
 layout(set = 1, binding = 2) uniform sampler2D gbMaterial;
 layout(set = 1, binding = 3) uniform sampler2D gbDepth;
 
-// ── Sun shadow map (set 2) — single non-cascaded. PLAIN sampler2D + manual
-//    compare: MoltenVK's portability subset has no comparison samplers. ──
+// ── Sun shadow map (set 2) — CSM atlas of NUM_CASCADES horizontal slices.
+//    PLAIN sampler2D + manual PCF compare: MoltenVK's portability subset has
+//    no comparison samplers (no sampler2DShadow). ──
 layout(set = 2, binding = 0) uniform sampler2D shadowMap;
+
+// ── IBL: prefiltered environment baked from the procedural sky (set 3) ──
+// irradiance = diffuse hemisphere convolution; prefiltered = GGX specular with
+// roughness mips; brdfLUT = split-sum scale+bias. Baked by IBLManager; present in
+// BOTH builds (release included), so the set index is fixed here regardless of the
+// debug scene-params UBO (which moves to set 4 when SWISH_DEBUG_UI is on).
+layout(set = 3, binding = 0) uniform samplerCube irradianceMap;
+layout(set = 3, binding = 1) uniform samplerCube prefilteredMap;
+layout(set = 3, binding = 2) uniform sampler2D   brdfLUT;
+#define IBL_PREFILTER_MAX_MIP 4.0  // kPrefilterMips - 1
 
 // ── Push constants: inverse matrices for position reconstruction ──
 layout(push_constant) uniform LightingPC {
@@ -61,7 +72,7 @@ const float PI = 3.14159265359;
 // output is byte-for-byte unchanged (no set 3, no extra binding). The rest
 // of the shader reads them through the SP_* macros regardless of build.
 #ifdef SWISH_DEBUG_UI
-layout(set = 3, binding = 0) uniform SceneParamsUBO {
+layout(set = 4, binding = 0) uniform SceneParamsUBO {
     vec4 skyHorizonOvercast;  // rgb
     vec4 skyHorizonClear;     // rgb
     vec4 skyZenithOvercast;   // rgb
@@ -89,6 +100,7 @@ layout(set = 3, binding = 0) uniform SceneParamsUBO {
 #define SP_SHADOW_FLOOR         sp.shadowParams.y
 #define SP_WET_POROSITY         sp.wetParams.x
 #define SP_WET_ROUGHNESS        sp.wetParams.y
+#define SP_PUDDLE_COVERAGE      sp.wetParams.z
 #define SP_IBL_DIFFUSE          sp.iblParams.x
 #define SP_IBL_SPECULAR         sp.iblParams.y
 #else
@@ -112,6 +124,7 @@ layout(set = 3, binding = 0) uniform SceneParamsUBO {
 #define SP_SHADOW_FLOOR         0.25
 #define SP_WET_POROSITY         0.35
 #define SP_WET_ROUGHNESS        0.12
+#define SP_PUDDLE_COVERAGE      0.0  // release ships dry (no puddles) → byte-identical
 #define SP_IBL_DIFFUSE          1.0
 #define SP_IBL_SPECULAR         1.0
 #endif
@@ -167,6 +180,29 @@ vec2 envBRDFApprox(float NoV, float rough) {
     return vec2(-1.04, 1.04) * a004 + r.zw;
 }
 
+// ── Procedural road puddles (W9) ───────────────────────────────────
+// Static low-frequency water pools evaluated in WORLD space (so they stay put as
+// the camera moves). `coverage` raises the water level — more coverage lowers the
+// threshold → bigger pools. Gated to the road tag (gbMaterial.a, written by
+// gbuffer.frag from MAT_ASPHALT) so grass/barriers/car never turn to mirrors.
+// Inside a pool the existing wet model collapses roughness + flattens the normal,
+// so the prefiltered-sky IBL reflection resolves as a coherent puddle mirror.
+// Zero in release (SP_PUDDLE_COVERAGE literal is 0) → byte-identical.
+float puddleHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float puddleNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = puddleHash(i),               b = puddleHash(i + vec2(1.0, 0.0));
+    float c = puddleHash(i + vec2(0.0, 1.0)), d = puddleHash(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+float puddleAmount(vec2 worldXZ, float coverage, float road) {
+    if (coverage <= 0.0 || road < 0.5) return 0.0;
+    vec2  p = worldXZ * 0.00013;  // ~7.7 m puddle cells (1 m = 1000 WU)
+    float n = puddleNoise(p) * 0.65 + puddleNoise(p * 2.7 + 11.0) * 0.35;
+    return smoothstep(1.0 - coverage, 1.0 - coverage + 0.12, n);  // soft shoreline
+}
+
 void main() {
     // ── Read G-Buffer ─────────────────────────────────────────────
     vec3  albedo    = texture(gbAlbedo, fragUV).rgb;
@@ -193,10 +229,20 @@ void main() {
     float metallic  = material.r;
     float roughness = material.g;
     float wettable  = material.b;  // 1 = rain-exposed (road/body), 0 = enclosed cabin
+    float road      = material.a;  // 1 = asphalt (road tag) — drives puddles
+
+    // World position (needed early for the world-space puddle mask; reused below).
+    vec3 fragWorldPos = reconstructWorldPos(fragUV, depth);
+
+    // Road puddles: patchy pools where standing water saturates the asphalt to a
+    // mirror. Faded in with wetness so a dry road never pools; zero in release.
+    float puddle = puddleAmount(fragWorldPos.xz, SP_PUDDLE_COVERAGE, road)
+                 * smoothstep(0.05, 0.5, wetness);
 
     // Wet-weather effects apply only to rain-exposed surfaces. The enclosed car
     // cabin stays dry (wettable = 0 → wetLocal = 0), so rain never washes it out.
-    float wetLocal = wetness * wettable;
+    // A puddle locally saturates the surface regardless of the global rain amount.
+    float wetLocal = max(wetness * wettable, puddle);
 
     // ── Wet-surface model (P0 #9) ─────────────────────────────────────
     // As water accumulates (wetLocal ∝ rain rate R, gated by exposure): diffuse
@@ -210,14 +256,17 @@ void main() {
     albedo          = mix(albedo, wetAlbedo, wetLocal);
 
     roughness = mix(roughness, roughness * SP_WET_ROUGHNESS, wetLocal);  // toward near-mirror, scaled by water
+    // Standing water is a near-perfect mirror regardless of the asphalt beneath, so
+    // collapse roughness further inside a pool (independent of the wet-film scale).
+    roughness = mix(roughness, 0.04, puddle);
     roughness = clamp(roughness, 0.02, 1.0);
 
-    // Flatten micro-normal toward the geometric plane on up-facing surfaces.
+    // Flatten micro-normal toward the geometric plane on up-facing surfaces; a
+    // puddle surface is flatter still (a calm water plane), so it flattens harder.
     float upFacing = clamp(N.y, 0.0, 1.0);
-    N = normalize(mix(N, vec3(0.0, 1.0, 0.0), wetLocal * upFacing * 0.6));
+    float flatten  = max(wetLocal * upFacing * 0.6, puddle * upFacing * 0.95);
+    N = normalize(mix(N, vec3(0.0, 1.0, 0.0), flatten));
 
-    // Reconstruct world position from depth
-    vec3 fragWorldPos = reconstructWorldPos(fragUV, depth);
     vec3 V = normalize(camera.camPos.xyz - fragWorldPos);
     float NdotV = max(dot(N, V), 0.001);
 
@@ -305,25 +354,24 @@ void main() {
     // because metals have no diffuse (their env response is the specular term).
     float ambient      = camera.sunColor.a;
     vec3  sun_radiance = camera.sunColor.rgb;
-    vec3  skyIrr       = skyIrradiance(N);
+    vec3  skyIrr       = texture(irradianceMap, N).rgb;  // baked-sky diffuse irradiance (set 3)
     vec3  ambientIrr   = sun_radiance + skyIrr * SP_IBL_DIFFUSE;
     // Sun (direct) term is shadowed; ambient/sky fill is not (see sunShadow above).
     vec3  sun_term  = (kD * albedo / PI + specular_sun) * NdotL * sun_radiance;
     vec3  lit_color = albedo * ambient * ambientIrr * (1.0 - metallic * 0.5)
                    + sun_term * sunShadow;
 
-    // ── Specular IBL: prefiltered sky reflection × split-sum env BRDF ──
-    // The dominant "Blender gloss" cue: surfaces mirror the environment. With no
-    // cubemap, reflect the procedural sky and approximate a roughness prefilter by
-    // blurring toward the low-frequency sky irradiance as roughness rises (glossy
-    // paint → sharp sky, rough asphalt → soft ambient). The Karis env-BRDF then
-    // weights it energy-conservingly (grazing rims brighten; matte cabin barely
-    // reflects, so the interior isn't frosted). Reuses the overcast greying.
+    // ── Specular IBL: GGX-prefiltered environment × split-sum BRDF LUT ──
+    // The dominant "Blender gloss" cue: surfaces mirror the environment. The
+    // reflection vector samples the prefiltered cubemap (baked from the procedural
+    // sky) at a mip chosen by roughness — glossy paint → sharp mip 0, rough asphalt
+    // → blurred high mip. The baked BRDF LUT supplies the split-sum scale+bias so it
+    // stays energy-conserving (grazing rims brighten; matte cabin barely reflects).
+    // Reuses the overcast greying via the wetness dim.
     vec3  R          = reflect(-V, N);
-    vec3  envSharp   = compute_sky_color(R);
-    vec3  envColor   = mix(envSharp, skyIrr, roughness);           // cheap prefilter
+    vec3  envColor   = textureLod(prefilteredMap, R, roughness * IBL_PREFILTER_MAX_MIP).rgb;
     envColor         = mix(envColor, envColor * (1.0 - wetness * 0.45), wetness * 0.9);
-    vec2  envBRDF    = envBRDFApprox(NdotV, roughness);
+    vec2  envBRDF    = texture(brdfLUT, vec2(NdotV, roughness)).rg;
     lit_color       += envColor * (F0 * envBRDF.x + envBRDF.y) * SP_IBL_SPECULAR;
 
     // ── Point light accumulation ──────────────────────────────────

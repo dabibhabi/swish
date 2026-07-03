@@ -1,3 +1,81 @@
+# 🎬 Wow-factor weighting — calibrated to the UE reference (2026-07-02)
+
+Reference: four Unreal Engine cinematic stills the user supplied as the visual bar (black 911 GT3 R,
+city / wet-industrial streets). **Weight = pure visual wow toward *that* look (1–10), NOT effort.**
+Effort + status sit alongside so ROI ≈ weight ÷ effort is legible. Cues that recur across all four
+frames, strongest first: **DOF/bokeh → mirror-gloss paint reflecting a real environment → wet puddle
+reflections → motion blur → dense environment + GI → atmosphere/haze + volumetric shafts → bloom +
+cinematic grade/vignette/grain → clean temporal AA.**
+
+**Honest read:** these shots are ~half *cinematic camera + post* (DOF, motion blur, bloom, grade) and
+~half *environment richness + GI*. Swish's **materials** are already close (wet PBR · IBL · SSR landed);
+the biggest deltas to this bar are **DOF, motion blur + TAA, real HDRI reflections, environment density +
+GI, and the post stack** — NOT another BRDF tweak. So the weights below deliberately float **C9 DOF and
+HDRI IBL to the top**, and rate environment/GI (B3 + new H1) high — a bare road with lamps will never read
+as a dense city block on shaders alone.
+
+| W | Item (code) | Reference cue it delivers | Effort | Status |
+|---|---|---|---|---|
+| 10 | **Real HDRI IBL** | mirror paint reflects a *real* environment (buildings/trees) | L | deferred |
+| 10 | **Circular-bokeh DOF** (C9) | the #1 visible cue — foreground+background melt in all 4 | M | planned |
+| 9 | **Puddles + reflections** (deferred) | standing water throwing the scene back | L | deferred |
+| 9 | **Motion blur + velocity buffer** (C7 / deferred) | the chase-frame signature | L | deferred |
+| 8 | **TAA** (temporal AA) | shimmer-free AAA edges; substrate for clean SSR/SSAO | L | deferred |
+| 8 | **GI approximation** (H1, NEW) | bounce light, filled shadows, dappled tree light | L | NEW |
+| 8 | **Environment density + decals** (B3) | trees / clutter / props → "a real place" | M | planned |
+| 8 | **Froxel volumetric fog + headlight cones** (C4) | backlit shafts, rainy-night air | L | planned |
+| 8 | **SSR on wet road** (C5) | on-screen lamps/geo mirrored in asphalt | — | ✓ landed |
+| 8 | **Layered wet BRDF** (E3) | asphalt reads genuinely wet, not just shiny | M | planned |
+| 7 | **God-rays / light shafts** (deferred) | backlit sun/fire shafts (frame 1) | M | deferred |
+| 7 | **Karis bloom pyramid** (C2) | glowing taillights / fire / bright sky | S | planned |
+| 7 | **Height fog** (D1) | aerial perspective down the street | S | planned |
+| 7 | **Vignette + film grain** (F2) | "shot on a lens" cinematic layer | S | planned |
+| 7 | **Soft shadows / PCSS** (shadow polish) | soft grounded contact shadows | M | planned |
+| 6 | **Sun-tinted airlight** (D2) | directional glow through haze | S | planned |
+| 6 | **FOV kick + camera shake** (F1) | speed *feel* in motion | S | planned |
+| 6 | **LOD impostors** (B2) | dense skyline without a frame-time hit | M | planned |
+| 6 | **Puddle ripple normals** (E4) | animated concentric ripples on puddles | S | planned |
+| 5 | **Filmic grade / auto-exposure** | exposure balance sky ↔ street | — | ✓ landed |
+| 5 | **Analytic sky** Preetham/Hošek (D3) | coupled sky+sun+fog colour from one knob | M | planned |
+| 5 | **Fresnel-bounded sheen** (E2) | fixes the over-exposed far road | S | planned |
+| 5 | **Multiscatter GGX** (E1) | rough wet keeps energy, not muddy | S | planned |
+| 5 | **Curved centerline** (B1) | road geometry reads as a real place | M | planned |
+| 5 | **Wet BRDF (C1) · SSAO · CSM** | wet road · contact AO · crisp shadows | — | ✓ landed |
+| 4 | **Blue-noise dithering** (G1) | de-banded gradients / clean screen-space | S | planned |
+| 4 | **Mesopic night look** (C8) | night read (refs are mostly day) | S | planned |
+| 4 | **Light-coupled streaks (A1) · windshield optics (R-P1-3)** | rain interacts with lamps | M | planned |
+| 3 | **Clustered light culling** (C6) | invisible enabler for many lamps | L | planned |
+| 3 | **Halton (G2) · temporal upsample (G3) · network refactor (B4)** | sampling + perf plumbing | var | planned |
+| 2 | **Smoothing helper** (F3) | infra for F1 / weather / wiper transitions | S | planned |
+
+Effort: **S** = shader/post tweak · **M** = new pass/system · **L** = multi-pass / asset / compute.
+
+### If the goal is literally *these four frames*, build in this order
+**C9 DOF → HDRI IBL → C7 motion blur + TAA → C4 volumetrics / D1 height fog → C2 bloom + F2 vignette/grain
+→ B3 + H1 environment/GI.** This front-loads the cues the eye reads first (DOF, reflections, motion,
+atmosphere, post) before the subtler PBR/energy items — which is where "quality and how it looks" in the
+reference actually comes from. (This table is the authoritative per-item weight — every roadmap item
+below is a row here; the deferred features and the newest Tracks D–H are additionally tagged inline as `[W#]`.)
+
+## ▶ Recommended next batch — cheap-wow-first (2026-07-02)
+
+Curated from the weight table, tiered by ROI. **Bank the cheap 50% before the expensive 50%.** The math
++ algorithms behind each are in [`docs/learning-path.md`](../docs/learning-path.md).
+
+**Tier 1 — very achievable now (cheap, high wow):**
+- [ ] **DOF / bokeh** (C9, W10) — pure composite pass; the single biggest visible win. The blurred
+      foreground / soft skyline *is* the reference look.
+- [ ] **Bloom pyramid + vignette + film grain** (C2 / F2, W7) — shader/post only; the "shot on a lens" layer.
+- [ ] **Height fog + sun-tinted airlight** (D1 / D2, W6–7) — one closed-form eval in `lighting.frag`; instant atmospheric depth.
+- [ ] **Fresnel-bounded sheen** (E2) — small fix that *also* cures the over-exposed far road.
+
+**Tier 2 — worth it, but real work:**
+- [ ] **Real HDRI IBL** (W10) — reuse the existing IBL hooks; paint reflects a real place instead of a gradient. Medium effort, huge payoff.
+- [ ] **Motion blur + TAA** (C7, W9) — needs a velocity buffer + history. Do after DOF.
+- [ ] **Froxel volumetrics** (C4, W8) — the rainy-night shafts; wants clustered light culling first.
+
+---
+
 # ACTIVE — "Blender-look" realism pass (2026-07-01)
 
 Goal: close the gap to Blender Material-Preview realism on the glossy black 911. Root cue is
@@ -34,7 +112,7 @@ self-shadows cabin — the real fix; MoltenVK has no compare samplers so manual 
 reflections show on the wet road; shadows are weather-independent. NOT committed (awaiting user).
 Tunables if further taste passes wanted: exposure 0.45, SSAA scale 1.5, shadow bias/frustum, reflection
 strength.
-- [ ] **4. Supersampling (SSAA)** — render offscreen chain at scale×, composite downsamples.
+- [x] **4. Supersampling (SSAA)** — render offscreen chain at scale×, composite downsamples.
 
 Rules: full-execution (user-authorized for Swish); CHANGELOG per feature; verify each (build, ctest
 52/52, validation-clean) before next; update Obsidian RFI note (G-P1-2/G-P0-3/G-P1-3) when landed.
@@ -42,15 +120,37 @@ Rules: full-execution (user-authorized for Swish); CHANGELOG per feature; verify
 ## Deferred — big GPU features (paused 2026-07-02, user requested, do 1 per turn)
 
 All debug-UI tunable + release-safe like the landed realism features. Order = ROI/effort.
-- [ ] **God-rays / volumetric light shafts** — sun screen-pos → occlusion-masked radial-blur pass,
+- [x] **[W7] God-rays / volumetric light shafts** — sun screen-pos → occlusion-masked radial-blur pass,
       composited additively; later froxel volumetric fog. Debug density/decay/weight sliders. (Medium.)
-- [ ] **Real HDRI IBL** — load an `.hdr` equirect → cubemap → irradiance convolution + specular
+      **✓ LANDED 2026-07-03** — `shaders/godrays.frag` half-res radial blur (Mitchell), sky-gated occlusion,
+      added at composite (binding 4). Ships in release (un-gated, defaults density 0.9 / decay 0.95 / weight 0.35 /
+      intensity 0.04) + debug sliders. Build clean both configs · ctest 52/52 · validation-clean · verified.
+      Froxel volumetric fog remains the future upgrade. **The other 3 GPU features below stay paused.**
+- [x] **[W10] Real HDRI IBL** — load an `.hdr` equirect → cubemap → irradiance convolution + specular
       prefilter mips + BRDF LUT → sample via the existing `skyIrradiance`/reflection hooks in
       `lighting.frag`. Needs an `.hdr` asset (or bake the procedural sky into the cubemap). (Large.)
-- [ ] **Puddles + road spray** — screen-space puddle mask reflecting through the existing SSR; GPU
+      **✓ LANDED 2026-07-03** — user chose to **bake the procedural sky** (no `.hdr` asset). New `IBLManager`
+      (env→irradiance→GGX-prefilter→BRDF LUT), sampled in `lighting.frag` set 3 (scene-params UBO → set 4).
+      Baked at init + re-baked on weather change. Ships in release. Build clean both configs · ctest 52/52 ·
+      validation-clean · reflections verified (overcast grey + clear-day blue, coherent). A real `.hdr` asset
+      could later feed the same cubemap hooks. **Puddles+spray and motion-vectors→TAA remain paused.**
+- [x] **[W9] Puddles + road spray** — screen-space puddle mask reflecting through the existing SSR; GPU
       particle spray/mist behind the car (compute). (Large.)
-- [ ] **Motion vectors → TAA + motion blur** — velocity G-buffer target (prev vs cur clip pos),
+      **✓ LANDED 2026-07-03** — puddles: road tag in `gbMaterial.a` + world-space procedural pool mask in
+      `lighting.frag` (rides the wet model → IBL sky mirror) and the `ssr.frag` reflectivity gate (debug).
+      Spray: the renderer's **first compute pipeline** — `Pipeline::createCompute`, a 4096-particle SSBO
+      simulated by `spray_sim.comp`, drawn as additive billboards (`SpraySystem`). Both wetness-gated →
+      dry release byte-identical. Validation-clean, 52/52, spray billboards verified. **Only TAA remains.**
+- [x] **[W9] Motion vectors → TAA + motion blur** — velocity G-buffer target (prev vs cur clip pos),
       history buffer + reproject/neighborhood-clamp TAA (replacing SSAA), per-pixel motion blur. (Largest.)
+      **✓ LANDED 2026-07-03 (debug-gated)** — reprojection TAA (Halton jitter → depth-reproject → 3×3
+      neighborhood-clamp blend) + per-pixel motion blur, as a self-contained `TaaPass` that copies back
+      into HDR (bloom/composite untouched). Motion vectors are derived from depth + prev/cur VP (no
+      velocity G-buffer / push-constant change — MoltenVK-safe). Per user decision **SSAA stays the
+      release default**; TAA is a debug toggle to trial in motion, then flip `taaEnabled` + drop SSAA to
+      1.0 to promote it. Validation-clean, 52/52, static TAA + motion blur verified. **ALL 4 DEFERRED
+      GPU FEATURES NOW COMPLETE.** Follow-up (optional): jittered TAA fully replacing SSAA in release
+      once validated in motion; per-object velocity for correct dynamic-object motion vectors.
 
 Already landed this run (branch `debug-ui`, not pushed): live SSAA · toml presets · SSAO · CSM · IBL ·
 SSR (+roughness gate) · per-material editor · sun gizmo · steering gizmo (+pitch/roll/quat) · auto-exposure.
@@ -92,6 +192,72 @@ Ordered by visual-impact-per-effort, building on what just landed.
 **Software robustness (deferred RFI)**
 - [ ] Exception-safe subsystem destructors (S-P0-2); std140 `static_assert`s; delete dead `glslc_test`
       stub; `VK_CHECK_LOG` for teardown paths.
+
+---
+
+# Wow-factor additions — analytic atmosphere · PBR energy · perceptual polish (2026-07-02)
+
+Brainstorm triage (planning conversation, **nothing started**). Split by *realistic* (physically-based
+light transport) vs *magical* (perceptual tricks that exploit how the eye reads a scene). Cross-refs to
+existing codes are noted so we never double-add: froxel volumetrics = **C4**, clustered culling = **C6**,
+motion blur/velocity buffer = **C7** + Deferred:TAA, Purkinje/mesopic = **C8**, bokeh DOF = **C9**,
+Karis bloom pyramid = **C2**, windshield chromatic aberration = **R-P1-3**, full HDRI IBL = Deferred.
+Everything below is genuinely NEW or an upgrade to a landed feature. All debug-UI tunable + release-safe.
+
+## Track D — Analytic atmosphere & sky (NEW; highest cheap-realism ROI)
+- [ ] **[W7] D1. Height fog** — extend the existing Beer–Lambert fog in `lighting.frag` ($1-e^{-\beta d}$) with
+      exponential altitude falloff so mist pools on the low road and thins upward. Closed-form, one eval/px:
+      $\;\text{fog}=\dfrac{\rho_0\, e^{-k\,h_{cam}}}{k\cos\theta}\bigl(1-e^{-k\,d\cos\theta}\bigr)$. Debug: $\rho_0$, $k$. **Do first — biggest realism-per-line.**
+- [ ] **[W6] D2. Sun-tinted airlight (Henyey–Greenstein)** — tint the fog airlight by $\hat v\!\cdot\!\hat s$ through the
+      HG phase ($g\approx0.3$) so looking toward the sun through mist glows, away stays flat. Cheap analytic
+      precursor to the **C4** froxel volumetrics — makes fog read as volumetric, not a painted veil.
+- [ ] **[W5] D3. Analytic sky (Preetham / Hošek–Wilkie)** — replace the hand-tuned sky gradient with a
+      turbidity-driven model so sky + sun aureole + fog colour all shift *together* from one knob. Debug:
+      turbidity slider. Physically couples with D1/D2 and feeds the existing IBL `skyIrradiance` hook.
+
+## Track E — PBR energy & wet-surface upgrades (fixes the look AND the known over-exposure)
+- [ ] **[W5] E1. Energy-preserving multiscatter GGX (Kulla–Conty)** — a compensation term on the existing GGX
+      spec so rough wet surfaces keep energy and stop going muddy.
+- [ ] **[W5] E2. Fresnel-bounded grazing sheen** — feed the wet grazing sheen through a proper Fresnel-weighted
+      reflectance so horizon brightening is physically bounded, not an unbounded add. **Fixes the
+      over-exposed far road.** Pairs with "reflection ↔ ambient energy rebalance" (Next-plans, above).
+- [ ] **[W8] E3. Layered wet BRDF (water-film clear-coat)** — model wet asphalt as a thin smooth water layer over
+      the rough diffuse base (clear-coat lobe + refracted diffuse) instead of a roughness lerp; darkening +
+      sharp specular fall out of ONE physical param (film thickness). Upgrade to landed wet BRDF / **C1**.
+- [ ] **[W6] E4. Puddle ripple normals** — superpose a few expanding radial sinusoids (Gerstner-style) into a
+      normal map for rain-struck puddles: animated concentric ripples. Sub-item of Deferred:Puddles+spray.
+
+## Track F — Perceptual polish & speed feel (tiny cost, big "feel")
+- [ ] **[W6] F1. FOV kick + camera shake on acceleration** — near-zero cost, the strongest speed cue after motion
+      blur; the sim feels floaty at 200 mph without it. Uses F3 easing. NEW standalone (C7 only notes *budgeting* speed cues).
+- [ ] **[W7] F2. Vignette + animated film grain** — a gentle vignette + subtle animated grain on top of the
+      existing AgX → "captured through a lens" cinematic quality. Composite-pass, debug-toggleable.
+- [ ] **[W2] F3. Framerate-independent exponential-smoothing helper** — formalise
+      $x \mathrel{+}= (x_{target}-x)\,(1-e^{-k\,\Delta t})$ as one shared util for FOV/shake/weather/wiper
+      transitions (auto-exposure + wetness already use this shape). "Polished vs janky" is mostly this.
+
+## Track G — Sampling quality (supporting; makes the above clean)
+- [ ] **[W4] G1. Blue-noise dithering** — swap white-noise sample offsets for blue noise in SSAO/SSR and the
+      sky/fog gradients; visibly de-noises for ~free.
+- [ ] **[W3] G2. Halton / low-discrepancy sequences** — TAA jitter + SSAO hemisphere sampling; better coverage
+      than random. Pairs with Deferred:TAA.
+- [ ] **[W3] G3. Halton-jittered temporal upsampling** — render the expensive passes (C4 volumetrics, SSR) at
+      lower res and reconstruct with the TAA history; buys back the perf the volumetrics cost.
+
+## Track H — the honest gaps the reference reveals (NEW)
+- [ ] **[W8] H1. Global-illumination approximation** — the reference's filled shadows, dappled tree light,
+      and bounce onto the car are *GI*, not direct light. Rising cost: (a) stronger IBL-driven ambient + AO
+      (cheap, reuses landed IBL/SSAO), (b) screen-space GI (SSGI, one bounce), (c) DDGI probe volumes
+      (Majercik 2019). Hardest item — content + lighting, not one pass; a bare road with lamps won't read as
+      a dense city block on shaders alone. Pairs with **B3** (environment density). *No shader-only shortcut.*
+
+### "Magic five" for *this* project (rainy, night-capable, wet-PBR already landed)
+1. **D1 height fog + D2 sun-tinted airlight** — best realism-per-line; instant atmosphere on the wet road.
+2. **C4 froxel volumetrics + headlight cones** *(already coded)* — the defining rainy-night image.
+3. **Deferred TAA + C7 velocity motion blur**, amplified by **F1 FOV/shake** — clean *and* fast-feeling.
+4. **E2 Fresnel-bounded sheen + E3 layered wet BRDF** — makes wet look wet *and* kills the over-exposure.
+5. **Perceptual stack: F2 vignette/grain + C8 Purkinje + G1 blue-noise + C2 Karis bloom** — the
+   "demo → magical" delta; each tiny, collectively decisive.
 
 ---
 

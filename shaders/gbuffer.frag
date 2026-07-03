@@ -22,7 +22,7 @@ layout(push_constant) uniform PushConstants {
 // ── G-Buffer MRT outputs (3 color attachments) ──────────────────
 layout(location = 0) out vec4 outAlbedo;    // RGB = base color, A = 1
 layout(location = 1) out vec4 outNormal;    // RGB = encoded world normal, A = 1
-layout(location = 2) out vec4 outMaterial;  // R = metallic, G = roughness, B = 0, A = 1
+layout(location = 2) out vec4 outMaterial;  // R = metallic, G = roughness, B = wettable, A = road tag
 
 // ── Procedural noise for surface variation ────────────────────────
 float hash(vec2 p) {
@@ -92,6 +92,8 @@ void main() {
     // R = real metalness (dielectric F0 is a separate constant in lighting.frag),
     // G = roughness, B = wettable mask (1 = rain-exposed, 0 = enclosed cabin) so the
     // lighting pass keeps wet-weather effects off the dry interior.
+    // A = road tag (material.w; 1 = asphalt) — gates screen-space puddles in
+    // lighting.frag/ssr.frag. Was a hardcoded 1.0; no release consumer read it.
     // Previously R was hardcoded 0.04, conflating F0 with metalness.
-    outMaterial = vec4(push.material.x, roughness, push.material.y, 1.0);
+    outMaterial = vec4(push.material.x, roughness, push.material.y, push.material.w);
 }

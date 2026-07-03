@@ -24,10 +24,11 @@ void PostProcessManager::init(VkDevice device, VkPhysicalDevice physicalDevice, 
 
     // SSAA: `extent` is the SWAP extent (composite output). Every offscreen
     // target renders at m_renderExtent = swap × kRenderScale (clamped).
-    m_swapExtent   = extent;
-    m_renderExtent = scaleExtent(extent);
-    m_bloomExtent  = {m_renderExtent.width / 4, m_renderExtent.height / 4};
-    m_aoExtent     = {m_renderExtent.width / 2, m_renderExtent.height / 2};
+    m_swapExtent    = extent;
+    m_renderExtent  = scaleExtent(extent);
+    m_bloomExtent   = {m_renderExtent.width / 4, m_renderExtent.height / 4};
+    m_aoExtent      = {m_renderExtent.width / 2, m_renderExtent.height / 2};
+    m_godraysExtent = {m_renderExtent.width / 2, m_renderExtent.height / 2};
 
     createSampler();
     createRenderPasses(swapchainFormat);
@@ -81,10 +82,11 @@ void PostProcessManager::recreate(VkExtent2D extent, VkFormat swapchainFormat,
     destroyImages();
 
     // SSAA: recompute both extents from the new swap extent.
-    m_swapExtent   = extent;
-    m_renderExtent = scaleExtent(extent);
-    m_bloomExtent  = {m_renderExtent.width / 4, m_renderExtent.height / 4};
-    m_aoExtent     = {m_renderExtent.width / 2, m_renderExtent.height / 2};
+    m_swapExtent    = extent;
+    m_renderExtent  = scaleExtent(extent);
+    m_bloomExtent   = {m_renderExtent.width / 4, m_renderExtent.height / 4};
+    m_aoExtent      = {m_renderExtent.width / 2, m_renderExtent.height / 2};
+    m_godraysExtent = {m_renderExtent.width / 2, m_renderExtent.height / 2};
 
     // Render passes don't change (format-dependent only)
     createImages();
@@ -396,9 +398,14 @@ void PostProcessManager::createImages() {
     // Per-frame HDR + depth
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
         // HDR needs TRANSFER_SRC so the windshield-rain pass can snapshot it
-        // (blit/copy → refraction-source image) for scene-refraction drops.
-        makeColorImage(m_renderExtent.width, m_renderExtent.height, hdrFormat, m_hdrImages[i], m_hdrViews[i],
-                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+        // (blit/copy → refraction-source image) for scene-refraction drops. In debug
+        // builds it also needs TRANSFER_DST so the TAA pass can copy its resolved
+        // result back into HDR (release omits it → identical image, no TAA).
+        VkImageUsageFlags hdrExtra = VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+#ifdef SWISH_DEBUG_UI
+        hdrExtra |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+#endif
+        makeColorImage(m_renderExtent.width, m_renderExtent.height, hdrFormat, m_hdrImages[i], m_hdrViews[i], hdrExtra);
         makeDepthImage(m_renderExtent.width, m_renderExtent.height, m_hdrDepthImages[i], m_hdrDepthViews[i]);
 
         // G-Buffer images (per-frame)
@@ -421,6 +428,10 @@ void PostProcessManager::createImages() {
 
     // SSR reflection (full render res, HDR format so reflected radiance survives)
     makeColorImage(m_renderExtent.width, m_renderExtent.height, hdrFormat, m_ssrImage, m_ssrView);
+
+    // God-rays light shafts (1/2 render res — radial blur is low-frequency; the
+    // composite's linear upsample is smooth). HDR format so bright shafts survive.
+    makeColorImage(m_godraysExtent.width, m_godraysExtent.height, hdrFormat, m_godraysImage, m_godraysView);
 
     // Auto-exposure luminance pyramid: 128², full mip chain, HDR format (no blit
     // conversion). TRANSFER_DST (blit in) + TRANSFER_SRC (mip downsample + copy out).
@@ -487,6 +498,7 @@ void PostProcessManager::destroyImages() {
     destroy(m_aoImage, m_aoView);
     destroy(m_aoBlurImage, m_aoBlurView);
     destroy(m_ssrImage, m_ssrView);
+    destroy(m_godraysImage, m_godraysView);
     m_lumImage.reset();  // no view (transfer-only)
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
         m_lumReadback[i].reset();
@@ -539,6 +551,9 @@ void PostProcessManager::createFramebuffers(const std::vector<VkImageView>& swap
     // SSR framebuffer (render extent) — reuses the lighting render pass (same fmt)
     m_ssrFB = makeFB(m_lightingRenderPass, {m_ssrView}, m_renderExtent);
 
+    // God-rays framebuffer (1/2 render extent) — reuses the bloom render pass (same R16F fmt)
+    m_godraysFB = makeFB(m_bloomRenderPass, {m_godraysView}, m_godraysExtent);
+
     // Composite framebuffers (one per swapchain image) — SWAP extent, NOT the
     // render extent: these wrap the swapchain images, and the composite pass
     // downsamples the high-res HDR into them (the SSAA resolve).
@@ -572,6 +587,7 @@ void PostProcessManager::destroyFramebuffers() {
     destroy(m_aoFB);
     destroy(m_aoBlurFB);
     destroy(m_ssrFB);
+    destroy(m_godraysFB);
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
         destroy(m_shadowFramebuffers[i]);
     for (auto& fb : m_compositeFBs)
@@ -599,9 +615,9 @@ void PostProcessManager::createDescriptors() {
         VK_CHECK(vkCreateDescriptorSetLayout(m_device, &info, nullptr, &m_singleTexLayout));
     }
 
-    // Layout: 4 combined_image_samplers (HDR + bloom + AO + SSR)
+    // Layout: 5 combined_image_samplers (HDR + bloom + AO + SSR + god-rays)
     {
-        std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
+        std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
         for (uint32_t i = 0; i < bindings.size(); i++) {
             bindings[i].binding         = i;
             bindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -658,6 +674,13 @@ void PostProcessManager::createDescriptors() {
     ssrPC.size       = sizeof(SsrParams);
     m_ssrLayout      = Pipeline::createLayout(m_device, {m_lightingTexLayout, m_singleTexLayout}, {ssrPC});
 
+    // God-rays layout: set 0 = G-buffer (depth), set 1 = lit HDR + a 32-B push block.
+    VkPushConstantRange godraysPC{};
+    godraysPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    godraysPC.offset     = 0;
+    godraysPC.size       = sizeof(GodRaysParams);
+    m_godraysLayout      = Pipeline::createLayout(m_device, {m_lightingTexLayout, m_singleTexLayout}, {godraysPC});
+
     // Shadow descriptor layout: 1 combined_image_sampler (sampler2DShadow), fragment
     // stage — set 2 in the lighting pipeline.
     {
@@ -694,18 +717,19 @@ void PostProcessManager::createDescriptors() {
     // But we don't have the Renderer's set 0 layout here. So we'll create the lighting pipeline
     // layout in Renderer.cpp, not here. We'll just store the G-buffer descriptor set layout and sets.
 
-    // Descriptor pool — 6 single (bloom×3 + AO-depth×PP_MAX_FRAMES + AO-blur) +
-    // 2 composite + 2 lighting + 2 shadow = 12 sets, 22 samplers. Sized to 16/32
-    // for headroom.
+    // Descriptor pool — single sets (bloom×3 + AO-depth×PP_MAX_FRAMES + AO-blur +
+    // SSR-HDR×PP_MAX_FRAMES + god-rays-HDR×PP_MAX_FRAMES = 10) + 2 composite (5
+    // samplers each now) + 2 lighting + 2 shadow = 16 sets, 30 samplers. Sized to
+    // 20/48 for headroom.
     VkDescriptorPoolSize poolSize{};
     poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = 32;
+    poolSize.descriptorCount = 48;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes    = &poolSize;
-    poolInfo.maxSets       = 16;
+    poolInfo.maxSets       = 20;
     VK_CHECK(vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool));
 
     // Allocate single-texture sets
@@ -725,9 +749,11 @@ void PostProcessManager::createDescriptors() {
     m_bloomBlurVSet   = allocSingleSet();
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
         m_aoSets[i] = allocSingleSet();  // per-frame: SSAO samples that frame's depth
-    m_aoBlurSet       = allocSingleSet();
+    m_aoBlurSet = allocSingleSet();
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
         m_ssrHdrSets[i] = allocSingleSet();  // per-frame: SSR samples that frame's lit HDR
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
+        m_godraysHdrSets[i] = allocSingleSet();  // per-frame: god-rays samples that frame's lit HDR
 
     // Allocate composite sets (per frame)
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
@@ -771,16 +797,20 @@ void PostProcessManager::createDescriptors() {
     // SSR samples each frame's lit HDR (colour, SHADER_READ).
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
         writeSingle(m_ssrHdrSets[i], m_hdrViews[i]);
+    // God-rays samples each frame's lit HDR too (the shaft "source").
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
+        writeSingle(m_godraysHdrSets[i], m_hdrViews[i]);
 
-    // Composite sets: HDR (per-frame) + bloom (shared) + AO (shared) + SSR (shared)
+    // Composite sets: HDR (per-frame) + bloom + AO + SSR + god-rays (all shared)
     for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) {
-        std::array<VkDescriptorImageInfo, 4> imgInfos{};
+        std::array<VkDescriptorImageInfo, 5> imgInfos{};
         imgInfos[0] = {m_sampler, m_hdrViews[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         imgInfos[1] = {m_sampler, m_bloomBlurVView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         imgInfos[2] = {m_sampler, m_aoBlurView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         imgInfos[3] = {m_sampler, m_ssrView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        imgInfos[4] = {m_sampler, m_godraysView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
-        std::array<VkWriteDescriptorSet, 4> writes{};
+        std::array<VkWriteDescriptorSet, 5> writes{};
         for (uint32_t b = 0; b < imgInfos.size(); b++) {
             writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[b].dstSet          = m_compositeSets[i];
@@ -867,6 +897,10 @@ void PostProcessManager::destroyDescriptors() {
         vkDestroyPipelineLayout(m_device, m_ssrLayout, nullptr);
         m_ssrLayout = VK_NULL_HANDLE;
     }
+    if (m_godraysLayout != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(m_device, m_godraysLayout, nullptr);
+        m_godraysLayout = VK_NULL_HANDLE;
+    }
     if (m_singleTexLayout != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(m_device, m_singleTexLayout, nullptr);
         m_singleTexLayout = VK_NULL_HANDLE;
@@ -915,7 +949,9 @@ void PostProcessManager::createPipelines() {
     m_ssaoPipeline   = makeFullscreenPipeline("ssao.frag", m_aoRenderPass, m_ssaoLayout, m_aoExtent);
     m_aoBlurPipeline = makeFullscreenPipeline("ao_blur.frag", m_aoRenderPass, m_postProcessLayout, m_aoExtent);
     // SSR: full render-res reflection, reuses the lighting render pass (R16F color).
-    m_ssrPipeline    = makeFullscreenPipeline("ssr.frag", m_lightingRenderPass, m_ssrLayout, m_renderExtent);
+    m_ssrPipeline = makeFullscreenPipeline("ssr.frag", m_lightingRenderPass, m_ssrLayout, m_renderExtent);
+    // God-rays: 1/2 render-res radial blur, reuses the bloom render pass (R16F color).
+    m_godraysPipeline = makeFullscreenPipeline("godrays.frag", m_bloomRenderPass, m_godraysLayout, m_godraysExtent);
     // Composite outputs at the swap extent (dynamic viewport/scissor make the
     // extent cosmetic, but keep it consistent with the composite FB size).
     m_compositePipeline =
@@ -935,6 +971,7 @@ void PostProcessManager::destroyPipelines() {
     destroy(m_ssaoPipeline);
     destroy(m_aoBlurPipeline);
     destroy(m_ssrPipeline);
+    destroy(m_godraysPipeline);
 }
 
 // The composite shader always samples the AO blur image (`hdr *= ao`) and the SSR

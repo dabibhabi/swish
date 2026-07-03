@@ -110,6 +110,11 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
         pushData.material.y = dc.dry ? 0.0f : 1.0f;
         // Roughness multiplier (gbuffer.frag: roughness *= material.z). 1 = no change.
         pushData.material.z = 1.0f;
+        // Road tag (gbuffer.frag: outMaterial.a = material.w). 1 = asphalt → drives
+        // screen-space puddles in lighting.frag/ssr.frag; everything else (car, grass,
+        // barriers, signs) stays 0 so only the road pools water. Release writes it too,
+        // but reads it with puddle coverage 0 → no effect (byte-identical).
+        pushData.material.w = (dc.material == MAT_ASPHALT) ? 1.0f : 0.0f;
 
         // Debug material override for this slot (metalness / roughness / colour).
         if (overrides != nullptr) {

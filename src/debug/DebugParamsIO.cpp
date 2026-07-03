@@ -100,13 +100,24 @@ bool save(const DebugParams& p, const std::string& name) {
          toml::table{{"rain_intensity", p.rainIntensity},
                      {"porosity", p.wetPorosity},
                      {"roughness", p.wetRoughness},
-                     {"streak_len", p.streakLen}}},
+                     {"streak_len", p.streakLen},
+                     {"puddles_enabled", p.puddlesEnabled},
+                     {"puddle_coverage", p.puddleCoverage},
+                     {"spray_enabled", p.sprayEnabled},
+                     {"spray_density", p.sprayDensity},
+                     {"spray_lifetime", p.sprayLifetime},
+                     {"spray_size", p.spraySize},
+                     {"spray_opacity", p.sprayOpacity}}},
         {"car",
          toml::table{{"override", p.carOverride},
                      {"metalness", p.carMetalness},
                      {"paint", arr3(p.carPaint)},
                      {"roughness_mul", p.carRoughnessMul}}},
-        {"quality", toml::table{{"ssaa_scale", p.ssaaScale}}},
+        {"quality", toml::table{{"ssaa_scale", p.ssaaScale},
+                                 {"taa_enabled", p.taaEnabled},
+                                 {"taa_history_blend", p.taaHistoryBlend},
+                                 {"motion_blur_enabled", p.motionBlurEnabled},
+                                 {"motion_blur_scale", p.motionBlurScale}}},
     };
 
     // Per-material overrides → an array of tables ([[materials]]), enabled slots only.
@@ -228,17 +239,28 @@ bool load(DebugParams& p, const std::string& name) {
     p.csmShadowFar     = tbl["shadow"]["csm_far"].value_or(p.csmShadowFar);
     p.csmLambda        = tbl["shadow"]["csm_lambda"].value_or(p.csmLambda);
 
-    p.rainIntensity = tbl["wet"]["rain_intensity"].value_or(p.rainIntensity);
-    p.wetPorosity   = tbl["wet"]["porosity"].value_or(p.wetPorosity);
-    p.wetRoughness  = tbl["wet"]["roughness"].value_or(p.wetRoughness);
-    p.streakLen     = tbl["wet"]["streak_len"].value_or(p.streakLen);
+    p.rainIntensity  = tbl["wet"]["rain_intensity"].value_or(p.rainIntensity);
+    p.wetPorosity    = tbl["wet"]["porosity"].value_or(p.wetPorosity);
+    p.wetRoughness   = tbl["wet"]["roughness"].value_or(p.wetRoughness);
+    p.streakLen      = tbl["wet"]["streak_len"].value_or(p.streakLen);
+    p.puddlesEnabled = tbl["wet"]["puddles_enabled"].value_or(p.puddlesEnabled);
+    p.puddleCoverage = tbl["wet"]["puddle_coverage"].value_or(p.puddleCoverage);
+    p.sprayEnabled   = tbl["wet"]["spray_enabled"].value_or(p.sprayEnabled);
+    p.sprayDensity   = tbl["wet"]["spray_density"].value_or(p.sprayDensity);
+    p.sprayLifetime  = tbl["wet"]["spray_lifetime"].value_or(p.sprayLifetime);
+    p.spraySize      = tbl["wet"]["spray_size"].value_or(p.spraySize);
+    p.sprayOpacity   = tbl["wet"]["spray_opacity"].value_or(p.sprayOpacity);
 
     p.carOverride     = tbl["car"]["override"].value_or(p.carOverride);
     p.carMetalness    = tbl["car"]["metalness"].value_or(p.carMetalness);
     rd3(tbl["car"]["paint"], p.carPaint);
     p.carRoughnessMul = tbl["car"]["roughness_mul"].value_or(p.carRoughnessMul);
 
-    p.ssaaScale = tbl["quality"]["ssaa_scale"].value_or(p.ssaaScale);
+    p.ssaaScale         = tbl["quality"]["ssaa_scale"].value_or(p.ssaaScale);
+    p.taaEnabled        = tbl["quality"]["taa_enabled"].value_or(p.taaEnabled);
+    p.taaHistoryBlend   = tbl["quality"]["taa_history_blend"].value_or(p.taaHistoryBlend);
+    p.motionBlurEnabled = tbl["quality"]["motion_blur_enabled"].value_or(p.motionBlurEnabled);
+    p.motionBlurScale   = tbl["quality"]["motion_blur_scale"].value_or(p.motionBlurScale);
     return true;
 }
 

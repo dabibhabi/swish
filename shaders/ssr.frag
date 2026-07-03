@@ -26,14 +26,15 @@ layout(set = 0, binding = 3) uniform sampler2D gbDepth;
 layout(set = 1, binding = 0) uniform sampler2D hdrScene;
 
 layout(push_constant) uniform Params {
-    mat4  proj;       // view → clip (project a march point to screen)
-    mat4  invProj;    // clip → view (reconstruct view-space position from depth)
-    float maxDist;    // max ray travel (view units / WU)
-    float thickness;  // depth-intersection tolerance (WU)
-    float stride;     // initial march step (WU)
-    float intensity;  // reflection strength
-    float wetness;    // global wetness [0,1] (wet surfaces reflect even if dry-rough)
-    float _pad0;
+    mat4  proj;           // view → clip (project a march point to screen)
+    mat4  invProj;        // clip → view (reconstruct view-space position from depth)
+    mat4  invView;        // view → world (for the world-space puddle mask)
+    float maxDist;        // max ray travel (view units / WU)
+    float thickness;      // depth-intersection tolerance (WU)
+    float stride;         // initial march step (WU)
+    float intensity;      // reflection strength
+    float wetness;        // global wetness [0,1] (wet surfaces reflect even if dry-rough)
+    float puddleCoverage; // road puddle coverage [0,1] (0 = off)
     float _pad1;
     float _pad2;
 } pc;
@@ -43,6 +44,23 @@ layout(location = 0) out vec4 outColor;
 vec3 viewFromDepth(vec2 uv, float d) {
     vec4 c = pc.invProj * vec4(uv * 2.0 - 1.0, d, 1.0);
     return c.xyz / c.w;
+}
+
+// Road puddle mask — mirrors lighting.frag so SSR reflects the scene in the same
+// pools the wet model turns to mirrors. World-space, gated to the road tag.
+float puddleHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float puddleNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = puddleHash(i),                  b = puddleHash(i + vec2(1.0, 0.0));
+    float c = puddleHash(i + vec2(0.0, 1.0)), d = puddleHash(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+float puddleAmount(vec2 worldXZ, float coverage, float road) {
+    if (coverage <= 0.0 || road < 0.5) return 0.0;
+    vec2  p = worldXZ * 0.00013;
+    float n = puddleNoise(p) * 0.65 + puddleNoise(p * 2.7 + 11.0) * 0.35;
+    return smoothstep(1.0 - coverage, 1.0 - coverage + 0.12, n);
 }
 
 void main() {
@@ -59,7 +77,14 @@ void main() {
     vec4  matv        = texture(gbMaterial, fragUV);
     float roughness   = matv.g;
     float wettable    = matv.b;
-    float wetLocal    = pc.wetness * wettable;
+    float road        = matv.a;
+    vec3  P           = viewFromDepth(fragUV, d);       // view-space position (−Z forward)
+    // World-space puddle mask (faded in with wetness, matching lighting.frag). A pool
+    // saturates the road to a mirror so SSR fires even on nominally-rough asphalt.
+    vec3  worldPos    = (pc.invView * vec4(P, 1.0)).xyz;
+    float puddle      = puddleAmount(worldPos.xz, pc.puddleCoverage, road)
+                      * smoothstep(0.05, 0.5, pc.wetness);
+    float wetLocal    = max(pc.wetness * wettable, puddle);
     float effRough    = clamp(roughness * mix(1.0, 0.12, wetLocal), 0.0, 1.0);
     float reflectivity = (1.0 - effRough) * (1.0 - effRough);
     if (reflectivity < 0.02) {  // matte: skip the whole march
@@ -67,7 +92,6 @@ void main() {
         return;
     }
 
-    vec3 P = viewFromDepth(fragUV, d);                 // view-space position (−Z forward)
     vec3 N = normalize(cross(dFdx(P), dFdy(P)));       // geometric view-space normal
     vec3 V = normalize(-P);                            // surface → camera
     vec3 R = reflect(-V, N);                           // reflected ray (view space)

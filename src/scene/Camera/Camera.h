@@ -59,7 +59,15 @@ public:
 
     // ── Computed matrices ─────────────────────────────────────────
     Mat4 get_view_matrix() const;
-    Mat4 get_projection_matrix() const;
+    Mat4 get_projection_matrix() const;             // includes the sub-pixel TAA jitter
+    Mat4 get_projection_matrix_unjittered() const;  // base (for motion-vector reprojection)
+
+    // ── TAA sub-pixel jitter (clip-space XY offset; 0 = none) ─────
+    // Added to the projection so the whole frame is shifted a fraction of a pixel
+    // each frame; TAA then averages the jittered frames into supersampled detail.
+    // Left at (0,0) unless TAA is active, so release / SSAA paths are unaffected.
+    void set_jitter(const Vec2& j) { m_jitter = j; }
+    Vec2 get_jitter() const { return m_jitter; }
 
     // ── Computed direction vectors ────────────────────────────────
     Vec3 get_forward() const;
@@ -76,6 +84,9 @@ private:
     // Legacy target (updated from yaw/pitch)
     Vec3 m_target = {0.0f, 0.0f, -1.0f};
     Vec3 m_up     = {0.0f, 1.0f, 0.0f};
+
+    // TAA sub-pixel jitter (clip-space XY); 0 unless TAA is active.
+    Vec2 m_jitter = {0.0f, 0.0f};
 
     // Perspective
     float m_fov    = 65.0f;

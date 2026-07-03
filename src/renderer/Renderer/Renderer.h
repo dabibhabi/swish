@@ -1,5 +1,5 @@
 #pragma once
-
+// scene headers
 #include "../../scene/SceneTypes.h"
 #include "../DeferredLightingPipeline/DeferredLightingPipeline.h"
 #include "../DepthOnlyPipeline/DepthOnlyPipeline.h"
@@ -7,14 +7,17 @@
 #include "../ScenePipeline/ScenePipeline.h"
 #include "RendererServices.h"
 
-#ifdef SWISH_DEBUG_UI
+// DebugParams is a Vulkan/ImGui-free struct; include it unconditionally so the
+// release god-rays path can read its defaults (the shipped look). The rest of the
+// debug UI (ImGui / gizmos / set-3 UBO) stays compiled only under SWISH_DEBUG_UI.
 #include "../../debug/DebugParams.h"
+#ifdef SWISH_DEBUG_UI
 #include "../../debug/DebugUI.h"
 #include "../../debug/SceneParamsUniform.h"
 #endif
-
+// vulkan headers
 #include <vulkan/vulkan.h>
-
+// stl headers
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -37,8 +40,11 @@ class PostProcessManager;
 class CameraUniforms;
 class MaterialDescriptors;
 class RainSystem;
+class SpraySystem;
 class GlassPass;
 class WindshieldRainPass;
+class IBLManager;
+class TaaPass;
 
 // The Renderer orchestrates the Vulkan draw loop and acts as a
 // central registry for managers (rind-style architecture).
@@ -107,6 +113,7 @@ public:
     // ── Rain control (called by App; R key cycles intensity) ──────────
     void set_rain_intensity(float intensity);  // [0,1]
     void set_car_velocity(Vec3 velocity);      // WU/s; drives rain streak lean at speed
+    void set_car_position(Vec3 position);      // WU; rear-axle spray spawn origin
     void set_wiper_enabled(bool enabled);      // V key toggles the windshield wiper
 
     // ── Weather preset (called by App; G key toggles) ─────────────────
@@ -148,8 +155,10 @@ private:
     std::unique_ptr<CameraUniforms>      m_cameraUniforms;
     std::unique_ptr<MaterialDescriptors> m_materialDescriptors;
     std::unique_ptr<RainSystem>          m_rainSystem;
+    std::unique_ptr<SpraySystem>         m_spraySystem;  // GPU compute particle road-spray
     std::unique_ptr<GlassPass>           m_glassPass;
     std::unique_ptr<WindshieldRainPass>  m_windshieldRainPass;
+    std::unique_ptr<IBLManager>          m_ibl;  // baked-sky prefiltered-cubemap IBL (set 3)
 
     // ── Manager pointers (NOT owned — App owns these) ─────────────
     TextureManager* m_textureManager = nullptr;
@@ -172,18 +181,29 @@ private:
     float m_rainIntensity = 0.0f;
     Vec3  m_rainWind      = Vec3(4500.0f, 0.0f, 1200.0f);  // WU/s base gale (≈4.5 m/s × drift)
     Vec3  m_carVelocity   = Vec3(0.0f, 0.0f, 0.0f);        // set by App each frame
+    Vec3  m_carPosition   = Vec3(0.0f, 0.0f, 0.0f);        // set by App each frame (spray spawn)
     bool  m_wiperEnabled  = false;                         // V key toggles the wiper
     float m_windTime      = 0.0f;                          // accumulated time for gust oscillation
     bool  m_clearDay      = false;                         // G key: bright clear-day preset (dry)
 
     // ── Sun direction (drives the shadow-map light-space matrix) ──
     // Kept in sync with the Vec3 passed to set_weather in set_clear_day.
-    Vec3  m_sunDir        = glm::normalize(Vec3(0.3f, 0.6f, 0.15f));
+    Vec3 m_sunDir = glm::normalize(Vec3(0.3f, 0.6f, 0.15f));
     // Per-cascade sun light-space view*proj + split far-distances (view space) for
     // the current frame (computed in drawFrame, consumed by recordShadowPass +
     // written into the camera UBO for CSM lookup).
     std::array<Mat4, NUM_CASCADES> m_cascadeVP{};
     Vec3                           m_cascadeSplits{0.0f};
+
+    // ── IBL bake state (weather the cubemaps reflect) ─────────────
+    // Kept in sync with set_weather (both builds) so the baked-sky IBL can be
+    // re-baked when the sky changes. Baked-state is a dirty-check cache so
+    // maybeRebakeIBL() only re-bakes on an actual change (no per-frame thrash).
+    float m_clarity       = 0.0f;
+    Vec3  m_sunColor      = Vec3(1.0f, 0.95f, 0.85f);
+    Vec3  m_bakedSunDir   = Vec3(1e9f);  // sentinel → first call always bakes
+    float m_bakedClarity  = -1.0f;
+    Vec3  m_bakedSunColor = Vec3(-1.0f);
 
 #ifdef SWISH_DEBUG_UI
     // Live debug/tuning UI + its editable parameters (make debug only).
@@ -196,6 +216,13 @@ private:
     // Auto-exposure state: smoothed scene luminance + the exposure it yields.
     float m_aeAdaptedLum = 0.5f;
     float m_aeExposure   = 0.45f;
+
+    // TAA (debug-only): resolve pass + reprojection state. SSAA remains the release
+    // default; TAA is an alternative the debug UI toggles. m_prevViewProjUnjit is the
+    // previous frame's un-jittered world→clip for motion-vector reprojection.
+    std::unique_ptr<TaaPass> m_taa;
+    Mat4                     m_prevViewProjUnjit = Mat4(1.0f);
+    uint32_t                 m_taaFrameCounter   = 0;
 #endif
 
     // ── Glass + windshield state ──────────────────────────────────
@@ -220,10 +247,18 @@ private:
     void transitionGBufferForLighting(VkCommandBuffer cmd, uint32_t frameIndex);
     void recordLightingPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExtent2D extent);
     void recordRainPass(VkCommandBuffer cmd, uint32_t frameIndex);
+    // GPU road-spray: binds camera set 0, then the SpraySystem draws its additive
+    // particle billboards. The compute sim is dispatched separately (outside any
+    // render pass) via SpraySystem::record_compute in recordCommandBuffer.
+    void recordSprayPass(VkCommandBuffer cmd, uint32_t frameIndex);
     void recordGlassPass(VkCommandBuffer cmd, uint32_t frameIndex);
     void recordWindshieldRainPass(VkCommandBuffer cmd, uint32_t frameIndex);
     void recordBloomExtract(VkCommandBuffer cmd, VkExtent2D extent);
     void recordBloomBlur(VkCommandBuffer cmd, VkExtent2D extent, bool horizontal);
+    // God-rays (screen-space light shafts): sun-anchored radial blur of the lit HDR,
+    // added at composite. Ships in release (un-gated) — reads the DebugParams defaults
+    // when SWISH_DEBUG_UI is off, the live params when on. Recorded in the SSR slot.
+    void recordGodRaysPass(VkCommandBuffer cmd, uint32_t frameIndex);
 #ifdef SWISH_DEBUG_UI
     // SSAO (depth → AO) + bilateral blur, recorded between lighting and the forward
     // passes (depth is in DEPTH_STENCIL_READ_ONLY there). Debug-only; release keeps
@@ -241,6 +276,11 @@ private:
     void updateAutoExposure(float dt);
 #endif
     void recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t imageIndex, VkExtent2D extent);
+
+    // Re-bake the baked-sky IBL cubemaps if the weather (sun/clarity/colour)
+    // changed since the last bake. Cheap dirty-check; the bake itself stalls the
+    // queue, so it only fires on an actual change. Also does the initial bake.
+    void maybeRebakeIBL();
 
     void recreateSwapchain();
 

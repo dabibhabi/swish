@@ -6,6 +6,7 @@ layout(set = 0, binding = 0) uniform sampler2D hdrScene;
 layout(set = 0, binding = 1) uniform sampler2D bloomTex;
 layout(set = 0, binding = 2) uniform sampler2D aoTex;
 layout(set = 0, binding = 3) uniform sampler2D ssrTex;   // SSR reflection (rgb = radiance, a = mask)
+layout(set = 0, binding = 4) uniform sampler2D godraysTex;  // god-rays light shafts (rgb = radiance, half-res)
 
 layout(push_constant) uniform Params {
     float threshold;
@@ -70,6 +71,10 @@ void main() {
     // (already Fresnel/intensity-weighted in the SSR pass; zero on a miss, where
     // the sky IBL baked into hdr is the fallback).
     hdr += texture(ssrTex, fragUV).rgb;
+
+    // God-rays: sun-anchored light shafts (half-res, linearly upsampled here),
+    // already density/decay/weight/intensity-weighted in the god-rays pass.
+    hdr += texture(godraysTex, fragUV).rgb;
 
     // Add bloom
     hdr += bloom * params.bloom_intensity;
