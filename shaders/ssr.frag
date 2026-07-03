@@ -87,7 +87,14 @@ void main() {
     float wetLocal    = max(pc.wetness * wettable, puddle);
     float effRough    = clamp(roughness * mix(1.0, 0.12, wetLocal), 0.0, 1.0);
     float reflectivity = (1.0 - effRough) * (1.0 - effRough);
-    if (reflectivity < 0.02) {  // matte: skip the whole march
+#ifndef SWISH_DEBUG_UI
+    // Release: SSR ships as the "wet road" feature. Gate the contribution to wet /
+    // pooled surfaces so a dry scene — including the glossy car paint — keeps its prior
+    // sky-IBL-only look byte-for-byte (dry ⇒ wetLocal 0 ⇒ reflectivity 0 ⇒ early-out).
+    // Debug keeps SSR unrestricted (fires on any glossy surface) for live tuning.
+    reflectivity *= smoothstep(0.02, 0.20, wetLocal);
+#endif
+    if (reflectivity < 0.02) {  // matte / dry: skip the whole march
         outColor = vec4(0.0);
         return;
     }

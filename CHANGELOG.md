@@ -6,6 +6,43 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-03 — Realism: SSR now ships on the wet road
+
+> Un-gated the screen-space-reflection pass so it runs in **release**, not just the debug UI — a rainy road now mirrors the on-screen scene (barriers, car, signs) instead of only the sky IBL. Gated so a **dry scene is byte-identical**: SSR's contribution is keyed to surface wetness, so dry asphalt (and the dry glossy car) render exactly as before. Verified in the release build with an A/B difference image — SSR's added light lands on the wet road and lanes and **not** on the sky.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** SSR was fully built but call-gated behind `#ifdef SWISH_DEBUG_UI`, so it never appeared in `make run`. With the optimized build freeing ~4× the framerate, the wet-road reflection is now affordable to ship. The SSR *infrastructure* (image, pipeline, descriptors, the composite's `hdr += ssr`, first-frame priming) was already un-gated — only the record call and its params source were debug-only.
+
+**Change.**
+- **Call site** ([Renderer.cpp](src/renderer/Renderer/Renderer.cpp)) — moved `recordSsrPass` out of the debug `#ifdef` (SSAO stays debug-only), beside the already-shipping god-rays pass; both read depth + lit HDR in the post-lighting slot.
+- **Release params** — `recordSsrPass` now reads a default-constructed `DebugParams{}` in release (the same single-source-of-truth pattern god-rays uses) and the live params in debug. Its declaration moved out of the debug block in [Renderer.h](src/renderer/Renderer/Renderer.h).
+- **Puddle-coverage consistency (bug fix)** — SSR was fed `DebugParams::puddleCoverage` (0.5) in release, but `lighting.frag` ships puddle-free (`SP_PUDDLE_COVERAGE 0.0`). That mismatch would have made SSR reflect in procedural "pools" the wet model never renders. Now SSR's coverage mirrors the shader define exactly: **0.0 in release** (SSR fires only on the generally-wet road, `wetness × wettable`), the live value in debug.
+- **Release wet-gate** ([ssr.frag](shaders/ssr.frag)) — added, under `#ifndef SWISH_DEBUG_UI`:
+
+$$\text{reflectivity} \mathrel{*}= \operatorname{smoothstep}(0.02,\,0.20,\,\text{wetLocal}),\qquad \text{wetLocal}=\max(\text{wetness}\cdot\text{wettable},\ \text{puddle})$$
+
+  A dry surface has $\text{wetLocal}=0 \Rightarrow \text{reflectivity}=0 \Rightarrow$ early-out (black) $\Rightarrow$ the composite add is a no-op $\Rightarrow$ **dry release is byte-identical**. Debug keeps SSR unrestricted (fires on any glossy surface) for live tuning, so the debug build is unchanged.
+
+```mermaid
+graph LR
+  L[deferred lighting → lit HDR] --> S[recordSsrPass<br/>ships in release]
+  S --> G[god-rays]
+  G --> F[forward: rain / spray / glass]
+  F --> C[composite<br/>hdr += ssr]
+```
+
+**Verification.** Release + debug build clean; `ctest` 52/52; validation-clean wet and dry runs. Isolated SSR with a frozen-scene A/B (SSR intensity 0 vs on) difference image: MAE on the road/left-lane ran 2–3× the sky's rain-particle noise floor, and the auto-leveled diff showed reflections fanning off the barriers into the wet lanes with a black sky — SSR firing where it should and nowhere else.
+
+| File | Change |
+|------|--------|
+| [shaders/ssr.frag](shaders/ssr.frag) | Release-only `#ifndef SWISH_DEBUG_UI` wet-gate on `reflectivity` (dry ⇒ early-out). |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | `recordSsrPass` un-gated (beside god-rays); reads `DebugParams{}` in release; puddle-coverage now 0.0 in release to match `lighting.frag`. |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) | `recordSsrPass` declaration moved out of the debug `#ifdef`; comment updated. |
+
+</details>
+
 ### 2026-07-03 — Realism: sharper IBL reflections (quality crank #1)
 
 > With the optimized build freeing ~4× the framerate, doubled the baked IBL environment + prefilter cube resolution from **128² → 256²** ([IBLManager.h](src/renderer/IBLManager/IBLManager.h)) so the glossy paint mirrors a sharper sky/scene. Baked once at init (and on weather change) → negligible runtime cost, a few MB VRAM. `kPrefilterMips` stays 5, so `lighting.frag`'s `IBL_PREFILTER_MAX_MIP` is unchanged (mip 0 is simply 256² now). Build-clean, validation-clean, 118 fps in `make debug`.

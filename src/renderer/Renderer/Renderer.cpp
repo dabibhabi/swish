@@ -530,18 +530,19 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
     recordLightingPass(cmd, frameIndex, renderExtent);
 
 #ifdef SWISH_DEBUG_UI
-    // SSAO + SSR here: the scene depth is still in DEPTH_STENCIL_READ_ONLY (set for
-    // the lighting pass, unchanged by it) and the forward passes haven't reclaimed
-    // it as a depth attachment yet. SSAO writes the AO the composite multiplies in;
-    // SSR reads the lit HDR (reflecting the deferred scene) into the SSR image the
-    // composite adds. Both must run before the forward rain/glass passes.
+    // SSAO here: the scene depth is still in DEPTH_STENCIL_READ_ONLY (set for the
+    // lighting pass, unchanged by it) and the forward passes haven't reclaimed it as
+    // a depth attachment yet. SSAO writes the AO the composite multiplies in. Debug-
+    // only; release keeps the primed-white AO image (composite `hdr *= ao` is a no-op).
     recordSsaoPasses(cmd, frameIndex);
-    recordSsrPass(cmd, frameIndex);
 #endif
 
-    // God-rays (ships in release): sun-anchored radial blur of the lit HDR, added at
-    // composite. Reads depth + HDR like SSR, so it shares that post-lighting slot
-    // (depth still DEPTH_STENCIL_READ_ONLY, forward passes haven't reclaimed it).
+    // SSR + god-rays (both ship in release): the scene depth is still readable
+    // (DEPTH_STENCIL_READ_ONLY) and the forward passes haven't reclaimed it. SSR reads
+    // the lit HDR (reflecting the deferred scene) into the SSR image the composite adds
+    // — gated in-shader to wet/pooled surfaces so a dry scene adds nothing. God-rays is
+    // a sun-anchored radial blur of the lit HDR, also added at composite.
+    recordSsrPass(cmd, frameIndex);
     recordGodRaysPass(cmd, frameIndex);
 
     // GPU road-spray sim — advance the particles (compute; MUST be outside any render
@@ -1003,12 +1004,16 @@ void Renderer::recordSsaoPasses(VkCommandBuffer cmd, uint32_t frameIndex) {
                                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
+#endif  // SWISH_DEBUG_UI — SSAO is debug-only; SSR below ships in release
 
-// ── SSR (screen-space reflections, debug realism feature) ────────────
+// ── SSR (screen-space reflections — wet-road reflections, ships in release) ──
 // Runs after lighting (HDR = the lit deferred scene, depth still readable). The
 // lit HDR is briefly transitioned to SHADER_READ so the ray-march can sample it
 // as the reflected colour, then restored to COLOR_ATTACHMENT for the forward
-// passes; the SSR image is left SHADER_READ for the composite add.
+// passes; the SSR image is left SHADER_READ for the composite add. The tunables
+// come from the live DebugParams in debug and the same struct's defaults (the
+// shipped look) in release; ssr.frag gates the release contribution to wet/pooled
+// surfaces so a dry scene adds nothing (the SSR image stays primed black).
 void Renderer::recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex) {
     const VkExtent2D ext = m_postProcess->get_render_extent();
 
@@ -1029,17 +1034,30 @@ void Renderer::recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex) {
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postProcess->get_ssr_layout(), 0, 2, sets, 0,
                                 nullptr);
 
+#ifdef SWISH_DEBUG_UI
+        const DebugParams& d = m_debugParams;
+#else
+        const DebugParams d{};  // defaults = the shipped look (single source of truth)
+#endif
         const Mat4 proj = m_camera->get_projection_matrix();
         SsrParams  sp{};
         sp.proj           = proj;
         sp.invProj        = glm::inverse(proj);
         sp.invView        = glm::inverse(m_camera->get_view_matrix());
-        sp.maxDist        = m_debugParams.ssrMaxDist;
-        sp.thickness      = m_debugParams.ssrThickness;
-        sp.stride         = m_debugParams.ssrStride;
-        sp.intensity      = m_debugParams.ssrEnabled ? m_debugParams.ssrIntensity : 0.0f;
-        sp.wetness        = m_rainSystem ? m_rainSystem->get_wetness() : 0.0f;
-        sp.puddleCoverage = m_debugParams.puddlesEnabled ? m_debugParams.puddleCoverage : 0.0f;
+        sp.maxDist        = d.ssrMaxDist;
+        sp.thickness      = d.ssrThickness;
+        sp.stride         = d.ssrStride;
+        sp.intensity      = d.ssrEnabled ? d.ssrIntensity : 0.0f;
+        sp.wetness = m_rainSystem ? m_rainSystem->get_wetness() : 0.0f;
+        // Puddle coverage must mirror lighting.frag's SP_PUDDLE_COVERAGE so SSR reflects
+        // in exactly the pools the wet model turns to mirrors. Release ships puddle-free
+        // (define is 0.0), so SSR there fires only on the generally-wet road (wetness ×
+        // wettable) — consistent with the rendered surface, no invented pools.
+#ifdef SWISH_DEBUG_UI
+        sp.puddleCoverage = d.puddlesEnabled ? d.puddleCoverage : 0.0f;
+#else
+        sp.puddleCoverage = 0.0f;
+#endif
         vkCmdPushConstants(cmd, m_postProcess->get_ssr_layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(sp), &sp);
         vkCmdDraw(cmd, 3, 1, 0, 0);
     }
@@ -1051,6 +1069,7 @@ void Renderer::recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex) {
                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
+#ifdef SWISH_DEBUG_UI
 // ── Auto-exposure: blit the lit HDR down a mip chain to 1×1 (average) ────────
 // Leaves the HDR in SHADER_READ (replaces the pre-bloom barrier). The 1×1 mip is
 // copied to a host buffer the CPU reads next frame (updateAutoExposure).

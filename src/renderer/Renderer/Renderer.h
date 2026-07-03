@@ -259,15 +259,17 @@ private:
     // added at composite. Ships in release (un-gated) — reads the DebugParams defaults
     // when SWISH_DEBUG_UI is off, the live params when on. Recorded in the SSR slot.
     void recordGodRaysPass(VkCommandBuffer cmd, uint32_t frameIndex);
+    // SSR (wet-road reflections): barrier the lit HDR to readable, ray-march the
+    // reflection into the SSR image, restore HDR for the forward passes. Ships in
+    // release (un-gated) — the shader gates its release contribution to wet/pooled
+    // surfaces, so a dry scene leaves the primed-black SSR image (composite add is a
+    // no-op). Reads the DebugParams defaults when SWISH_DEBUG_UI is off.
+    void recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex);
 #ifdef SWISH_DEBUG_UI
     // SSAO (depth → AO) + bilateral blur, recorded between lighting and the forward
     // passes (depth is in DEPTH_STENCIL_READ_ONLY there). Debug-only; release keeps
     // the primed-white AO image so the composite `hdr *= ao` is a no-op.
     void recordSsaoPasses(VkCommandBuffer cmd, uint32_t frameIndex);
-    // SSR: barrier the lit HDR to readable, ray-march reflections into the SSR
-    // image, restore HDR for the forward passes. Debug-only; release primes the
-    // SSR image black so the composite add is a no-op.
-    void recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex);
     // Auto-exposure: blit the lit HDR down a mip chain to 1×1 (average) and copy
     // that pixel to a host buffer; leaves the HDR in SHADER_READ for bloom.
     void recordLuminancePyramid(VkCommandBuffer cmd, uint32_t frameIndex);
