@@ -25,10 +25,17 @@ layout(location = 2) out vec3 fragWorldPos;
 layout(location = 3) out mat3 fragTBN;
 
 void main() {
-    vec4 worldPos = push.model * vec4(inPosition, 1.0);
-    gl_Position = camera.proj * camera.view * worldPos;
+    // Camera-relative rendering. push.model is rebased on the CPU (in double precision)
+    // so its translation is (objectPos − cameraPos); rendering with the camera at the
+    // origin (rotation-only view) keeps every transformed coordinate small. This kills
+    // the float32 catastrophic cancellation of proj·view·worldPos at large world coords
+    // (up to ~4.2 M WU) that made the car's fine geometry — the steering-wheel crest —
+    // swim/deform far down the road. mat4(mat3(view)) is the view rotation with the eye
+    // at the origin, so proj·R·(worldPos−camPos) == proj·view·worldPos, but precise.
+    vec4 relPos = push.model * vec4(inPosition, 1.0);              // position relative to the camera
+    gl_Position = camera.proj * mat4(mat3(camera.view)) * relPos;  // rotation-only view (eye at origin)
 
-    mat3 normalMatrix = mat3(transpose(inverse(push.model)));
+    mat3 normalMatrix = mat3(transpose(inverse(push.model)));  // translation-invariant, unaffected by rebase
     vec3 N = normalize(normalMatrix * inNormal);
     vec3 T = normalize(normalMatrix * inTangent.xyz);
     T = normalize(T - dot(T, N) * N);
@@ -37,5 +44,5 @@ void main() {
     fragTBN      = mat3(T, B, N);
     fragNormal   = N;
     fragUV       = inUV;
-    fragWorldPos = worldPos.xyz;
+    fragWorldPos = relPos.xyz + camera.camPos.xyz;  // reconstruct true world pos (gbuffer.frag ignores it; kept correct)
 }

@@ -747,8 +747,9 @@ void Renderer::recordGBufferPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExt
 #ifdef SWISH_DEBUG_UI
     overrides = m_debugParams.matOverrides;  // debug per-material editor
 #endif
-    m_sceneGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides);
-    m_dynamicGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides);
+    const Vec3 camPos = m_camera->get_position();
+    m_sceneGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides, camPos);
+    m_dynamicGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides, camPos);
 }
 
 // ── G-buffer attachments → SHADER_READ_ONLY for the lighting pass ───

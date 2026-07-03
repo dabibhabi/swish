@@ -40,8 +40,11 @@ public:
     // `overrides` (optional) is a table indexed by MaterialId; when a draw's material
     // has an enabled entry, its metalness / roughness-mult / colour replace the
     // asset values (debug material editor). Pass nullptr for none (release path).
+    // `cameraPos` rebases each per-draw model translation to camera-relative space (in
+    // double precision) so basic.vert can render with the eye at the origin — avoids the
+    // float32 cancellation that made fine geometry swim at large world coords. See basic.vert.
     void record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials,
-                      const MaterialOverride* overrides = nullptr) const;
+                      const MaterialOverride* overrides, Vec3 cameraPos) const;
 
     // Depth-only pass (shadow map): bind vertex/index buffers, then for each
     // draw call push only the per-object model matrix (no material/descriptor

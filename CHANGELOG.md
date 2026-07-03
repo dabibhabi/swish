@@ -6,6 +6,33 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-03 — Fixed the car/steering-wheel-crest distortion far down the road (camera-relative rendering)
+
+> As the car drove further down the 4.2 km highway, its fine geometry — the steering-wheel Porsche crest most visibly — swam and deformed. Root cause: `proj·view·worldPos` was evaluated in **float32** at world coordinates up to ~4.2 million WU, and `view·worldPos` catastrophically cancels two million-scale operands, leaving ~sub-WU per-vertex noise that jitters every frame. Fixed with **camera-relative rendering** for scene geometry: the per-draw model translation is rebased by the camera position **in double precision** on the CPU, and the vertex shader renders with the eye at the origin (rotation-only view), so all transformed coordinates stay small and precise. Verified at 2 km down the road — the crest is now crisp, where the old path grossly distorted the whole interior.
+
+<details>
+<summary>Technical summary</summary>
+
+**Root cause.** `WORLD_SCALE = 1000` (1 m = 1000 WU) and a 4.2 km road put geometry at |z| up to ~4.2 M WU. [basic.vert](shaders/basic.vert) did `gl_Position = proj * view * (model * pos)`; the `view * worldPos` step subtracts two ~4.2e6-magnitude operands (`R·worldPos` and `R·camPos = −t`), and in float32 (24-bit mantissa, ULP ≈ 0.5 WU at 4.2e6) the surviving relative error is per-vertex, per-frame noise — swimming/deforming fine geometry. No camera-relative rendering existed.
+
+**Fix — render with the camera at the origin.** For a rotation-only view $R$ and rebased position:
+
+$$\text{clip} = P\,R\,(\text{worldPos} - \text{camPos}) \equiv P\,(R\,\text{worldPos} + t) = P\,V\,\text{worldPos}$$
+
+Mathematically identical, but every intermediate stays small (the car's local vertices are ~metres; the seat-relative offset is ~1 m), so float32 is precise.
+- CPU ([SceneGeometry.cpp](src/renderer/SceneGeometry/SceneGeometry.cpp)) — rebase each draw's model translation column by `−camPos` in **double** (`glm::dmat4`), then store as float32. The `(objectPos − camPos)` subtraction keeps full precision even though both operands are ~4.2 M WU. `record_draws` gained a `Vec3 cameraPos` parameter; [Renderer.cpp](src/renderer/Renderer/Renderer.cpp) passes `m_camera->get_position()` to both the static and dynamic (car) geometry.
+- Shader ([basic.vert](shaders/basic.vert)) — `gl_Position = proj * mat4(mat3(view)) * (model_rel * pos)` (rotation-only view = eye at origin). `fragWorldPos` is reconstructed as `relPos + camPos` (it is unused by [gbuffer.frag](shaders/gbuffer.frag) — the deferred lighting reconstructs world position from **depth** with the full, unchanged view — so lighting/shadows/SSR are untouched and stay consistent).
+
+**Verification.** Forced the car 2 km down the road (z = −2,000,000 WU): with the fix the crest, wheel and dash render crisp and correctly framed; an A/B that reproduced the old `proj·view·worldPos` path in-shader showed the whole interior grossly displaced/distorted at the same spot. No regression at spawn; release + debug build clean; `ctest` 52/52; validation-clean.
+
+| File | Change |
+|------|--------|
+| [shaders/basic.vert](shaders/basic.vert) | Camera-relative `gl_Position` (rotation-only view); `fragWorldPos` reconstructed from `relPos + camPos`. |
+| [src/renderer/SceneGeometry/SceneGeometry.h](src/renderer/SceneGeometry/SceneGeometry.h) · [.cpp](src/renderer/SceneGeometry/SceneGeometry.cpp) | `record_draws` takes `cameraPos`; per-draw model translation rebased by −camPos in double precision. |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | Pass `m_camera->get_position()` to static + dynamic `record_draws`. |
+
+*Follow-up (not in this change): the car's glass/windshield passes and the shadow pass still use the world-space path (strictly no worse than before — they swam too — but now less consistent than the crisp body); and the static road/barrier geometry (absolute-coord verts) needs its own rebasing/chunking + likely reverse-Z for the distant z-fighting flicker.*
+
 ### 2026-07-03 — Fixed the washed-out "1995-game" look: AgX was double-gamma-encoded
 
 > The whole frame rendered milky, flat, low-contrast and over-bright because the **AgX tonemap never linearised its output** — it returned the display-encoded (~2.2-gamma) sigmoid straight to a swapchain that expects linear, so the signal was gamma-encoded *twice*. Added the missing AgX EOTF (`pow(2.2)`), which restores contrast and correct mids; then raised exposure back to **1.25** (the old **0.45** was a band-aid fighting the double-encode) and shipped a mild punchy grade (contrast **1.12**, saturation **1.2**). The cabin now reads as a real dark interior with the exterior properly exposed, instead of flat grey.

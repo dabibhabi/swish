@@ -83,9 +83,16 @@ void SceneGeometry::upload(const RendererServices& s, const MeshData& mesh, cons
 }
 
 void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline,
-                                 MaterialDescriptors& materials, const MaterialOverride* overrides) const {
+                                 MaterialDescriptors& materials, const MaterialOverride* overrides,
+                                 Vec3 cameraPos) const {
     if (!has_geometry())
         return;
+
+    // Camera-relative rebase (double precision): subtract the camera position from each
+    // model's translation so basic.vert renders with the eye at the origin. Done in
+    // double so the (objectPos − cameraPos) subtraction keeps full precision even though
+    // both operands reach ~4.2 M WU; the small result stores exactly in float32.
+    const glm::dvec3 dCam(cameraPos);
 
     VkBuffer     vbs[] = {m_vertexBuffer.handle()};
     VkDeviceSize off[] = {0};
@@ -99,7 +106,10 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &matSet, 0, nullptr);
 
         PushConstantData pushData{};
-        pushData.model = dc.model;
+        // Rebase the translation column to camera-relative space in double precision.
+        glm::dmat4 dModel = glm::dmat4(dc.model);
+        dModel[3]         = glm::dvec4(glm::dvec3(dModel[3]) - dCam, dModel[3].w);
+        pushData.model    = glm::mat4(dModel);
         pushData.color = dc.color;
         // Per-material metalness (first pass: metal barriers/rails are metallic,
         // everything else is dielectric). Texture-driven metalness is a follow-up.
