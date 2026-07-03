@@ -17,10 +17,10 @@ namespace swish {
 // ── Spray tuning constants (WU; 1 m = 1000 WU) ─────────────────────────
 static constexpr float kSprayRefSpeed = 20000.0f;  // speed (WU/s ≈ 45 mph) at which spray reaches full
 static constexpr float kSprayGravity  = -9810.0f;  // gravity (WU/s²) — real 9.81 m/s²
-static constexpr float kSprayDrag     = 1.2f;      // air drag (1/s) — mist decelerates quickly
-static constexpr float kSprayUpSpeed  = 3500.0f;   // launch up speed (WU/s)
-static constexpr float kSprayBackSpeed = 2500.0f;  // backward kick relative to travel (WU/s)
-static constexpr float kSpraySpread   = 900.0f;    // lateral spread at the wheels (WU ≈ 0.9 m)
+static constexpr float kSprayDrag     = 0.85f;     // air drag (1/s) — lower so the mist lofts + thins
+static constexpr float kSprayUpSpeed  = 4500.0f;   // launch up speed (WU/s) — taller plume
+static constexpr float kSprayBackSpeed = 3000.0f;  // backward kick relative to travel (WU/s)
+static constexpr float kSpraySpread   = 1200.0f;   // lateral spread at the wheels (WU ≈ 1.2 m)
 
 void SpraySystem::init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                        const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,

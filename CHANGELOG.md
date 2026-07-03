@@ -6,6 +6,34 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-03 — Road spray reads as turbulent mist, not a solid fog blob
+
+> The GPU road-spray behind the car looked like one bright white blob of fog. Cause: ~4000 near-white additive billboards, all launched with the **same** backward velocity into a tiny volume, with no in-flight turbulence and no per-particle variation — a coherent white sheet that summed to a solid glow. Reworked the sim + sprites so it reads as a **turbulent, semi-transparent rooster-tail mist**: per-particle launch variation on every axis + per-step turbulence (paths diverge), droplets that grow as they disperse, per-particle brightness + a spawn fade-in, a taller/wider/thinner plume, and smaller base droplets. Verified from a chase cam on a wet road at speed — two wispy turbulent tails off the rear wheels with visible structure, no blob.
+
+<details>
+<summary>Technical summary</summary>
+
+**Diagnosis.** [spray.frag](shaders/spray.frag) drew pure-additive near-white sprites (`vec3(0.82,0.87,0.95)`); [spray_sim.comp](shaders/spray_sim.comp) launched every particle with an identical backward kick (`−fwd·backSpeed`) and integrated smooth ballistic parabolas (no turbulence); ~97 % of 4096 particles stayed alive in a ~2 m slab with ~1.4 m sprites. Additive + coherent + dense = a saturated white blob with no droplet structure.
+
+**Rework.**
+- **Turbulence + launch variation** ([spray_sim.comp](shaders/spray_sim.comp)) — per-particle multipliers on the backward/up/lateral launch, plus a decorrelated per-step velocity kick (`turb·9000·dt`) so paths diverge into a chaotic plume.
+- **Disperse over life** ([spray.vert](shaders/spray.vert)) — billboards grow `×(1 + (1−life)·1.6)` as they age, so the plume thins into a veil instead of a fixed clump.
+- **Stochastic, softer sprites** ([spray.frag](shaders/spray.frag)) — per-particle brightness `0.30 + 0.70·seed` (seed hashed from the instance index), a spawn **fade-in** (`smoothstep(1.0, 0.82, life)`) so droplets ramp up instead of popping, and a slightly less-blown white.
+- **Plume shape** ([SpraySystem.cpp](src/renderer/SpraySystem/SpraySystem.cpp)) — up-speed 3500→4500, drag 1.2→0.85 (lofts + thins), spread 900→1200, back-speed 2500→3000.
+- **Sparser/smaller droplets** — base size 700→450 WU, density 0.35→0.42 (fuller but with the above spread it no longer clumps), lifetime 1.4→1.5, opacity 0.12→0.16. Updated in **both** [DebugParams.h](src/debug/DebugParams.h) and the release-default [SprayParams](src/renderer/SpraySystem/SpraySystem.h).
+
+Still emission-gated by wetness × speed, so the dry (release) scene shows nothing.
+
+| File | Change |
+|------|--------|
+| [shaders/spray_sim.comp](shaders/spray_sim.comp) | Per-particle launch variation + per-step turbulence. |
+| [shaders/spray.vert](shaders/spray.vert) | Size-growth over life; per-particle seed varying. |
+| [shaders/spray.frag](shaders/spray.frag) | Per-particle brightness, spawn fade-in, less-blown tint. |
+| [src/renderer/SpraySystem/SpraySystem.cpp](src/renderer/SpraySystem/SpraySystem.cpp) | Plume constants (up/drag/spread/back). |
+| [src/renderer/SpraySystem/SpraySystem.h](src/renderer/SpraySystem/SpraySystem.h) · [src/debug/DebugParams.h](src/debug/DebugParams.h) | Spray defaults (size/density/lifetime/opacity) in both structs. |
+
+</details>
+
 ### 2026-07-03 — Fixed the car/steering-wheel-crest distortion far down the road (camera-relative rendering)
 
 > As the car drove further down the 4.2 km highway, its fine geometry — the steering-wheel Porsche crest most visibly — swam and deformed. Root cause: `proj·view·worldPos` was evaluated in **float32** at world coordinates up to ~4.2 million WU, and `view·worldPos` catastrophically cancels two million-scale operands, leaving ~sub-WU per-vertex noise that jitters every frame. Fixed with **camera-relative rendering** for scene geometry: the per-draw model translation is rebased by the camera position **in double precision** on the CPU, and the vertex shader renders with the eye at the origin (rotation-only view), so all transformed coordinates stay small and precise. Verified at 2 km down the road — the crest is now crisp, where the old path grossly distorted the whole interior.

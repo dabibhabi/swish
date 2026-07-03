@@ -24,6 +24,16 @@ layout(set = 1, binding = 0) readonly buffer Particles { Particle particles[]; }
 
 layout(location = 0) out vec2  vUV;
 layout(location = 1) out float vLife;
+layout(location = 2) out float vSeed;  // stable per-particle random → brightness variation
+
+float hash11(uint n) {
+    n = (n ^ 61u) ^ (n >> 16);
+    n *= 9u;
+    n = n ^ (n >> 4);
+    n *= 0x27d4eb2du;
+    n = n ^ (n >> 15);
+    return float(n & 0x00ffffffu) / float(0x01000000u);
+}
 
 void main() {
     Particle pt   = particles[gl_InstanceIndex];
@@ -35,6 +45,7 @@ void main() {
     vec2 c = corners[gl_VertexIndex];
     vUV    = c;
     vLife  = life;
+    vSeed  = hash11(uint(gl_InstanceIndex) * 2654435761u);
 
     if (life <= 0.0) {  // dead → degenerate offscreen (skips the fragment work)
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -44,7 +55,10 @@ void main() {
     // Camera-facing basis = rows of the view rotation (world-space right / up).
     vec3  right = vec3(camera.view[0][0], camera.view[1][0], camera.view[2][0]);
     vec3  up    = vec3(camera.view[0][1], camera.view[1][1], camera.view[2][1]);
-    float size  = pt.velSize.w;
+    // Droplets grow as they age (life 1→0), so the plume disperses into a thinning
+    // veil instead of staying a fixed-size clump.
+    float grow  = 1.0 + (1.0 - life) * 1.6;
+    float size  = pt.velSize.w * grow;
     vec3  world = pt.posLife.xyz + (c.x * right + c.y * up) * size;
     gl_Position = camera.proj * camera.view * vec4(world, 1.0);
 }

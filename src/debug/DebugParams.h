@@ -126,10 +126,10 @@ struct DebugParams {
     // Additive mist kicked up off a wet road at speed. Emission is gated by
     // wetness × speed, so a dry road (and the release build) shows nothing.
     bool  sprayEnabled  = true;
-    float sprayDensity  = 0.35f;   // per-dead-particle respawn chance at full wetness × speed
-    float sprayLifetime = 1.4f;    // particle lifetime (s)
-    float spraySize     = 700.0f;  // billboard size (WU ≈ 0.7 m)
-    float sprayOpacity  = 0.12f;   // additive strength
+    float sprayDensity  = 0.42f;   // per-dead-particle respawn chance at full wetness × speed
+    float sprayLifetime = 1.5f;    // particle lifetime (s)
+    float spraySize     = 450.0f;  // billboard base size (WU ≈ 0.45 m); grows ~2.6× over life
+    float sprayOpacity  = 0.16f;   // additive strength
 
     // ── Car (paint override for tuning) ───────────────────────────────
     float     carMetalness = 0.0f;

@@ -58,10 +58,12 @@ void main() {
             vec3 pos = sim.spawnPosDt.xyz
                      + lateral * (r1 * 2.0 - 1.0) * sim.params2.x          // ± lateral spread
                      + vec3(0.0, r2 * 0.15 * sim.params2.x, 0.0);          // slight launch height
-            // Kicked back relative to travel + up, with lateral scatter (rooster tail).
-            vec3 vel = -fwd * sim.params2.w
-                     + vec3(0.0, 1.0, 0.0) * sim.params2.z * (0.6 + 0.4 * r3)
-                     + lateral * (r2 * 2.0 - 1.0) * sim.params2.z * 0.5;
+            // Kicked back relative to travel + up, with strong per-particle scatter on
+            // every axis (turbulent rooster tail) so droplets fan out instead of moving
+            // as one coherent sheet — the coherence is what read as a solid fog blob.
+            vec3 vel = -fwd * sim.params2.w * (0.5 + 1.0 * r3)
+                     + vec3(0.0, 1.0, 0.0) * sim.params2.z * (0.5 + 0.8 * r2)
+                     + lateral * (r1 * 2.0 - 1.0) * sim.params2.z * 0.9;
 
             pt.posLife = vec4(pos, 1.0);
             pt.velSize = vec4(vel, sim.params.y * (0.6 + 0.8 * r1));
@@ -71,6 +73,11 @@ void main() {
     } else {
         vec3 vel = pt.velSize.xyz;
         vel.y   += sim.params.z * dt;                 // gravity (params.z is negative)
+        // Per-step turbulence: a decorrelated random kick each frame so paths diverge
+        // into a chaotic, wispy plume rather than a smooth ballistic sheet.
+        uint  ts   = i * 2654435761u + uint(sim.params2.y) * 40503u;
+        vec3  turb = vec3(hash11(ts) - 0.5, hash11(ts + 1u) - 0.5, hash11(ts + 2u) - 0.5);
+        vel       += turb * 9000.0 * dt;
         vel     *= max(1.0 - sim.params.w * dt, 0.0); // air drag
         vec3 pos = pt.posLife.xyz + vel * dt;
         life    -= dt / max(sim.params.x, 0.01);

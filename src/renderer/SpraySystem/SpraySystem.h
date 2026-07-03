@@ -35,10 +35,10 @@ struct SpraySimUBO {
 // release scene emits nothing, so the pass is a no-op there).
 struct SprayParams {
     bool  enabled  = true;
-    float density  = 0.35f;   // per-dead-particle respawn chance at full wetness × speed
-    float lifetime = 1.4f;    // particle lifetime (s)
-    float size     = 700.0f;  // billboard size (WU ≈ 0.7 m)
-    float opacity  = 0.12f;   // additive strength
+    float density  = 0.42f;   // per-dead-particle respawn chance at full wetness × speed
+    float lifetime = 1.5f;    // particle lifetime (s)
+    float size     = 450.0f;  // billboard base size (WU ≈ 0.45 m); grows ~2.6× over life
+    float opacity  = 0.16f;   // additive strength
 };
 
 // ══════════════════════════════════════════════════════════════════════
