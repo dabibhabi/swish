@@ -70,3 +70,6 @@ build-xcode/
 # Local-only Claude/agent notes (code-audit pack, not part of the shipped repo)
 claude_docs/
 uv.lock
+
+# Local-only scratch reply (not part of the shipped repo)
+response.md

@@ -20,6 +20,10 @@ Everything you need to understand, extend, and contribute to Swish.
 | [architecture.md](architecture.md) | The 5-layer stack, startup sequence, RendererServices, swapchain recreation |
 | [rain/README.md](rain/README.md) | Rain system architecture — falling rain, refractive windshield drops, wetness map + wiper |
 | [render-pipeline.md](render-pipeline.md) | The 6-pass deferred pipeline, per-pass I/O, all shader math |
+| [realism-features.md](realism-features.md) | The GPU realism suite — SSAO, CSM, split-sum IBL, SSR, SSAA, auto-exposure, AgX — with math and MoltenVK notes |
+| [debug-ui.md](debug-ui.md) | The in-engine live-tuning UI (`make debug`) — DebugParams, set-3 UBO, gizmos, TOML presets, and the release-safety strategy |
+| [concepts.md](concepts.md) | Study aid — OOP/OOD patterns and GPU concepts, each mapped to the file in this repo where it lives |
+| [learning-path.md](learning-path.md) | Study map — graphics algorithms, GPU methods, and the math (ODEs, SH, splines, volumetrics) behind rain · car · road · light, with resources and questions |
 | [data-types.md](data-types.md) | Every data struct (DTO) and UBO, with exact layouts and std140 rules |
 | [car_system.md](car_system.md) | GLB loading and car-mesh normalization algorithm |
 | [research-rain-rendering.md](research-rain-rendering.md) | Cited survey of realistic-rain techniques (streaks, drops-on-glass, GPU particles, veils) — AI-assisted |
@@ -50,3 +54,14 @@ All diagrams are valid [Excalidraw](https://excalidraw.com) JSON (version 2). Op
 | [scene-data-flow](diagrams/scene-data-flow.excalidraw) | Asset → GPU → draw call pipeline |
 | [descriptor-sets](diagrams/descriptor-sets.excalidraw) | Set 0 / set 1 bindings and push constants |
 | [data-layout](diagrams/data-layout.excalidraw) | Vertex byte layout and std140 UBO layout |
+| [debug-ui-dataflow](diagrams/debug-ui-dataflow.excalidraw) | Sliders → DebugParams → UBO / push constants → shaders |
+| [deferred-pipeline-extended](diagrams/deferred-pipeline-extended.excalidraw) | The deferred pipeline extended with CSM, SSAO, SSR, luminance, and SSAA resolve |
+| [descriptor-sets-scene-params](diagrams/descriptor-sets-scene-params.excalidraw) | The debug set-3 scene-params UBO alongside sets 0/1/2 |
+| [csm-cascades](diagrams/csm-cascades.excalidraw) | Frustum split into 3 cascades packed in one shadow atlas |
+| [ssr-raymarch](diagrams/ssr-raymarch.excalidraw) | View-space depth ray-march for screen-space reflections |
+| [auto-exposure-loop](diagrams/auto-exposure-loop.excalidraw) | Luminance pyramid + prev-frame host readback feedback loop |
+| [ibl-split-sum](diagrams/ibl-split-sum.excalidraw) | Split-sum IBL — prefiltered sky × analytic env-BRDF |
+| [steering-transform](diagrams/steering-transform.excalidraw) | Steering-wheel pivot-frame + axis-correction composition |
+| [ood-ownership](diagrams/ood-ownership.excalidraw) | Subsystem ownership graph (unique_ptr + RAII handles) |
+| [architecture-layman](diagrams/architecture-layman.excalidraw) | Plain-language "how one frame becomes the picture" (8 steps) |
+| [architecture-technical](diagrams/architecture-technical.excalidraw) | Full per-frame pass pipeline + descriptor sets + compute + the 4 new GPU features |
