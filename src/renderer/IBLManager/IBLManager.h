@@ -55,10 +55,10 @@ public:
     void bake(const SkyBakeParams& sky);
 
 private:
-    static constexpr uint32_t kEnvDim        = 128;
+    static constexpr uint32_t kEnvDim        = 256;
     static constexpr uint32_t kIrrDim        = 32;
-    static constexpr uint32_t kPrefilterDim  = 128;
-    static constexpr uint32_t kPrefilterMips = 5;  // 128,64,32,16,8 → roughness 0..1
+    static constexpr uint32_t kPrefilterDim  = 256;
+    static constexpr uint32_t kPrefilterMips = 5;  // 256,128,64,32,16 → roughness 0..1 (sharper mip0 gloss)
     static constexpr uint32_t kBrdfDim       = 256;
     static constexpr uint32_t kFaces         = 6;
     static constexpr VkFormat kCubeFormat    = VK_FORMAT_R16G16B16A16_SFLOAT;

@@ -6,6 +6,10 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-03 — Realism: sharper IBL reflections (quality crank #1)
+
+> With the optimized build freeing ~4× the framerate, doubled the baked IBL environment + prefilter cube resolution from **128² → 256²** ([IBLManager.h](src/renderer/IBLManager/IBLManager.h)) so the glossy paint mirrors a sharper sky/scene. Baked once at init (and on weather change) → negligible runtime cost, a few MB VRAM. `kPrefilterMips` stays 5, so `lighting.frag`'s `IBL_PREFILTER_MAX_MIP` is unchanged (mip 0 is simply 256² now). Build-clean, validation-clean, 118 fps in `make debug`.
+
 ### 2026-07-03 — 4× framerate from an optimized build + TAA quality fix
 
 > Fixed the two issues found once the realism passes were driven live: (1) **the framerate was capped by an unoptimized build** — the Makefile compiled *every* target (`make build`/`make run` included) with `CMAKE_BUILD_TYPE=Debug` (`-O0`); switching to Release / RelWithDebInfo took `make debug` from **36 → 118 fps** (release ~140), identical scene/settings, no quality change. (2) The **TAA looked foggy/grainy in motion** — the neighborhood clamp ran in raw linear-HDR RGB (far too loose); reworked to a **YCoCg** clamp + **velocity-adaptive, inverse-luma-weighted** blend, which resolves sharp under motion. Verified: 52/52 in Release, validation-clean, TAA sharp under forced motion, 118 fps in `make debug` with all passes on.
