@@ -1173,10 +1173,13 @@ void Renderer::recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uin
 
     PostProcessParams pp{};
     pp.bloom_intensity = 0.3f;
-    // Global exposure trim applied before AgX (composite.frag). The scene was
-    // running hot / over-exposed; pulled well below 1.0 now that sun shadows
-    // restore contrast. Tune to taste.
-    pp.exposure = 0.45f;
+    // Shipped grade (composite.frag). Exposure feeds the pre-AgX multiply; contrast /
+    // saturation are the post-tonemap "look". Raised from the old 0.45 — that value was
+    // fighting the double-gamma washout; now the AgX EOTF (pow 2.2) linearises correctly,
+    // the scene is no longer hot, so exposure returns to ~1.0 with a mild punchy grade.
+    pp.exposure   = 1.25f;
+    pp.contrast   = 1.12f;
+    pp.saturation = 1.2f;
 #ifdef SWISH_DEBUG_UI
     pp.bloom_intensity = m_debugParams.bloomIntensity;
     // Auto-exposure drives the exposure when enabled; else the manual slider.

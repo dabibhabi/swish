@@ -6,6 +6,35 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-03 — Fixed the washed-out "1995-game" look: AgX was double-gamma-encoded
+
+> The whole frame rendered milky, flat, low-contrast and over-bright because the **AgX tonemap never linearised its output** — it returned the display-encoded (~2.2-gamma) sigmoid straight to a swapchain that expects linear, so the signal was gamma-encoded *twice*. Added the missing AgX EOTF (`pow(2.2)`), which restores contrast and correct mids; then raised exposure back to **1.25** (the old **0.45** was a band-aid fighting the double-encode) and shipped a mild punchy grade (contrast **1.12**, saturation **1.2**). The cabin now reads as a real dark interior with the exterior properly exposed, instead of flat grey.
+
+<details>
+<summary>Technical summary</summary>
+
+**Root cause.** [composite.frag](shaders/composite.frag) `AgX()` ended at `return clamp(kAgXOutset * c, 0.0, 1.0)` — the Sobotka/Blender `agxDefaultContrastApprox` sigmoid, whose output is **display-encoded**, not linear. The reference pipeline follows it with an EOTF (`pow(2.2)`) to return to linear. That step was missing. The swapchain ([Swapchain.cpp](src/renderer/Swapchain/Swapchain.cpp)) is either `R16G16B16A16_SFLOAT` + extended-sRGB-**linear** (display encodes) or `B8G8R8A8_SRGB` (hardware encodes on write) — **both expect linear input**. Feeding a gamma-encoded signal to a linear-expecting target lifts the mids (~0.4 → ~0.66) and compresses highlights → the classic washed-out, desaturated look. A comment in `Swapchain.cpp` even encoded the wrong assumption ("AgX outputs linear"). This also explains why exposure had been dragged down to 0.45 to fight the resulting over-brightness.
+
+**Fix.**
+
+$$c_{\text{linear}} = \big(\operatorname{clamp}(M_{\text{outset}}\,c,\,0,\,1)\big)^{2.2}$$
+
+- [composite.frag](shaders/composite.frag) — append the AgX EOTF `pow(c, vec3(2.2))` as the final step of `AgX()`.
+- [Renderer.cpp](src/renderer/Renderer/Renderer.cpp) — shipped grade literals: `exposure 0.45 → 1.25`, `contrast → 1.12`, `saturation → 1.2` (the EOTF darkens + steepens, so exposure returns to ~1.0–1.3).
+- [DebugParams.h](src/debug/DebugParams.h) — debug defaults updated to match (`exposure 1.25`, `contrast 1.12`, `saturation 1.2`) so the UI opens at the shipped look.
+
+This is an **intentional, verified** change to the release image (the tonemap ships un-gated). Verified by eye: the milky flat grey is gone; cabin, dash, tach and the Porsche crest read with correct contrast and colour, exterior road/sky properly exposed.
+
+| File | Change |
+|------|--------|
+| [shaders/composite.frag](shaders/composite.frag) | Added AgX EOTF (`pow(2.2)`) to linearise the tonemap output for the linear-expecting swapchain. |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | Shipped grade: exposure 0.45→1.25, contrast 1.12, saturation 1.2. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) | Debug defaults matched to the shipped grade. |
+
+*Follow-up (not in this change): distant wet-road hazing to white under rain is a separate sky-IBL-veil / fog interaction; ambient-fill rebalance for deeper shadow contrast is also deferred.*
+
+</details>
+
 ### 2026-07-03 — Realism: SSR now ships on the wet road
 
 > Un-gated the screen-space-reflection pass so it runs in **release**, not just the debug UI — a rainy road now mirrors the on-screen scene (barriers, car, signs) instead of only the sky IBL. Gated so a **dry scene is byte-identical**: SSR's contribution is keyed to surface wetness, so dry asphalt (and the dry glossy car) render exactly as before. Verified in the release build with an A/B difference image — SSR's added light lands on the wet road and lanes and **not** on the sky.

@@ -56,7 +56,12 @@ vec3 AgX(vec3 c) {
     c = kAgXInset * c;
     c = clamp((log2(max(c, 1e-10)) + 12.47393) / 16.5, 0.0, 1.0);
     c = vec3(agxCurve(c.r), agxCurve(c.g), agxCurve(c.b));
-    return clamp(kAgXOutset * c, 0.0, 1.0);
+    c = clamp(kAgXOutset * c, 0.0, 1.0);
+    // AgX EOTF — the sigmoid above outputs a display-encoded (~2.2-gamma) signal;
+    // linearise it here. Our swapchain expects LINEAR input (extended-sRGB-linear, or
+    // an sRGB format whose hardware re-encodes on write), so without this step the
+    // signal was gamma-encoded twice → the washed-out, low-contrast "milky" look.
+    return pow(c, vec3(2.2));
 }
 
 void main() {

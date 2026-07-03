@@ -18,7 +18,7 @@ namespace swish {
 // ══════════════════════════════════════════════════════════════════════
 struct DebugParams {
     // ── Grade / composite (tone map + color grade in composite.frag) ──
-    float exposure       = 0.45f;  // tone-mapping exposure (manual, when autoExposure off)
+    float exposure       = 1.25f;  // tone-mapping exposure (manual, when autoExposure off)
     float bloomThreshold = 1.0f;   // luminance above which bloom extracts
     float bloomIntensity = 0.3f;   // additive bloom blend strength
 
@@ -31,8 +31,8 @@ struct DebugParams {
     float aeMin        = 0.05f;  // exposure clamp (min)
     float aeMax        = 2.0f;   // exposure clamp (max)
     float brightness   = 0.0f;   // post-grade lift   [-1, 1]
-    float contrast     = 1.0f;   // post-grade contrast around 0.5
-    float saturation   = 1.0f;   // 0 = greyscale, 1 = neutral
+    float contrast     = 1.12f;  // post-grade contrast around 0.5 (mild punch)
+    float saturation   = 1.2f;   // 0 = greyscale, 1 = neutral (mild boost)
     float temperature  = 0.0f;   // warm/cool shift   [-1, 1]
     float tint         = 0.0f;   // green/magenta shift [-1, 1]
 
