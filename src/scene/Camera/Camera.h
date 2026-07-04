@@ -92,7 +92,7 @@ private:
     float m_fov    = 65.0f;
     float m_aspect = 16.0f / 9.0f;
     float m_near   = 10.0f;
-    float m_far    = 2000000.0f;
+    float m_far    = 4300000.0f;  // covers the full ~4.22 km road; reverse-Z keeps depth precise
 
     // Control tuning
     float m_move_speed        = 26800.0f;  // ~60 mph in world units/sec

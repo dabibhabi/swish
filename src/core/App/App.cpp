@@ -173,7 +173,7 @@ int App::run() {
 
         VkExtent2D extent = renderer.services().swapchainExtent;
         float      aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
-        camera->set_perspective(65.0f, aspect, 10.0f, 2000000.0f);
+        camera->set_perspective(65.0f, aspect, 10.0f, 4300000.0f);  // see the full road (reverse-Z safe)
 
         renderer.set_camera(camera);
     });

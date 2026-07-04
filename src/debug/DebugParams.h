@@ -59,6 +59,10 @@ struct DebugParams {
     glm::vec3 fogColor{0.52f, 0.57f, 0.63f};
     float     fogDist63 = 1200000.0f;  // distance (world units) at which fog ≈ 63%
     float     fogMax    = 0.65f;       // saturation ceiling of fog blend
+    // Always-on aerial-perspective haze (dry days too, not wet-gated). Distant geometry
+    // dissolves into the horizon sky so the road reads with depth to the far plane.
+    float     hazeDist = 900000.0f;    // distance (WU) at which haze reaches ~63%
+    float     hazeMax  = 0.5f;         // haze ceiling [0,1] — fraction dissolved into sky at range
 
     // ── Reflection (environment / gloss) ──────────────────────────────
     float envGlossExp = 3.0f;  // Fresnel/gloss falloff exponent

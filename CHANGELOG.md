@@ -6,6 +6,34 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-04 — See down the whole road: extended draw distance + always-on aerial haze
+
+> The far plane clipped the road at ~2 M WU — the far half of the 4.22 km highway was invisible, ending at a hard edge. Raised the far plane to **4.3 M WU** (now precision-safe thanks to reverse-Z) so the whole road is drawable, and added an **always-on aerial-perspective haze** so the distance dissolves into the horizon sky instead of hard-clipping. The haze is tinted with the actual sky in each fragment's view direction (so distance blends into the background, not a flat grey), is *not* wet-gated (dry days read with depth too), and is negligible on near surfaces so the cabin/road stay crisp. This is Phase 1 of the Glen Cove-LIE detail plan (see the far horizon before adding roadside detail).
+
+<details>
+<summary>Technical summary</summary>
+
+**Distance.** Far plane `2000000 → 4300000` WU at [App.cpp](src/core/App/App.cpp) `set_perspective` and the [Camera.h](src/scene/Camera/Camera.h) default. The road is one static mesh spanning 0…−4.22 M WU (no streaming), so it was simply beyond the old far plane; reverse-Z keeps depth precise at the larger range. No draw-call change (there is no culling — the whole road was already submitted every frame).
+
+**Aerial haze** ([lighting.frag](shaders/lighting.frag)), applied before the existing wet rain fog:
+
+$$\text{hazeT} = \big(1 - e^{-\text{dist}/\text{SP\_HAZE\_DIST}}\big)\cdot \text{SP\_HAZE\_MAX},\qquad \text{lit} = \operatorname{mix}(\text{lit},\ \text{skyColor}(\widehat{\text{toFrag}}),\ \text{hazeT})$$
+
+Tinted with `compute_sky_color()` in the fragment's own view direction so distant geometry dissolves into the horizon sky. Defaults: `SP_HAZE_DIST = 900000` WU (~900 m to 63%), `SP_HAZE_MAX = 0.5`. At the cabin (~1000 WU) hazeT ≈ 0.0006 → no effect; at the 4.3 km horizon ≈ 0.5 → half-dissolved into sky. Rain fog is unchanged and layers on top when wet.
+
+**Debug-tunable, no new UBO row.** `SP_HAZE_DIST`/`SP_HAZE_MAX` reuse the two spare std140 lanes `fogParams.w` / `fogColor.w` ([SceneParamsUniform.cpp](src/debug/SceneParamsUniform.cpp)), so the UBO size/layout is unchanged. Sliders under the **Fog** header ([DebugUI.cpp](src/debug/DebugUI.cpp)); `DebugParams::hazeDist/hazeMax` defaults match the release literals.
+
+This is an **intentional, verified** release change (previously dry release had no haze and clipped at 2 M). Verified from a chase cam: the road/walls/markings recede to the horizon and fade into the sky with no hard clip; near stays crisp; validation-clean; `ctest` 52/52.
+
+| File | Change |
+|------|--------|
+| [src/scene/Camera/Camera.h](src/scene/Camera/Camera.h) · [src/core/App/App.cpp](src/core/App/App.cpp) | Far plane 2.0 M → 4.3 M WU. |
+| [shaders/lighting.frag](shaders/lighting.frag) | Always-on aerial haze (sky-tinted) + `SP_HAZE_*` macros (debug lanes + release literals). |
+| [src/debug/SceneParamsUniform.cpp](src/debug/SceneParamsUniform.cpp) | Pack hazeDist/hazeMax into `fogParams.w`/`fogColor.w` (no new UBO row). |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) · [src/debug/DebugUI.cpp](src/debug/DebugUI.cpp) | `hazeDist`/`hazeMax` defaults + Fog-header sliders. |
+
+</details>
+
 ### 2026-07-03 — Sky reworked to match the LIE references; cabin lifted so it isn't crushed vs the sky
 
 > Retuned the procedural sky toward the real Long Island Expressway look: **overcast** is now an even light grey-white (was a blue-ish gradient) and **clear** is a bright blue (pushed into HDR so a saturated blue still reads bright through AgX, and its brighter irradiance fills the cabin). Raised the ambient floor so the enclosed cabin reads as evenly lit instead of near-black against the bright sky — the AgX EOTF fix had corrected the old over-brightness, so the interior no longer needs to be starved.

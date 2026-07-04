@@ -37,8 +37,8 @@ void SceneParamsUniform::update(uint32_t frameIndex, const DebugParams& p) {
     ubo.skyZenithOvercast  = glm::vec4(p.skyZenithOvercast, 0.0f);
     ubo.skyZenithClear     = glm::vec4(p.skyZenithClear, 0.0f);
     ubo.sunDisc            = glm::vec4(p.sunDiscExpMin, p.sunDiscExpMax, p.sunDiscStrMin, p.sunDiscStrMax);
-    ubo.fogColor           = glm::vec4(p.fogColor, 0.0f);
-    ubo.fogParams          = glm::vec4(p.fogDist63, p.fogMax, p.envGlossExp, 0.0f);
+    ubo.fogColor           = glm::vec4(p.fogColor, p.hazeMax);    // .w = aerial-haze ceiling
+    ubo.fogParams          = glm::vec4(p.fogDist63, p.fogMax, p.envGlossExp, p.hazeDist);  // .w = haze dist63
     ubo.shadowParams       = glm::vec4(p.shadowBias, p.shadowFloor, 0.0f, 0.0f);
     ubo.wetParams          = glm::vec4(p.wetPorosity, p.wetRoughness,
                                        p.puddlesEnabled ? p.puddleCoverage : 0.0f, 0.0f);

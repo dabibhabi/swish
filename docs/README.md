@@ -21,6 +21,7 @@ Everything you need to understand, extend, and contribute to Swish.
 | [rain/README.md](rain/README.md) | Rain system architecture — falling rain, refractive windshield drops, wetness map + wiper |
 | [render-pipeline.md](render-pipeline.md) | The 6-pass deferred pipeline, per-pass I/O, all shader math |
 | [realism-features.md](realism-features.md) | The GPU realism suite — SSAO, CSM, split-sum IBL, SSR, SSAA, auto-exposure, AgX — with math and MoltenVK notes |
+| [glen-cove-lie.md](glen-cove-lie.md) | The Glen Cove LIE roadside-detail effort — goal, phased plan/status (Phase 1 done, 2a in progress), and the procedural roadside-prop generation pipeline |
 | [debug-ui.md](debug-ui.md) | The in-engine live-tuning UI (`make debug`) — DebugParams, set-3 UBO, gizmos, TOML presets, and the release-safety strategy |
 | [concepts.md](concepts.md) | Study aid — OOP/OOD patterns and GPU concepts, each mapped to the file in this repo where it lives |
 | [learning-path.md](learning-path.md) | Study map — graphics algorithms, GPU methods, and the math (ODEs, SH, splines, volumetrics) behind rain · car · road · light, with resources and questions |
@@ -65,3 +66,4 @@ All diagrams are valid [Excalidraw](https://excalidraw.com) JSON (version 2). Op
 | [ood-ownership](diagrams/ood-ownership.excalidraw) | Subsystem ownership graph (unique_ptr + RAII handles) |
 | [architecture-layman](diagrams/architecture-layman.excalidraw) | Plain-language "how one frame becomes the picture" (8 steps) |
 | [architecture-technical](diagrams/architecture-technical.excalidraw) | Full per-frame pass pipeline + descriptor sets + compute + the 4 new GPU features |
+| [roadside-detail](diagrams/roadside-detail.excalidraw) | Roadside-detail generation: config → baker → RoadScene section generators → MeshBuilder quads/DrawCalls → SceneGeometry → G-buffer → lighting, with a sign-gantry anatomy inset |

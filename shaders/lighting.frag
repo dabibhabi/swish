@@ -103,6 +103,10 @@ layout(set = 4, binding = 0) uniform SceneParamsUBO {
 #define SP_PUDDLE_COVERAGE      sp.wetParams.z
 #define SP_IBL_DIFFUSE          sp.iblParams.x
 #define SP_IBL_SPECULAR         sp.iblParams.y
+// Aerial-perspective haze packs into spare UBO lanes (no new row): dist63 in
+// fogParams.w, max in fogColor.w. Distinct from the wet rain fog above.
+#define SP_HAZE_DIST            sp.fogParams.w
+#define SP_HAZE_MAX             sp.fogColor.w
 #else
 // Release literals — identical to the previously-hardcoded values.
 #define SP_SKY_HORIZON_OVERCAST vec3(0.86, 0.87, 0.89)
@@ -127,6 +131,11 @@ layout(set = 4, binding = 0) uniform SceneParamsUBO {
 #define SP_PUDDLE_COVERAGE      0.0  // release ships dry (no puddles) → byte-identical
 #define SP_IBL_DIFFUSE          1.0
 #define SP_IBL_SPECULAR         1.0
+// Always-on aerial perspective (distance haze) — not wet-gated, so a dry day still
+// reads with depth to the horizon. dist63 ≈ 900 m to 63%; max 0.5 = distant geometry
+// dissolves halfway into the sky. Near surfaces (cabin ~1 m) are unaffected.
+#define SP_HAZE_DIST            900000.0
+#define SP_HAZE_MAX             0.5
 #endif
 
 // ── Reconstruct world position from depth (rind pattern) ──────────
@@ -443,8 +452,17 @@ void main() {
     // Gate by (1 - clarity) so a clear day has ZERO fog instantly (not waiting for the
     // wetness to drain); cap by kFogMax so even the far end of the 4.2 km road stays
     // legible instead of dissolving into grey.
-    float fogDist  = length(fragWorldPos - camera.camPos.xyz);   // WU (1 m = 1000 WU)
-    float fogClear = 1.0 - camera.weather.x;                      // 1 overcast/rain .. 0 clear day
+    vec3  toFrag  = fragWorldPos - camera.camPos.xyz;
+    float fogDist = length(toFrag);                              // WU (1 m = 1000 WU)
+
+    // Always-on aerial perspective: distant surfaces dissolve into the horizon SKY in
+    // their own view direction (not a flat grey), so the road reads with depth all the
+    // way to the horizon even on a dry day. Near surfaces (cabin ~1000 WU) are ~0.
+    float hazeT = (1.0 - exp(-fogDist / SP_HAZE_DIST)) * SP_HAZE_MAX;
+    lit_color   = mix(lit_color, compute_sky_color(normalize(toFrag)), hazeT);
+
+    // Rain fog (wet-gated) layered on top toward the cool overcast airlight colour.
+    float fogClear = 1.0 - camera.weather.x;                     // 1 overcast/rain .. 0 clear day
     float fogT     = (1.0 - exp(-fogDist * wetness / SP_FOG_DIST63)) * SP_FOG_MAX * fogClear;
     lit_color      = mix(lit_color, SP_FOG_COLOR, fogT);
 

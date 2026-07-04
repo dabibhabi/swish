@@ -454,6 +454,11 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             if (ImGui::SliderFloat("Dist @63% (km)", &distKm, 1.0f, 5000.0f, "%.0f"))
                 p.fogDist63 = distKm * 1000.0f;
             ImGui::SliderFloat("Fog max", &p.fogMax, 0.0f, 1.0f);
+            // Always-on aerial haze (dry days too) — dissolves distance into the sky.
+            float hazeKm = p.hazeDist / 1000.0f;
+            if (ImGui::SliderFloat("Haze dist (km)", &hazeKm, 100.0f, 5000.0f, "%.0f"))
+                p.hazeDist = hazeKm * 1000.0f;
+            ImGui::SliderFloat("Haze max", &p.hazeMax, 0.0f, 1.0f);
         }
 
         // ── Reflections / IBL ─────────────────────────────────────────
