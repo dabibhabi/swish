@@ -37,10 +37,10 @@ struct DebugParams {
     float tint         = 0.0f;   // green/magenta shift [-1, 1]
 
     // ── Sky (gradient endpoints lerped by `clarity`; sun disc) ────────
-    glm::vec3 skyHorizonOvercast{0.70f, 0.80f, 0.90f};
-    glm::vec3 skyHorizonClear{0.62f, 0.80f, 0.98f};
-    glm::vec3 skyZenithOvercast{0.35f, 0.55f, 0.85f};
-    glm::vec3 skyZenithClear{0.09f, 0.36f, 0.86f};
+    glm::vec3 skyHorizonOvercast{0.86f, 0.87f, 0.89f};  // LIE overcast: even light grey-white
+    glm::vec3 skyHorizonClear{0.85f, 1.00f, 1.25f};     // clear: bright light blue near horizon (HDR)
+    glm::vec3 skyZenithOvercast{0.76f, 0.79f, 0.83f};   // overcast: slightly darker grey (subtle gradient)
+    glm::vec3 skyZenithClear{0.50f, 0.80f, 1.35f};      // clear: bright vivid blue (HDR — real sky is a bright source)
     float     clarity       = 0.0f;    // 0 = fully overcast, 1 = fully clear
     float     sunDiscExpMin = 32.0f;   // disc sharpness at overcast
     float     sunDiscExpMax = 220.0f;  // disc sharpness at clear
@@ -49,7 +49,7 @@ struct DebugParams {
 
     // ── Sun / directional light ───────────────────────────────────────
     glm::vec3 sunColor{1.0f, 0.95f, 0.85f};
-    float     sunAmbient = 0.22f;  // ambient floor added to lit surfaces
+    float     sunAmbient = 0.35f;  // ambient floor added to lit surfaces (lifted so the cabin reads)
     // azimuth/elevation drive the sun direction vector; the Renderer converts
     // these spherical angles → sunDir (world space) before uploading.
     float sunAzimuth   = 0.0f;  // [-PI, PI], 0 = +Z

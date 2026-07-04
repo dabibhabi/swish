@@ -105,10 +105,10 @@ layout(set = 4, binding = 0) uniform SceneParamsUBO {
 #define SP_IBL_SPECULAR         sp.iblParams.y
 #else
 // Release literals — identical to the previously-hardcoded values.
-#define SP_SKY_HORIZON_OVERCAST vec3(0.70, 0.80, 0.90)
-#define SP_SKY_HORIZON_CLEAR    vec3(0.62, 0.80, 0.98)
-#define SP_SKY_ZENITH_OVERCAST  vec3(0.35, 0.55, 0.85)
-#define SP_SKY_ZENITH_CLEAR     vec3(0.09, 0.36, 0.86)
+#define SP_SKY_HORIZON_OVERCAST vec3(0.86, 0.87, 0.89)
+#define SP_SKY_HORIZON_CLEAR    vec3(0.85, 1.00, 1.25)
+#define SP_SKY_ZENITH_OVERCAST  vec3(0.76, 0.79, 0.83)
+#define SP_SKY_ZENITH_CLEAR     vec3(0.50, 0.80, 1.35)
 #define SP_SUN_DISC_EXP_MIN     32.0
 #define SP_SUN_DISC_EXP_MAX     220.0
 #define SP_SUN_DISC_STR_MIN     0.3

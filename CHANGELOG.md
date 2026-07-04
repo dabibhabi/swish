@@ -6,6 +6,40 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-03 — Sky reworked to match the LIE references; cabin lifted so it isn't crushed vs the sky
+
+> Retuned the procedural sky toward the real Long Island Expressway look: **overcast** is now an even light grey-white (was a blue-ish gradient) and **clear** is a bright blue (pushed into HDR so a saturated blue still reads bright through AgX, and its brighter irradiance fills the cabin). Raised the ambient floor so the enclosed cabin reads as evenly lit instead of near-black against the bright sky — the AgX EOTF fix had corrected the old over-brightness, so the interior no longer needs to be starved.
+
+<details>
+<summary>Technical summary</summary>
+
+**Sky endpoints** — updated the release literals in [lighting.frag](shaders/lighting.frag) and the matching debug defaults / IBL-bake source in [DebugParams.h](src/debug/DebugParams.h):
+
+| | horizon | zenith |
+|---|---|---|
+| Overcast (was) | (0.70,0.80,0.90) | (0.35,0.55,0.85) |
+| **Overcast (now)** | **(0.86,0.87,0.89)** even light grey-white | **(0.76,0.79,0.83)** subtle grey gradient |
+| Clear (was) | (0.62,0.80,0.98) | (0.09,0.36,0.86) |
+| **Clear (now)** | **(0.85,1.00,1.25)** HDR light-blue | **(0.50,0.80,1.35)** HDR vivid blue |
+
+The clear sky uses **>1 (HDR) values** on purpose: the real sky is a bright light source, so at LDR values a saturated blue tonemaps to a dark, muddy blue. HDR values let AgX roll them off to a bright-yet-saturated blue, and the brighter sky irradiance (baked into the IBL) also fills the cabin.
+
+**Cabin brightness** — the interior is lit only by ambient (`albedo · sunAmbient · ambientIrr`); after the AgX EOTF fix it read near-black against the bright sky. Raised the ambient floor:
+- [Renderer.cpp](src/renderer/Renderer/Renderer.cpp) `set_clear_day`: overcast `0.22 → 0.35`, clear `0.24 → 0.38`.
+- [DebugParams.h](src/debug/DebugParams.h) `sunAmbient` default `0.22 → 0.35`.
+
+**Verification.** Screenshot-tuned in the release build: overcast reads as an even light grey-white sky with a clearly-lit cabin; clear reads as a bright blue sky with the cabin visible (blue-tinted ambient). Both builds clean, `ctest` 52/52.
+
+*Follow-up: procedural clouds (the clear reference has cumulus) and a richer clear-blue saturation would complete the match; auto-exposure would remove the remaining fixed-exposure cabin-vs-sky tension.*
+
+| File | Change |
+|------|--------|
+| [shaders/lighting.frag](shaders/lighting.frag) | Overcast → grey-white; clear → HDR bright blue (`SP_SKY_*`). |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) | Matching sky endpoint defaults; `sunAmbient` 0.22 → 0.35. |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | `set_clear_day` ambient: overcast 0.35, clear 0.38. |
+
+</details>
+
 ### 2026-07-03 — Reverse-Z depth: kills distant z-fighting flicker on the barriers
 
 > The distant jersey barriers flickered/"shook" — classic z-fighting from a 10 → 2,000,000 WU depth range (200,000:1) crammed into standard `[0,1]` depth, which starves far geometry of precision. Converted the camera to **reverse-Z** (near→1, far→0, `0.0` depth clear, `VK_COMPARE_OP_GREATER`), which spreads float depth precision almost uniformly across that range. Scene renders correctly (occlusion, sky, SSR/SSAO/god-rays, shadows) in both builds; the far barriers are now depth-stable. Shadows use their own light-space ortho and are left on standard depth.

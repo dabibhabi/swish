@@ -1294,13 +1294,17 @@ void Renderer::set_clear_day(bool clear) {
         m_sunDir   = glm::normalize(Vec3(0.25f, 0.85f, 0.20f));
         m_sunColor = Vec3(1.00f, 0.98f, 0.92f);
         m_clarity  = 1.0f;
-        m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(m_sunColor, 0.24f), m_clarity);
+        // Ambient lifted (0.24 → 0.38) so the enclosed cabin isn't crushed to black
+        // against the bright sky now that the AgX EOTF fix corrected the over-brightness.
+        m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(m_sunColor, 0.38f), m_clarity);
     } else {
         // Original overcast preset (matches the pre-existing hardcoded sun).
         m_sunDir   = glm::normalize(Vec3(0.3f, 0.6f, 0.15f));
         m_sunColor = Vec3(1.0f, 0.95f, 0.85f);
         m_clarity  = 0.0f;
-        m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(m_sunColor, 0.22f), m_clarity);
+        // Overcast is soft even light — higher ambient (0.22 → 0.35) so the cabin reads
+        // as evenly lit (like the LIE overcast reference), not a black interior.
+        m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(m_sunColor, 0.35f), m_clarity);
     }
     // Re-bake the sky cubemaps for the new weather (dirty-checked; only on change).
     maybeRebakeIBL();
