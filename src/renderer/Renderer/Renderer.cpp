@@ -683,13 +683,14 @@ void Renderer::computeCascades() {
         splitFar[i] = lambda * logS + (1.0f - lambda) * uniS;
     }
 
-    // Unproject the camera frustum's near/far corners to world (NDC z∈[0,1]).
+    // Unproject the camera frustum's near/far corners to world. Reverse-Z: the near
+    // plane is at NDC z = 1 and the far plane at z = 0 (swapped vs standard depth).
     const Mat4 invVP = glm::inverse(m_camera->get_projection_matrix() * m_camera->get_view_matrix());
     Vec3       nearC[4], farC[4];
     const Vec2 ndc[4] = {{-1.f, -1.f}, {1.f, -1.f}, {1.f, 1.f}, {-1.f, 1.f}};
     for (int i = 0; i < 4; ++i) {
-        Vec4 n   = invVP * Vec4(ndc[i], 0.0f, 1.0f);
-        Vec4 f   = invVP * Vec4(ndc[i], 1.0f, 1.0f);
+        Vec4 n   = invVP * Vec4(ndc[i], 1.0f, 1.0f);  // reverse-Z near plane (z = 1)
+        Vec4 f   = invVP * Vec4(ndc[i], 0.0f, 1.0f);  // reverse-Z far plane  (z = 0)
         nearC[i] = Vec3(n) / n.w;
         farC[i]  = Vec3(f) / f.w;
     }
@@ -735,7 +736,7 @@ void Renderer::recordGBufferPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExt
     clear[0].color        = {{0.0f, 0.0f, 0.0f, 0.0f}};  // albedo
     clear[1].color        = {{0.5f, 0.5f, 1.0f, 0.0f}};  // normal (up = 0,0,1 encoded)
     clear[2].color        = {{0.0f, 0.0f, 0.0f, 0.0f}};  // material
-    clear[3].depthStencil = {1.0f, 0};
+    clear[3].depthStencil = {0.0f, 0};  // reverse-Z: far = 0.0 (sky), near = 1.0; GREATER compare
 
     ScopedRenderPass pass(cmd, m_postProcess->get_gbuffer_render_pass(),
                           m_postProcess->get_gbuffer_framebuffer(frameIndex), extent, clear.data(),

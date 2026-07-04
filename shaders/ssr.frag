@@ -65,7 +65,7 @@ float puddleAmount(vec2 worldXZ, float coverage, float road) {
 
 void main() {
     float d = texture(gbDepth, fragUV).r;
-    if (d > 0.9999) {  // sky pixel — nothing to reflect from
+    if (d < 0.0001) {  // reverse-Z sky (far = 0) — nothing to reflect from
         outColor = vec4(0.0);
         return;
     }
@@ -123,7 +123,7 @@ void main() {
             break;  // ray left the screen — SSR can't resolve it (sky IBL covers it)
 
         float sd = texture(gbDepth, suv).r;
-        if (sd > 0.9999) {  // sample is sky: keep marching
+        if (sd < 0.0001) {  // reverse-Z sky (far = 0): keep marching
             step *= 1.4;
             continue;
         }

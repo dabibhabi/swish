@@ -30,8 +30,8 @@ float hash(vec2 p) {
 void main() {
     float depth = texture(depthTex, fragUV).r;
 
-    // Skip sky (depth = 1.0 or very close)
-    if (depth > 0.9999) {
+    // Skip sky (reverse-Z: far/sky is depth 0.0)
+    if (depth < 0.0001) {
         outColor = vec4(1.0);
         return;
     }
@@ -87,7 +87,7 @@ void main() {
         // along every silhouette against the sky, which shows up as edge speckle.
         if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0) continue;
         float sampleDepth = texture(depthTex, sampleUV).r;
-        if (sampleDepth > 0.9999) continue;
+        if (sampleDepth < 0.0001) continue;  // reverse-Z sky (far = 0)
         vec3 sampledPos = viewPosFromDepth(sampleUV, sampleDepth);
 
         // Range check + occlusion test

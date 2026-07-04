@@ -25,7 +25,7 @@ struct PipelineConfig {
 
     bool        enableDepthTest  = true;
     bool        enableDepthWrite = true;
-    VkCompareOp depthCompareOp   = VK_COMPARE_OP_LESS;
+    VkCompareOp depthCompareOp   = VK_COMPARE_OP_GREATER;  // reverse-Z (near→1, far→0); shadow pass overrides to LESS
 
     uint32_t colorAttachmentCount = 1;
 

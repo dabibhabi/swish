@@ -148,11 +148,13 @@ TEST_CASE("Camera set_pitch and get_pitch round-trip", "[camera]") {
     REQUIRE_THAT(cam.get_pitch(), WithinAbs(-15.0f, kEps));
 }
 
-// ── Projection depth convention (Vulkan [0,1] NDC-Z) ──────────────────
-// Guards the GLM_FORCE_DEPTH_ZERO_TO_ONE fix (P0 #1). GLM's perspective
-// (camera looks down -Z) must map the near plane to NDC-Z 0 and the far
-// plane to NDC-Z 1. Without the macro GLM emits OpenGL's [-1,1] and the near
-// plane would map to -1, corrupting all depth->world reconstruction.
+// ── Projection depth convention (Vulkan [0,1] NDC-Z, REVERSE-Z) ───────
+// Guards the reverse-Z projection (swapped near/far in glm::perspective) on top
+// of the GLM_FORCE_DEPTH_ZERO_TO_ONE fix. The camera looks down -Z; reverse-Z
+// maps the NEAR plane to NDC-Z 1 and the FAR plane to NDC-Z 0 (still within the
+// Vulkan [0,1] range, just reversed), which spreads float depth precision almost
+// uniformly across the huge near/far range and kills distant z-fighting. Paired
+// in the renderer with a 0.0 depth clear + VK_COMPARE_OP_GREATER.
 TEST_CASE("Camera projection uses Vulkan [0,1] depth convention", "[camera][depth]") {
     Camera cam;
     cam.set_perspective(60.0f, 16.0f / 9.0f, 1.0f, 100.0f);
@@ -162,8 +164,8 @@ TEST_CASE("Camera projection uses Vulkan [0,1] depth convention", "[camera][dept
         Vec4 clip = proj * Vec4(0.0f, 0.0f, viewZ, 1.0f);
         return clip.z / clip.w;
     };
-    REQUIRE_THAT(ndcZ(-1.0f),   WithinAbs(0.0f, 1e-3f));  // near plane -> 0
-    REQUIRE_THAT(ndcZ(-100.0f), WithinAbs(1.0f, 1e-3f));  // far  plane -> 1
+    REQUIRE_THAT(ndcZ(-1.0f),   WithinAbs(1.0f, 1e-3f));  // reverse-Z: near plane -> 1
+    REQUIRE_THAT(ndcZ(-100.0f), WithinAbs(0.0f, 1e-3f));  // reverse-Z: far  plane -> 0
 }
 
 // Round-trip a known world point exactly as lighting.frag does:

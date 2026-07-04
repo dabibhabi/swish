@@ -6,6 +6,35 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-03 — Reverse-Z depth: kills distant z-fighting flicker on the barriers
+
+> The distant jersey barriers flickered/"shook" — classic z-fighting from a 10 → 2,000,000 WU depth range (200,000:1) crammed into standard `[0,1]` depth, which starves far geometry of precision. Converted the camera to **reverse-Z** (near→1, far→0, `0.0` depth clear, `VK_COMPARE_OP_GREATER`), which spreads float depth precision almost uniformly across that range. Scene renders correctly (occlusion, sky, SSR/SSAO/god-rays, shadows) in both builds; the far barriers are now depth-stable. Shadows use their own light-space ortho and are left on standard depth.
+
+<details>
+<summary>Technical summary</summary>
+
+**Root cause.** With `GLM_FORCE_DEPTH_ZERO_TO_ONE`, depth was standard near→0/far→1. At near = 10 WU (1 cm) and far = 2,000,000 WU the hyperbolic depth distribution puts almost all precision near the camera, leaving distant coplanar barrier faces to alias → flicker as the camera moves. Reverse-Z (near→1, far→0) with a floating-point depth buffer makes precision nearly uniform — the standard fix.
+
+**Change.** Swapping near/far in `glm::perspective` (with `GLM_FORCE_DEPTH_ZERO_TO_ONE`) yields the reverse-Z mapping; paired with a `0.0` clear and `GREATER` compare.
+- [Camera.cpp](src/scene/Camera/Camera.cpp) — `glm::perspective(fov, aspect, far, near)` (swapped) in `get_projection_matrix_unjittered`. TAA jitter touches only X/Y rows, so it composes unchanged.
+- [Pipeline.h](src/renderer/Pipeline/Pipeline.h) — default `depthCompareOp` LESS → **GREATER** (flips the G-buffer writer + glass/windshield/spray/rain forward passes, which all inherit it). The shadow `DepthOnlyPipeline` keeps LESS.
+- [Renderer.cpp](src/renderer/Renderer/Renderer.cpp) — G-buffer depth clear `1.0` → **`0.0`**; and the CSM frustum-corner unprojection swaps its NDC-z constants (reverse-Z: near = 1, far = 0) so the cascades still fit the right sub-frusta.
+- Sky-depth tests flipped `> 0.9999` → `< 0.0001` (sky/far is now depth 0): [ssao.frag](shaders/ssao.frag) ×2, [godrays.frag](shaders/godrays.frag), [ssr.frag](shaders/ssr.frag) ×2, [lighting.frag](shaders/lighting.frag).
+- `invProj`/`invViewProj` reconstructions (SSR, SSAO, lighting, TAA) use the true inverse, so they auto-follow — no change. Shadow light-space ortho + PCF are independent of the camera projection — left standard.
+- [tests/test_camera.cpp](tests/test_camera.cpp) — updated the depth-convention test to assert reverse-Z (near→1, far→0); the inverse round-trip test is convention-agnostic and unchanged.
+
+**Verification.** Release + debug render correctly (occlusion/sky/SSR/SSAO/god-rays), validation-clean, `ctest` 52/52. Depth-precision improvement is inherent to reverse-Z; the scene stays consistent (no inverted depth, no lost sky).
+
+| File | Change |
+|------|--------|
+| [src/scene/Camera/Camera.cpp](src/scene/Camera/Camera.cpp) | Reverse-Z projection (swap near/far). |
+| [src/renderer/Pipeline/Pipeline.h](src/renderer/Pipeline/Pipeline.h) | Default depth compare LESS → GREATER. |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | G-buffer depth clear → 0.0; CSM frustum NDC-z swap. |
+| [shaders/ssao.frag](shaders/ssao.frag) · [godrays.frag](shaders/godrays.frag) · [ssr.frag](shaders/ssr.frag) · [lighting.frag](shaders/lighting.frag) | Sky-depth tests flipped to `< eps`. |
+| [tests/test_camera.cpp](tests/test_camera.cpp) | Depth-convention test asserts reverse-Z. |
+
+</details>
+
 ### 2026-07-03 — Road spray reads as turbulent mist, not a solid fog blob
 
 > The GPU road-spray behind the car looked like one bright white blob of fog. Cause: ~4000 near-white additive billboards, all launched with the **same** backward velocity into a tiny volume, with no in-flight turbulence and no per-particle variation — a coherent white sheet that summed to a solid glow. Reworked the sim + sprites so it reads as a **turbulent, semi-transparent rooster-tail mist**: per-particle launch variation on every axis + per-step turbulence (paths diverge), droplets that grow as they disperse, per-particle brightness + a spawn fade-in, a taller/wider/thinner plume, and smaller base droplets. Verified from a chase cam on a wet road at speed — two wispy turbulent tails off the rear wheels with visible structure, no blob.

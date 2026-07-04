@@ -186,7 +186,12 @@ Mat4 Camera::get_view_matrix() const {
 }
 
 Mat4 Camera::get_projection_matrix_unjittered() const {
-    Mat4 proj = glm::perspective(glm::radians(m_fov), m_aspect, m_near, m_far);
+    // Reverse-Z: swapping near/far in glm::perspective (with GLM_FORCE_DEPTH_ZERO_TO_ONE)
+    // maps near→1, far→0. Paired with a 0.0 depth clear + VK_COMPARE_OP_GREATER, this
+    // spreads float depth precision almost uniformly across the huge 10 → 2,000,000 WU
+    // range, killing the distant z-fighting flicker on the barriers. invProj-based
+    // reconstructions auto-follow (true inverse); sky-depth tests flip to `< eps`.
+    Mat4 proj = glm::perspective(glm::radians(m_fov), m_aspect, m_far, m_near);
     proj[1][1] *= -1.0f;  // Vulkan clip space Y is inverted vs OpenGL
     return proj;
 }

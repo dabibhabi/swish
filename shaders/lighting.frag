@@ -212,8 +212,8 @@ void main() {
 
     float wetness = camera.camPos.w;  // packed by CameraUniforms::set_wetness()
 
-    // Sky pixels (depth = 1.0, no geometry)
-    if (depth > 0.9999) {
+    // Sky pixels (reverse-Z: far/sky is depth 0.0, no geometry)
+    if (depth < 0.0001) {
         // Any valid depth along the pixel's view ray yields the same direction,
         // so the 0.5 sample is arbitrary (and in-range under [0,1] clip-Z).
         vec3 viewDir = normalize(reconstructWorldPos(fragUV, 0.5) - camera.camPos.xyz);

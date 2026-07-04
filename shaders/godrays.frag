@@ -52,8 +52,8 @@ void main() {
     for (int i = 0; i < NUM_SAMPLES; ++i) {
         uv -= delta;
         float d = texture(gbDepth, uv).r;
-        // Emit only from sky pixels (depth ≈ far); geometry occludes → dark shafts.
-        vec3 s = (d >= 0.9999) ? texture(hdrScene, uv).rgb : vec3(0.0);
+        // Emit only from sky pixels (reverse-Z: far/sky is depth 0.0); geometry occludes → dark shafts.
+        vec3 s = (d <= 0.0001) ? texture(hdrScene, uv).rgb : vec3(0.0);
         accum += s * illum * pc.tune.z;  // per-sample weight
         illum *= pc.tune.y;              // per-step decay
     }
