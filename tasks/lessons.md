@@ -24,3 +24,19 @@ structural and only visible by looking:
 3. Tuning loop: change → rebuild (kill the running app first; it loads `.spv` at startup) → focus the
    window (`set frontmost ... "swish"`, verify) → screenshot → judge → repeat. Revert any temp
    force-on flag before finishing.
+
+## `make format` reorders ImGuizmo.h before imgui.h → debug build breaks (2026-07-05)
+
+`.clang-format` has `IncludeBlocks: Regroup` + `SortIncludes: true`, which merges all include groups and
+alphabetizes. In `src/debug/DebugUI.cpp`, "ImGuizmo" < "imgui" (ASCII: uppercase before lowercase), so
+`make format` sorts `ImGuizmo.h` *before* `imgui.h` — but ImGuizmo needs `ImVec4`/`ImGuiID` from imgui
+first, so the (debug-only) build fails with "unknown type name 'ImGuiID'". The committed file relied on
+blank-line grouping, which Regroup ignores.
+
+- **Fix:** wrap the imgui + ImGuizmo includes in a `// clang-format off` / `// clang-format on` island
+  with imgui.h first. This survives future `make format` runs.
+- **Gotcha that bit me first:** the directive is honored ONLY when the line is *exactly* `// clang-format
+  off` (and `// clang-format on`). Appending explanatory text to the directive line (`// clang-format off
+  — because…`) makes clang-format ignore it and re-sort anyway. Put the explanation on separate lines above.
+- **General:** `make format` is not always safe — after running it, rebuild BOTH configs (a release-only
+  build won't compile the debug-only TUs where this bites) before declaring done.

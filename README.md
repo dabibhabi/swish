@@ -10,6 +10,12 @@ Cruise a glossy Porsche down a procedurally generated Long Island Expressway (I-
 full deferred + forward rendering pipeline — G-buffer → PBR lighting → GPU rain → glass →
 windshield rain trails → HDR bloom → AgX tone mapping.
 
+<br />
+
+<img src="assets/swish_demo.gif" alt="Swish gameplay demo" width="720" />
+
+[**▶ Watch the full demo on YouTube**](https://youtu.be/Krco1xFme2A)
+
 </div>
 
 > [!WARNING]

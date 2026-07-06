@@ -562,3 +562,64 @@ heading in Z).
   (left turn, body yawed with the curve).
 - Deferred (per plan/car_system_port.md): config-driven tunables, cockpit
   camera, FSM physics upgrade, articulated steering wheel, glass pass.
+
+---
+
+## 🛣️ Endless LIE epic — streaming corridor + service roads + drivable interchanges (2026-07-05)
+
+User goal: make the drive feel 20–30 miles on a believable LIE corridor. Decisions locked with the user:
+endless **treadmill** (recycle chunks + origin-rebase → precision solved for free); keep the authored
+4.2 km as the **intro**, procedural beyond; **elevated diamond/cloverleaf** interchanges (graded ramps +
+car pitch on grade); **service roads both sides, continuous**; **guided network** (bounds follow the
+current surface — no free-roam). Full design: `~/.claude/plans/resilient-bubbling-honey.md`.
+
+- [x] **Layer 0 — Per-draw distance + frustum culling.** `DrawCall` bounding sphere (−1 = never-cull
+      sentinel); `CullParams`/`CullStats` + cull filter in `SceneGeometry::record_draws` (frustum+dist)
+      and `record_depth` (dist-from-camera only). Gribb–Hartmann planes in `Renderer`. Debug "Culling"
+      panel. Ships in release with image-identical defaults. **Verified:** default 6000/6046 drawn
+      (unchanged look); 250 m stress → 388/6046 (93.6%) with no visible wall. 52/52 tests; both configs
+      build. (CHANGELOG 2026-07-05.)
+- [x] **Layer 1 — Endless road: tiled chunks + origin-rebase treadmill.** Chose a UNIFORM canonical
+      tile (one `RoadScene::generate_chunk(300k)` mesh instanced per frame at a sliding window of world
+      offsets via a per-draw `originOffset`) instead of the full per-chunk upload/fence/deferred-destroy
+      machinery — that's only needed once chunks VARY (Layer 4). Double origin rebase in whole-chunk
+      steps keeps float32 bounded; `renderZ = trueZ + m_originShift`. Far plane 4.3M→2.4M. **Verified:**
+      intro start unchanged; 6 km out tiles seamlessly + survives a 6M rebase; ~110 fps; 52/52; both
+      configs build. (CHANGELOG 2026-07-05.) Follow-ups: post-spacing seam hiccup, intro→chunk UV seam,
+      per-slot chunk lights, spray/TAA rebase — see CHANGELOG "Known follow-ups".
+- [x] **Layer 2 — Continuous service roads, both sides.** `RoadScene::generate_service_roads` — 2-lane
+      frontage road each side beyond the sound barriers (double-yellow centre + white edges, all
+      full-length spans → seamless), lifted 6 WU above grass to avoid coplanar z-fight. Called from
+      `generate_chunk` only (endless region); intro + its exit-ramp marginal road left untouched.
+      **Verified** from a drone view: both frontage roads parallel to horizon, clean markings, no
+      z-fight; intro start unchanged. 52/52; both configs. (CHANGELOG 2026-07-05.) Deferred: curbs,
+      service-road lamps, drivability (Layer 3).
+- [x] **Layer 3 — Ribbon primitive + guided EB↔WB crossover.** `MeshBuilder::emit_ribbon` (3D
+      centreline → up-facing strip, arc-length UVs — building block for curved/graded ramps);
+      `generate_crossover` (smoothstep S-curve connector across a jersey-barrier gap, per chunk);
+      `drivable_bounds` in App feeds the car per-frame lateral bounds that open across the median at
+      crossover windows (else EB/WB by side); symmetric `road_surface_y`. Car physics untouched (free
+      bicycle + existing X-clamp; only the bounds/Y SOURCE generalized → EB byte-identical).
+      **Verified:** ribbon renders (winding-checked w/ temp colour); bounds open [-20526,20526] at a
+      crossover; car drives WB with [-20526,-1828]; intro unchanged; 52/52; both configs.
+      (CHANGELOG 2026-07-05.) Follow-ups: grade (L4), one-maneuver U-turn tuning, per-chunk demo cadence,
+      full (ribbonId,s,t) tracking for overlapping decks (L4).
+- [x] **Layer 4 — Elevated diamond interchanges (geometry).** `generate_interchange` — over-the-mainline
+      cross-street deck (19.5 ft) on piers + FOUR graded on/off ramps via `emit_ribbon` (smoothstep 3D
+      centreline climbing y:6→deck_top, ~4.6% grade). Instanced as a 2nd canonical geometry SPARSELY
+      (~1.5 mi = 8 chunks apart) via the treadmill (reuses chunk cull/rebase/originOffset path).
+      **Verified** from a close drone view: deck + piers + curved rising ramps render (temp-red/orange
+      checked); intro unchanged; 52/52; both configs. (CHANGELOG 2026-07-05.) NOT drivable yet — ramps/deck
+      need the car to track a ribbon (Y/pitch from the graded surface; overlapping decks defeat (x,z)→y).
+      "Drive the other direction" already works via the L3 median crossover. Deferred: ramp markings,
+      embankment fill, wire ramps into the guided surface-network, drivable grade physics.
+- [x] **Layer 4b — Drivable interchanges + ramp to frontage road.** `RoadScene::interchange_ribbons()`
+      exposes the 4 drivable centrelines (shared by geometry + physics). App ribbon-follower: car attaches
+      to an on-ramp, then Y/pitch/heading come from the ribbon (arc-length s by speed, lateral t by steer,
+      pitch→rotation.z since nose is +X); junctions via next/branch; exits to free driving. Frontage road
+      made drivable (road_surface_y + drivable_bounds window) so the service off-ramp lands there.
+      **Verified by driving:** climb 6→5944 (pitch→3.9°), deck flat, descend 5944→16 (pitch→−3.9°) → WB
+      opposite direction; steer at top → service ramp → frontage road. 52/52; both configs; intro/EB
+      unchanged. (CHANGELOG 2026-07-05.) Follow-ups: one-way service road (no on-ramp back), attach/junction
+      UX basic, deck/ramp markings.
+- [ ] **Layer 5 — Polish** (exit signage, network lights, junction UX, haze/far-plane tuning).
