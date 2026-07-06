@@ -1,13 +1,12 @@
 #include "RainSystem.h"
 
-#include "RainPhysics.h"
-
 #include "../../utils/Types.h"
 #include "../../utils/VulkanCheck.h"
 #include "../../utils/VulkanInit.h"
 #include "../Pipeline/Pipeline.h"
 #include "../Renderer/RendererServices.h"
 #include "../ResourceManager/ResourceManager.h"
+#include "RainPhysics.h"
 
 #include <algorithm>
 #include <array>
@@ -23,9 +22,9 @@ static constexpr float kHalfExtent = 20000.0f;  // 20 m radius around camera
 static constexpr float kDropSpeed  = 9000.0f;   // 9 m/s — reference speed for the wind cap only
 // Base streak length now lives on the instance (m_streakLen, default 3200 WU =
 // 3.2 m) so the debug UI can tune it live.
-static constexpr float kMaxRainRate = 25.0f;    // mm/hr at intensity 1.0 (heavy rain)
-static constexpr float kWetRate    = 0.08f;     // wetness accumulation rate (s⁻¹)
-static constexpr float kDryRate    = 0.012f;    // wetness decay rate (s⁻¹)
+static constexpr float kMaxRainRate = 25.0f;   // mm/hr at intensity 1.0 (heavy rain)
+static constexpr float kWetRate     = 0.08f;   // wetness accumulation rate (s⁻¹)
+static constexpr float kDryRate     = 0.012f;  // wetness decay rate (s⁻¹)
 
 // ── Far parallax layer scaling (relative to the near layer) ────────────
 static constexpr float kFarHalfExtentScale = 2.0f;
@@ -87,8 +86,8 @@ void RainSystem::update(uint32_t frameIndex, float deltaTime, float intensity, V
     // volume + lower intensity + time phase render it as dimmer, farther streaks.
     RainUBO farUbo{};
     farUbo.windAndTime = Vec4(wind.x, wind.y, wind.z, m_time + kFarTimePhase);
-    farUbo.params = Vec4(m_intensity * kFarIntensityScale, streakLen * kFarStreakScale, rainRate,
-                         kHalfExtent * kFarHalfExtentScale);
+    farUbo.params      = Vec4(m_intensity * kFarIntensityScale, streakLen * kFarStreakScale, rainRate,
+                              kHalfExtent * kFarHalfExtentScale);
     std::memcpy(m_rainUBOsFar[frameIndex].mapped(), &farUbo, sizeof(farUbo));
 }
 

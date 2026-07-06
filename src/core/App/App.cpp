@@ -18,6 +18,49 @@
 
 namespace swish {
 
+// ── Endless-road treadmill tuning ────────────────────────────────────
+// CHUNK_LEN is 300 m and a multiple of every surface tile size (asphalt 3000,
+// grass 4000, concrete 1500, metal 1000 → LCM 12000; 300000 = 25·12000), so the
+// canonical chunk's surface UVs tile seamlessly. The active window spans a few
+// chunks behind the car and enough ahead to reach the camera far plane; the
+// origin is rebased (by a whole number of chunk lengths) whenever the car's
+// render-frame Z exceeds the threshold, keeping float32 coordinates precise.
+namespace {
+constexpr float kChunkLen        = 300000.0f;  // 300 m
+constexpr int   kChunksAhead     = 8;          // 8·300 m = 2.4 km ≈ camera far plane
+constexpr int   kChunksBehind    = 2;
+constexpr float kRebaseThreshold = 1200000.0f;  // rebase when |render Z| exceeds ~1.2 km
+constexpr float kCameraFar       = 2400000.0f;  // ≈ kChunksAhead·kChunkLen (chunks fill to here)
+
+// Total arc length of a ribbon centreline.
+float ribbonLength(const Ribbon& r) {
+    float len = 0.0f;
+    for (size_t i = 1; i < r.pts.size(); ++i)
+        len += glm::length(r.pts[i] - r.pts[i - 1]);
+    return len;
+}
+
+// Position + unit tangent at arc length s along a ribbon (clamped to its ends).
+void ribbonSample(const Ribbon& r, float s, Vec3& pos, Vec3& tan) {
+    if (r.pts.size() < 2) {
+        pos = r.pts.empty() ? Vec3(0.0f) : r.pts[0];
+        tan = Vec3(0.0f, 0.0f, -1.0f);
+        return;
+    }
+    s = std::max(0.0f, s);
+    for (size_t i = 1; i < r.pts.size(); ++i) {
+        float seg = glm::length(r.pts[i] - r.pts[i - 1]);
+        if (s <= seg || i == r.pts.size() - 1) {
+            float u = (seg > 1e-4f) ? std::min(s / seg, 1.0f) : 0.0f;
+            pos     = r.pts[i - 1] + (r.pts[i] - r.pts[i - 1]) * u;
+            tan     = glm::normalize(r.pts[i] - r.pts[i - 1]);
+            return;
+        }
+        s -= seg;
+    }
+}
+}  // namespace
+
 App::App() = default;
 
 // Defined here (not defaulted in the header) so the unique_ptr members see the
@@ -84,11 +127,54 @@ int App::run() {
     constexpr float kMarkingY     = 5.0f;   // marking_y_offset from road.bin
     constexpr float kEbRoadRight  = kBarrierRight + kLaneCount * kLaneWidth + 10.0f * kFt;
 
-    // Computes road surface Y at world X using the crown formula.
+    // EB frontage ("marginal") road X window + surface lift (matches generate_service_roads:
+    // ~55 ft berm past the mainline edge, two 12 ft lanes, lifted 6 WU above the grass).
+    const float kEbServiceInner = kEbRoadRight + 50.0f * kFt;
+    const float kEbServiceOuter = kEbRoadRight + 92.0f * kFt;
+    const float kServiceY       = 6.0f;
+
+    // Computes road surface Y at world X using the crown formula. Symmetric about the
+    // median (uses |x|) so it works on BOTH carriageways — EB (x>0) is byte-identical
+    // to before; WB (x<0) mirrors it, needed once the car can cross via the median.
+    // On the EB frontage road (reached via the interchange service ramp) it's flat at
+    // the service lift.
     auto road_surface_y = [&](float x) -> float {
-        float lanes_from_inner = (x - kBarrierRight) / kLaneWidth;
+        if (x >= kEbServiceInner - 200.f && x <= kEbServiceOuter + 200.f)
+            return kServiceY;
+        float lanes_from_inner = (std::abs(x) - kBarrierRight) / kLaneWidth;
         float clamped          = std::max(0.f, std::min(kLaneCount, lanes_from_inner));
         return kCrownSlope * (kLaneCount - clamped) * kLaneWidth + kMarkingY;
+    };
+
+    // Guided drivable lateral bounds at the car's current (x, trueZ): normally the
+    // EB (x>0) or WB (x<0) carriageway; inside a chunk crossover window the bounds
+    // open across the median so the car can cross to the other side. In the authored
+    // intro (trueZ ≥ −introLen) it's always EB — the pre-Layer-3 behavior.
+    const float kWbInnerBound   = -kBarrierRight - 100.f;
+    const float kWbOuterBound   = -kEbRoadRight + 100.f;
+    const float kEbInnerBound   = kBarrierRight + 100.f;
+    const float kEbOuterBound   = kEbRoadRight - 100.f;
+    auto        drivable_bounds = [&](float x, double trueZ, float& minX, float& maxX) {
+        minX = kEbInnerBound;  // default EB (also the intro)
+        maxX = kEbOuterBound;
+        if (trueZ >= -static_cast<double>(m_introLen))
+            return;
+        // Endless region: is the car within its chunk's crossover window?
+        double toEndless  = -static_cast<double>(m_introLen) - trueZ;  // ≥ 0
+        int    k          = static_cast<int>(std::floor(toEndless / static_cast<double>(kChunkLen)));
+        double localZ     = trueZ - (-static_cast<double>(m_introLen) - static_cast<double>(k) * kChunkLen);
+        double xoverLocal = -0.5 * static_cast<double>(kChunkLen);
+        double halfWindow = 45.0 * kFt + 30.0 * kFt;  // crossover half-length + merge margin
+        if (x >= kEbServiceInner - 200.f) {           // on the EB frontage road (via the service ramp)
+            minX = kEbServiceInner;
+            maxX = kEbServiceOuter;
+        } else if (std::abs(localZ - xoverLocal) < halfWindow) {
+            minX = kWbOuterBound;  // open across the median
+            maxX = kEbOuterBound;
+        } else if (x < 0.0f) {
+            minX = kWbOuterBound;  // committed to WB
+            maxX = kWbInnerBound;
+        }
     };
 
     // ── 1. Window + Renderer core ─────────────────────────────────
@@ -154,12 +240,26 @@ int App::run() {
     m_renderer->rebuild_material_descriptors();
 
     // ── 6. Define scenes ──────────────────────────────────────────
-    auto road_scene = std::make_unique<Scene>([](Renderer& renderer) {
+    auto road_scene = std::make_unique<Scene>([this](Renderer& renderer) {
         // Generate road geometry
         RoadScene road;
         auto      scene = road.generate();
         renderer.upload_scene_geometry(scene.meshData, scene.drawCalls);
-        renderer.set_scene_lights(scene.lights);
+        m_sceneLights = scene.lights;  // kept for render-frame shifting on rebase
+        renderer.set_scene_lights(m_sceneLights);
+
+        // Endless-road: the authored road above is the "intro"; past its far end
+        // we tile ONE canonical chunk (uploaded once, instanced per frame by the
+        // treadmill in run()). See kChunkLen / m_originShift.
+        m_introLen = road.get_road_length();
+        auto chunk = road.generate_chunk(kChunkLen);
+        renderer.upload_chunk_geometry(chunk.meshData, chunk.drawCalls);
+
+        // Elevated diamond interchange: one canonical mesh, instanced sparsely (~1.5 mi
+        // apart) in the endless region by the treadmill.
+        auto interchange = road.generate_interchange_scene();
+        renderer.upload_interchange_geometry(interchange.meshData, interchange.drawCalls);
+        m_ixRibbons = road.interchange_ribbons();  // shared centrelines for the drivable follower
 
         // Setup POV camera on the eastbound LIE
         auto* camera = new Camera();
@@ -173,7 +273,7 @@ int App::run() {
 
         VkExtent2D extent = renderer.services().swapchainExtent;
         float      aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
-        camera->set_perspective(65.0f, aspect, 10.0f, 4300000.0f);  // see the full road (reverse-Z safe)
+        camera->set_perspective(65.0f, aspect, 10.0f, kCameraFar);  // endless road: window ≈ kChunksAhead chunks
 
         renderer.set_camera(camera);
     });
@@ -212,6 +312,19 @@ int App::run() {
         m_renderer->update_glass_draw_calls(m_car->get_glass_draw_calls());
         m_renderer->update_windshield_draw_calls(m_car->get_windshield_draw_calls());
     }
+
+    // ── 8b. Initial look: reproduce the debug-tuned "lie" preset ──────
+    // The release build has no runtime preset loader (the whole TOML system is
+    // #ifdef SWISH_DEBUG_UI), so the lie.toml look is baked into the compiled-in
+    // defaults (DebugParams.h / lighting.frag / Renderer grade literals). The two
+    // remaining pieces are runtime state, applied here on launch:
+    //   • overcast weather w/ 0.242 clarity + 0.823 ambient (set_clear_day's else branch)
+    //   • a wet road at full rain (the preset is a rain scene: rain_intensity = 1.0)
+    m_renderer->set_clear_day(false);  // applies the tuned overcast weather + bakes IBL
+    m_rain_level = 2;                   // R-key cycle resumes correctly (off → light → heavy)
+    m_renderer->set_rain_intensity(1.0f);
+    if (m_car)
+        m_car->set_rain_intensity(1.0f);
 
     // ── 9. Main loop with delta time ──────────────────────────────
     float last_frame_time = static_cast<float>(glfwGetTime());
@@ -302,8 +415,7 @@ int App::run() {
         bool bt_down = glfwGetKey(glfw_window, GLFW_KEY_GRAVE_ACCENT) == GLFW_PRESS;
         if (bt_down && !m_backtick_prev) {
             m_debug_edit_mode = !m_debug_edit_mode;
-            glfwSetInputMode(glfw_window, GLFW_CURSOR,
-                             m_debug_edit_mode ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+            glfwSetInputMode(glfw_window, GLFW_CURSOR, m_debug_edit_mode ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
             m_first_mouse = true;
             m_renderer->set_debug_edit_mode(m_debug_edit_mode);
         }
@@ -327,6 +439,126 @@ int App::run() {
             Vec3 pos = m_car->get_position();
             pos.y    = road_surface_y(pos.x);
             m_car->set_position(pos);
+
+            // ── Endless-road treadmill ───────────────────────────────
+            // 1) Origin rebase: keep the car's render-frame Z small (float32
+            //    precision) by shifting the world back toward 0 in whole chunk
+            //    lengths — the periodic tile looks identical afterwards, so the
+            //    rebase is invisible. The camera is welded from the car below,
+            //    so it follows automatically.
+            if (std::abs(pos.z) > kRebaseThreshold) {
+                float shift = std::round(pos.z / kChunkLen) * kChunkLen;
+                pos.z -= shift;
+                m_car->set_position(pos);
+                m_originShift -= static_cast<double>(shift);
+                // Shift the intro lamp point-lights into the new render frame so
+                // they stay attached to their posts (lighting works in render frame).
+                for (LightDesc& l : m_sceneLights)
+                    l.position.z -= shift;
+                m_renderer->set_scene_lights(m_sceneLights);
+            }
+
+            // 2) Active chunk window around the car (render-frame Z offsets for
+            //    the canonical chunk). renderZ = trueZ + m_originShift; chunk
+            //    slot k spans trueZ [-introLen - k·L, -introLen - (k+1)·L].
+            const double carTrueZ = static_cast<double>(pos.z) - m_originShift;
+
+            // Guided drivable bounds (Layer 3): feed the car the lateral bounds for
+            // its current surface — opens across the median inside a crossover window so
+            // it can cross to the opposite carriageway; else the EB/WB roadway. The car's
+            // existing X-clamp (CarEntity::update) enforces them next frame.
+            float bMinX = 0.0f, bMaxX = 0.0f;
+            drivable_bounds(pos.x, carTrueZ, bMinX, bMaxX);
+            m_car->set_road_bounds(bMinX, bMaxX);
+
+            const int kCar   = static_cast<int>(std::floor((-static_cast<double>(m_introLen) - carTrueZ) / kChunkLen));
+            const int kStart = std::max(0, kCar - kChunksBehind);
+            const int kEnd   = kCar + kChunksAhead;
+            std::vector<float> slotOffsets;
+            for (int k = kStart; k <= kEnd; ++k) {
+                double slotTrueStart = -static_cast<double>(m_introLen) - static_cast<double>(k) * kChunkLen;
+                slotOffsets.push_back(static_cast<float>(slotTrueStart + m_originShift));
+            }
+            m_renderer->set_road_chunks(static_cast<float>(m_originShift), slotOffsets);
+
+            // Sparse elevated interchanges (~1.5 mi apart) around the car; interchange j
+            // is centred at trueZ = −introLen − (j+1)·spacing. Culling drops the far ones.
+            const float  kInterchangeSpacing = 8.0f * kChunkLen;
+            const double nIx = (-static_cast<double>(m_introLen) - carTrueZ) / static_cast<double>(kInterchangeSpacing);
+            const int    jNear = static_cast<int>(std::floor(nIx));
+            std::vector<float> ixOffsets;
+            for (int j = std::max(0, jNear - 2); j <= jNear + 1; ++j) {
+                double ixTrueZ = -static_cast<double>(m_introLen) - static_cast<double>(j + 1) * kInterchangeSpacing;
+                ixOffsets.push_back(static_cast<float>(ixTrueZ + m_originShift));
+            }
+            m_renderer->set_interchanges(ixOffsets);
+
+            // ── Interchange ribbon-follower (drivable ramps / deck) ───
+            // Off the interchange the car drives freely (above); on it, the car
+            // tracks a graded ribbon — arc-length advanced by its speed, lateral by
+            // steering, with Y/heading/pitch taken from the curve — so it climbs the
+            // ramp, crosses the deck, and descends onto the opposite mainline or the
+            // frontage road. Guided, not on-rails: you still steer within the ribbon
+            // and pick branches at junctions.
+            if (!m_ixRibbons.empty() && !debug_edit) {
+                const float spd   = m_car->get_speed();
+                const int   steer = (glfwGetKey(glfw_window, GLFW_KEY_LEFT) == GLFW_PRESS ? -1 : 0) +
+                                  (glfwGetKey(glfw_window, GLFW_KEY_RIGHT) == GLFW_PRESS ? 1 : 0);
+                if (m_carRibbon >= 0) {
+                    const float ixZ = static_cast<float>(m_ixTrueZ + m_originShift);  // render-frame Z of the instance
+                    const Ribbon* r = &m_ixRibbons[m_carRibbon];
+                    m_ribbonS += spd * delta_time;
+                    const float latLim = std::max(0.f, r->halfWidth - 1500.f);
+                    m_ribbonT =
+                        std::clamp(m_ribbonT + static_cast<float>(steer) * 9000.f * delta_time, -latLim, latLim);
+
+                    const float len = ribbonLength(*r);
+                    if (m_ribbonS >= len) {  // reached the end → junction / exit
+                        const int   nxt      = (r->branch >= 0 && steer > 0) ? r->branch : r->next;
+                        const float overflow = m_ribbonS - len;
+                        if (nxt < 0) {  // leave the interchange onto free road
+                            Vec3 p, tn;
+                            ribbonSample(*r, len, p, tn);
+                            m_car->set_position(p + Vec3(0.f, 0.f, ixZ));
+                            Vec3 th = glm::normalize(Vec3(tn.x, 0.f, tn.z));
+                            m_car->set_rotation(Vec3(0.f, glm::degrees(std::atan2(-th.z, th.x)), 0.f));
+                            m_carRibbon = -1;
+                        } else {
+                            m_carRibbon = nxt;
+                            m_ribbonS   = overflow;
+                            m_ribbonT   = 0.f;
+                        }
+                    }
+                    if (m_carRibbon >= 0) {
+                        r = &m_ixRibbons[m_carRibbon];
+                        Vec3 p, tn;
+                        ribbonSample(*r, m_ribbonS, p, tn);
+                        Vec3 rightH = glm::cross(tn, Vec3(0.f, 1.f, 0.f));
+                        if (glm::length(rightH) > 1e-4f)
+                            rightH = glm::normalize(rightH);
+                        m_car->set_position(p + Vec3(0.f, 0.f, ixZ) + rightH * m_ribbonT);
+                        Vec3        th    = glm::normalize(Vec3(tn.x, 0.f, tn.z));
+                        const float yaw   = glm::degrees(std::atan2(-th.z, th.x));
+                        const float pitch = glm::degrees(std::asin(std::clamp(tn.y, -1.f, 1.f)));
+                        m_car->set_rotation(Vec3(0.f, yaw, pitch));  // .z = pitch (car nose is +X)
+                        m_car->set_road_bounds(-1e9f, 1e9f);         // guided → no lateral clamp
+                    }
+                } else {  // free: attach to an on-ramp when the car reaches its entry
+                    const Vec3 entry = m_ixRibbons[0].pts.front();
+                    const Vec3 cp    = m_car->get_position();
+                    for (float ixOff : ixOffsets) {
+                        if (std::abs((cp.z - ixOff) - entry.z) < 7000.f && std::abs(cp.x - entry.x) < 5000.f &&
+                            spd > 500.f) {
+                            m_carRibbon = 0;
+                            m_ixTrueZ   = static_cast<double>(ixOff) - m_originShift;
+                            m_ribbonS   = 0.f;
+                            m_ribbonT   = std::clamp(cp.x - entry.x, -(m_ixRibbons[0].halfWidth - 1500.f),
+                                                     m_ixRibbons[0].halfWidth - 1500.f);
+                            break;
+                        }
+                    }
+                }
+            }
 
 #ifdef SWISH_DEBUG_UI
             // Steering-wheel gizmo: feed the current wheel pivot to the debug UI, and

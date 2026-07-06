@@ -145,6 +145,7 @@ set(SHADER_SOURCES
     ${SHADER_DIR}/ao_blur.frag
     ${SHADER_DIR}/ssr.frag
     ${SHADER_DIR}/godrays.frag
+    ${SHADER_DIR}/dof.frag
     ${SHADER_DIR}/ibl_sky.frag
     ${SHADER_DIR}/ibl_irradiance.frag
     ${SHADER_DIR}/ibl_prefilter.frag
@@ -242,6 +243,7 @@ add_executable(swish
     src/renderer/RainSystem/RainSystem.cpp
     src/renderer/SpraySystem/SpraySystem.cpp
     src/renderer/TaaPass/TaaPass.cpp
+    src/renderer/DofPass/DofPass.cpp
     src/renderer/GlassPass/GlassPass.cpp
     src/renderer/WindshieldRainPass/WindshieldRainPass.cpp
     src/utils/StbImage.cpp

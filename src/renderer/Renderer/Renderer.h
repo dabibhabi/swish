@@ -45,6 +45,7 @@ class GlassPass;
 class WindshieldRainPass;
 class IBLManager;
 class TaaPass;
+class DofPass;
 
 // The Renderer orchestrates the Vulkan draw loop and acts as a
 // central registry for managers (rind-style architecture).
@@ -94,6 +95,18 @@ public:
     // ── Scene geometry (called by Scene lambdas) ──────────────────────
     void upload_scene_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws);
     void destroy_scene_geometry();
+
+    // ── Endless-road chunks (one canonical tile, drawn at N offsets) ──
+    // Upload the canonical chunk mesh once; each frame App calls set_road_chunks
+    // with the authored-intro's render-frame Z offset (from the origin rebase)
+    // and the render-frame Z offset of every active chunk slot around the car.
+    void upload_chunk_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws);
+    void set_road_chunks(float introOffsetZ, const std::vector<float>& slotOffsetsZ);
+
+    // Elevated diamond interchanges: one canonical mesh instanced at a sparse cadence
+    // (App supplies the render-frame Z offset of each interchange near the car).
+    void upload_interchange_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws);
+    void set_interchanges(const std::vector<float>& slotOffsetsZ);
 
     // ── Dynamic geometry (moving objects — uploaded once, updated per frame) ──
     void upload_dynamic_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws);
@@ -174,6 +187,17 @@ private:
     SceneGeometry m_sceneGeometry;
     SceneGeometry m_dynamicGeometry;
 
+    // Endless-road treadmill: one canonical chunk mesh, instanced per frame at
+    // the render-frame Z offsets in m_chunkSlotOffsetsZ; m_introOffsetZ shifts
+    // the authored intro (m_sceneGeometry) under the origin rebase. Set by App.
+    SceneGeometry      m_chunkGeometry;
+    float              m_introOffsetZ = 0.0f;
+    std::vector<float> m_chunkSlotOffsetsZ;
+
+    // Sparse elevated interchanges (see upload_interchange_geometry / set_interchanges).
+    SceneGeometry      m_interchangeGeometry;
+    std::vector<float> m_interchangeSlotOffsetsZ;
+
     // ── Camera ────────────────────────────────────────────────────
     std::unique_ptr<Camera> m_camera;
 
@@ -223,6 +247,10 @@ private:
     std::unique_ptr<TaaPass> m_taa;
     Mat4                     m_prevViewProjUnjit = Mat4(1.0f);
     uint32_t                 m_taaFrameCounter   = 0;
+
+    // Depth of field (debug-only): resolve pass reads HDR + depth, copies the blurred
+    // result back into HDR. Off by default; the debug UI toggles it.
+    std::unique_ptr<DofPass> m_dof;
 #endif
 
     // ── Glass + windshield state ──────────────────────────────────

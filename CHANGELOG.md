@@ -6,6 +6,407 @@ All notable changes to Swish are documented here.
 
 ## [Unreleased]
 
+### 2026-07-05 — Baked the debug-tuned `lie` preset into the release (`make run`) build
+
+> The `lie.toml` look tuned live in the debug UI now ships in `make run`. The release build has **no runtime preset loader** (the whole TOML save/load subsystem is `#ifdef SWISH_DEBUG_UI`), so the preset was promoted by baking its values into the compiled-in defaults across the five sinks the release path actually reads. Verified by running the release build: wet road at full rain, the I-495 EAST overhead sign, a bright cabin (ambient 0.823), and the punchy high-exposure grade all render — matching the debug-tuned scene.
+
+<details>
+<summary>Technical summary</summary>
+
+**Why there's no "load" button for release.** In `SWISH_DEBUG_UI=OFF`, `DebugParamsIO` (TOML I/O) and `SceneParamsUniform` (the set-4 scene-params UBO) are compiled out entirely. The release look comes from compiled-in source, so the preset had to be transcribed into each sink:
+
+```mermaid
+graph LR
+  T[lie.toml] --> A["lighting.frag #else SP_* literals<br/>(sky/fog/shadow/wet/ibl — direct render)"]
+  T --> B["DebugParams.h struct defaults<br/>(release reads via const DebugParams d{}:<br/>IBL bake, SSR, shadow, culling)"]
+  T --> C["Renderer.cpp release literals<br/>(grade: exposure/bloom/contrast/sat)"]
+  T --> D["set_clear_day() overcast branch<br/>(clarity 0.242, ambient 0.823)"]
+  T --> E["kRenderScale (SSAA 2.0)"]
+  T --> F["App.cpp init (rain 1.0 on launch)"]
+```
+
+**Sinks & values** (all cross-checked against [`build/config/presets/lie.toml`](build/config/presets/lie.toml)):
+- **Scene params** — [`shaders/lighting.frag`](shaders/lighting.frag) `#else` release literals **and** [`DebugParams.h`](src/debug/DebugParams.h) defaults, kept in lockstep (the "single source of truth" idiom): `SP_SKY_HORIZON_CLEAR`=(0.85,1.0,1.25), `SP_SKY_ZENITH_CLEAR`=(0.5,0.8,1.35), `SP_SUN_DISC_STR_MIN`=0.242, `SP_FOG_MAX`=0.0, `SP_SHADOW_BIAS`=0.0, `SP_SHADOW_FLOOR`=1.0, `SP_WET_POROSITY`=0.631, `SP_WET_ROUGHNESS`=1.0, `SP_PUDDLE_COVERAGE`=0.501, `SP_IBL_DIFFUSE`=1.832.
+- **Grade** — [`Renderer.cpp`](src/renderer/Renderer/Renderer.cpp) hardcoded release literals (bypass DebugParams in release): exposure 2.0, contrast 1.499, saturation 0.988, brightness 0.032, bloom_intensity 1.097, bloom_threshold 1.77.
+- **SSR** — read in release via `const DebugParams d{}`, so DebugParams.h defaults suffice: maxDist 36018, thickness 1835, stride 8063, intensity 0.714.
+- **Weather** — `set_clear_day()` else-branch: clarity 0.242, ambient 0.823 (sun dir/colour unchanged); now called once at App init so it applies on launch.
+- **SSAA** — [`PostProcessManager.h`](src/renderer/PostProcessManager/PostProcessManager.h) `kRenderScale` 1.5 → 2.0.
+- **Wet on launch** — [`App.cpp`](src/core/App/App.cpp) sets `rain_intensity = 1.0` + `rain_level = 2` after the car loads.
+
+**Did not carry (and why).** `motion_blur_enabled`/`taa`/`dof` are `#ifdef SWISH_DEBUG_UI`-only passes — they cannot appear in release without un-gating those modules. The preset's `sun.azimuth`/`sun.elevation` are dead keys (azimuth/elevation are not yet wired to the sun direction anywhere), so they were no-ops in the debug session too.
+
+**Note on release byte-identity.** This is an *intentional, verified* change to the release look (the byte-identical rule permits that) — the shipped defaults now equal the tuned preset, and the debug build starts from the same defaults, so debug ≈ release.
+
+| File | Change |
+|------|--------|
+| [`shaders/lighting.frag`](shaders/lighting.frag) | 10 `#else` release `SP_*` literals → lie values |
+| [`src/debug/DebugParams.h`](src/debug/DebugParams.h) | struct defaults → lie values (scene, grade, weather, SSR, wet, SSAA) |
+| [`src/renderer/Renderer/Renderer.cpp`](src/renderer/Renderer/Renderer.cpp) | composite/bloom-extract grade release literals; `set_clear_day` overcast clarity+ambient |
+| [`src/renderer/PostProcessManager/PostProcessManager.h`](src/renderer/PostProcessManager/PostProcessManager.h) | `kRenderScale` 1.5 → 2.0 |
+| [`src/core/App/App.cpp`](src/core/App/App.cpp) | init: apply tuned weather + start wet (rain 1.0) |
+
+**Verification.** Release build links clean; debug build compiles clean (shared-code edits); `make test` = 52/52. Ran the release build and captured the window: the tuned wet/bright/punchy look renders as designed.
+
+</details>
+
+### 2026-07-05 — Drivable interchanges: ribbon-follower + ramp to the frontage road (Layer 4)
+
+> The elevated interchanges are now drivable: enter an on-ramp and the car **climbs the graded ramp onto the deck, crosses, and descends onto the opposite-direction mainline** (drive the other way), or steer at the top to take the **service off-ramp down to the frontage/marginal road**. The car's Y, pitch, and heading come from the graded ribbon it's on — a ribbon-follower atop the free bicycle physics. Verified by driving: the car climbs 6→5944 WU with the nose pitching up to ~3.9°, crosses the deck flat, and descends nose-down onto WB; EB/intro driving unchanged.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** The Layer-4 payoff: make the interchange geometry drivable. A flat `(x,z)→y` height field can't represent the deck overlapping the mainline, so the car must track a *specific* ribbon — the model the plan called for.
+
+**Shared ribbons** ([`RoadScene::interchange_ribbons`](src/scene/RoadScene/RoadScene.cpp)). The interchange's four drivable centrelines (0 = EB on-ramp, 1 = deck, 2 = WB off-ramp, 3 = service off-ramp) are now data, used by BOTH the geometry builder (`emit_ribbon` renders 0/2/3; the deck slab is ribbon 1's visual) and the physics — so visuals and collision can't drift. Each carries `next`/`branch` successor indices for junctions.
+
+**Ribbon-follower** ([`App::run`](src/core/App/App.cpp)). Least-invasive to the working car: it keeps its free bicycle physics; when it enters an on-ramp's entry zone it *attaches* to ribbon 0, and thereafter App overrides its transform each frame — arc-length `s` advanced by the car's own speed, lateral `t` by steering (clamped to the ribbon half-width), with
+
+$$\text{pos} = \mathbf{C}(s) + \hat{r}\,t, \quad \text{yaw}=\operatorname{atan2}(-t_z, t_x), \quad \text{pitch}=\arcsin(t_y)$$
+
+from the ribbon point + tangent $\mathbf{C}(s), \mathbf{t}$ (pitch → `rotation.z` since the car nose is +X). At a ribbon end it hands off to `next` (or `branch` when steering) or detaches to free driving. Rebase-safe (the instance's true Z is stored, render offset recomputed each frame).
+
+```mermaid
+graph LR
+  F[free driving] -->|reach on-ramp entry| R0[ribbon 0: climb]
+  R0 -->|top, straight| R1[ribbon 1: deck]
+  R0 -->|top, steer right| R3[ribbon 3: descend to frontage]
+  R1 --> R2[ribbon 2: descend to WB]
+  R2 -->|end| WB[free on WB — other direction]
+  R3 -->|end| SVC[free on frontage road]
+```
+
+**Frontage road drivable.** [`road_surface_y`](src/core/App/App.cpp) + `drivable_bounds` gained an EB frontage-road window (X ≈ mainline edge + 50–92 ft, flat at the service lift) so after the service off-ramp the car stays on the marginal road instead of being clamped back to the mainline.
+
+| File | Change |
+|------|--------|
+| [`src/scene/SceneTypes.h`](src/scene/SceneTypes.h) | `Ribbon` type (centreline + halfWidth + next/branch) |
+| [`src/scene/RoadScene/RoadScene.{h,cpp}`](src/scene/RoadScene/RoadScene.cpp) | `interchange_ribbons()` + `ix_dims()`; interchange geometry built from the shared ribbons |
+| [`src/core/App/App.{h,cpp}`](src/core/App/App.cpp) | ribbon-follower (attach/follow/junction/exit); frontage-road bounds + Y |
+
+**Verified by driving** (temp logs): on-ramp Y 6→5944, pitch 0.5→3.9→0.5° (vertical curve); junction 0→1 at deck level (pitch 0, flat); WB off-ramp Y 5944→16, pitch −0.5→−3.9° (nose down) → exits onto WB. **Follow-ups:** the one-way service road has no on-ramp back yet; attach heuristic + junction UX are basic; deck/ramp lane markings pending. Tests 52/52; both configs build; intro/EB unchanged.
+
+</details>
+
+### 2026-07-05 — Elevated diamond interchanges (endless-road Layer 4, geometry)
+
+> The endless corridor now has real elevated interchanges: an over-the-mainline cross-street **deck** on piers with four **graded on/off ramps** that climb from the mainline up to deck level — built with the Layer-3 ribbon primitive (this is what its 3D-centreline grade support was for). Interchanges are one canonical mesh instanced **sparsely** (~1.5 mi apart) in the endless region, reusing the chunk-instancing + cull + rebase path. Verified from a close view: deck + piers + curved rising ramps all render correctly; the intro is unchanged. Making the ramps *drivable* (car pitch on grade + ribbon tracking) is the remaining piece.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** Layer 4 of the endless-LIE epic ([`tasks/todo.md`](tasks/todo.md)) — the payoff. Scoped this turn to the geometry (the visible interchange), which exercises `emit_ribbon`'s grade capability end-to-end.
+
+**Interchange mesh** ([`RoadScene::generate_interchange`](src/scene/RoadScene/RoadScene.cpp) + `generate_interchange_scene`). An elevated cross-street deck (16.5 ft clearance + 3 ft slab → 19.5 ft drivable top) spanning the full width beyond both carriageways, with fascias, parapets, and three piers (median + inboard of each embankment); plus **four diamond ramps** built with `emit_ribbon`, each a smoothstep 3D centreline that climbs `y: 6 → deck_top` while sweeping `x` out to a cross-street end over ~420 ft — a ~4.6% graded ribbon. Built in local coords centred at z=0.
+
+**Sparse instancing.** A second canonical geometry alongside the chunk mesh: [`Renderer::upload_interchange_geometry` / `set_interchanges`](src/renderer/Renderer/Renderer.cpp) store it + the active render-frame offsets; both render passes loop them with the same per-draw `originOffset` used for chunks (so they cull + rebase identically). [`App`](src/core/App/App.cpp) places interchange $j$ at $z_{\text{true}} = -L_{\text{intro}} - (j{+}1)\cdot 8L_{\text{chunk}}$ (spacing $8{\times}300\text{ m} = 2.4$ km) and sets the few near the car each frame.
+
+```mermaid
+graph LR
+  M[mainline y=0] -->|graded ramp emit_ribbon| D[deck y=19.5ft]
+  D -->|graded ramp| O[opposite side]
+  P[piers] --- D
+```
+
+| File | Change |
+|------|--------|
+| [`src/scene/RoadScene/RoadScene.{h,cpp}`](src/scene/RoadScene/RoadScene.cpp) | `generate_interchange` (deck + piers + 4 graded ramps) + `generate_interchange_scene` |
+| [`src/renderer/Renderer/Renderer.{h,cpp}`](src/renderer/Renderer/Renderer.cpp) | `m_interchangeGeometry` + `upload_interchange_geometry` / `set_interchanges`; render in both passes |
+| [`src/core/App/App.cpp`](src/core/App/App.cpp) | generate/upload the interchange; place sparse instances near the car each frame |
+
+**Scope / follow-ups.** Geometry only: the ramps and deck are **not drivable yet** — that needs the car to track a specific ribbon so its Y/pitch come from the graded surface (overlapping decks defeat the flat `(x,z)→y` model). The "drive the other direction" capability already exists via the Layer-3 median crossover. Also deferred: ramp markings, embankment fill under ramps, connecting the ramps into the guided surface-network graph. Tests 52/52; both `SWISH_DEBUG_UI` configs build; intro unchanged.
+
+</details>
+
+### 2026-07-05 — Ribbon primitive + guided EB↔WB crossover (endless-road Layer 3)
+
+> Two enabling pieces for drivable interchanges: (1) a **ribbon geometry primitive** — a drivable surface swept along a 3D centreline (the building block for curved/graded ramps), and (2) a **guided drivable-surface network** — the car's lateral bounds now come from a per-frame query that opens across the median inside a crossover window, so you can cross to the opposite carriageway. Each endless chunk gets a curved crossover connector (built with the ribbon) and a matching gap in the jersey barrier; the WB carriageway and a symmetric crown are now drivable. EB driving and the authored intro are byte-identical. Verified: the ribbon renders (winding-checked with a temp colour), bounds open to `[-20526,20526]` exactly at the crossover, and the car drives correctly on WB with `[-20526,-1828]` bounds.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** Layer 3 of the endless-LIE epic ([`tasks/todo.md`](tasks/todo.md)) — the enabling refactor for Layer 4's elevated interchanges. Scoped this turn to the flat EB↔WB crossover proof (no grade), delivered in two safe stages.
+
+**Ribbon primitive** ([`MeshBuilder::emit_ribbon`](src/scene/RoadScene/RoadScene.cpp)). Walks a `std::vector<Vec3>` centreline; at each station offsets ±halfWidth along the horizontal lateral normal `normalize(cross(tangent, up))` and emits an up-facing triangle strip (one quad per segment → each culls like any other draw), with UVs tiled by cumulative arc length. `up`-based lateral keeps the surface horizontal even where the centreline climbs (ready for graded ramps). A straight centreline reproduces a flat lane. (Winding is the reverse of `addHorizontalQuad` because stations run near→far, +Z→−Z.)
+
+**Crossover geometry** ([`RoadScene::generate_crossover`](src/scene/RoadScene/RoadScene.cpp)). A smoothstep S-curve centreline from the EB inner lane across the median to the WB inner lane, emitted as a ribbon; paired with a **jersey-barrier gap** built by calling `generate_jersey_barrier` twice around the window. Wired into `generate_chunk` (one per chunk — demo cadence; realistic spacing needs per-location variation, deferred).
+
+**Guided drivable-surface network** ([`App::run`](src/core/App/App.cpp)). The car keeps its free bicycle physics + existing X-clamp; only the *source* of the clamp bounds and ground Y is generalized (so EB stays byte-identical):
+
+$$\text{bounds}(x, z_{\text{true}}) = \begin{cases} [\text{EB}_{\text{in}}, \text{EB}_{\text{out}}] & z_{\text{true}} \ge -L_{\text{intro}}\ \text{(intro)} \\ [\text{WB}_{\text{out}}, \text{EB}_{\text{out}}] & \text{inside a crossover window} \\ [\text{WB}_{\text{out}}, \text{WB}_{\text{in}}] & x < 0\ \text{(committed to WB)} \\ [\text{EB}_{\text{in}}, \text{EB}_{\text{out}}] & \text{otherwise} \end{cases}$$
+
+fed to `CarEntity::set_road_bounds` each frame; `road_surface_y` is made symmetric (`|x|`) so the crown works on both carriageways.
+
+```mermaid
+graph LR
+  A[car x, trueZ] --> B{in crossover window?}
+  B -- yes --> O["open: WB_out .. EB_out"]
+  B -- no --> C{x < 0?}
+  C -- yes --> W["WB bounds"]
+  C -- no --> E["EB bounds (also intro)"]
+```
+
+| File | Change |
+|------|--------|
+| [`src/scene/RoadScene/RoadScene.{h,cpp}`](src/scene/RoadScene/RoadScene.cpp) | `emit_ribbon` primitive; `generate_crossover`; gapped median barrier + crossover in `generate_chunk` |
+| [`src/core/App/App.{cpp}`](src/core/App/App.cpp) | symmetric `road_surface_y`; `drivable_bounds` network fed to the car each frame |
+
+**Scope / follow-ups.** Flat only (grade = Layer 4). The one-maneuver U-turn is driving/tuning (crossover window length vs. speed); crossover cadence is demo-frequent (per chunk); the connector isn't yet a first-class network node the car *tracks* by `(ribbonId,s,t)` — that fuller model comes with Layer 4's overlapping elevated decks. Tests 52/52; both configs build; EB/intro unchanged.
+
+</details>
+
+### 2026-07-05 — Continuous service roads, both sides (endless-road Layer 2)
+
+> The endless region now has the LIE's outer roadways: a continuous 2-lane frontage road flanks the mainline on **both** sides, out past the sound barriers, with double-yellow centre lines and white edge lines. Generated in every canonical chunk (so it tiles seamlessly for the whole endless drive); the authored intro keeps its one-off exit-ramp marginal road untouched. Verified from an elevated view: both frontage roads run parallel to the horizon with clean markings and no z-fighting; the intro start is unchanged.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** Layer 2 of the endless-LIE epic ([`tasks/todo.md`](tasks/todo.md)) — promote the one-off "N Marginal Road" (a single EB frontage road that only appeared after the intro's exit ramp) into a first-class, both-sides, continuous cross-section element.
+
+**Implementation** ([`RoadScene::generate_service_roads`](src/scene/RoadScene/RoadScene.cpp)). A new generator lays a symmetric pair of 2-lane frontage roads in the grass beyond each side's sound barrier, reusing the marginal-road recipe (2 asphalt lanes + double-yellow centre + white edges — all full-length spans, so they tile without seams). Placement is derived from the mainline layout:
+
+$$x_{\text{EB,inner}} = \text{eb\_start} + \text{road\_width} + \text{shoulder}_{EB} + \text{rail} + \text{berm}, \qquad x_{\text{WB,inner}} = \text{wb\_inner} - \text{shoulder}_{WB} - \text{rail} - \text{berm}$$
+
+with `berm = 55 ft` of grass buffer (grass extent is 500 ft/side, so both roads sit well within it). The asphalt is lifted **6 WU** above the grass so the coplanar surfaces don't reverse-Z z-fight; markings sit just above that. Wired into [`generate_chunk`](src/scene/RoadScene/RoadScene.cpp) only — the endless region gets both-side frontage everywhere, while the authored intro (and its exit ramp, whose merge geometry references the marginal road) is left byte-identical.
+
+**Scope note.** Called from `generate_chunk`, not the intro `generate()`, so the intro→endless boundary (4.2 km out, hazed) is where the WB frontage first appears and the EB frontage shifts from the intro's marginal road to the continuous one — both hidden by aerial haze. Curbs, dedicated service-road lamps, and drivability are deferred (drivability lands with the Layer 3 ribbon/surface network).
+
+| File | Change |
+|------|--------|
+| [`src/scene/RoadScene/RoadScene.{h,cpp}`](src/scene/RoadScene/RoadScene.cpp) | `generate_service_roads` (both-sides frontage, y-lifted); called from `generate_chunk`; `<algorithm>` include |
+
+Tests 52/52; both `SWISH_DEBUG_UI` configs build; intro start unchanged.
+
+</details>
+
+### 2026-07-05 — Endless road: streaming chunks + origin-rebase treadmill (Layer 1)
+
+> The road no longer ends at 4.2 km. Past the authored intro it tiles ONE canonical 300 m chunk of the uniform LIE cross-section, drawn each frame at a sliding window of world offsets around the car, so you can drive forever. A double-precision origin rebase periodically shifts the whole world back toward zero in whole-chunk steps — keeping float32 coordinates precise with no visible jump (a periodic tile shifted by a whole number of periods looks identical). Verified: the intro start is visually unchanged (road → hazed horizon), and 6 km out the chunked road tiles seamlessly with markings and survives a 6 M-WU rebase; ~110 fps, no validation errors.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** Layer 1 of the endless-LIE epic ([`tasks/todo.md`](tasks/todo.md)). The scene was baked once and the car drove off the end into the void. Rather than the full per-chunk streaming/upload/fence machinery (only needed once chunks *vary* — deferred to the interchange layer), a **uniform tiled road** is far simpler and robust: the cross-section is identical everywhere past the intro, so one mesh instanced at many offsets *is* the endless road.
+
+**Canonical chunk** ([`RoadScene::generate_chunk`](src/scene/RoadScene/RoadScene.cpp)). Reuses the existing span/loop generators over chunk-local `[0, -CHUNK_LEN]`, excluding the intro-only fraction-anchored features (signs, exit ramp, overpass). `CHUNK_LEN = 300 000` WU is a multiple of every surface tile size (asphalt 3000 · grass 4000 · concrete 1500 · metal 1000 → LCM 12000), so surface UVs land on integers at the seam; the dashed-line cycle is snapped to an exact divisor of `CHUNK_LEN` so lane markings don't phase-jump.
+
+**Instancing + rebase** ([`SceneGeometry::record_draws`/`record_depth`](src/renderer/SceneGeometry/SceneGeometry.cpp), [`App::run`](src/core/App/App.cpp)). A new per-draw `originOffset` is added (in double) to each draw's model translation before the camera-relative rebase — this instances the one chunk mesh at each slot and shifts the intro. Coordinates live in a render frame:
+
+$$z_{\text{render}} = z_{\text{true}} + \Delta_{\text{origin}}, \qquad \text{chunk slot } k \text{ spans } z_{\text{true}} \in [-L_{\text{intro}} - kL,\; -L_{\text{intro}} - (k{+}1)L]$$
+
+Each frame App selects slots $[k_{\text{car}}-2,\; k_{\text{car}}+8]$ (≈2.4 km ahead = the reduced camera far plane) and hands their render offsets to the Renderer. When $|z_{\text{render}}|$ exceeds 1.2 M WU, a rebase subtracts $\Delta = \operatorname{round}(z/L)\cdot L$ from the car (camera follows), accumulates it into $\Delta_{\text{origin}}$, and shifts the intro lamp lights — because $\Delta$ is a whole number of periods, the tile is bit-identical afterwards.
+
+```mermaid
+graph LR
+  A[car render Z] --> B{"|Z| > 1.2M?"}
+  B -- yes --> C[shift by round Z/L · L<br/>car+camera+lights, ΔZ += shift]
+  B -- no --> D[pick slots kCar-2 .. kCar+8]
+  C --> D
+  D --> E[intro @ ΔZ · chunk × N offsets · car @ 0]
+```
+
+**Precision.** Chunk vertices are tiny (`[0,-300k]`); the render-frame offsets stay bounded (rebase), so both the double camera-relative color path and the plain-float32 depth path stay precise at any distance driven.
+
+| File | Change |
+|------|--------|
+| [`src/scene/RoadScene/RoadScene.{h,cpp}`](src/scene/RoadScene/RoadScene.cpp) | `generate_chunk(chunkLen)` — canonical tile; snaps dash cycle to a `CHUNK_LEN` divisor |
+| [`src/renderer/SceneGeometry/SceneGeometry.{h,cpp}`](src/renderer/SceneGeometry/SceneGeometry.cpp) | `originOffset` param on `record_draws`/`record_depth` + cull test; applied in double |
+| [`src/renderer/Renderer/Renderer.{h,cpp}`](src/renderer/Renderer/Renderer.cpp) | `m_chunkGeometry` + `upload_chunk_geometry` / `set_road_chunks`; draw intro+chunks+car per pass |
+| [`src/core/App/App.{h,cpp}`](src/core/App/App.cpp) | treadmill: chunk gen/upload, per-frame window + origin rebase; far plane 4.3M→2.4M |
+
+**Known follow-ups (v1 scope):** guardrail/sound-barrier *posts* use feet-based spacing that doesn't divide `CHUNK_LEN`, so a subtle post-spacing hiccup can occur at seams (surfaces + markings + walls are seamless); the intro→chunk junction has a one-time asphalt-UV phase jump (hazed on approach); chunk lamp *lights* aren't instanced per slot yet (day scene unaffected); spray-SSBO / TAA-history aren't shifted on rebase (dry/SSAA defaults unaffected). Tests 52/52; both `SWISH_DEBUG_UI` configs build.
+
+</details>
+
+### 2026-07-05 — Per-draw distance + frustum culling (endless-road Layer 0)
+
+> First layer of the endless-LIE epic: added per-draw-call bounding spheres and a cull filter to the G-buffer and shadow passes, so the thousands of individual road-prop quads that fall off-screen or beyond range are no longer submitted every frame (previously every draw was recorded twice per frame — color + shadow — with no culling). The G-buffer pass frustum-culls (provably zero pixel change — off-screen draws contribute nothing) plus distance-culls (default = camera far, a no-op until Layer 1 pulls it in); the shadow pass distance-culls casters by distance from the *camera* (beyond the shadow range they can't reach any cascade), never by frustum (an off-screen caster can still cast into view). Ships in release with defaults that leave the rendered image identical; a debug-UI "Culling" panel toggles/​tunes it and shows a submitted-vs-total tally. Verified: default 6000/6046 drawn (unchanged look); a temporary 250 m view distance culled to 388/6046 (93.6%) with no visible wall — the full-length surface quads stay resident and hazed props vanish cleanly.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** The scene is baked as ~6k individual quad draw calls (one `pushDrawCall` = one quad, `indexCount = 6`), all re-submitted every frame in both the G-buffer and shadow passes with no culling — the dominant per-frame CPU/submit cost and the first wall to scaling the road. This is Layer 0 of the plan in [`tasks/todo.md`](tasks/todo.md): highest-ROI, zero dependencies, and it establishes the distance lever the streaming layer (L1) needs.
+
+**Bounding spheres.** [`MeshBuilder::pushDrawCall`](src/scene/RoadScene/RoadScene.cpp) now computes each draw's sphere from the AABB of its 6-index range:
+
+$$\mathbf{c}=\tfrac{1}{2}(\mathbf{p}_{\min}+\mathbf{p}_{\max}),\qquad r=\tfrac{1}{2}\lVert \mathbf{p}_{\max}-\mathbf{p}_{\min}\rVert$$
+
+Stored on [`DrawCall`](src/scene/SceneTypes.h) as `boundsCenter`/`boundsRadius`, defaulting to `radius = -1` — the **"unbounded, never cull"** sentinel, so dynamic draws that skip `MeshBuilder` (the car, loaded models) always render. The full-length road surface quads get a huge radius (center at road-middle, `r ≈` half the road length), so they too are never culled — only the small props are.
+
+**Cull test** ([`SceneGeometry.cpp`](src/renderer/SceneGeometry/SceneGeometry.cpp)). A draw with `r ≥ 0` is skipped when its world-space sphere fails distance or frustum. Distance: cull if $\lVert\mathbf{c}-\mathbf{c}_{\text{cam}}\rVert - r > d_{\max}$. Frustum: for each inward, unit-normalized plane $(\mathbf{n}, w)$, cull if $\mathbf{n}\cdot\mathbf{c}+w < -r$. Planes are Gribb–Hartmann rows of $P\cdot V$ (column-major glm; Vulkan $0\le z\le w$, unchanged by reverse-Z), extracted in [`Renderer.cpp`](src/renderer/Renderer/Renderer.cpp).
+
+```mermaid
+graph LR
+  A[DrawCall + bounds] --> B{r < 0?}
+  B -- yes --> D[draw: car / models / surface]
+  B -- no --> C{dist > max<br/>or outside frustum?}
+  C -- yes --> E[skip]
+  C -- no --> D
+```
+
+**Release-safe.** Cull params live on `DebugParams` (read via the `#ifdef SWISH_DEBUG_UI ? m_debugParams : DebugParams{}` single-source-of-truth idiom already used by god-rays/sky). Defaults — frustum on, `cullMainViewDist = 4.3M` (= camera far → distance no-op), `cullShadowDist = 600k` (> `csmShadowFar 400k`) — leave the rendered image identical; only submitted-draw counts drop. An intentional, verified behavior change from "draw everything."
+
+| File | Change |
+|------|--------|
+| [`src/scene/SceneTypes.h`](src/scene/SceneTypes.h) | `DrawCall`: add `boundsCenter` / `boundsRadius` (−1 sentinel) |
+| [`src/scene/RoadScene/RoadScene.cpp`](src/scene/RoadScene/RoadScene.cpp) | `pushDrawCall`: compute per-quad bounding sphere from its index range |
+| [`src/renderer/SceneGeometry/SceneGeometry.h`](src/renderer/SceneGeometry/SceneGeometry.h) | `CullParams` / `CullStats`; `record_draws`/`record_depth` take `cull` + optional `stats` |
+| [`src/renderer/SceneGeometry/SceneGeometry.cpp`](src/renderer/SceneGeometry/SceneGeometry.cpp) | `isCulled` helper; filter + tally both record loops |
+| [`src/renderer/Renderer/Renderer.cpp`](src/renderer/Renderer/Renderer.cpp) | `extractFrustumPlanes`; build cull for G-buffer (frustum+dist) and shadow (dist-only) passes; write debug tally |
+| [`src/debug/DebugParams.h`](src/debug/DebugParams.h) | culling params + read-only counters |
+| [`src/debug/DebugUI.cpp`](src/debug/DebugUI.cpp) | "Culling" panel: toggles, distance sliders, submitted/total readout |
+
+**Tests:** 52/52 green; both `SWISH_DEBUG_UI` on/off configs build clean.
+
+</details>
+
+### 2026-07-04 — Depth-of-field post-process pass (debug-only)
+
+> Added a single-pass gather depth-of-field resolve, cloned from the TaaPass pattern: it reads the lit+forward HDR + scene depth, derives a per-pixel circle-of-confusion from the reverse-Z view-space distance, averages a 16-tap Poisson disk of the HDR scaled by that CoC, and copies the result back into the HDR image so the bloom/composite chain is untouched. Fully `#ifdef SWISH_DEBUG_UI`-gated (release build byte-identical) and off by default; a "Depth of Field" debug-UI header toggles it and tunes focus distance / range / max CoC. Runs right after the god-rays pass (depth still readable, before the forward passes).
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** Complete the post-process suite with a tunable DOF, mirroring the self-contained, debug-only TaaPass so the release path stays identical (SSAA/no-DOF).
+
+**The pass** ([`DofPass`](src/renderer/DofPass/DofPass.cpp)). Owns one scratch RGBA16F color image per frame-in-flight (`COLOR_ATTACHMENT | SAMPLED | TRANSFER_SRC`), a color-only render pass, a 2-binding descriptor set (0 = HDR view @ `SHADER_READ_ONLY`, 1 = hdr-depth view @ `DEPTH_STENCIL_READ_ONLY`), a linear-clamp sampler, and a `fullscreen.vert` + `dof.frag` pipeline (no vertex input, no depth test/write, cull none). `record()` mirrors TaaPass exactly: barrier HDR → `SHADER_READ`, render the resolve into scratch, then copy the scratch back into HDR via the transfer-layout `barrier()` helper + `VkImageCopy`, restoring HDR to `COLOR_ATTACHMENT`. Push block is `{ mat4 invProj; vec4 focus; vec4 texel; }` = 64 + 16 + 16 = 96 B (16-byte aligned).
+
+**CoC math** ([`dof.frag`](shaders/dof.frag)). Reverse-Z + `GLM_FORCE_DEPTH_ZERO_TO_ONE`, so `ndc.z = d` directly. Reconstruct view-space Z and take the positive scene distance:
+
+$$\mathbf{c} = \text{invProj}\cdot(\text{uv}\cdot 2-1,\; d,\; 1),\qquad \text{dist} = -\frac{c_z}{c_w}$$
+
+Sky (`d ≤ 0.0001`) is pushed to full blur (`dist = focusDist + 4\cdot focusRange`) rather than trusting the near-degenerate reconstruction at `d ≈ 0`. The circle of confusion (in texels):
+
+$$\text{coc} = \operatorname{clamp}\!\left(\frac{|\text{dist}-\text{focusDist}|}{\max(\text{focusRange},1)},\,0,\,1\right)\cdot \text{maxCoC}$$
+
+If `coc < 0.5` the centre sample passes through (in focus); otherwise a 16-tap Poisson disk is averaged with equal weights at UV offsets `kDisk[i] · coc · texel`.
+
+```mermaid
+graph LR
+  GR[god-rays pass] --> DOF[DofPass.record]
+  HDR[HDR image] --> DOF
+  DEPTH[hdr-depth] --> DOF
+  DOF -->|copy-back| HDR
+  HDR --> FWD[forward passes] --> BLOOM[bloom/composite]
+```
+
+**Verification.** Debug build (`RelWithDebInfo`, `SWISH_DEBUG_UI=ON`) + release build (`Release`, `SWISH_DEBUG_UI=OFF`) both compile + link clean; `ctest` **52/52**. Validation-layer run (a `Debug` build, where `NDEBUG` is absent so `VK_LAYER_KHRONOS_validation` is active) headless for ~6–7 s was **CLEAN** both with DOF off (init/teardown only) and with DOF temp-forced on (full barrier/render/copy-back path). **Visually confirmed depth-driven** with a temp-force + free-fly screenshot pair: near focus → the distance blurs and the foreground is sharp; flipping to far focus inverts it (foreground blurs, distance sharpens) — proving the CoC is reconstructed from the depth buffer, not a uniform/radial smear. Temp-force reverted (ships off).
+
+| File | Change |
+|------|--------|
+| [src/renderer/DofPass/DofPass.h](src/renderer/DofPass/DofPass.h) | New — DofPass class + DofParams, whole body `#ifdef SWISH_DEBUG_UI`. |
+| [src/renderer/DofPass/DofPass.cpp](src/renderer/DofPass/DofPass.cpp) | New — cloned from TaaPass (images/RP/descriptors/pipeline/record). |
+| [shaders/dof.frag](shaders/dof.frag) | New — CoC + 16-tap disk gather. |
+| [CMakeLists.txt](CMakeLists.txt) | Added `dof.frag` to SHADER_SOURCES + `DofPass.cpp` to the swish target. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) | Added `dofEnabled` / `dofFocusDist` / `dofFocusRange` / `dofMaxCoC`. |
+| [src/debug/DebugParamsIO.cpp](src/debug/DebugParamsIO.cpp) | Save/load the 4 DOF fields under a `[dof]` table. |
+| [src/debug/DebugUI.cpp](src/debug/DebugUI.cpp) | New "Depth of Field" collapsing header (checkbox + 3 sliders). |
+| [src/renderer/Renderer/Renderer.h](src/renderer/Renderer/Renderer.h) | Forward-decl `DofPass`; `std::unique_ptr<DofPass> m_dof` member (debug-only). |
+| [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp) | Init/recreate/cleanup + guarded record call right after `recordGodRaysPass`. |
+
+</details>
+
+### 2026-07-04 — Davit lamps + real overpasses (Phase 2c): curved mast arms, bridge piers + fascia
+
+> Phase 2c of the Glen Cove-LIE plan. Two upgrades: (1) the highway lamps became **davit / mast-arm poles** — the straight horizontal arm is now a curved arc that sweeps up and over the road to a cobra-head fixture; (2) the overpass now reads as a **real local-road bridge** — the deck sits on **support piers** (median + one inboard of each embankment), and the concrete **fascia** and **parapets** now actually render (they were degenerate zero-area faces before). Verified in-engine with a temp-forced near overpass: the deck spans the highway on visible columns with a solid beam face.
+
+<details>
+<summary>Technical summary</summary>
+
+**Davit lamps** ([`RoadScene::generate_street_lamps`](src/scene/RoadScene/RoadScene.cpp)). Replaced the single flat arm quad with a `davit()` lambda that emits the pole, then an arm arc approximated by `arm_seg = 4` short `addSlopedQuad` segments following
+
+$$y(t) = \text{pole\_height} + \text{arm\_rise}\cdot\bigl(1-(1-t)^2\bigr),\qquad x(t)=\text{pole\_x}+(\text{light\_x}-\text{pole\_x})\,t$$
+
+(rises steeply off the pole then flattens — the davit sweep), with the cobra-head fixture and warm point light at the raised end. Arm lengthened 6→8 ft, `arm_rise = 5 ft`. EB and WB just call the lambda, killing the duplicated per-side code.
+
+**Overpass** ([`RoadScene::generate_overpass`](src/scene/RoadScene/RoadScene.cpp)). The MeshBuilder primitives only make constant-X walls / constant-Y floors / X-Y ramps, but a bridge fascia and its parapets face the approaching driver (±Z). The old code tried `addVerticalFace(x, …, z_right, z_right)` for the fascia — `zStart == zEnd` → **zero-area** (invisible), and it put the parapets at the bridge's X-ends instead of along the deck's long (Z) edges. Added a local `addZFace()` (hand-built constant-Z quad, winding chosen by normal sign) and rebuilt: proper near/far fascia, parapets along both Z edges, and an `addPier()` (±X sides via `addVerticalFace` + ±Z faces via `addZFace`) placing three columns per bridge (median + inboard of each embankment). ~4 bridges × ~16 quads — negligible cost.
+
+**Verification.** Temp-forced `bridge_spacing`/loop bounds to drop one overpass ~15–90 m ahead (found and fixed a bounds bug where the forced start was past the loop's end condition), free-fly screenshots confirmed deck-on-piers with fascia + parapet and the Porsche on the road; temp-force reverted. `ctest` **52/52**.
+
+| File | Change |
+|------|--------|
+| [src/scene/RoadScene/RoadScene.cpp](src/scene/RoadScene/RoadScene.cpp) | `generate_street_lamps`: curved davit arm via arc segments (shared lambda). `generate_overpass`: `addZFace`/`addPier` helpers → real fascia, edge parapets, and support piers. |
+
+</details>
+
+### 2026-07-04 — W-beam guardrail (Phase 2b): posts + corrugated rail on the WB shoulder
+
+> Phase 2b of the Glen Cove-LIE plan. The WB (oncoming) guardrail was a featureless flat-top box rail (3 quads over the whole run). Rebuilt it as a real galvanized **W-beam**: evenly-spaced **posts** plus a **corrugated "W" rail** whose two ridges bulge toward the road. Verified broadside that the posts read as a regular cadence and the beam catches light along the shoulder. The **jersey median was already a proper NJ F-shape** (base slope → 13″ break → upper slope → cap + weathering) and the **lane markings already read at distance** (edge lines, dashes, HOV double-white all crisp to the vanishing point), so those parts of the phase needed no change — confirmed by looking.
+
+<details>
+<summary>Technical summary</summary>
+
+**W-beam** ([`RoadScene::generate_guardrail`](src/scene/RoadScene/RoadScene.cpp)). The rail sits on the outer (−X) edge of the WB roadway, so its road-facing plane is +X. The corrugated beam is a ~12″-tall band built as **four X-Y facets extruded the full length** (via `addSlopedQuad`), with alternating ridges at depth `d = 0.22 ft` toward the road:
+
+$$P_0(x_0,\,0)\;\to\;P_1(x_0{+}d,\,\tfrac14 h)\;\to\;P_2(x_0,\,\tfrac12 h)\;\to\;P_3(x_0{+}d,\,\tfrac34 h)\;\to\;P_4(x_0,\,h)$$
+
+Each facet gets its own flat normal so the corrugation reads under lighting — the `kFt` scale cancels, so the unit normals are the literals $\operatorname{normalize}(0.25,\mp0.22)=(0.751,\pm0.661)$ (out-and-up facets tilt down, in-and-up facets tilt up → horizontal light/dark banding). Posts are thin vertical faces from ground to beam top, set a hair behind the beam plane to avoid z-fighting.
+
+**Draw-call budget.** There is no instancing/culling here, so post spacing is **12.5 ft** rather than the real 6.25 ft — ~1100 posts over the 4.2 km run (1 quad each) instead of ~2200. At highway distance the cadence still reads correctly. `ctest` **52/52**; the app ran smoothly across the verification screenshots.
+
+| File | Change |
+|------|--------|
+| [src/scene/RoadScene/RoadScene.cpp](src/scene/RoadScene/RoadScene.cpp) | `generate_guardrail`: replaced the WB box rail with a corrugated 4-facet W-beam + evenly-spaced posts. |
+
+</details>
+
+### 2026-07-04 — Richer clear-blue sky (Phase 3): kill the lilac cast, deepen the azure
+
+> Phase 3 of the Glen Cove-LIE plan (values only, no plumbing). The clear-day sky read as a washed-out **lilac/pink** — the CLEAR gradient endpoints carried a high red channel (horizon `R=0.85`, zenith `R=0.50`) which, through the AgX tonemap, tipped the whole lower sky warm. Dropped R hard so blue clearly dominates ($B>G>R$) and pushed the zenith into a saturated azure (AgX desaturates, so the source has to over-drive). The overcast endpoints are untouched, so overcast is byte-identical; only the intentional clear-day look changed. As a coherent bonus the road/ambient now reads cooler, because `skyIrradiance()` samples the same gradient for image-based ambient.
+
+<details>
+<summary>Technical summary</summary>
+
+The sky gradient is `mix(horizon, zenith, pow(t,1.5))` in [`compute_sky_color`](shaders/lighting.frag), `t` from `view_dir.y`, endpoints lerped by `clarity` (0 = overcast, 1 = clear). Only the two CLEAR endpoints changed:
+
+| Endpoint | Before | After | Effect |
+|---|---|---|---|
+| `SP_SKY_HORIZON_CLEAR` | `(0.85, 1.00, 1.25)` | `(0.55, 0.82, 1.30)` | light blue horizon, no pink (R well below B) |
+| `SP_SKY_ZENITH_CLEAR`  | `(0.50, 0.80, 1.35)` | `(0.28, 0.52, 1.50)` | deep saturated azure zenith |
+
+Changed in lockstep in the release literals ([`lighting.frag`](shaders/lighting.frag)) and the debug defaults ([`DebugParams.h`](src/debug/DebugParams.h) `skyHorizonClear`/`skyZenithClear`) so the debug-UI identity default reproduces release. HDR headroom preserved ($B>1$) so the sky still reads as a bright source. Verified with a free-fly clear-day (G) screenshot before/after: lilac → clean azure gradient; `ctest` **52/52**.
+
+| File | Change |
+|------|--------|
+| [shaders/lighting.frag](shaders/lighting.frag) | `SP_SKY_HORIZON_CLEAR` / `SP_SKY_ZENITH_CLEAR` release literals. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) | Matching `skyHorizonClear` / `skyZenithClear` debug defaults. |
+
+</details>
+
+### 2026-07-04 — Glen Cove-area LIE signage: FHWA guide signs, exit tabs, I-495 shield, pull-through gantry
+
+> Phase 2a of the Glen Cove-LIE detail plan. Re-authored all sign textures in [`tools/sign_generator.py`](tools/sign_generator.py) to the **Glen Cove / Nassau-County stretch of I-495** from the reference photos, and made them read like real FHWA guide signs: a rendered **I-495 interstate shield** (red "INTERSTATE" banner + blue "495" body), an **EXIT 39 tab** straddling the panel top, a **down-arrow + yellow "EXIT ONLY" plaque**, mixed-case destination legends (Glen Cove Rd, Northern Blvd, S Oyster Bay Rd, Syosset · Bethpage), rounded white borders, and up-arrow pull-through legends. Filled the previously-empty `sign_07.png` slot and hung it on a **third overhead gantry** (S Oyster Bay Rd pull-through), so `generate_sign_posts` now spans three gantries + four roadside signs down the route.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** The gantry geometry already existed and was good; the gap was the textures — the old set read as generic "EXIT 41B / Jericho Tpke" placeholders with plain centered text, no shield, no exit tab, no arrows, and `MAT_SIGN_7` shipped no texture on disk (blank panel if ever used).
+
+**Textures** ([`tools/sign_generator.py`](tools/sign_generator.py)). Rewrote the generator around Pillow anchors (`anchor="mm"/"lm"/"rm"`) plus a `fit_font()` autoshrinker so long destinations never overflow. New helpers: `interstate_shield()` (white silhouette → red banner → blue body with route number), `arrow(direction=down|up|up_right)` (chunky FHWA arrow), and `border()` (rounded white keyline). Texture pixel dimensions were chosen to **match each panel's world aspect ratio** so legends aren't stretched:
+
+| Panel (world) | Aspect | Texture | Sign |
+|---|---|---|---|
+| overhead 20 ft × 6 ft | 3.33:1 | 1200×360 | `sign_00` I-495 EAST · `sign_02` EXIT 39 · `sign_07` pull-through |
+| roadside 8 ft × 5 ft | 1.6:1 | 512×320 | `sign_01` advance guide |
+| service 6 ft × 4 ft | 1.5:1 | 480×320 | `sign_03` blue services |
+| speed 3 ft × 4 ft | 0.75:1 | 300×400 | `sign_04` SPEED LIMIT 55 |
+| mile 2 ft × 3 ft | 0.667:1 | 200×300 | `sign_05` MILE 39 |
+
+`sign_06` (HOV "I-495" pavement text, transparent bg) is unchanged in purpose. All eight PNGs regenerated.
+
+**Geometry wiring** ([`RoadScene::generate_sign_posts`](src/scene/RoadScene/RoadScene.cpp)). Re-laid the `SignDef` array to the Glen Cove sequence and added the `MAT_SIGN_7` gantry (fractions of `z_far`): 0.10 speed → 0.24 I-495 mainline gantry → 0.40 EXIT 39 advance → 0.56 EXIT 39/Northern gantry → 0.70 mile 39 → **0.82 S Oyster Bay pull-through gantry (new)** → 0.92 services. No changes to the truss/panel builder itself; the exit tab and shield are baked into the texture rather than added as geometry (single opaque quad, reads correctly at driving distance).
+
+**Verification.** Contact-sheet render of all 8 PNGs, then in-engine via a temp-forced near-camera placement + free-fly cam (C→E→W): the overhead gantries render legible green panels ("Glen Cove Rd / Northern Blvd" + EXIT 39 tab confirmed in-world). Temp-force reverted. `ctest` **52/52**. Release-relevant (scene content is in both builds); intentional + screenshot-verified.
+
+| File | Change |
+|------|--------|
+| [tools/sign_generator.py](tools/sign_generator.py) | Full rewrite: Glen Cove content, I-495 shield, exit tab, arrows, EXIT ONLY plaque, aspect-matched sizes, `sign_07`. |
+| [src/scene/RoadScene/RoadScene.cpp](src/scene/RoadScene/RoadScene.cpp) | Re-laid `SignDef` array; added `MAT_SIGN_7` third gantry; Glen Cove comments. |
+| textures/sign_00…07.png | Regenerated (8 files; `sign_07.png` newly created). |
+
+</details>
+
 ### 2026-07-04 — See down the whole road: extended draw distance + always-on aerial haze
 
 > The far plane clipped the road at ~2 M WU — the far half of the 4.22 km highway was invisible, ending at a hard edge. Raised the far plane to **4.3 M WU** (now precision-safe thanks to reverse-Z) so the whole road is drawable, and added an **always-on aerial-perspective haze** so the distance dissolves into the horizon sky instead of hard-clipping. The haze is tinted with the actual sky in each fragment's view direction (so distance blends into the background, not a flat grey), is *not* wet-gated (dry days read with depth too), and is negligible on near surfaces so the cabin/road stay crisp. This is Phase 1 of the Glen Cove-LIE detail plan (see the far horizon before adding roadside detail).

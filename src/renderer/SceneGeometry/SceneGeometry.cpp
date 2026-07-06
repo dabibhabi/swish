@@ -62,11 +62,36 @@ void uploadTwoViaStaging(const RendererServices& s, VkBufferUsageFlags vertUsage
     // vertStaging / idxStaging free themselves (RAII) on return.
 }
 
+// True if this draw's bounding sphere is entirely outside the cull volume.
+// Unbounded draws (negative radius — the car, loaded models) are never culled.
+bool isCulled(const DrawCall& dc, const CullParams& cull, const Vec3& originOffset) {
+    const float r = dc.boundsRadius;
+    if (r < 0.0f)
+        return false;
+
+    // Center in render-frame world space: model translation (identity for the
+    // authored road) plus the per-batch originOffset (chunk-slot / rebase shift),
+    // matching how record_* place the geometry. No scale, so `r` needs none.
+    const Vec3  c = Vec3(dc.model * Vec4(dc.boundsCenter, 1.0f)) + originOffset;
+    const float d = glm::length(c - cull.cameraPos);
+    if (d - r > cull.maxDistance)
+        return true;
+
+    if (cull.useFrustum) {
+        for (const Vec4& pl : cull.planes) {
+            // planes point inward; sphere is outside when signed distance < −r.
+            if (glm::dot(Vec3(pl), c) + pl.w < -r)
+                return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
 void SceneGeometry::cleanup(VkDevice /*device*/) {
     m_drawCalls.clear();
-    m_indexBuffer.reset();   // RAII (VMA): frees buffer + sub-allocation
+    m_indexBuffer.reset();  // RAII (VMA): frees buffer + sub-allocation
     m_vertexBuffer.reset();
 }
 
@@ -82,17 +107,18 @@ void SceneGeometry::upload(const RendererServices& s, const MeshData& mesh, cons
                         sizeof(uint32_t) * mesh.getIndices().size(), mesh.getIndices().data(), m_indexBuffer);
 }
 
-void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline,
-                                 MaterialDescriptors& materials, const MaterialOverride* overrides,
-                                 Vec3 cameraPos) const {
+void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials,
+                                 const MaterialOverride* overrides, const CullParams& cull, Vec3 originOffset,
+                                 CullStats* stats) const {
     if (!has_geometry())
         return;
 
-    // Camera-relative rebase (double precision): subtract the camera position from each
-    // model's translation so basic.vert renders with the eye at the origin. Done in
-    // double so the (objectPos − cameraPos) subtraction keeps full precision even though
-    // both operands reach ~4.2 M WU; the small result stores exactly in float32.
-    const glm::dvec3 dCam(cameraPos);
+    // Camera-relative rebase (double precision): add the per-batch originOffset (chunk-slot
+    // instance / intro rebase shift), then subtract the camera position, so basic.vert renders
+    // with the eye at the origin. Done in double so the (objectPos + originOffset − cameraPos)
+    // chain keeps full precision even at millions of WU; the small result stores in float32.
+    const glm::dvec3 dCam(cull.cameraPos);
+    const glm::dvec3 dOrigin(originOffset);
 
     VkBuffer     vbs[] = {m_vertexBuffer.handle()};
     VkDeviceSize off[] = {0};
@@ -102,15 +128,23 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
     VkPipelineLayout layout = pipeline.get_layout();
 
     for (const auto& dc : m_drawCalls) {
+        const bool cullable = dc.boundsRadius >= 0.0f;
+        if (stats && cullable)
+            ++stats->total;
+        if (cull.enabled && cullable && isCulled(dc, cull, originOffset))
+            continue;
+        if (stats && cullable)
+            ++stats->submitted;
+
         VkDescriptorSet matSet = materials.get_set(dc.material);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &matSet, 0, nullptr);
 
         PushConstantData pushData{};
         // Rebase the translation column to camera-relative space in double precision.
         glm::dmat4 dModel = glm::dmat4(dc.model);
-        dModel[3]         = glm::dvec4(glm::dvec3(dModel[3]) - dCam, dModel[3].w);
+        dModel[3]         = glm::dvec4(glm::dvec3(dModel[3]) + dOrigin - dCam, dModel[3].w);
         pushData.model    = glm::mat4(dModel);
-        pushData.color = dc.color;
+        pushData.color    = dc.color;
         // Per-material metalness (first pass: metal barriers/rails are metallic,
         // everything else is dielectric). Texture-driven metalness is a follow-up.
         pushData.material.x = (dc.material == MAT_METAL) ? 1.0f : 0.0f;
@@ -141,7 +175,8 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
     }
 }
 
-void SceneGeometry::record_depth(VkCommandBuffer cmd, const DepthOnlyPipeline& pipe) const {
+void SceneGeometry::record_depth(VkCommandBuffer cmd, const DepthOnlyPipeline& pipe, const CullParams& cull,
+                                 Vec3 originOffset, CullStats* stats) const {
     if (!has_geometry())
         return;
 
@@ -152,8 +187,21 @@ void SceneGeometry::record_depth(VkCommandBuffer cmd, const DepthOnlyPipeline& p
 
     // Depth-only: no material or descriptor binds — just the per-object model
     // matrix pushed into the depth pipeline's 128-byte block (bytes [64,128)).
+    // `cull` here is distance-only (useFrustum should be false — see header).
+    // originOffset shifts the model translation (render-frame, kept small by the
+    // origin rebase, so plain float32 here stays precise for the shadow projection).
     for (const auto& dc : m_drawCalls) {
-        pipe.push_model(cmd, dc.model);
+        const bool cullable = dc.boundsRadius >= 0.0f;
+        if (stats && cullable)
+            ++stats->total;
+        if (cull.enabled && cullable && isCulled(dc, cull, originOffset))
+            continue;
+        if (stats && cullable)
+            ++stats->submitted;
+
+        Mat4 model = dc.model;
+        model[3]   = Vec4(Vec3(model[3]) + originOffset, model[3].w);
+        pipe.push_model(cmd, model);
         vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, 0, 0);
     }
 }

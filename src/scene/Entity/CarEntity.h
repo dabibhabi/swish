@@ -45,7 +45,7 @@ public:
     void  set_steering_angle(float deg) {
         m_steering_angle = deg < -kMaxSteer ? -kMaxSteer : (deg > kMaxSteer ? kMaxSteer : deg);
     }
-    static constexpr float steer_max()   { return kMaxSteer; }
+    static constexpr float steer_max() { return kMaxSteer; }
     static constexpr float steer_ratio() { return kSteerRatio; }
 
     // World-space pivot frame of the steering-wheel submesh (model * sw_pivot_frame),
@@ -76,15 +76,15 @@ public:
     std::vector<DrawCall> get_windshield_draw_calls() const;
 
 private:
-    float m_forward_speed  = 0.f;  // world units / second, positive = forward
-    float m_steering_angle = 0.f;  // degrees, negative = left, positive = right
-    float m_rain_intensity = 0.f;  // [0,1] — drives the interior cabin wash tint
+    float     m_forward_speed  = 0.f;                       // world units / second, positive = forward
+    float     m_steering_angle = 0.f;                       // degrees, negative = left, positive = right
+    float     m_rain_intensity = 0.f;                       // [0,1] — drives the interior cabin wash tint
     glm::quat m_steer_axis_correction{1.f, 0.f, 0.f, 0.f};  // debug spin-axis fix (identity = none)
 
     // Per-frame longitudinal controls, set by handle_input(), applied in update().
-    float m_throttle = 0.f;        // [0,1]
-    float m_brake    = 0.f;        // [0,1]
-    bool  m_reverse  = false;      // DOWN held while ~stopped → creep backward
+    float m_throttle = 0.f;    // [0,1]
+    float m_brake    = 0.f;    // [0,1]
+    bool  m_reverse  = false;  // DOWN held while ~stopped → creep backward
 
     // Lateral/yaw dynamic state (dynamic bicycle model, P0 #4). Right-positive.
     float m_lateral_velocity = 0.f;  // m/s (body rightward)
@@ -96,18 +96,18 @@ private:
     // Kinematic / control constants (~1000 WU/m scale, 1 mph ≈ 447 WU/s).
     // The longitudinal + tire DYNAMICS constants live in CarParams (CarPhysics.h);
     // this header keeps only the steering and speed-cap knobs.
-    static constexpr float kWorldUnitsPerMeter = 1'000.f;  // 1 m = 1000 WU
-    static constexpr float kMaxForwardSpeed = 92'000.f;  // ~205 mph (only for kMaxSpeed normalization)
-    static constexpr float kMaxReverseSpeed = 12'000.f;  // ~27 mph in reverse
-    static constexpr float kReverseAccel    = 6'000.f;   // WU/s²; gentle low-speed reverse
-    static constexpr float kSpeedDeadZone   = 0.5f;
-    static constexpr float kWheelLockToDeg  = 450.f;  // full lock-to-lock steering range
-    static constexpr float kMaxSteer        = 35.f;   // degrees
-    static constexpr float kSteerRatio      = kWheelLockToDeg / kMaxSteer;
-    static constexpr float kSteerRate       = 90.f;     // degrees/s
-    static constexpr float kSteerReturn     = 120.f;    // return-to-center rate
+    static constexpr float kWorldUnitsPerMeter = 1'000.f;   // 1 m = 1000 WU
+    static constexpr float kMaxForwardSpeed    = 92'000.f;  // ~205 mph (only for kMaxSpeed normalization)
+    static constexpr float kMaxReverseSpeed    = 12'000.f;  // ~27 mph in reverse
+    static constexpr float kReverseAccel       = 6'000.f;   // WU/s²; gentle low-speed reverse
+    static constexpr float kSpeedDeadZone      = 0.5f;
+    static constexpr float kWheelLockToDeg     = 450.f;  // full lock-to-lock steering range
+    static constexpr float kMaxSteer           = 35.f;   // degrees
+    static constexpr float kSteerRatio         = kWheelLockToDeg / kMaxSteer;
+    static constexpr float kSteerRate          = 90.f;   // degrees/s
+    static constexpr float kSteerReturn        = 120.f;  // return-to-center rate
     // Real 992 Turbo S wheelbase ≈ 2.45 m (was 2.8 m).
-    static constexpr float kWheelbase       = 2'450.f;  // 2.45 m in WU
+    static constexpr float kWheelbase = 2'450.f;  // 2.45 m in WU
     // (The old kSteerRefSpeed authority taper is gone — the dynamic tire model's
     //  μ·Fz saturation now provides the real high-speed grip limit.)
 

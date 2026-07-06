@@ -2,11 +2,10 @@
 
 #ifdef SWISH_DEBUG_UI
 
-#include <toml++/toml.hpp>
-
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <toml++/toml.hpp>
 
 namespace swish::debugio {
 
@@ -15,7 +14,9 @@ namespace {
 namespace fs = std::filesystem;
 
 // vec3 → 3-element TOML array (stored as doubles; float precision is fine here).
-toml::array arr3(const glm::vec3& v) { return toml::array{v.x, v.y, v.z}; }
+toml::array arr3(const glm::vec3& v) {
+    return toml::array{v.x, v.y, v.z};
+}
 
 // Read a 3-element array node into `v`, keeping `v` if absent/malformed.
 void rd3(toml::node_view<toml::node> n, glm::vec3& v) {
@@ -29,7 +30,9 @@ void rd3(toml::node_view<toml::node> n, glm::vec3& v) {
 
 }  // namespace
 
-std::string presets_dir() { return std::string(CONFIG_DIR) + "presets/"; }
+std::string presets_dir() {
+    return std::string(CONFIG_DIR) + "presets/";
+}
 
 bool save(const DebugParams& p, const std::string& name) {
     std::error_code ec;
@@ -37,87 +40,80 @@ bool save(const DebugParams& p, const std::string& name) {
 
     // Build the document grouped exactly like the panel so hand-editing is easy.
     toml::table tbl{
-        {"grade",
-         toml::table{{"exposure", p.exposure},
-                     {"bloom_threshold", p.bloomThreshold},
-                     {"bloom_intensity", p.bloomIntensity},
-                     {"brightness", p.brightness},
-                     {"contrast", p.contrast},
-                     {"saturation", p.saturation},
-                     {"temperature", p.temperature},
-                     {"tint", p.tint},
-                     {"auto_exposure", p.autoExposure},
-                     {"ae_key", p.aeKey},
-                     {"ae_speed", p.aeSpeed},
-                     {"ae_min", p.aeMin},
-                     {"ae_max", p.aeMax}}},
-        {"sky",
-         toml::table{{"horizon_overcast", arr3(p.skyHorizonOvercast)},
-                     {"horizon_clear", arr3(p.skyHorizonClear)},
-                     {"zenith_overcast", arr3(p.skyZenithOvercast)},
-                     {"zenith_clear", arr3(p.skyZenithClear)},
-                     {"clarity", p.clarity},
-                     {"sun_disc_exp_min", p.sunDiscExpMin},
-                     {"sun_disc_exp_max", p.sunDiscExpMax},
-                     {"sun_disc_str_min", p.sunDiscStrMin},
-                     {"sun_disc_str_max", p.sunDiscStrMax}}},
-        {"sun",
-         toml::table{{"color", arr3(p.sunColor)},
-                     {"ambient", p.sunAmbient},
-                     {"azimuth", p.sunAzimuth},
-                     {"elevation", p.sunElevation}}},
-        {"fog",
-         toml::table{{"color", arr3(p.fogColor)}, {"dist63", p.fogDist63}, {"max", p.fogMax}}},
+        {"grade", toml::table{{"exposure", p.exposure},
+                              {"bloom_threshold", p.bloomThreshold},
+                              {"bloom_intensity", p.bloomIntensity},
+                              {"brightness", p.brightness},
+                              {"contrast", p.contrast},
+                              {"saturation", p.saturation},
+                              {"temperature", p.temperature},
+                              {"tint", p.tint},
+                              {"auto_exposure", p.autoExposure},
+                              {"ae_key", p.aeKey},
+                              {"ae_speed", p.aeSpeed},
+                              {"ae_min", p.aeMin},
+                              {"ae_max", p.aeMax}}},
+        {"sky", toml::table{{"horizon_overcast", arr3(p.skyHorizonOvercast)},
+                            {"horizon_clear", arr3(p.skyHorizonClear)},
+                            {"zenith_overcast", arr3(p.skyZenithOvercast)},
+                            {"zenith_clear", arr3(p.skyZenithClear)},
+                            {"clarity", p.clarity},
+                            {"sun_disc_exp_min", p.sunDiscExpMin},
+                            {"sun_disc_exp_max", p.sunDiscExpMax},
+                            {"sun_disc_str_min", p.sunDiscStrMin},
+                            {"sun_disc_str_max", p.sunDiscStrMax}}},
+        {"sun", toml::table{{"color", arr3(p.sunColor)},
+                            {"ambient", p.sunAmbient},
+                            {"azimuth", p.sunAzimuth},
+                            {"elevation", p.sunElevation}}},
+        {"fog", toml::table{{"color", arr3(p.fogColor)}, {"dist63", p.fogDist63}, {"max", p.fogMax}}},
         {"reflection",
-         toml::table{{"env_gloss_exp", p.envGlossExp},
-                     {"ibl_diffuse", p.iblDiffuse},
-                     {"ibl_specular", p.iblSpecular}}},
-        {"ssao",
-         toml::table{{"enabled", p.ssaoEnabled},
-                     {"radius", p.ssaoRadius},
-                     {"bias", p.ssaoBias},
-                     {"intensity", p.ssaoIntensity}}},
-        {"ssr",
-         toml::table{{"enabled", p.ssrEnabled},
-                     {"intensity", p.ssrIntensity},
-                     {"max_dist", p.ssrMaxDist},
-                     {"thickness", p.ssrThickness},
-                     {"stride", p.ssrStride}}},
-        {"steering",
-         toml::table{{"axis_edit", p.steerAxisEdit},
-                     {"euler", arr3(p.steerEuler)},
-                     {"quat", toml::array{p.steerQuat.x, p.steerQuat.y, p.steerQuat.z, p.steerQuat.w}}}},
-        {"shadow",
-         toml::table{{"bias", p.shadowBias},
-                     {"floor", p.shadowFloor},
-                     {"half_extent", p.shadowHalfExtent},
-                     {"depth_range", p.shadowDepthRange},
-                     {"depth_bias_const", p.depthBiasConst},
-                     {"depth_bias_slope", p.depthBiasSlope},
-                     {"csm_far", p.csmShadowFar},
-                     {"csm_lambda", p.csmLambda}}},
-        {"wet",
-         toml::table{{"rain_intensity", p.rainIntensity},
-                     {"porosity", p.wetPorosity},
-                     {"roughness", p.wetRoughness},
-                     {"streak_len", p.streakLen},
-                     {"puddles_enabled", p.puddlesEnabled},
-                     {"puddle_coverage", p.puddleCoverage},
-                     {"spray_enabled", p.sprayEnabled},
-                     {"spray_density", p.sprayDensity},
-                     {"spray_lifetime", p.sprayLifetime},
-                     {"spray_size", p.spraySize},
-                     {"spray_opacity", p.sprayOpacity}}},
-        {"car",
-         toml::table{{"override", p.carOverride},
-                     {"metalness", p.carMetalness},
-                     {"paint", arr3(p.carPaint)},
-                     {"roughness_mul", p.carRoughnessMul}}},
+         toml::table{{"env_gloss_exp", p.envGlossExp}, {"ibl_diffuse", p.iblDiffuse}, {"ibl_specular", p.iblSpecular}}},
+        {"ssao", toml::table{{"enabled", p.ssaoEnabled},
+                             {"radius", p.ssaoRadius},
+                             {"bias", p.ssaoBias},
+                             {"intensity", p.ssaoIntensity}}},
+        {"ssr", toml::table{{"enabled", p.ssrEnabled},
+                            {"intensity", p.ssrIntensity},
+                            {"max_dist", p.ssrMaxDist},
+                            {"thickness", p.ssrThickness},
+                            {"stride", p.ssrStride}}},
+        {"steering", toml::table{{"axis_edit", p.steerAxisEdit},
+                                 {"euler", arr3(p.steerEuler)},
+                                 {"quat", toml::array{p.steerQuat.x, p.steerQuat.y, p.steerQuat.z, p.steerQuat.w}}}},
+        {"shadow", toml::table{{"bias", p.shadowBias},
+                               {"floor", p.shadowFloor},
+                               {"light_size", p.shadowLightSize},
+                               {"half_extent", p.shadowHalfExtent},
+                               {"depth_range", p.shadowDepthRange},
+                               {"depth_bias_const", p.depthBiasConst},
+                               {"depth_bias_slope", p.depthBiasSlope},
+                               {"csm_far", p.csmShadowFar},
+                               {"csm_lambda", p.csmLambda}}},
+        {"wet", toml::table{{"rain_intensity", p.rainIntensity},
+                            {"porosity", p.wetPorosity},
+                            {"roughness", p.wetRoughness},
+                            {"streak_len", p.streakLen},
+                            {"puddles_enabled", p.puddlesEnabled},
+                            {"puddle_coverage", p.puddleCoverage},
+                            {"spray_enabled", p.sprayEnabled},
+                            {"spray_density", p.sprayDensity},
+                            {"spray_lifetime", p.sprayLifetime},
+                            {"spray_size", p.spraySize},
+                            {"spray_opacity", p.sprayOpacity}}},
+        {"car", toml::table{{"override", p.carOverride},
+                            {"metalness", p.carMetalness},
+                            {"paint", arr3(p.carPaint)},
+                            {"roughness_mul", p.carRoughnessMul}}},
         {"quality", toml::table{{"ssaa_scale", p.ssaaScale},
-                                 {"taa_enabled", p.taaEnabled},
-                                 {"taa_history_blend", p.taaHistoryBlend},
-                                 {"motion_blur_enabled", p.motionBlurEnabled},
-                                 {"motion_blur_scale", p.motionBlurScale}}},
+                                {"taa_enabled", p.taaEnabled},
+                                {"taa_history_blend", p.taaHistoryBlend},
+                                {"motion_blur_enabled", p.motionBlurEnabled},
+                                {"motion_blur_scale", p.motionBlurScale}}},
+        {"dof", toml::table{{"enabled", p.dofEnabled},
+                            {"focus_dist", p.dofFocusDist},
+                            {"focus_range", p.dofFocusRange},
+                            {"max_coc", p.dofMaxCoC}}},
     };
 
     // Per-material overrides → an array of tables ([[materials]]), enabled slots only.
@@ -231,6 +227,7 @@ bool load(DebugParams& p, const std::string& name) {
     }
 
     p.shadowBias       = tbl["shadow"]["bias"].value_or(p.shadowBias);
+    p.shadowLightSize  = tbl["shadow"]["light_size"].value_or(p.shadowLightSize);
     p.shadowFloor      = tbl["shadow"]["floor"].value_or(p.shadowFloor);
     p.shadowHalfExtent = tbl["shadow"]["half_extent"].value_or(p.shadowHalfExtent);
     p.shadowDepthRange = tbl["shadow"]["depth_range"].value_or(p.shadowDepthRange);
@@ -251,8 +248,8 @@ bool load(DebugParams& p, const std::string& name) {
     p.spraySize      = tbl["wet"]["spray_size"].value_or(p.spraySize);
     p.sprayOpacity   = tbl["wet"]["spray_opacity"].value_or(p.sprayOpacity);
 
-    p.carOverride     = tbl["car"]["override"].value_or(p.carOverride);
-    p.carMetalness    = tbl["car"]["metalness"].value_or(p.carMetalness);
+    p.carOverride  = tbl["car"]["override"].value_or(p.carOverride);
+    p.carMetalness = tbl["car"]["metalness"].value_or(p.carMetalness);
     rd3(tbl["car"]["paint"], p.carPaint);
     p.carRoughnessMul = tbl["car"]["roughness_mul"].value_or(p.carRoughnessMul);
 
@@ -261,12 +258,17 @@ bool load(DebugParams& p, const std::string& name) {
     p.taaHistoryBlend   = tbl["quality"]["taa_history_blend"].value_or(p.taaHistoryBlend);
     p.motionBlurEnabled = tbl["quality"]["motion_blur_enabled"].value_or(p.motionBlurEnabled);
     p.motionBlurScale   = tbl["quality"]["motion_blur_scale"].value_or(p.motionBlurScale);
+
+    p.dofEnabled    = tbl["dof"]["enabled"].value_or(p.dofEnabled);
+    p.dofFocusDist  = tbl["dof"]["focus_dist"].value_or(p.dofFocusDist);
+    p.dofFocusRange = tbl["dof"]["focus_range"].value_or(p.dofFocusRange);
+    p.dofMaxCoC     = tbl["dof"]["max_coc"].value_or(p.dofMaxCoC);
     return true;
 }
 
 std::vector<std::string> list_presets() {
     std::vector<std::string> names;
-    std::error_code ec;
+    std::error_code          ec;
     for (const auto& e : fs::directory_iterator(presets_dir(), ec)) {
         if (ec)
             break;

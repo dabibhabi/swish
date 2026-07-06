@@ -98,8 +98,8 @@ private:
     std::array<GpuBuffer, MAX_FRAMES_IN_FLIGHT> m_simUBOs{};
 
     // ── Compute ─────────────────────────────────────────────────────────
-    VkDescriptorPool                                  m_computePool       = VK_NULL_HANDLE;
-    VkDescriptorSetLayout                             m_computeSetLayout  = VK_NULL_HANDLE;
+    VkDescriptorPool                                  m_computePool      = VK_NULL_HANDLE;
+    VkDescriptorSetLayout                             m_computeSetLayout = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_computeSets{};
     VkPipelineLayout                                  m_computePipeLayout = VK_NULL_HANDLE;
     VkPipeline                                        m_computePipeline   = VK_NULL_HANDLE;

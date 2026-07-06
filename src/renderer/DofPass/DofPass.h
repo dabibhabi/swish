@@ -1,13 +1,13 @@
 #pragma once
 
-// TaaPass — temporal anti-aliasing resolve + per-pixel motion blur (debug-only).
+// DofPass — depth-of-field post-process resolve (debug-only).
 //
-// A self-contained pass (like IBLManager / SpraySystem) that is instantiated ONLY
-// under SWISH_DEBUG_UI, so a release build never compiles it into the pipeline and
-// stays on SSAA (byte-identical). It reprojects the previous frame via depth,
-// neighborhood-clamps + blends the history, and copies the resolved result back
-// INTO the HDR image — so the existing bloom/composite chain is untouched. Pair it
-// with per-frame sub-pixel camera jitter (Camera::set_jitter) for supersampled TAA.
+// A self-contained pass (like TaaPass) instantiated ONLY under SWISH_DEBUG_UI, so a
+// release build never compiles it into the pipeline and stays byte-identical. It reads
+// the lit+forward HDR image + scene depth, computes a per-pixel circle-of-confusion from
+// the reverse-Z view-space distance, gathers a disk blur, and copies the resolved result
+// back INTO the HDR image — so the existing bloom/composite chain is untouched. Simpler
+// than TAA: no history ping-pong, no motion vectors, a single full-screen resolve.
 
 #ifdef SWISH_DEBUG_UI
 
@@ -23,29 +23,28 @@ namespace swish {
 
 struct RendererServices;
 
-// Live-tunable TAA knobs (mirrors the DebugParams TAA block).
-struct TaaParams {
-    bool  enabled         = false;  // off by default → identical to today until toggled
-    float historyBlend    = 0.9f;   // weight of reprojected history [0,1]
-    bool  motionBlur      = false;
-    float motionBlurScale = 1.0f;  // velocity smear strength
+// Live-tunable DOF knobs (mirrors the DebugParams DOF block).
+struct DofParams {
+    bool  enabled    = false;      // off by default → identical to today until toggled
+    float focusDist  = 40000.0f;   // in-focus distance (WU)
+    float focusRange = 120000.0f;  // distance over which CoC ramps to max (WU)
+    float maxCoC     = 6.0f;       // max circle-of-confusion radius (texels)
 };
 
-class TaaPass {
+class DofPass {
 public:
-    TaaPass()  = default;
-    ~TaaPass() = default;
+    DofPass()  = default;
+    ~DofPass() = default;
 
     void init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
               const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent);
 
-    // Resolve this frame: read HDR (`hdrImage`/its view) + depth + history, write the
-    // resolved output, copy it back into `hdrImage`. Leaves HDR in COLOR_ATTACHMENT
-    // (as the forward passes did) so the downstream barrier/bloom logic is unchanged.
-    // prevViewProj = last frame's UN-jittered world→clip; curInvViewProj = this frame's
-    // clip→world (jittered, matching the depth). Records its own barriers + render pass.
-    void record(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, const TaaParams& params,
-                const Mat4& prevViewProj, const Mat4& curInvViewProj);
+    // Resolve this frame: read HDR (`hdrImage`/its view) + depth, write the blurred output,
+    // copy it back into `hdrImage`. Leaves HDR in COLOR_ATTACHMENT (as the god-rays pass did)
+    // so the downstream barrier/bloom logic is unchanged. `invProj` is clip→view (matches the
+    // scene depth); records its own barriers + render pass.
+    void record(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, const DofParams& params,
+                const Mat4& invProj);
 
     void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                   const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
@@ -53,11 +52,11 @@ public:
     void cleanup(VkDevice device);
 
 private:
-    // Push block (matches taa.frag).
+    // Push block (matches dof.frag). 64 + 16 + 16 = 96 B (16-byte aligned).
     struct Push {
-        Mat4 prevViewProj;
-        Mat4 invViewProj;
-        Vec4 params;  // x = historyBlend, y = motionBlurScale, zw = texel size
+        Mat4 invProj;
+        Vec4 focus;  // x = focusDist, y = focusRange, z = maxCoC, w = pad
+        Vec4 texel;  // xy = texel size (1/extent), zw = pad
     };
 
     void createImages(const RendererServices& s);
@@ -69,14 +68,13 @@ private:
     void writeDescriptors(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                           const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews);
     void createPipeline(VkDevice device);
-    void primeHistory(const RendererServices& s);
 
     VmaAllocator  m_allocator     = nullptr;
     VkDevice      m_device        = VK_NULL_HANDLE;
     VkCommandPool m_commandPool   = VK_NULL_HANDLE;
     VkQueue       m_graphicsQueue = VK_NULL_HANDLE;
 
-    // Ping-pong history/output (read taa[1-frame], write taa[frame]).
+    // One scratch output per frame-in-flight (render target → copy source).
     std::array<GpuImage, MAX_FRAMES_IN_FLIGHT>      m_images{};
     std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>   m_views{};
     std::array<VkFramebuffer, MAX_FRAMES_IN_FLIGHT> m_framebuffers{};

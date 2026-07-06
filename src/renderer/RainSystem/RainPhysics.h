@@ -20,7 +20,7 @@ inline float marshall_palmer_lambda(float R) {
 //   CDF(D) = 1 − exp(−Λ·D)  ⇒  D = −ln(u)/Λ.
 // Clamped to a physical range so degenerate u values can't blow up.
 inline float sample_drop_diameter(float u, float R) {
-    u = std::clamp(u, 1.0e-3f, 0.999f);
+    u             = std::clamp(u, 1.0e-3f, 0.999f);
     const float D = -std::log(u) / marshall_palmer_lambda(R);
     return std::clamp(D, 0.1f, 6.0f);
 }

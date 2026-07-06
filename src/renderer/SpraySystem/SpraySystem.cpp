@@ -6,21 +6,20 @@
 #include "../Renderer/RendererServices.h"
 #include "../ResourceManager/ResourceManager.h"
 
-#include <glm/glm.hpp>
-
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <glm/glm.hpp>
 
 namespace swish {
 
 // ── Spray tuning constants (WU; 1 m = 1000 WU) ─────────────────────────
-static constexpr float kSprayRefSpeed = 20000.0f;  // speed (WU/s ≈ 45 mph) at which spray reaches full
-static constexpr float kSprayGravity  = -9810.0f;  // gravity (WU/s²) — real 9.81 m/s²
-static constexpr float kSprayDrag     = 0.85f;     // air drag (1/s) — lower so the mist lofts + thins
-static constexpr float kSprayUpSpeed  = 4500.0f;   // launch up speed (WU/s) — taller plume
-static constexpr float kSprayBackSpeed = 3000.0f;  // backward kick relative to travel (WU/s)
-static constexpr float kSpraySpread   = 1200.0f;   // lateral spread at the wheels (WU ≈ 1.2 m)
+static constexpr float kSprayRefSpeed  = 20000.0f;  // speed (WU/s ≈ 45 mph) at which spray reaches full
+static constexpr float kSprayGravity   = -9810.0f;  // gravity (WU/s²) — real 9.81 m/s²
+static constexpr float kSprayDrag      = 0.85f;     // air drag (1/s) — lower so the mist lofts + thins
+static constexpr float kSprayUpSpeed   = 4500.0f;   // launch up speed (WU/s) — taller plume
+static constexpr float kSprayBackSpeed = 3000.0f;   // backward kick relative to travel (WU/s)
+static constexpr float kSpraySpread    = 1200.0f;   // lateral spread at the wheels (WU ≈ 1.2 m)
 
 void SpraySystem::init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                        const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
@@ -176,8 +175,8 @@ void SpraySystem::cleanup(VkDevice device) {
 
 void SpraySystem::createParticleBuffer(const RendererServices& s) {
     const VkDeviceSize size = sizeof(SprayParticle) * kSprayMaxParticles;
-    m_particleBuffer =
-        gpu::deviceLocalBuffer(s.allocator, size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    m_particleBuffer        = gpu::deviceLocalBuffer(s.allocator, size,
+                                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     // Zero the buffer once so every particle starts dead (life = 0). One-time submit
     // (mirrors SceneGeometry's staging pattern); the compute pass takes over after.
@@ -277,8 +276,8 @@ void SpraySystem::createComputeDescriptors(VkDevice device) {
 
 void SpraySystem::createComputePipeline(VkDevice device) {
     m_computePipeLayout = Pipeline::createLayout(device, {m_computeSetLayout});
-    m_computePipeline   = Pipeline::createCompute(device, std::string(SHADER_DIR) + "spray_sim.comp.spv",
-                                                  m_computePipeLayout);
+    m_computePipeline =
+        Pipeline::createCompute(device, std::string(SHADER_DIR) + "spray_sim.comp.spv", m_computePipeLayout);
 }
 
 void SpraySystem::createRenderPass(VkDevice device) {
@@ -408,9 +407,9 @@ void SpraySystem::createDrawDescriptors(VkDevice device) {
 void SpraySystem::createDrawPipeline(VkDevice device, VkDescriptorSetLayout cameraSetLayout) {
     // set 0 = camera (shared), set 1 = particle SSBO (owned); push = opacity (vec4).
     VkPushConstantRange pc{};
-    pc.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    pc.offset     = 0;
-    pc.size       = sizeof(Vec4);
+    pc.stageFlags    = VK_SHADER_STAGE_FRAGMENT_BIT;
+    pc.offset        = 0;
+    pc.size          = sizeof(Vec4);
     m_drawPipeLayout = Pipeline::createLayout(device, {cameraSetLayout, m_drawSetLayout}, {pc});
 
     PipelineConfig cfg{};
@@ -418,7 +417,7 @@ void SpraySystem::createDrawPipeline(VkDevice device, VkDescriptorSetLayout came
     cfg.fragShaderPath   = std::string(SHADER_DIR) + "spray.frag.spv";
     cfg.noVertexInput    = true;  // gl_VertexIndex quad + gl_InstanceIndex SSBO lookup
     cfg.cullMode         = VK_CULL_MODE_NONE;
-    cfg.enableDepthTest  = true;   // scene depth occludes spray behind the car body
+    cfg.enableDepthTest  = true;  // scene depth occludes spray behind the car body
     cfg.enableDepthWrite = false;
     cfg.additiveBlending = true;
     cfg.pipelineLayout   = m_drawPipeLayout;

@@ -105,6 +105,20 @@ struct LightDesc {
     float radius;
 };
 
+// ── Ribbon ────────────────────────────────────────────────────────────
+// A drivable surface swept along a 3D centreline (interchange-local coords).
+// Shared by the geometry builder (emit_ribbon renders it) and the physics
+// follower (the car tracks arc-length along `pts`, taking Y/pitch/heading from
+// the curve). `next`/`branch` are successor ribbon indices at the far end:
+// `next` by default, `branch` when the driver steers toward it; −1 = leave the
+// interchange (resume free driving).
+struct Ribbon {
+    std::vector<Vec3> pts;
+    float             halfWidth = 0.0f;
+    int               next      = -1;
+    int               branch    = -1;
+};
+
 // ── MeshData ──────────────────────────────────────────────────────────
 // Encapsulates vertex and index buffers with controlled access.
 // Vertices and indices are only added through push methods, ensuring
@@ -168,7 +182,16 @@ struct DrawCall {
     // car — the wet-road BRDF (porosity darkening, sky sheen) is tuned for the
     // horizontal road, not car paint or the enclosed cabin; applying it there
     // washed the interior out. Road/world geometry leaves this false (wettable).
-    bool       dry = false;
+    bool dry = false;
+    // ── Per-draw bounding sphere (object space), for culling ──────────────
+    // Filled by MeshBuilder::pushDrawCall from the draw's index range. A negative
+    // radius is the "unbounded — never cull" sentinel: dynamic draws that skip
+    // MeshBuilder (the car, loaded models) keep the default and always render.
+    // The full-length road surface quads get a huge radius, so they too are never
+    // culled — only the thousands of small props are. Center is transformed by
+    // `model` at cull time; the sphere is conservative (encloses all 4 verts).
+    Vec3  boundsCenter = Vec3(0.0f);
+    float boundsRadius = -1.0f;
 };
 
 // Matches the push constant block in basic.vert + gbuffer.frag.
@@ -185,7 +208,6 @@ struct PushConstantData {
 
 // Passes that don't consume `material` (glass / windshield) size their push
 // range + push to just the model+color prefix (still 16-aligned at 80 B).
-inline constexpr uint32_t kPushConstantModelColorSize =
-    static_cast<uint32_t>(sizeof(Mat4) + sizeof(Vec4));
+inline constexpr uint32_t kPushConstantModelColorSize = static_cast<uint32_t>(sizeof(Mat4) + sizeof(Vec4));
 
 }  // namespace swish

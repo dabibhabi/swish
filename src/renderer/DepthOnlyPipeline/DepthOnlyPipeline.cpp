@@ -106,8 +106,8 @@ void DepthOnlyPipeline::init(VkDevice device, const Config& cfg) {
     // ── Dynamic viewport + scissor + depth bias (no pipeline recreation). ──
     // Depth bias is dynamic so the debug UI can tune constant/slope factors live
     // (vkCmdSetDepthBias per shadow pass); the static factors below are ignored.
-    std::array<VkDynamicState, 3> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,
-                                                   VK_DYNAMIC_STATE_DEPTH_BIAS};
+    std::array<VkDynamicState, 3>    dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,
+                                                      VK_DYNAMIC_STATE_DEPTH_BIAS};
     VkPipelineDynamicStateCreateInfo dynamicState{};
     dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());

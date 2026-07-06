@@ -98,6 +98,7 @@ layout(set = 4, binding = 0) uniform SceneParamsUBO {
 #define SP_ENV_GLOSS_EXP        sp.fogParams.z
 #define SP_SHADOW_BIAS          sp.shadowParams.x
 #define SP_SHADOW_FLOOR         sp.shadowParams.y
+#define SP_SHADOW_LIGHT_SIZE    sp.shadowParams.z
 #define SP_WET_POROSITY         sp.wetParams.x
 #define SP_WET_ROUGHNESS        sp.wetParams.y
 #define SP_PUDDLE_COVERAGE      sp.wetParams.z
@@ -110,26 +111,27 @@ layout(set = 4, binding = 0) uniform SceneParamsUBO {
 #else
 // Release literals — identical to the previously-hardcoded values.
 #define SP_SKY_HORIZON_OVERCAST vec3(0.86, 0.87, 0.89)
-#define SP_SKY_HORIZON_CLEAR    vec3(0.85, 1.00, 1.25)
+#define SP_SKY_HORIZON_CLEAR    vec3(0.85, 1.0, 1.25)   // lie preset (was 0.55,0.82,1.30)
 #define SP_SKY_ZENITH_OVERCAST  vec3(0.76, 0.79, 0.83)
-#define SP_SKY_ZENITH_CLEAR     vec3(0.50, 0.80, 1.35)
+#define SP_SKY_ZENITH_CLEAR     vec3(0.5, 0.8, 1.35)    // lie preset (was 0.28,0.52,1.50)
 #define SP_SUN_DISC_EXP_MIN     32.0
 #define SP_SUN_DISC_EXP_MAX     220.0
-#define SP_SUN_DISC_STR_MIN     0.3
+#define SP_SUN_DISC_STR_MIN     0.242  // lie preset (was 0.3)
 #define SP_SUN_DISC_STR_MAX     0.9
 // Depth-resolved rain fog (R-P1-1). fog colour = cool overcast airlight; dist63
 // = distance (WU; 1 m = 1000 WU) at which fog reaches ~63% at full wetness. Large
 // enough that the near cabin (~1000 WU away) is essentially fog-free.
 #define SP_FOG_COLOR            vec3(0.52, 0.57, 0.63)
 #define SP_FOG_DIST63           1200000.0  // ~1.2 km to 63% at full rain
-#define SP_FOG_MAX              0.65        // cap: distant geometry keeps ≥35% of its colour
+#define SP_FOG_MAX              0.0         // lie preset: distance rain-fog OFF (was 0.65)
 #define SP_ENV_GLOSS_EXP        3.0
-#define SP_SHADOW_BIAS          0.0018
-#define SP_SHADOW_FLOOR         0.25
-#define SP_WET_POROSITY         0.35
-#define SP_WET_ROUGHNESS        0.12
-#define SP_PUDDLE_COVERAGE      0.0  // release ships dry (no puddles) → byte-identical
-#define SP_IBL_DIFFUSE          1.0
+#define SP_SHADOW_BIAS          0.0    // lie preset (was 0.0018)
+#define SP_SHADOW_FLOOR         1.0    // lie preset: no shadow darkening (was 0.25)
+#define SP_SHADOW_LIGHT_SIZE    0.0
+#define SP_WET_POROSITY         0.631  // lie preset (was 0.35)
+#define SP_WET_ROUGHNESS        1.0    // lie preset (was 0.12)
+#define SP_PUDDLE_COVERAGE      0.501  // lie preset (was 0.0 = dry)
+#define SP_IBL_DIFFUSE          1.832  // lie preset (was 1.0)
 #define SP_IBL_SPECULAR         1.0
 // Always-on aerial perspective (distance haze) — not wet-gated, so a dry day still
 // reads with depth to the horizon. dist63 ≈ 900 m to 63%; max 0.5 = distant geometry
@@ -137,6 +139,17 @@ layout(set = 4, binding = 0) uniform SceneParamsUBO {
 #define SP_HAZE_DIST            900000.0
 #define SP_HAZE_MAX             0.5
 #endif
+
+// Poisson-disk kernel for PCSS blocker search + variable-radius PCF (debug only).
+const vec2 POISSON16[16] = vec2[](
+    vec2(-0.94201624, -0.39906216), vec2( 0.94558609, -0.76890725),
+    vec2(-0.09418410, -0.92938870), vec2( 0.34495938,  0.29387760),
+    vec2(-0.91588581,  0.45771432), vec2(-0.81544232, -0.87912464),
+    vec2(-0.38277543,  0.27676845), vec2( 0.97484398,  0.75648379),
+    vec2( 0.44323325, -0.97511554), vec2( 0.53742981, -0.47373420),
+    vec2(-0.26496911, -0.41893023), vec2( 0.79197514,  0.19090188),
+    vec2(-0.24188840,  0.99706507), vec2(-0.81409955,  0.91437590),
+    vec2( 0.19984126,  0.78641367), vec2( 0.14383161, -0.14100790));
 
 // ── Reconstruct world position from depth (rind pattern) ──────────
 // `depth` is the raw Vulkan depth-buffer value in [0,1]. pc.invProj is the
@@ -302,9 +315,42 @@ void main() {
     float vis = 0.0;
     vec2  tx  = 1.0 / vec2(textureSize(shadowMap, 0));
     float kShadowBias = SP_SHADOW_BIAS;  // depth-compare bias (tunable; complements raster depth-bias)
-    // Keep 3×3 PCF taps inside this cascade's slice so they can't sample a neighbour.
+    // Keep PCF taps inside this cascade's slice so they can't sample a neighbour.
     float uMin = float(cascade) * invN + tx.x;
     float uMax = float(cascade + 1) * invN - tx.x;
+#ifdef SWISH_DEBUG_UI
+    // ── PCSS: contact-hardening soft shadows (debug-tunable via SP_SHADOW_LIGHT_SIZE) ──
+    // (1) Blocker search — average the depth of taps closer to the sun than us.
+    float searchR    = SP_SHADOW_LIGHT_SIZE * tx.x * 4.0;  // atlas-UV search radius
+    float blockerSum = 0.0;
+    int   blockerCnt = 0;
+    for (int i = 0; i < 16; ++i) {
+        vec2 suv = atlasUV + POISSON16[i] * searchR;
+        suv.x    = clamp(suv.x, uMin, uMax);
+        float occ = texture(shadowMap, suv).r;
+        if (occ < sc.z - kShadowBias) {  // occluder nearer the sun → blocker
+            blockerSum += occ;
+            blockerCnt++;
+        }
+    }
+    if (blockerCnt == 0 || SP_SHADOW_LIGHT_SIZE <= 0.0) {
+        vis = 1.0;  // nothing blocks (or hard mode) → fully lit
+    } else {
+        // (2) Penumbra estimate (similar triangles): bigger blocker→receiver gap = softer.
+        float avgBlocker = blockerSum / float(blockerCnt);
+        float penumbra   = (sc.z - avgBlocker) / avgBlocker * SP_SHADOW_LIGHT_SIZE;
+        float radius     = max(penumbra * tx.x, tx.x);  // never below 1 texel
+        // (3) Variable-radius PCF over the Poisson disk.
+        for (int i = 0; i < 16; ++i) {
+            vec2 suv = atlasUV + POISSON16[i] * radius;
+            suv.x    = clamp(suv.x, uMin, uMax);
+            float occ = texture(shadowMap, suv).r;
+            vis += (sc.z - kShadowBias <= occ) ? 1.0 : 0.0;
+        }
+        vis /= 16.0;
+    }
+#else
+    // Release path: fixed 3×3 PCF (byte-identical to before).
     for (int y = -1; y <= 1; ++y)
         for (int x = -1; x <= 1; ++x) {
             vec2 suv = atlasUV + vec2(x, y) * tx;
@@ -313,6 +359,7 @@ void main() {
             vis += (sc.z - kShadowBias <= occluder) ? 1.0 : 0.0;
         }
     vis /= 9.0;
+#endif
     if (sc.z > 1.0 || any(lessThan(sc.xy, vec2(0.0))) || any(greaterThan(sc.xy, vec2(1.0))))
         vis = 1.0;  // outside this cascade's frustum = lit
     // Shadow floor 0.25: ambient still lights shadowed areas, so shadows read as

@@ -54,9 +54,9 @@ inline float longitudinal_accel(float v, float throttle, float brake, const CarP
 // axle, so the front lever a > rear lever b). Equal cornering stiffness with
 // a>b yields a positive understeer gradient → stable (won't spin blindly).
 struct TireParams {
-    float a           = 1.49f;      // CG → front axle (m); a + b ≈ wheelbase
-    float b           = 0.96f;      // CG → rear axle (m)
-    float iz          = 2600.0f;    // yaw moment of inertia (kg·m²)
+    float a  = 1.49f;    // CG → front axle (m); a + b ≈ wheelbase
+    float b  = 0.96f;    // CG → rear axle (m)
+    float iz = 2600.0f;  // yaw moment of inertia (kg·m²)
     // Understeer (stable at ALL speeds, no critical speed) needs
     // Cα_rear/Cα_front > W_rear/W_front = a/b ≈ 1.55. A stiffer rear delivers that.
     float cAlphaFront = 80000.0f;   // N/rad
@@ -84,8 +84,8 @@ inline float max_yaw_rate(float vx, const CarParams& p) {
 // so the car can understeer / slide and lateral accel is capped at ~μg — the
 // grip limit the pure kinematic model lacked. Caller blends to kinematic below
 // ~5 m/s to avoid the 1/vx singularity.
-inline BicycleDeriv dynamic_bicycle_deriv(float vx, float vl, float r, float delta,
-                                          const CarParams& p, const TireParams& t) {
+inline BicycleDeriv dynamic_bicycle_deriv(float vx, float vl, float r, float delta, const CarParams& p,
+                                          const TireParams& t) {
     const float vxs = std::max(std::fabs(vx), 1.0f);
     const float L   = t.a + t.b;
 

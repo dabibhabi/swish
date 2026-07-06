@@ -191,8 +191,9 @@ public:
     VkExtent2D get_godrays_extent() const { return m_godraysExtent; }
 
     // Internal supersampling factor. ~kRenderScale² the pixels/VRAM
-    // (1.5² = 2.25×). Tunable; clamped per-device to maxImageDimension2D.
-    static constexpr float kRenderScale = 1.5f;
+    // (2.0² = 4×). Tunable; clamped per-device to maxImageDimension2D.
+    // lie preset (was 1.5) — heavier SSAA; drop back to 1.5 if GPU-bound.
+    static constexpr float kRenderScale = 2.0f;
 
     // Live SSAA scale (debug UI). Takes effect on the next recreate() — the
     // Renderer sets this then rebuilds the offscreen chain. Defaults to the

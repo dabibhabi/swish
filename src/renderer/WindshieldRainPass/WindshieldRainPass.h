@@ -113,12 +113,12 @@ private:
     // Persistent wetness map (ping-pong: [0] = history/read, [1] = current/write).
     std::array<GpuImage, 2>    m_wetImages{};  // RAII (VMA)
     std::array<VkImageView, 2> m_wetViews{};
-    VkFramebuffer                 m_wetFramebuffer = VK_NULL_HANDLE;  // targets m_wetImages[1]
-    VkRenderPass                  m_wetRenderPass  = VK_NULL_HANDLE;
-    VkPipeline                    m_wetPipeline    = VK_NULL_HANDLE;
-    VkPipelineLayout              m_wetPipeLayout  = VK_NULL_HANDLE;
-    VkDescriptorSetLayout         m_wetSetLayout   = VK_NULL_HANDLE;
-    VkDescriptorSet               m_wetDescSet     = VK_NULL_HANDLE;  // reads m_wetImages[0]
+    VkFramebuffer              m_wetFramebuffer = VK_NULL_HANDLE;  // targets m_wetImages[1]
+    VkRenderPass               m_wetRenderPass  = VK_NULL_HANDLE;
+    VkPipeline                 m_wetPipeline    = VK_NULL_HANDLE;
+    VkPipelineLayout           m_wetPipeLayout  = VK_NULL_HANDLE;
+    VkDescriptorSetLayout      m_wetSetLayout   = VK_NULL_HANDLE;
+    VkDescriptorSet            m_wetDescSet     = VK_NULL_HANDLE;  // reads m_wetImages[0]
 
     VkDescriptorPool                                  m_descPool  = VK_NULL_HANDLE;
     VkDescriptorSetLayout                             m_ownLayout = VK_NULL_HANDLE;

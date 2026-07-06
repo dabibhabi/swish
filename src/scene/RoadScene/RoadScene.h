@@ -29,6 +29,16 @@ public:
 
     void addSlopedQuad(float leftX, float rightX, float yLeft, float yRight, float zStart, float zEnd,
                        const Vec3& normal, const Vec4& color, MaterialId material = MAT_DEFAULT, float tileSize = 0.0f);
+
+    // Ribbon primitive: a drivable surface swept along a 3D centreline. Walks the
+    // polyline, offsets each station ±halfWidth along the horizontal lateral
+    // normal, and emits an up-facing triangle strip (one quad = one draw call, so
+    // it culls like everything else) with UVs tiled by arc length. This is the
+    // building block for curved ramps / connectors (Layer 3) and graded interchange
+    // ramps (Layer 4); a straight centreline reproduces a flat lane. `up`-based
+    // lateral means it stays horizontal even where the centreline climbs.
+    void emit_ribbon(const std::vector<Vec3>& centerline, float halfWidth, const Vec4& color,
+                     MaterialId material = MAT_DEFAULT, float tileSize = 0.0f);
 };
 
 // ══════════════════════════════════════════════════════════════════════
@@ -51,6 +61,27 @@ public:
     explicit RoadScene(const RoadConfig& cfg);
 
     SceneData generate() const;
+
+    // Build ONE canonical, tileable chunk of the uniform LIE cross-section in
+    // chunk-local coords [0, -chunkLen] — grass, both carriageways, median,
+    // shoulders, markings, guardrail, sound walls, lamp posts. Repeated at
+    // chunkLen intervals by the ChunkManager to make the road endless past the
+    // authored intro. Excludes the intro-only, whole-road-anchored features
+    // (signs, exit ramp, overpass). Non-const: it briefly snaps the dashed-line
+    // cycle to an exact divisor of chunkLen (then restores it) so lane markings
+    // tile without a phase jump at seams. `chunkLen` MUST be a multiple of every
+    // surface tile size (asphalt/grass/concrete/metal) for seamless UVs.
+    SceneData generate_chunk(float chunkLen);
+
+    // Build ONE elevated diamond interchange as a standalone mesh (local coords,
+    // deck centred at z=0), for the endless region to instance at a sparse cadence.
+    SceneData generate_interchange_scene() const;
+
+    // The interchange's DRIVABLE ribbons (local coords, deck at z=0) — the same
+    // centrelines the geometry is built from, exposed so the physics can follow
+    // them (car Y/pitch/heading from the graded curve). Index 0 = EB on-ramp,
+    // 1 = deck, 2 = WB off-ramp, 3 = service-road off-ramp. See Ribbon::next/branch.
+    std::vector<Ribbon> interchange_ribbons() const;
 
     // ── Road dimensions (getters + setters) ───────────────────────
     float get_road_length() const;
@@ -227,6 +258,35 @@ private:
     void generate_hov_diamonds(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
     void generate_sign_posts(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
     void generate_overpass(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+    // Continuous 2-lane frontage ("service") roads flanking the mainline on BOTH
+    // sides, out beyond the sound barriers in the grass. Full-length spans (asphalt
+    // + double-yellow center + white edges), lifted a few WU above the grass to
+    // avoid coplanar reverse-Z z-fighting. Used by generate_chunk (endless region);
+    // the authored intro keeps its one-off exit-ramp marginal road.
+    void generate_service_roads(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
+
+    // Flat EB↔WB median crossover (Layer 3): a curved connector ribbon spanning the
+    // median between the innermost lanes, centred at chunk-local z=zCenter with a
+    // ±halfLen footprint. Pairs with a matching gap in the jersey barrier so the car
+    // can (guided) cross to the opposite carriageway. Built with emit_ribbon.
+    void generate_crossover(MeshBuilder& builder, const RoadLayout& layout, float zCenter, float halfLen) const;
+
+    // Elevated diamond interchange (Layer 4): an over-the-mainline cross-street deck
+    // (16.5 ft clearance) on piers, plus four graded on/off ramps built with
+    // emit_ribbon that climb from the mainline (y≈0) up to deck level. Built in
+    // local coords centred at zCenter; instanced at a sparse cadence in the endless
+    // region. Geometry only for now — the ramps aren't drivable yet (needs the car
+    // to track a ribbon with grade-driven Y/pitch).
+    void generate_interchange(MeshBuilder& builder, const RoadLayout& layout, float zCenter) const;
+
+    // Shared interchange dimensions (local coords, deck at z=0) so the ribbon
+    // definition and the geometry builder agree.
+    struct IxDims {
+        float clearance, deck_depth, deck_top, deck_half, eb_edge, wb_edge, span_right, span_left, rampLen, rw,
+            eb_service_x;
+    };
+    IxDims ix_dims() const;
+
     void generate_sound_barriers(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
     void generate_exit_ramp(MeshBuilder& builder, const RoadLayout& layout, float z_near, float z_far) const;
     void generate_street_lamps(MeshBuilder& builder, const RoadLayout& layout, std::vector<LightDesc>& lights,

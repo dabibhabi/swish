@@ -1,5 +1,6 @@
 #include "RoadScene.h"
 
+#include <algorithm>
 #include <limits>
 
 namespace swish {
@@ -15,6 +16,24 @@ void MeshBuilder::pushDrawCall(uint32_t indexOffset, const Vec4& color, Material
     dc.color       = color;
     dc.model       = Mat4(1.0f);
     dc.material    = material;
+
+    // Bounding sphere over this draw's index range, for per-draw culling. Every
+    // builder pushes exactly one quad (6 indices) just before this call, so the
+    // AABB of those referenced verts encloses the primitive; the sphere is its
+    // half-diagonal. Full-length surface quads get a huge radius (never culled);
+    // small props get tight spheres. See DrawCall / SceneGeometry cull.
+    const std::vector<uint32_t>& idx = m_mesh.getIndices();
+    const std::vector<Vertex>&   vtx = m_mesh.getVertices();
+    Vec3                         mn(std::numeric_limits<float>::max());
+    Vec3                         mx(-std::numeric_limits<float>::max());
+    for (uint32_t i = indexOffset; i < indexOffset + dc.indexCount && i < idx.size(); ++i) {
+        const Vec3& p = vtx[idx[i]].position;
+        mn            = glm::min(mn, p);
+        mx            = glm::max(mx, p);
+    }
+    dc.boundsCenter = 0.5f * (mn + mx);
+    dc.boundsRadius = 0.5f * glm::length(mx - mn);
+
     m_draws.push_back(dc);
 }
 
@@ -134,6 +153,58 @@ void MeshBuilder::addSlopedQuad(float leftX, float rightX, float yLeft, float yR
     m_mesh.addIndex(base + 3);
 
     pushDrawCall(indexOffset, color, material);
+}
+
+void MeshBuilder::emit_ribbon(const std::vector<Vec3>& centerline, float halfWidth, const Vec4& color,
+                              MaterialId material, float tileSize) {
+    const size_t n = centerline.size();
+    if (n < 2)
+        return;
+
+    const Vec3         up(0.0f, 1.0f, 0.0f);
+    std::vector<Vec3>  L(n), R(n);    // left / right edge points
+    std::vector<float> arc(n, 0.0f);  // cumulative arc length (for V tiling)
+
+    for (size_t i = 0; i < n; ++i) {
+        Vec3 tangent = (i == 0)       ? centerline[1] - centerline[0]
+                       : (i == n - 1) ? centerline[n - 1] - centerline[n - 2]
+                                      : centerline[i + 1] - centerline[i - 1];
+        tangent.y    = 0.0f;  // keep the lateral offset horizontal even on a graded centreline
+        if (glm::length(tangent) < 1e-4f)
+            tangent = Vec3(0.0f, 0.0f, -1.0f);
+        tangent    = glm::normalize(tangent);
+        Vec3 right = glm::normalize(glm::cross(tangent, up));  // +X-ish for −Z travel
+        L[i]       = centerline[i] - right * halfWidth;
+        R[i]       = centerline[i] + right * halfWidth;
+        if (i > 0)
+            arc[i] = arc[i - 1] + glm::length(centerline[i] - centerline[i - 1]);
+    }
+
+    const float uR = (tileSize > 0.0f) ? (2.0f * halfWidth / tileSize) : 1.0f;
+
+    for (size_t i = 0; i + 1 < n; ++i) {
+        float    v0  = (tileSize > 0.0f) ? arc[i] / tileSize : 0.0f;
+        float    v1  = (tileSize > 0.0f) ? arc[i + 1] / tileSize : 1.0f;
+        Vec3     seg = glm::normalize(centerline[i + 1] - centerline[i] + Vec3(0.0f, 0.0f, -1e-6f));
+        Vec4     vtan(seg.x, seg.y, seg.z, 1.0f);
+        uint32_t base = m_mesh.getVertexCount();
+        uint32_t idx  = m_mesh.getIndexCount();
+
+        m_mesh.addVertex({L[i], up, Vec2(0.0f, v0), vtan});
+        m_mesh.addVertex({R[i], up, Vec2(uR, v0), vtan});
+        m_mesh.addVertex({L[i + 1], up, Vec2(0.0f, v1), vtan});
+        m_mesh.addVertex({R[i + 1], up, Vec2(uR, v1), vtan});
+
+        // Up-facing: stations run near→far (+Z→−Z), the reverse of addHorizontalQuad's
+        // vertex order, so the winding is flipped relative to it to keep the normal up.
+        m_mesh.addIndex(base + 0);
+        m_mesh.addIndex(base + 1);
+        m_mesh.addIndex(base + 2);
+        m_mesh.addIndex(base + 1);
+        m_mesh.addIndex(base + 3);
+        m_mesh.addIndex(base + 2);
+        pushDrawCall(idx, color, material);
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -489,14 +560,40 @@ void RoadScene::generate_guardrail(MeshBuilder& builder, const RoadLayout& layou
     Vec4  fence_tint = {0.55f, 0.58f, 0.55f, 1.0f};
     builder.addVerticalFace(rail_x, fence_h, z_far, z_near, kLeft, fence_tint, MAT_METAL, m_metal_tile);
 
-    // ── WB guardrail (standard metal W-beam) ──────────────────────
+    // ── WB guardrail: galvanized W-beam (evenly-spaced posts + corrugated rail) ──
+    // The rail sits on the outer (−X) edge of the WB roadway, so its road-facing
+    // plane is +X (toward WB traffic and toward the EB camera across the median).
     float wb_rail_x = layout.wb_inner - m_shoulder_width_wb - m_rail_width;
+    float rail_x0   = wb_rail_x + m_rail_width;  // road-facing plane (+X)
 
-    builder.addHorizontalQuad(wb_rail_x, wb_rail_x + m_rail_width, m_rail_height, z_far, z_near, kUp, m_rail_tint,
-                              MAT_METAL, m_metal_tile);
-    builder.addVerticalFace(wb_rail_x, m_rail_height, z_far, z_near, kLeft, m_rail_tint, MAT_METAL, m_metal_tile);
-    builder.addVerticalFace(wb_rail_x + m_rail_width, m_rail_height, z_far, z_near, kRight, m_rail_tint, MAT_METAL,
-                            m_metal_tile);
+    Vec4 post_tint = {0.42f, 0.44f, 0.46f, 1.0f};  // darker weathered steel post
+
+    // Corrugated "W" beam: a ~12in-tall band with two ridges bulging toward the
+    // road, built as four X-Y facets extruded the full length. Each facet carries
+    // its own normal (the `kFt` scale cancels, so the unit normals are literals:
+    // normalize(0.25, ±0.22) = (0.751, ∓0.661)) so the corrugation reads under light.
+    float beam_top = m_rail_height;
+    float beam_h   = 1.0f * kFt;  // 12in beam
+    float beam_bot = beam_top - beam_h;
+    float d        = 0.22f * kFt;  // ridge depth toward road
+    float y0 = beam_bot, y1 = beam_bot + 0.25f * beam_h, y2 = beam_bot + 0.50f * beam_h, y3 = beam_bot + 0.75f * beam_h,
+          y4  = beam_top;
+    Vec3 nOut = {0.751f, -0.661f, 0.0f};  // out+up facet → faces road, tilted down
+    Vec3 nIn  = {0.751f, 0.661f, 0.0f};   // in+up facet  → faces road, tilted up
+    builder.addSlopedQuad(rail_x0, rail_x0 + d, y0, y1, z_far, z_near, nOut, m_rail_tint, MAT_METAL, m_metal_tile);
+    builder.addSlopedQuad(rail_x0 + d, rail_x0, y1, y2, z_far, z_near, nIn, m_rail_tint, MAT_METAL, m_metal_tile);
+    builder.addSlopedQuad(rail_x0, rail_x0 + d, y2, y3, z_far, z_near, nOut, m_rail_tint, MAT_METAL, m_metal_tile);
+    builder.addSlopedQuad(rail_x0 + d, rail_x0, y3, y4, z_far, z_near, nIn, m_rail_tint, MAT_METAL, m_metal_tile);
+
+    // Evenly-spaced posts behind the beam (ground → beam top). Spacing is wider
+    // than the real 6.25ft so the ~4.2km run stays draw-call-bounded (no
+    // instancing/culling here); at highway distance the cadence still reads right.
+    float post_spacing = 12.5f * kFt;
+    float post_zw      = 0.18f * kFt;            // ~4in post seen edge-on
+    float post_x       = rail_x0 - 0.06f * kFt;  // a hair behind the beam plane (no z-fight)
+    for (float z = z_far; z <= z_near; z += post_spacing) {
+        builder.addVerticalFace(post_x, beam_top, z - post_zw, z + post_zw, kRight, post_tint, MAT_METAL, m_metal_tile);
+    }
 }
 
 void RoadScene::generate_solid_markings(MeshBuilder& builder, const RoadLayout& layout, float z_near,
@@ -610,6 +707,74 @@ RoadScene::SceneData RoadScene::generate() const {
     generate_exit_ramp(builder, layout, z_near, z_far);
     generate_street_lamps(builder, layout, scene.lights, z_near, z_far);
 
+    return scene;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// generate_chunk() — one tileable slice of the uniform cross-section
+// ══════════════════════════════════════════════════════════════════════
+
+RoadScene::SceneData RoadScene::generate_chunk(float chunkLen) {
+    SceneData   scene;
+    MeshBuilder builder(scene.meshData, scene.drawCalls);
+
+    if (m_lane_count <= 0 || chunkLen <= 0.0f)
+        return scene;
+
+    const float z_near = 0.0f;
+    const float z_far  = -chunkLen;
+
+    RoadLayout layout{
+        m_barrier_width + 3.0f * kFt,
+        static_cast<float>(m_lane_count) * m_lane_width,
+        -(static_cast<float>(m_lane_count) * m_lane_width),
+    };
+
+    // Snap the dashed-lane cycle (dash+gap) to an exact divisor of chunkLen so
+    // the markings tile with no phase jump at chunk seams; keep the dash:gap
+    // ratio. Restored before returning so the authored intro is unaffected.
+    const float saved_dash = m_dash_length;
+    const float saved_gap  = m_dash_gap;
+    {
+        const float desiredCycle = m_dash_length + m_dash_gap;  // ~12192 WU
+        const int   n            = std::max(1, static_cast<int>(chunkLen / desiredCycle + 0.5f));
+        const float cycle        = chunkLen / static_cast<float>(n);  // exact divisor of chunkLen
+        const float ratio        = m_dash_length / desiredCycle;      // preserve dash:gap
+        m_dash_length            = cycle * ratio;
+        m_dash_gap               = cycle - m_dash_length;
+    }
+
+    // Continuous-span cross-section (tiles seamlessly: chunkLen is a tile-size
+    // multiple, so surface UVs land on integers at the seam).
+    generate_grass(builder, layout, z_near, z_far);
+    generate_road_surfaces(builder, layout, z_near, z_far);
+    generate_shoulders(builder, layout, z_near, z_far);
+    // Median barrier, gapped for a flat EB↔WB crossover at the chunk centre, plus the
+    // crossover connector ribbon. (Demo cadence: one per 300 m chunk — the uniform tile
+    // repeats it every chunk; realistic spacing needs per-location variation, later.)
+    const float xover_zc = -chunkLen * 0.5f;
+    const float xover_gh = 45.0f * kFt;
+    generate_jersey_barrier(builder, z_near, xover_zc + xover_gh);  // near segment [xover_zc+gh .. 0]
+    generate_jersey_barrier(builder, xover_zc - xover_gh, z_far);   // far segment  [z_far .. xover_zc−gh]
+    generate_crossover(builder, layout, xover_zc, xover_gh);
+    generate_guardrail(builder, layout, z_near, z_far);
+    generate_solid_markings(builder, layout, z_near, z_far);
+    generate_dashed_markings(builder, layout, z_near, z_far);
+    generate_curbs(builder, layout, z_near, z_far);
+    generate_rumble_strips(builder, layout, z_near, z_far);
+    generate_dirt_strips(builder, layout, z_near, z_far);
+    generate_ambient_occlusion(builder, layout, z_near, z_far);
+    generate_sound_barriers(builder, layout, z_near, z_far);
+    generate_service_roads(builder, layout, z_near, z_far);  // continuous frontage roads, both sides
+
+    // Lamp POSTS tile with the chunk; their point-lights are dropped for now
+    // (per-slot light instancing across the active window is a follow-up), so
+    // discard the emitted LightDesc list into a throwaway.
+    std::vector<LightDesc> discardLights;
+    generate_street_lamps(builder, layout, discardLights, z_near, z_far);
+
+    m_dash_length = saved_dash;
+    m_dash_gap    = saved_gap;
     return scene;
 }
 
@@ -779,18 +944,20 @@ void RoadScene::generate_sign_posts(MeshBuilder& builder, const RoadLayout& layo
     // metres. (z_far is negative; fraction * z_far places each sign that far
     // out from the camera.)
     SignDef signs[] = {
-        // Roadside: speed limit (first thing driver sees)
+        // Roadside: SPEED LIMIT 55 (first thing driver sees)
         {0.10f * z_far, 3.0f * kFt, 4.0f * kFt, 6.0f * kFt, MAT_SIGN_4, false},
-        // Roadside: mile marker
-        {0.26f * z_far, 2.0f * kFt, 3.0f * kFt, 5.0f * kFt, MAT_SIGN_5, false},
-        // Overhead gantry: I-495 EAST
-        {0.42f * z_far, 20.0f * kFt, 6.0f * kFt, 0.0f, MAT_SIGN_0, true},
-        // Roadside: EXIT 41B 1 MILE
-        {0.58f * z_far, 8.0f * kFt, 5.0f * kFt, 7.0f * kFt, MAT_SIGN_1, false},
+        // Overhead gantry: I-495 EAST / Long Island Expwy (mainline reassurance)
+        {0.24f * z_far, 20.0f * kFt, 6.0f * kFt, 0.0f, MAT_SIGN_0, true},
+        // Roadside: EXIT 39 Glen Cove Rd 1 MILE (advance guide)
+        {0.40f * z_far, 8.0f * kFt, 5.0f * kFt, 7.0f * kFt, MAT_SIGN_1, false},
+        // Overhead gantry: EXIT 39 Glen Cove Rd / Northern Blvd (EXIT ONLY)
+        {0.56f * z_far, 20.0f * kFt, 6.0f * kFt, 0.0f, MAT_SIGN_2, true},
+        // Roadside: MILE 39 marker
+        {0.70f * z_far, 2.0f * kFt, 3.0f * kFt, 5.0f * kFt, MAT_SIGN_5, false},
+        // Overhead gantry: S Oyster Bay Rd / Syosset · Bethpage (pull-through)
+        {0.82f * z_far, 20.0f * kFt, 6.0f * kFt, 0.0f, MAT_SIGN_7, true},
         // Roadside: blue service sign
-        {0.74f * z_far, 6.0f * kFt, 4.0f * kFt, 6.0f * kFt, MAT_SIGN_3, false},
-        // Overhead gantry: EXIT 41B 1/2 MILE
-        {0.90f * z_far, 20.0f * kFt, 6.0f * kFt, 0.0f, MAT_SIGN_2, true},
+        {0.92f * z_far, 6.0f * kFt, 4.0f * kFt, 6.0f * kFt, MAT_SIGN_3, false},
     };
 
     float gantry_height = 20.0f * kFt;
@@ -939,37 +1106,66 @@ void RoadScene::generate_overpass(MeshBuilder& builder, const RoadLayout& layout
     Vec4 bridge_side_tint   = {0.65f, 0.63f, 0.60f, 1.0f};  // medium sides
     Vec4 railing_tint       = {0.60f, 0.62f, 0.60f, 1.0f};  // concrete railing
 
+    Vec4  pier_tint      = {0.58f, 0.56f, 0.53f, 1.0f};  // pier concrete
+    float railing_height = 3.5f * kFt;                   // 42-inch parapet
+
+    // Hand-built quad in a constant-Z plane (normal ±Z). The MeshBuilder helpers
+    // only make constant-X walls / constant-Y floors / X-Y ramps, but a bridge
+    // fascia and its parapets face the approaching driver (±Z), so build them here.
+    auto addZFace = [&](float x0, float x1, float y0, float y1, float z, float nz, const Vec4& tint) {
+        uint32_t base = builder.m_mesh.getVertexCount();
+        uint32_t idx  = builder.m_mesh.getIndexCount();
+        Vec3     n(0.0f, 0.0f, nz);
+        Vec4     tan(1.0f, 0.0f, 0.0f, 1.0f);
+        builder.m_mesh.addVertex({Vec3(x0, y0, z), n, Vec2(0.0f, 1.0f), tan});
+        builder.m_mesh.addVertex({Vec3(x1, y0, z), n, Vec2(1.0f, 1.0f), tan});
+        builder.m_mesh.addVertex({Vec3(x0, y1, z), n, Vec2(0.0f, 0.0f), tan});
+        builder.m_mesh.addVertex({Vec3(x1, y1, z), n, Vec2(1.0f, 0.0f), tan});
+        if (nz > 0.0f) {
+            builder.m_mesh.addIndex(base + 0), builder.m_mesh.addIndex(base + 1), builder.m_mesh.addIndex(base + 2);
+            builder.m_mesh.addIndex(base + 2), builder.m_mesh.addIndex(base + 1), builder.m_mesh.addIndex(base + 3);
+        } else {
+            builder.m_mesh.addIndex(base + 0), builder.m_mesh.addIndex(base + 2), builder.m_mesh.addIndex(base + 1);
+            builder.m_mesh.addIndex(base + 1), builder.m_mesh.addIndex(base + 2), builder.m_mesh.addIndex(base + 3);
+        }
+        builder.pushDrawCall(idx, tint, MAT_CONCRETE);
+    };
+
+    // A rectangular support pier from ground to deck underside (±X sides via the
+    // helper, ±Z faces hand-built).
+    auto addPier = [&](float cx, float half_x, float z, float half_z) {
+        builder.addVerticalFace(cx - half_x, bridge_clearance, z - half_z, z + half_z, kLeft, pier_tint, MAT_CONCRETE,
+                                m_concrete_tile);
+        builder.addVerticalFace(cx + half_x, bridge_clearance, z - half_z, z + half_z, kRight, pier_tint, MAT_CONCRETE,
+                                m_concrete_tile);
+        addZFace(cx - half_x, cx + half_x, 0.0f, bridge_clearance, z + half_z, 1.0f, pier_tint);
+        addZFace(cx - half_x, cx + half_x, 0.0f, bridge_clearance, z - half_z, -1.0f, pier_tint);
+    };
+
     for (float z = z_far + bridge_spacing; z < z_near - bridge_spacing; z += bridge_spacing) {
-        float z_left  = z - bridge_width / 2.0f;
-        float z_right = z + bridge_width / 2.0f;
+        float z_left   = z - bridge_width / 2.0f;  // far edge (−Z)
+        float z_right  = z + bridge_width / 2.0f;  // near edge (+Z, toward driver)
+        float deck_bot = bridge_clearance;
+        float deck_top = bridge_clearance + bridge_depth;
 
-        // ── Bridge deck top surface ───────────────────────────────
-        builder.addHorizontalQuad(bridge_span_left, bridge_span_right, bridge_clearance + bridge_depth, z_left, z_right,
-                                  kUp, bridge_top_tint, MAT_CONCRETE, m_concrete_tile);
-
-        // ── Bridge deck bottom surface (visible from below) ───────
-        builder.addHorizontalQuad(bridge_span_left, bridge_span_right, bridge_clearance, z_left, z_right, kUp,
+        // Deck top + underside
+        builder.addHorizontalQuad(bridge_span_left, bridge_span_right, deck_top, z_left, z_right, kUp, bridge_top_tint,
+                                  MAT_CONCRETE, m_concrete_tile);
+        builder.addHorizontalQuad(bridge_span_left, bridge_span_right, deck_bot, z_left, z_right, kUp,
                                   bridge_bottom_tint, MAT_CONCRETE, m_concrete_tile);
 
-        // ── Bridge side walls (near and far faces) ────────────────
-        // Near face (facing +Z toward camera)
-        builder.addVerticalFace(bridge_span_left, bridge_depth, z_right, z_right, kRight, bridge_side_tint,
-                                MAT_CONCRETE, m_concrete_tile);
+        // Deck fascia (the concrete beam face the driver sees) — near (+Z) and far (−Z)
+        addZFace(bridge_span_left, bridge_span_right, deck_bot, deck_top, z_right, 1.0f, bridge_side_tint);
+        addZFace(bridge_span_left, bridge_span_right, deck_bot, deck_top, z_left, -1.0f, bridge_side_tint);
 
-        // Far face (facing -Z away from camera)
-        builder.addVerticalFace(bridge_span_right, bridge_depth, z_left, z_left, kLeft, bridge_side_tint, MAT_CONCRETE,
-                                m_concrete_tile);
+        // Parapets run along the deck's long edges (constant Z), on top of the deck
+        addZFace(bridge_span_left, bridge_span_right, deck_top, deck_top + railing_height, z_right, 1.0f, railing_tint);
+        addZFace(bridge_span_left, bridge_span_right, deck_top, deck_top + railing_height, z_left, -1.0f, railing_tint);
 
-        // ── Bridge railings (short walls on edges) ────────────────
-        float railing_height = 3.5f * kFt;  // 42-inch railing
-        float railing_top    = bridge_clearance + bridge_depth + railing_height;
-
-        // Left railing
-        builder.addVerticalFace(bridge_span_left, railing_top, z_left, z_right, kLeft, railing_tint, MAT_CONCRETE,
-                                m_concrete_tile);
-        // Right railing
-        builder.addVerticalFace(bridge_span_right, railing_top, z_left, z_right, kRight, railing_tint, MAT_CONCRETE,
-                                m_concrete_tile);
+        // Support piers: one in the median, one inboard of each embankment
+        addPier(m_barrier_width * 0.5f, 2.0f * kFt, z, 2.5f * kFt);
+        addPier(bridge_span_left + 6.0f * kFt, 2.0f * kFt, z, 2.5f * kFt);
+        addPier(bridge_span_right - 6.0f * kFt, 2.0f * kFt, z, 2.5f * kFt);
     }
 }
 
@@ -1135,6 +1331,198 @@ void RoadScene::generate_sound_barriers(MeshBuilder& builder, const RoadLayout& 
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// Service (frontage) roads — continuous, both sides
+// ══════════════════════════════════════════════════════════════════════
+
+void RoadScene::generate_service_roads(MeshBuilder& builder, const RoadLayout& layout, float z_near,
+                                       float z_far) const {
+    const float laneW  = 12.0f * kFt;             // one lane each direction
+    const float berm   = 55.0f * kFt;             // grass buffer beyond the mainline sound barriers
+    const float line_w = 0.50f * kFt;             // marking width
+    const float y      = 6.0f;                    // lift above grass (~6 mm) → no coplanar z-fight
+    const float mark_y = y + m_marking_y_offset;  // markings sit just above the frontage asphalt
+
+    // Small helper: 2-lane frontage with a double-yellow centre + white edge lines,
+    // given the road's inner (mainline-facing) edge X and the outward +1/−1 sign.
+    auto frontage = [&](float innerX, float sign) {
+        float e0 = innerX;                 // inner edge (nearest the mainline)
+        float e1 = innerX + sign * laneW;  // centre line
+        float e2 = innerX + sign * 2.0f * laneW;
+        float lo = std::min(e0, e2), hi = std::max(e0, e2);
+
+        // Two lanes (single asphalt span each side of the centre).
+        builder.addHorizontalQuad(lo, std::min(e1, hi), y, z_far, z_near, kUp, m_asphalt_tint, MAT_ASPHALT,
+                                  m_asphalt_tile);
+        builder.addHorizontalQuad(std::max(e1, lo), hi, y, z_far, z_near, kUp, m_asphalt_tint, MAT_ASPHALT,
+                                  m_asphalt_tile);
+        // Double-yellow centre line.
+        builder.addHorizontalQuad(e1 - line_w / 2.0f - 0.1f * kFt, e1 - 0.1f * kFt, mark_y, z_far, z_near, kUp,
+                                  m_yellow_marking);
+        builder.addHorizontalQuad(e1 + 0.1f * kFt, e1 + line_w / 2.0f + 0.1f * kFt, mark_y, z_far, z_near, kUp,
+                                  m_yellow_marking);
+        // White edge lines (both outer edges of the pair of lanes).
+        builder.addHorizontalQuad(lo, lo + line_w, mark_y, z_far, z_near, kUp, m_white_marking);
+        builder.addHorizontalQuad(hi - line_w, hi, mark_y, z_far, z_near, kUp, m_white_marking);
+    };
+
+    // EB frontage: out past the right (+X) sound barrier.
+    float eb_outer = layout.eb_start + layout.road_width + m_shoulder_width_eb + m_rail_width;
+    frontage(eb_outer + berm, +1.0f);
+
+    // WB frontage: out past the left (−X) sound barrier (mirror).
+    float wb_outer = layout.wb_inner - m_shoulder_width_wb - m_rail_width;
+    frontage(wb_outer - berm, -1.0f);
+}
+
+void RoadScene::generate_crossover(MeshBuilder& builder, const RoadLayout& layout, float zCenter, float halfLen) const {
+    const float eb_inner = layout.eb_start + m_lane_width * 0.5f;  // EB innermost lane centre (+X)
+    const float wb_inner = -m_lane_width * 0.5f;                   // WB innermost lane centre (−X)
+    const float y        = 6.0f;                                   // lift above the road (avoid z-fight)
+
+    // Smoothstep S-curve across the median: enters on the EB inner lane (+Z side of
+    // the gap), sweeps across to the WB inner lane (−Z side).
+    std::vector<Vec3> centerline;
+    const int         N = 12;
+    for (int i = 0; i <= N; ++i) {
+        float t = static_cast<float>(i) / static_cast<float>(N);
+        float s = t * t * (3.0f - 2.0f * t);
+        float x = eb_inner + (wb_inner - eb_inner) * s;
+        float z = (zCenter + halfLen) + t * (-2.0f * halfLen);
+        centerline.push_back(Vec3(x, y, z));
+    }
+    builder.emit_ribbon(centerline, m_lane_width * 1.2f, m_asphalt_tint, MAT_ASPHALT, m_asphalt_tile);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Elevated diamond interchange — deck on piers + four graded ramps
+// ══════════════════════════════════════════════════════════════════════
+
+// Interchange dimensions (local coords, deck at z=0) — shared by the ribbon
+// definition and the geometry builder so physics and visuals stay in sync.
+RoadScene::IxDims RoadScene::ix_dims() const {
+    IxDims d{};
+    d.clearance  = 16.5f * kFt;
+    d.deck_depth = 3.0f * kFt;
+    d.deck_top   = d.clearance + d.deck_depth;
+    d.deck_half  = 22.0f * kFt;
+    d.eb_edge = (m_barrier_width + 3.0f * kFt) + static_cast<float>(m_lane_count) * m_lane_width + m_shoulder_width_eb;
+    d.wb_edge = -(static_cast<float>(m_lane_count) * m_lane_width) - m_shoulder_width_wb;
+    d.span_right   = d.eb_edge + 70.0f * kFt;
+    d.span_left    = d.wb_edge - 70.0f * kFt;
+    d.rampLen      = 420.0f * kFt;
+    d.rw           = m_lane_width * 0.6f;
+    d.eb_service_x = d.eb_edge + m_rail_width + 55.0f * kFt + m_lane_width;  // ≈ EB frontage-road centre
+    return d;
+}
+
+std::vector<Ribbon> RoadScene::interchange_ribbons() const {
+    std::vector<Ribbon> ribbons;
+    if (m_lane_count <= 0)
+        return ribbons;
+    const IxDims d = ix_dims();
+
+    auto curve = [](Vec3 p0, Vec3 p1, int N) {
+        std::vector<Vec3> cl;
+        for (int i = 0; i <= N; ++i) {
+            float t = static_cast<float>(i) / static_cast<float>(N);
+            float s = t * t * (3.0f - 2.0f * t);  // smoothstep X + Y (vertical curve), linear Z
+            cl.push_back(Vec3(p0.x + (p1.x - p0.x) * s, p0.y + (p1.y - p0.y) * s, p0.z + (p1.z - p0.z) * t));
+        }
+        return cl;
+    };
+
+    Ribbon r0;  // EB on-ramp: mainline edge (ground, +Z) → deck east end (z=0)
+    r0.pts       = curve(Vec3(d.eb_edge, 6.0f, d.rampLen), Vec3(d.span_right - d.rw, d.deck_top, 0.0f), 14);
+    r0.halfWidth = d.rw;
+    r0.next      = 1;  // onto the deck
+    r0.branch    = 3;  // …or steer onto the service off-ramp
+    Ribbon r1;         // deck: east end → west end (straight, at deck level)
+    r1.pts       = {Vec3(d.span_right - d.rw, d.deck_top, 0.0f), Vec3(d.span_left + d.rw, d.deck_top, 0.0f)};
+    r1.halfWidth = d.deck_half * 0.8f;
+    r1.next      = 2;  // onto the WB off-ramp (reverses direction)
+    Ribbon r2;         // WB off-ramp: deck west end → WB mainline, exits +Z (opposite direction)
+    r2.pts       = curve(Vec3(d.span_left + d.rw, d.deck_top, 0.0f), Vec3(d.wb_edge, 6.0f, d.rampLen), 14);
+    r2.halfWidth = d.rw;
+    Ribbon r3;  // service off-ramp: deck east end → EB frontage road, exits +Z
+    r3.pts       = curve(Vec3(d.span_right - d.rw, d.deck_top, 0.0f), Vec3(d.eb_service_x, 6.0f, d.rampLen), 14);
+    r3.halfWidth = d.rw;
+
+    ribbons = {r0, r1, r2, r3};
+    return ribbons;
+}
+
+void RoadScene::generate_interchange(MeshBuilder& builder, const RoadLayout& /*layout*/, float /*zCenter*/) const {
+    const IxDims d = ix_dims();
+
+    const Vec4 concrete    = {0.70f, 0.68f, 0.65f, 1.0f};
+    const Vec4 concrete_dk = {0.52f, 0.50f, 0.47f, 1.0f};
+
+    // ±Z face helper (deck fascia / parapet / pier ends face the driver).
+    auto addZFace = [&](float x0, float x1, float y0, float y1, float z, float nz, const Vec4& tint) {
+        uint32_t base = builder.m_mesh.getVertexCount();
+        uint32_t idx  = builder.m_mesh.getIndexCount();
+        Vec3     n(0.0f, 0.0f, nz);
+        Vec4     tan(1.0f, 0.0f, 0.0f, 1.0f);
+        builder.m_mesh.addVertex({Vec3(x0, y0, z), n, Vec2(0.0f, 1.0f), tan});
+        builder.m_mesh.addVertex({Vec3(x1, y0, z), n, Vec2(1.0f, 1.0f), tan});
+        builder.m_mesh.addVertex({Vec3(x0, y1, z), n, Vec2(0.0f, 0.0f), tan});
+        builder.m_mesh.addVertex({Vec3(x1, y1, z), n, Vec2(1.0f, 0.0f), tan});
+        if (nz > 0.0f) {
+            builder.m_mesh.addIndex(base + 0), builder.m_mesh.addIndex(base + 1), builder.m_mesh.addIndex(base + 2);
+            builder.m_mesh.addIndex(base + 2), builder.m_mesh.addIndex(base + 1), builder.m_mesh.addIndex(base + 3);
+        } else {
+            builder.m_mesh.addIndex(base + 0), builder.m_mesh.addIndex(base + 2), builder.m_mesh.addIndex(base + 1);
+            builder.m_mesh.addIndex(base + 1), builder.m_mesh.addIndex(base + 2), builder.m_mesh.addIndex(base + 3);
+        }
+        builder.pushDrawCall(idx, tint, MAT_CONCRETE);
+    };
+
+    // Deck: drivable top slab (visual; physics follows ribbon 1 at the same height)
+    // + underside + fascias + parapets.
+    const float zl = -d.deck_half, zr = d.deck_half;
+    builder.addHorizontalQuad(d.span_left, d.span_right, d.deck_top, zl, zr, kUp, concrete, MAT_CONCRETE,
+                              m_concrete_tile);
+    builder.addHorizontalQuad(d.span_left, d.span_right, d.clearance, zl, zr, kUp, concrete_dk, MAT_CONCRETE,
+                              m_concrete_tile);
+    addZFace(d.span_left, d.span_right, d.clearance, d.deck_top, zr, 1.0f, concrete);
+    addZFace(d.span_left, d.span_right, d.clearance, d.deck_top, zl, -1.0f, concrete);
+    addZFace(d.span_left, d.span_right, d.deck_top, d.deck_top + 3.5f * kFt, zr, 1.0f, concrete);  // parapets
+    addZFace(d.span_left, d.span_right, d.deck_top, d.deck_top + 3.5f * kFt, zl, -1.0f, concrete);
+
+    // Piers: median + one inboard of each embankment.
+    auto pier = [&](float cx) {
+        float hw = 2.0f * kFt, hz = 2.5f * kFt;
+        builder.addVerticalFace(cx - hw, d.clearance, -hz, hz, kLeft, concrete_dk, MAT_CONCRETE, m_concrete_tile);
+        builder.addVerticalFace(cx + hw, d.clearance, -hz, hz, kRight, concrete_dk, MAT_CONCRETE, m_concrete_tile);
+        addZFace(cx - hw, cx + hw, 0.0f, d.clearance, hz, 1.0f, concrete_dk);
+        addZFace(cx - hw, cx + hw, 0.0f, d.clearance, -hz, -1.0f, concrete_dk);
+    };
+    pier(m_barrier_width * 0.5f);
+    pier(d.span_left + 8.0f * kFt);
+    pier(d.span_right - 8.0f * kFt);
+
+    // Drivable ramps: emit the on-ramp, WB off-ramp, and service off-ramp ribbons
+    // (the deck top slab above is ribbon 1's visual, so it isn't re-emitted).
+    const std::vector<Ribbon> ribbons = interchange_ribbons();
+    for (int i : {0, 2, 3})
+        builder.emit_ribbon(ribbons[i].pts, ribbons[i].halfWidth, m_asphalt_tint, MAT_ASPHALT, m_asphalt_tile);
+}
+
+RoadScene::SceneData RoadScene::generate_interchange_scene() const {
+    SceneData   scene;
+    MeshBuilder builder(scene.meshData, scene.drawCalls);
+    if (m_lane_count <= 0)
+        return scene;
+    RoadLayout layout{
+        m_barrier_width + 3.0f * kFt,
+        static_cast<float>(m_lane_count) * m_lane_width,
+        -(static_cast<float>(m_lane_count) * m_lane_width),
+    };
+    generate_interchange(builder, layout, 0.0f);
+    return scene;
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // Exit Ramp — EB exit to N Marginal Road
 //
 // The ramp branches off the rightmost EB lane, diverges at a shallow
@@ -1151,8 +1539,8 @@ void RoadScene::generate_exit_ramp(MeshBuilder& builder, const RoadLayout& layou
     // down the route (~75% of the way out) rather than clustered near the
     // camera. Real-world segment lengths are preserved: 671.5ft diverge,
     // 328.5ft deceleration lead-in. The marginal road then runs to z_far.
-    float ramp_end_z    = 0.75f * z_far;     // ramp fully separated (~75% out)
-    float ramp_start_z  = ramp_end_z + 671.5f * kFt;   // diverge begins (closer to camera)
+    float ramp_end_z    = 0.75f * z_far;                // ramp fully separated (~75% out)
+    float ramp_start_z  = ramp_end_z + 671.5f * kFt;    // diverge begins (closer to camera)
     float decel_start_z = ramp_start_z + 328.5f * kFt;  // deceleration lane begins
 
     float ramp_offset = 40.0f * kFt;                // how far right the ramp shifts at the end
@@ -1341,8 +1729,10 @@ void RoadScene::generate_street_lamps(MeshBuilder& builder, const RoadLayout& la
     float lamp_spacing = 500.0f * kFt;  // every 500ft (typical highway)
     float pole_height  = 30.0f * kFt;   // 30ft tall highway lamp
     float pole_width   = 0.25f * kFt;   // 3-inch square pole
-    float arm_len      = 6.0f * kFt;    // 6ft arm reaching over road
+    float arm_len      = 8.0f * kFt;    // 8ft davit arm reaching over road
+    float arm_rise     = 5.0f * kFt;    // arm sweeps up ~5ft over its reach (davit curve)
     float arm_h        = 0.20f * kFt;   // arm thickness
+    int   arm_seg      = 4;             // segments approximating the arc
     float fixture_w    = 2.0f * kFt;    // fixture width
     float fixture_h    = 0.5f * kFt;    // fixture depth
 
@@ -1358,43 +1748,42 @@ void RoadScene::generate_street_lamps(MeshBuilder& builder, const RoadLayout& la
     float wb_pole_x  = layout.wb_inner - m_shoulder_width_wb - m_rail_width - 2.0f * kFt;
     float wb_light_x = wb_pole_x + arm_len;
 
-    // Emit lamps along the full road; CameraUniforms uploads the N nearest
-    // the camera each frame, so generation is no longer capped here.
+    // A davit (mast-arm) lamp: tall pole + a curved arm that sweeps up and over the
+    // road + a cobra-head fixture at the raised end + a warm point light. The arm is
+    // an arc approximated by `arm_seg` short sloped segments following
+    // y(t) = pole_height + arm_rise·(1−(1−t)²)   (rises steeply then flattens).
+    auto davit = [&](float pole_x, float light_x, float z) {
+        // Pole (paired ±X faces for a hint of depth)
+        builder.addVerticalFace(pole_x, pole_height, z - pole_width, z + pole_width, kRight, pole_tint, MAT_METAL,
+                                m_metal_tile);
+        builder.addVerticalFace(pole_x, pole_height, z - pole_width, z + pole_width, kLeft, pole_tint, MAT_METAL,
+                                m_metal_tile);
+        // Curved arm
+        float px = pole_x, py = pole_height;
+        for (int i = 1; i <= arm_seg; i++) {
+            float t  = static_cast<float>(i) / static_cast<float>(arm_seg);
+            float nx = pole_x + (light_x - pole_x) * t;
+            float ny = pole_height + arm_rise * (1.0f - (1.0f - t) * (1.0f - t));
+            if (px <= nx)
+                builder.addSlopedQuad(px, nx, py, ny, z - arm_h, z + arm_h, kUp, pole_tint, MAT_METAL, m_metal_tile);
+            else
+                builder.addSlopedQuad(nx, px, ny, py, z - arm_h, z + arm_h, kUp, pole_tint, MAT_METAL, m_metal_tile);
+            px = nx;
+            py = ny;
+        }
+        // Cobra-head fixture hanging just under the raised arm end
+        float fy = py;
+        builder.addHorizontalQuad(light_x - fixture_w / 2.0f, light_x + fixture_w / 2.0f, fy - fixture_h,
+                                  z - fixture_w / 2.0f, z + fixture_w / 2.0f, kUp, fixture_tint, MAT_DEFAULT, 0.0f);
+        // Warm sodium-vapor point light (intensity, ~50m radius). CameraUniforms
+        // uploads only the N nearest the camera each frame, so all lamps can emit.
+        lights.push_back({Vec3(light_x, fy - fixture_h, z), Vec3(1.0f, 0.9f, 0.7f), 5.0f, 50000.0f});
+    };
+
+    // Emit lamps along the full road (both carriageways, mirrored).
     for (float z = z_far + lamp_spacing; z < z_near; z += lamp_spacing) {
-        // ── EB lamp pole ──
-        builder.addVerticalFace(eb_pole_x, pole_height, z - pole_width, z + pole_width, kRight, pole_tint, MAT_METAL,
-                                m_metal_tile);
-        builder.addVerticalFace(eb_pole_x, pole_height, z - pole_width, z + pole_width, kLeft, pole_tint, MAT_METAL,
-                                m_metal_tile);
-
-        // Horizontal arm (reaching back over road)
-        builder.addHorizontalQuad(eb_light_x, eb_pole_x, pole_height, z - arm_h, z + arm_h, kUp, pole_tint, MAT_METAL,
-                                  m_metal_tile);
-
-        // Light fixture (box at end of arm)
-        builder.addHorizontalQuad(eb_light_x - fixture_w / 2.0f, eb_light_x + fixture_w / 2.0f, pole_height - fixture_h,
-                                  z - fixture_w / 2.0f, z + fixture_w / 2.0f, kUp, fixture_tint, MAT_DEFAULT, 0.0f);
-
-        // EB point light
-        lights.push_back({
-            Vec3(eb_light_x, pole_height - fixture_h, z), Vec3(1.0f, 0.9f, 0.7f),  // warm sodium-vapor color
-            5.0f,                                                                  // intensity
-            50000.0f                                                               // radius (~50m coverage)
-        });
-
-        // ── WB lamp pole (mirrored on the opposite side) ──
-        builder.addVerticalFace(wb_pole_x, pole_height, z - pole_width, z + pole_width, kRight, pole_tint, MAT_METAL,
-                                m_metal_tile);
-        builder.addVerticalFace(wb_pole_x, pole_height, z - pole_width, z + pole_width, kLeft, pole_tint, MAT_METAL,
-                                m_metal_tile);
-
-        builder.addHorizontalQuad(wb_pole_x, wb_light_x, pole_height, z - arm_h, z + arm_h, kUp, pole_tint, MAT_METAL,
-                                  m_metal_tile);
-
-        builder.addHorizontalQuad(wb_light_x - fixture_w / 2.0f, wb_light_x + fixture_w / 2.0f, pole_height - fixture_h,
-                                  z - fixture_w / 2.0f, z + fixture_w / 2.0f, kUp, fixture_tint, MAT_DEFAULT, 0.0f);
-
-        lights.push_back({Vec3(wb_light_x, pole_height - fixture_h, z), Vec3(1.0f, 0.9f, 0.7f), 5.0f, 50000.0f});
+        davit(eb_pole_x, eb_light_x, z);
+        davit(wb_pole_x, wb_light_x, z);
     }
 }
 

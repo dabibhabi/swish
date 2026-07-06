@@ -21,9 +21,9 @@ void CarEntity::handle_input(GLFWwindow* window, float dt) {
         m_throttle = 1.f;
     } else if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
         if (m_forward_speed > kSpeedDeadZone)
-            m_brake = 1.f;      // braking while moving forward
+            m_brake = 1.f;  // braking while moving forward
         else
-            m_reverse = true;   // creep backward once ~stopped
+            m_reverse = true;  // creep backward once ~stopped
     }
 
     // Steering
@@ -95,10 +95,10 @@ void CarEntity::update(float dt) {
         const TireParams tire;
         BicycleDeriv     d = dynamic_bicycle_deriv(vx, m_lateral_velocity, m_yaw_rate, delta, params, tire);
         m_lateral_velocity += d.vlDot * dt;
-        m_yaw_rate         += d.rDot * dt;
+        m_yaw_rate += d.rDot * dt;
         // Smooth 5→8 m/s handoff from kinematic to full dynamic response.
         const float blend = glm::clamp((std::abs(vx) - kBlendSpeed) / 3.0f, 0.f, 1.f);
-        m_yaw_rate         = glm::mix(r_kin, m_yaw_rate, blend);
+        m_yaw_rate        = glm::mix(r_kin, m_yaw_rate, blend);
         // Friction circle: cap lateral accel at μ·g (understeer at the limit;
         // also arrests sideslip growth under a sustained over-drive input).
         const float rMax   = max_yaw_rate(vx, params);

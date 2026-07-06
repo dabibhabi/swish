@@ -17,7 +17,7 @@ namespace swish {
 
 struct Texture {
     std::string name;
-    GpuImage    image;                 // RAII (VMA); replaces raw VkImage + VkDeviceMemory
+    GpuImage    image;  // RAII (VMA); replaces raw VkImage + VkDeviceMemory
     VkImageView view   = VK_NULL_HANDLE;
     int         width  = 0;
     int         height = 0;

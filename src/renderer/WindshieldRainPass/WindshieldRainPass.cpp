@@ -99,7 +99,7 @@ void WindshieldRainPass::update(uint32_t frameIndex, float deltaTime, Vec2 scree
     m_advect             = deltaTime * (0.05f + 0.30f * speedFactor);  // drift this frame (UV)
 
     WindshieldRainUBO ubo{};
-    ubo.flowAndTime   = Vec4(screenFlowDir.x, screenFlowDir.y, speedFactor, m_time);
+    ubo.flowAndTime = Vec4(screenFlowDir.x, screenFlowDir.y, speedFactor, m_time);
     // density (reserved/unused in shader), refractStrength dialed back 0.135 → 0.095
     // so the colored-light bokeh still smears through the big DISCRETE beads (ref
     // img B) without over-displacing into a gray smear. fresnelGain (screenAndRefr.w)
@@ -394,9 +394,9 @@ void WindshieldRainPass::createRefractionResources(VkDevice device, VkPhysicalDe
                                                    VkExtent2D extent) {
     (void)physicalDevice;  // VMA holds the physical device; kept for signature symmetry
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        m_refrImages[i] = gpu::deviceLocalImage(m_allocator, extent.width, extent.height, m_refrFormat,
-                                                VK_IMAGE_TILING_OPTIMAL,
-                                                VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+        m_refrImages[i] =
+            gpu::deviceLocalImage(m_allocator, extent.width, extent.height, m_refrFormat, VK_IMAGE_TILING_OPTIMAL,
+                                  VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -436,10 +436,10 @@ void WindshieldRainPass::destroyRefractionResources(VkDevice device) {
 void WindshieldRainPass::createWetnessResources(VkDevice device, VkPhysicalDevice physicalDevice, VkExtent2D extent) {
     (void)physicalDevice;  // VMA holds the physical device; kept for signature symmetry
     for (int i = 0; i < 2; i++) {
-        m_wetImages[i] = gpu::deviceLocalImage(m_allocator, extent.width, extent.height, m_wetFormat,
-                                               VK_IMAGE_TILING_OPTIMAL,
-                                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-                                                   VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+        m_wetImages[i] =
+            gpu::deviceLocalImage(m_allocator, extent.width, extent.height, m_wetFormat, VK_IMAGE_TILING_OPTIMAL,
+                                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image            = m_wetImages[i].handle();

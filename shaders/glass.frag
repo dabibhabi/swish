@@ -36,7 +36,7 @@ void main() {
     float specular = pow(max(dot(N, H), 0.0), 256.0) * camera.sunColor.a;
 
     // Combine tint + specular
-    vec3 color = fragColor.rgb + camera.sunColor.rgb * specular * 0.4;
+    vec3 color = fragColor.rgb + camera.sunColor.rgb * specular * 0.2;
 
     outColor = vec4(color, alpha);
 }

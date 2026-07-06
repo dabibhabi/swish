@@ -3,23 +3,26 @@
 // The whole translation unit is empty unless the debug UI is compiled in.
 #ifdef SWISH_DEBUG_UI
 
+#include "../utils/VulkanCheck.h"
 #include "DebugParamsIO.h"
 
-#include "../utils/VulkanCheck.h"
-
+// ImGuizmo.h uses ImVec4/ImGuiID and MUST follow imgui.h. `.clang-format`
+// (IncludeBlocks: Regroup) would alphabetize "ImGuizmo" before "imgui" and break
+// the build, so the exact off/on directives below pin the order across `make
+// format` (the directive is only honored when the line is exactly this text).
+// clang-format off
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_vulkan.h"
-
 #include "ImGuizmo.h"
-
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/quaternion.hpp>
+// clang-format on
 
 #include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <string>
 
 namespace swish {
@@ -79,16 +82,16 @@ void DebugUI::init(const DebugUIInitInfo& info) {
     // struct field (no separate RenderPass argument). Fonts upload lazily on
     // the first NewFrame in 1.91 — no manual font command buffer needed.
     ImGui_ImplVulkan_InitInfo initInfo{};
-    initInfo.Instance        = info.instance;
-    initInfo.PhysicalDevice  = info.physicalDevice;
-    initInfo.Device          = info.device;
-    initInfo.QueueFamily     = info.graphicsQueueFamily;
-    initInfo.Queue           = info.graphicsQueue;
-    initInfo.DescriptorPool  = m_descriptorPool;
-    initInfo.RenderPass      = m_renderPass;
-    initInfo.MinImageCount   = info.minImageCount;
-    initInfo.ImageCount      = info.imageCount;
-    initInfo.MSAASamples     = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.Instance       = info.instance;
+    initInfo.PhysicalDevice = info.physicalDevice;
+    initInfo.Device         = info.device;
+    initInfo.QueueFamily    = info.graphicsQueueFamily;
+    initInfo.Queue          = info.graphicsQueue;
+    initInfo.DescriptorPool = m_descriptorPool;
+    initInfo.RenderPass     = m_renderPass;
+    initInfo.MinImageCount  = info.minImageCount;
+    initInfo.ImageCount     = info.imageCount;
+    initInfo.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
     ImGui_ImplVulkan_Init(&initInfo);
 
     m_init = true;
@@ -103,7 +106,7 @@ void DebugUI::createRenderPass(VkFormat fmt) {
     VkAttachmentDescription colorAtt{};
     colorAtt.format         = fmt;
     colorAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
-    colorAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;   // preserve the composited frame
+    colorAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;  // preserve the composited frame
     colorAtt.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
     colorAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     colorAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -176,7 +179,7 @@ void DebugUI::destroyFramebuffers() {
 namespace {
 
 void presetReset(DebugParams& p) {
-    p = DebugParams{};  // restore all defaults (keeps editMode/showPanel too)
+    p           = DebugParams{};  // restore all defaults (keeps editMode/showPanel too)
     p.editMode  = true;
     p.showPanel = true;
 }
@@ -184,16 +187,16 @@ void presetReset(DebugParams& p) {
 // Flat grey overcast sky, low clarity, some fog, desaturated grade — the LIE
 // (Long Island Expressway) reference look.
 void presetOvercastLIE(DebugParams& p) {
-    p.clarity      = 0.0f;
+    p.clarity       = 0.0f;
     p.rainIntensity = 0.0f;
-    p.saturation   = 0.85f;
-    p.contrast     = 1.0f;
-    p.exposure     = 0.45f;
-    p.fogColor     = glm::vec3(0.52f, 0.57f, 0.63f);
-    p.fogDist63    = 900000.0f;
-    p.fogMax       = 0.65f;
-    p.sunAmbient   = 0.30f;
-    p.sunColor     = glm::vec3(0.90f, 0.92f, 0.95f);  // cool, flat
+    p.saturation    = 0.85f;
+    p.contrast      = 1.0f;
+    p.exposure      = 0.45f;
+    p.fogColor      = glm::vec3(0.52f, 0.57f, 0.63f);
+    p.fogDist63     = 900000.0f;
+    p.fogMax        = 0.65f;
+    p.sunAmbient    = 0.30f;
+    p.sunColor      = glm::vec3(0.90f, 0.92f, 0.95f);  // cool, flat
 }
 
 // Bright blue clear day: full clarity, no fog, neutral grade.
@@ -225,18 +228,29 @@ void presetClearRain(DebugParams& p) {
 // Human-readable category for a MaterialId slot (for the material editor).
 const char* materialName(int i) {
     switch (i) {
-        case MAT_ASPHALT:  return "asphalt";
-        case MAT_GRASS:    return "grass";
-        case MAT_CONCRETE: return "concrete";
-        case MAT_METAL:    return "metal";
-        case MAT_DEFAULT:  return "default";
-        case MAT_RUMBLE:   return "rumble";
-        case MAT_DIRT:     return "dirt";
-        case MAT_TREE:     return "tree";
-        default:           break;
+        case MAT_ASPHALT:
+            return "asphalt";
+        case MAT_GRASS:
+            return "grass";
+        case MAT_CONCRETE:
+            return "concrete";
+        case MAT_METAL:
+            return "metal";
+        case MAT_DEFAULT:
+            return "default";
+        case MAT_RUMBLE:
+            return "rumble";
+        case MAT_DIRT:
+            return "dirt";
+        case MAT_TREE:
+            return "tree";
+        default:
+            break;
     }
-    if (i >= MAT_SIGN_0 && i <= MAT_SIGN_7)  return "sign";
-    if (i >= MAT_CAR_0 && i <= MAT_CAR_19)   return "car";
+    if (i >= MAT_SIGN_0 && i <= MAT_SIGN_7)
+        return "sign";
+    if (i >= MAT_CAR_0 && i <= MAT_CAR_19)
+        return "car";
     return "?";
 }
 
@@ -270,11 +284,13 @@ void printValues(const DebugParams& p) {
                 p.steerQuat.z, p.steerQuat.w);
     std::printf("shadowBias=%.5f shadowFloor=%.3f csmShadowFar=%.1f csmLambda=%.3f\n", p.shadowBias, p.shadowFloor,
                 p.csmShadowFar, p.csmLambda);
+    std::printf("shadowBias=%.5f shadowFloor=%.3f lightSize=%.2f csmShadowFar=%.1f csmLambda=%.3f\n", p.shadowBias,
+                p.shadowFloor, p.shadowLightSize, p.csmShadowFar, p.csmLambda);
     std::printf("depthBiasConst=%.3f depthBiasSlope=%.3f\n", p.depthBiasConst, p.depthBiasSlope);
     std::printf("rainIntensity=%.3f wetPorosity=%.3f wetRoughness=%.3f streakLen=%.1f\n", p.rainIntensity,
                 p.wetPorosity, p.wetRoughness, p.streakLen);
-    std::printf("carOverride=%d carMetalness=%.3f carPaint={%.3f,%.3f,%.3f} carRoughnessMul=%.3f\n", p.carOverride ? 1 : 0,
-                p.carMetalness, p.carPaint.x, p.carPaint.y, p.carPaint.z, p.carRoughnessMul);
+    std::printf("carOverride=%d carMetalness=%.3f carPaint={%.3f,%.3f,%.3f} carRoughnessMul=%.3f\n",
+                p.carOverride ? 1 : 0, p.carMetalness, p.carPaint.x, p.carPaint.y, p.carPaint.z, p.carRoughnessMul);
     std::printf("ssaaScale=%.3f\n", p.ssaaScale);
     std::fflush(stdout);
 }
@@ -331,9 +347,9 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
         // Persist the current look to CONFIG_DIR/presets/<name>.toml and reload
         // it later — or pick an existing preset from the combo to load it live.
         {
-            static char nameBuf[64]                 = "lie";
-            static std::vector<std::string> onDisk   = debugio::list_presets();
-            static char status[96]                   = "";
+            static char                     nameBuf[64] = "lie";
+            static std::vector<std::string> onDisk      = debugio::list_presets();
+            static char                     status[96]  = "";
 
             ImGui::InputText("Preset name", nameBuf, sizeof(nameBuf));
             if (ImGui::Button("Save")) {
@@ -434,9 +450,8 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
                     p.steerQuat = glm::vec4(q.x, q.y, q.z, q.w);
                 }
                 if (ImGui::DragFloat4("Quat xyzw", &p.steerQuat.x, 0.005f, -1.0f, 1.0f)) {
-                    glm::quat q =
-                        glm::normalize(glm::quat(p.steerQuat.w, p.steerQuat.x, p.steerQuat.y, p.steerQuat.z));
-                    p.steerQuat  = glm::vec4(q.x, q.y, q.z, q.w);
+                    glm::quat q = glm::normalize(glm::quat(p.steerQuat.w, p.steerQuat.x, p.steerQuat.y, p.steerQuat.z));
+                    p.steerQuat = glm::vec4(q.x, q.y, q.z, q.w);
                     p.steerEuler = glm::degrees(glm::eulerAngles(q));  // sync sliders
                 }
                 if (ImGui::Button("Reset axis")) {
@@ -486,6 +501,14 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::SliderFloat("Intensity##godrays", &p.godrayIntensity, 0.0f, 2.0f);
         }
 
+        // ── Depth of Field ────────────────────────────────────────────
+        if (ImGui::CollapsingHeader("Depth of Field")) {
+            ImGui::Checkbox("Enabled##dof", &p.dofEnabled);
+            ImGui::SliderFloat("Focus dist (WU)##dof", &p.dofFocusDist, 1000.0f, 300000.0f, "%.0f");
+            ImGui::SliderFloat("Focus range (WU)##dof", &p.dofFocusRange, 10000.0f, 400000.0f, "%.0f");
+            ImGui::SliderFloat("Max CoC (texels)##dof", &p.dofMaxCoC, 0.0f, 20.0f, "%.1f");
+        }
+
         // ── SSAO ──────────────────────────────────────────────────────
         if (ImGui::CollapsingHeader("SSAO")) {
             ImGui::Checkbox("Enabled", &p.ssaoEnabled);
@@ -499,9 +522,24 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::SliderFloat("Bias", &p.shadowBias, 0.0f, 0.02f, "%.5f");
             ImGui::SliderFloat("Floor", &p.shadowFloor, 0.0f, 1.0f);
             ImGui::SliderFloat("CSM far (WU)", &p.csmShadowFar, 50000.0f, 1000000.0f, "%.0f");
+            ImGui::SliderFloat("Light size (PCSS)", &p.shadowLightSize, 0.0f, 20.0f, "%.2f");
             ImGui::SliderFloat("CSM split lambda", &p.csmLambda, 0.0f, 1.0f);
             ImGui::SliderFloat("Depth bias const", &p.depthBiasConst, 0.0f, 16.0f);
             ImGui::SliderFloat("Depth bias slope", &p.depthBiasSlope, 0.0f, 8.0f);
+        }
+
+        // ── Culling (per-draw distance + frustum) ─────────────────────
+        if (ImGui::CollapsingHeader("Culling")) {
+            ImGui::Checkbox("Enabled##cull", &p.cullEnabled);
+            ImGui::Checkbox("Frustum (G-buffer)", &p.cullFrustum);
+            ImGui::SliderFloat("View dist (WU)", &p.cullMainViewDist, 200000.0f, 4300000.0f, "%.0f");
+            ImGui::SliderFloat("Shadow dist (WU)", &p.cullShadowDist, 100000.0f, 2000000.0f, "%.0f");
+            if (p.cullMainTotal > 0)
+                ImGui::Text("main:   %d / %d drawn (%.0f%% culled)", p.cullMainSubmitted, p.cullMainTotal,
+                            100.0 * (1.0 - double(p.cullMainSubmitted) / double(p.cullMainTotal)));
+            if (p.cullShadowTotal > 0)
+                ImGui::Text("shadow: %d / %d drawn (all cascades)", p.cullShadowSubmitted, p.cullShadowTotal);
+            ImGui::TextDisabled("frustum cull = 0 visible change; pull view dist in for Layer 1");
         }
 
         // ── Wet / Rain ────────────────────────────────────────────────

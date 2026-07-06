@@ -55,9 +55,9 @@ void CameraUniforms::update(uint32_t frameIndex, const Camera& camera) {
     // road may carry far more lamps than the UBO can hold, so uploading the
     // first N would leave the road dark away from the start. Recomputed every
     // frame because the nearest set changes as the car drives.
-    const Vec3 camPos = camera.get_position();
-    const auto total  = static_cast<uint32_t>(m_lights.size());
-    const uint32_t count = std::min(total, MAX_POINT_LIGHTS);
+    const Vec3     camPos = camera.get_position();
+    const auto     total  = static_cast<uint32_t>(m_lights.size());
+    const uint32_t count  = std::min(total, MAX_POINT_LIGHTS);
 
     std::vector<uint32_t> order(total);
     std::iota(order.begin(), order.end(), 0u);
@@ -71,7 +71,7 @@ void CameraUniforms::update(uint32_t frameIndex, const Camera& camera) {
 
     LightsUBO lightsUbo{};
     for (uint32_t i = 0; i < count; i++) {
-        const LightDesc& l = m_lights[order[i]];
+        const LightDesc& l                      = m_lights[order[i]];
         lightsUbo.pointLights[i].positionRadius = Vec4(l.position, l.radius);
         lightsUbo.pointLights[i].colorIntensity = Vec4(l.color, l.intensity);
     }

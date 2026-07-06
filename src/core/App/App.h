@@ -1,6 +1,9 @@
 #pragma once
 
+#include "../../scene/SceneTypes.h"  // LightDesc (endless-road lamp rebase)
+
 #include <memory>
+#include <vector>
 
 struct GLFWwindow;
 
@@ -39,6 +42,27 @@ private:
     float m_last_mouse_y    = 0.0f;
     bool  m_cursor_captured = true;
     bool  m_esc_key_prev    = false;
+
+    // Endless-road treadmill. m_introLen = authored road length (WU); the road is
+    // tiled with one canonical chunk past its far end. m_originShift = accumulated
+    // origin-rebase (WU, double): renderZ = trueZ + m_originShift, kept a whole
+    // number of chunk lengths so the periodic tile looks identical after a rebase.
+    float  m_introLen    = 0.0f;
+    double m_originShift = 0.0;
+    // Intro lamp point-lights, kept so they can be shifted into the render frame
+    // on each origin rebase (else they detach from their posts after driving far).
+    std::vector<LightDesc> m_sceneLights;
+
+    // Interchange ribbon-follower (Layer 4 drivable). When the car enters a ramp it
+    // "attaches" to a ribbon and its position/heading/pitch are driven by that curve
+    // (arc-length s advanced by speed, lateral t by steering) until a junction/exit.
+    // m_ixRibbons are interchange-local; m_ixTrueZ is the attached instance's true Z
+    // (→ render offset = m_ixTrueZ + m_originShift, survives rebases).
+    std::vector<Ribbon> m_ixRibbons;
+    int                 m_carRibbon = -1;  // -1 = free driving
+    float               m_ribbonS   = 0.0f;
+    float               m_ribbonT   = 0.0f;
+    double              m_ixTrueZ   = 0.0;
 
     // Camera mode: cockpit (eye follows the car) vs free-fly. C toggles.
     bool  m_cockpit    = true;

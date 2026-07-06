@@ -19,8 +19,7 @@ class GpuBuffer {
 public:
     GpuBuffer() = default;
 
-    GpuBuffer(VmaAllocator allocator, const VkBufferCreateInfo& bufferInfo,
-              const VmaAllocationCreateInfo& allocInfo)
+    GpuBuffer(VmaAllocator allocator, const VkBufferCreateInfo& bufferInfo, const VmaAllocationCreateInfo& allocInfo)
         : m_allocator(allocator) {
         vmaCreateBuffer(m_allocator, &bufferInfo, &allocInfo, &m_buffer, &m_allocation, &m_info);
     }
@@ -41,8 +40,8 @@ public:
     VkBuffer      handle() const { return m_buffer; }
     VmaAllocation allocation() const { return m_allocation; }
     // Persistently-mapped pointer (valid only when created with MAPPED + HOST_ACCESS).
-    void*         mapped() const { return m_info.pMappedData; }
-    explicit      operator bool() const { return m_buffer != VK_NULL_HANDLE; }
+    void*    mapped() const { return m_info.pMappedData; }
+    explicit operator bool() const { return m_buffer != VK_NULL_HANDLE; }
 
     void reset() {
         if (m_buffer != VK_NULL_HANDLE)
@@ -70,8 +69,7 @@ class GpuImage {
 public:
     GpuImage() = default;
 
-    GpuImage(VmaAllocator allocator, const VkImageCreateInfo& imageInfo,
-             const VmaAllocationCreateInfo& allocInfo)
+    GpuImage(VmaAllocator allocator, const VkImageCreateInfo& imageInfo, const VmaAllocationCreateInfo& allocInfo)
         : m_allocator(allocator) {
         vmaCreateImage(m_allocator, &imageInfo, &allocInfo, &m_image, &m_allocation, nullptr);
     }

@@ -5,10 +5,10 @@
 #include "../renderer/GpuResource/GpuResource.h"
 #include "DebugParams.h"
 
-#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <glm/glm.hpp>
 #include <vector>
 
 namespace swish {

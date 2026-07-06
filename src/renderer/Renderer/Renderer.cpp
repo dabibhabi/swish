@@ -16,6 +16,7 @@
 #include "../RainSystem/RainSystem.h"
 #include "../SpraySystem/SpraySystem.h"
 #ifdef SWISH_DEBUG_UI
+#include "../DofPass/DofPass.h"
 #include "../TaaPass/TaaPass.h"
 #endif
 #include "../ResourceManager/ResourceManager.h"
@@ -148,6 +149,11 @@ void Renderer::init(Window& window) {
         // copies its result back into HDR so the bloom/composite chain is untouched.
         m_taa = std::make_unique<TaaPass>();
         m_taa->init(services(), hdrViews, depthViews, renderExtent);
+
+        // Depth-of-field resolve (debug-only): reads HDR + depth, copies its blurred
+        // result back into HDR so the bloom/composite chain is untouched.
+        m_dof = std::make_unique<DofPass>();
+        m_dof->init(services(), hdrViews, depthViews, renderExtent);
 #endif
 
         m_glassPass = std::make_unique<GlassPass>();
@@ -225,6 +231,10 @@ void Renderer::cleanup() {
     if (m_taa) {
         m_taa->cleanup(m_device->getDevice());
         m_taa.reset();
+    }
+    if (m_dof) {
+        m_dof->cleanup(m_device->getDevice());
+        m_dof.reset();
     }
 #endif
 
@@ -462,8 +472,8 @@ void Renderer::drawFrame(float deltaTime) {
         // Spawn spray behind the rear axle: offset the car origin backward along its
         // heading. Emission is gated inside SpraySystem by wetness × speed, so a dry
         // road (and the release build, which can't get wet) produces nothing.
-        Vec3  fwd         = (glm::length(m_carVelocity) > 1.0f) ? glm::normalize(m_carVelocity) : Vec3(0.0f, 0.0f, -1.0f);
-        Vec3  carVel      = m_carVelocity;
+        Vec3  fwd    = (glm::length(m_carVelocity) > 1.0f) ? glm::normalize(m_carVelocity) : Vec3(0.0f, 0.0f, -1.0f);
+        Vec3  carVel = m_carVelocity;
         Vec3  spawnCentre = m_carPosition - fwd * 1500.0f;  // ≈ 1.5 m behind the origin
         float wetness     = m_rainSystem ? m_rainSystem->get_wetness() : 0.0f;
 
@@ -545,6 +555,23 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
     recordSsrPass(cmd, frameIndex);
     recordGodRaysPass(cmd, frameIndex);
 
+#ifdef SWISH_DEBUG_UI
+    // Depth of field (debug-only): resolve the lit HDR + depth into a blurred image and
+    // copy it back into HDR. Runs here — after SSR/god-rays, while the scene depth is
+    // still readable (DEPTH_STENCIL_READ_ONLY) and before the forward passes — and
+    // restores HDR to COLOR_ATTACHMENT so the downstream chain is unchanged. invProj
+    // matches the SSR convention (clip→view from this frame's projection).
+    if (m_dof && m_debugParams.dofEnabled && m_camera) {
+        DofParams dp;
+        dp.enabled         = true;
+        dp.focusDist       = m_debugParams.dofFocusDist;
+        dp.focusRange      = m_debugParams.dofFocusRange;
+        dp.maxCoC          = m_debugParams.dofMaxCoC;
+        const Mat4 invProj = glm::inverse(m_camera->get_projection_matrix());
+        m_dof->record(cmd, frameIndex, m_postProcess->get_hdr_image(frameIndex), dp, invProj);
+    }
+#endif
+
     // GPU road-spray sim — advance the particles (compute; MUST be outside any render
     // pass) before the forward passes read the buffer. Emits nothing on a dry road.
     if (m_spraySystem)
@@ -578,7 +605,7 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
     // unchanged. The reprojection uses last frame's un-jittered VP + this frame's
     // jittered clip→world (matching the depth).
     if (m_taa && m_debugParams.taaEnabled && m_camera) {
-        const Mat4 view    = m_camera->get_view_matrix();
+        const Mat4 view     = m_camera->get_view_matrix();
         const Mat4 curInvVP = glm::inverse(m_camera->get_projection_matrix() * view);
         TaaParams  tp;
         tp.enabled         = true;
@@ -630,6 +657,30 @@ void Renderer::recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 
 // ── Pass 0: sun shadow map — CSM depth atlas (NUM_CASCADES slices side by side) ─
 // One depth-only render pass over the whole atlas (cleared once). Each cascade is
+// Gribb–Hartmann inward frustum planes from a column-major view*proj. Vulkan
+// clips z to [0,w]; reverse-Z only swaps which physical distance maps to 0 vs 1,
+// leaving the clip-space inequalities (−w≤x≤w, −w≤y≤w, 0≤z≤w) unchanged, so the
+// standard extraction holds. Planes are normalized so `w` is a world-space
+// distance and a sphere test can compare against its radius directly.
+static void extractFrustumPlanes(const Mat4& vp, Vec4 planes[6]) {
+    // glm is column-major: row i = (vp[0][i], vp[1][i], vp[2][i], vp[3][i]).
+    const Vec4 r0(vp[0][0], vp[1][0], vp[2][0], vp[3][0]);
+    const Vec4 r1(vp[0][1], vp[1][1], vp[2][1], vp[3][1]);
+    const Vec4 r2(vp[0][2], vp[1][2], vp[2][2], vp[3][2]);
+    const Vec4 r3(vp[0][3], vp[1][3], vp[2][3], vp[3][3]);
+    planes[0] = r3 + r0;  // left   (x ≥ −w)
+    planes[1] = r3 - r0;  // right  (x ≤  w)
+    planes[2] = r3 + r1;  // bottom (y ≥ −w)
+    planes[3] = r3 - r1;  // top    (y ≤  w)
+    planes[4] = r2;       // near   (z ≥  0, Vulkan)
+    planes[5] = r3 - r2;  // far    (z ≤  w)
+    for (int i = 0; i < 6; ++i) {
+        float len = glm::length(Vec3(planes[i]));
+        if (len > 0.0f)
+            planes[i] /= len;
+    }
+}
+
 // drawn into its horizontal sub-rect with its own light-space matrix; the scene
 // geometry is drawn once per cascade (viewport-scoped).
 void Renderer::recordShadowPass(VkCommandBuffer cmd, uint32_t frameIndex) {
@@ -650,12 +701,48 @@ void Renderer::recordShadowPass(VkCommandBuffer cmd, uint32_t frameIndex) {
 #endif
     m_depthOnlyPipeline.bind(cmd, biasConst, biasSlope);  // pipeline + dynamic depth bias
 
+    // Distance-only cull from the CAMERA: casters beyond the shadow range can't
+    // reach any cascade ortho volume, so they're pure waste. No frustum cull here
+    // (an off-screen caster can still throw a shadow into view). See record_depth.
+    // Params come from the live DebugParams in debug, the same struct's defaults
+    // (the shipped look) in release — the single-source-of-truth idiom used below.
+#ifdef SWISH_DEBUG_UI
+    const DebugParams& dcull = m_debugParams;
+#else
+    const DebugParams dcull{};
+#endif
+    CullParams shadowCull;
+    shadowCull.cameraPos   = m_camera->get_position();
+    shadowCull.enabled     = dcull.cullEnabled;
+    shadowCull.maxDistance = dcull.cullShadowDist;
+    shadowCull.useFrustum  = false;
+#ifdef SWISH_DEBUG_UI
+    CullStats sstats;  // summed across cascades (ratio is per-cascade)
+#endif
+
+    const Vec3 introOffset(0.0f, 0.0f, m_introOffsetZ);
     for (uint32_t c = 0; c < NUM_CASCADES; ++c) {
         VkRect2D subRect{{static_cast<int32_t>(c * cascadeDim), 0}, {cascadeDim, cascadeDim}};
         m_depthOnlyPipeline.set_cascade(cmd, subRect, m_cascadeVP[c]);
-        m_sceneGeometry.record_depth(cmd, m_depthOnlyPipeline);
-        m_dynamicGeometry.record_depth(cmd, m_depthOnlyPipeline);
+#ifdef SWISH_DEBUG_UI
+        m_sceneGeometry.record_depth(cmd, m_depthOnlyPipeline, shadowCull, introOffset, &sstats);
+        for (float slotZ : m_chunkSlotOffsetsZ)
+            m_chunkGeometry.record_depth(cmd, m_depthOnlyPipeline, shadowCull, Vec3(0.0f, 0.0f, slotZ), &sstats);
+        for (float slotZ : m_interchangeSlotOffsetsZ)
+            m_interchangeGeometry.record_depth(cmd, m_depthOnlyPipeline, shadowCull, Vec3(0.0f, 0.0f, slotZ), &sstats);
+#else
+        m_sceneGeometry.record_depth(cmd, m_depthOnlyPipeline, shadowCull, introOffset);
+        for (float slotZ : m_chunkSlotOffsetsZ)
+            m_chunkGeometry.record_depth(cmd, m_depthOnlyPipeline, shadowCull, Vec3(0.0f, 0.0f, slotZ));
+        for (float slotZ : m_interchangeSlotOffsetsZ)
+            m_interchangeGeometry.record_depth(cmd, m_depthOnlyPipeline, shadowCull, Vec3(0.0f, 0.0f, slotZ));
+#endif
+        m_dynamicGeometry.record_depth(cmd, m_depthOnlyPipeline, shadowCull, Vec3(0.0f));
     }
+#ifdef SWISH_DEBUG_UI
+    m_debugParams.cullShadowSubmitted = static_cast<int>(sstats.submitted);
+    m_debugParams.cullShadowTotal     = static_cast<int>(sstats.total);
+#endif
 }
 
 // ── CSM cascade fit — per-frame light-space matrices + split distances ───────
@@ -736,7 +823,7 @@ void Renderer::recordGBufferPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExt
     clear[0].color        = {{0.0f, 0.0f, 0.0f, 0.0f}};  // albedo
     clear[1].color        = {{0.5f, 0.5f, 1.0f, 0.0f}};  // normal (up = 0,0,1 encoded)
     clear[2].color        = {{0.0f, 0.0f, 0.0f, 0.0f}};  // material
-    clear[3].depthStencil = {0.0f, 0};  // reverse-Z: far = 0.0 (sky), near = 1.0; GREATER compare
+    clear[3].depthStencil = {0.0f, 0};                   // reverse-Z: far = 0.0 (sky), near = 1.0; GREATER compare
 
     ScopedRenderPass pass(cmd, m_postProcess->get_gbuffer_render_pass(),
                           m_postProcess->get_gbuffer_framebuffer(frameIndex), extent, clear.data(),
@@ -749,8 +836,49 @@ void Renderer::recordGBufferPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExt
     overrides = m_debugParams.matOverrides;  // debug per-material editor
 #endif
     const Vec3 camPos = m_camera->get_position();
-    m_sceneGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides, camPos);
-    m_dynamicGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides, camPos);
+
+    // Distance + frustum cull. Frustum culling the G-buffer pass never changes the
+    // rendered image (off-screen draws contribute no pixels); with the default view
+    // distance = camera far, distance culling is a no-op until pulled in for Layer 1.
+    // Params: live DebugParams in debug, its defaults (the shipped look) in release.
+#ifdef SWISH_DEBUG_UI
+    const DebugParams& dcull = m_debugParams;
+#else
+    const DebugParams dcull{};
+#endif
+    CullParams cull;
+    cull.cameraPos   = camPos;
+    cull.enabled     = dcull.cullEnabled;
+    cull.maxDistance = dcull.cullMainViewDist;
+    cull.useFrustum  = dcull.cullFrustum;
+    if (cull.useFrustum)
+        extractFrustumPlanes(m_camera->get_projection_matrix() * m_camera->get_view_matrix(), cull.planes);
+
+    // Authored intro (shifted by the origin rebase), then the endless-road chunks
+    // (one canonical mesh instanced at each active slot), then the dynamic car.
+    const Vec3 introOffset(0.0f, 0.0f, m_introOffsetZ);
+#ifdef SWISH_DEBUG_UI
+    CullStats stats;
+    m_sceneGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides, cull, introOffset, &stats);
+    for (float slotZ : m_chunkSlotOffsetsZ)
+        m_chunkGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides, cull,
+                                     Vec3(0.0f, 0.0f, slotZ), &stats);
+    for (float slotZ : m_interchangeSlotOffsetsZ)
+        m_interchangeGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides, cull,
+                                           Vec3(0.0f, 0.0f, slotZ), &stats);
+    m_dynamicGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides, cull, Vec3(0.0f), &stats);
+    m_debugParams.cullMainSubmitted = static_cast<int>(stats.submitted);
+    m_debugParams.cullMainTotal     = static_cast<int>(stats.total);
+#else
+    m_sceneGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides, cull, introOffset);
+    for (float slotZ : m_chunkSlotOffsetsZ)
+        m_chunkGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides, cull,
+                                     Vec3(0.0f, 0.0f, slotZ));
+    for (float slotZ : m_interchangeSlotOffsetsZ)
+        m_interchangeGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides, cull,
+                                           Vec3(0.0f, 0.0f, slotZ));
+    m_dynamicGeometry.record_draws(cmd, m_scenePipeline, *m_materialDescriptors, overrides, cull, Vec3(0.0f));
+#endif
 }
 
 // ── G-buffer attachments → SHADER_READ_ONLY for the lighting pass ───
@@ -808,8 +936,8 @@ void Renderer::recordSprayPass(VkCommandBuffer cmd, uint32_t frameIndex) {
     // Bind camera set (set 0) via the spray pipeline layout; SpraySystem::record_draws
     // binds its own set 1 (particle SSBO) and begins its render pass internally.
     VkDescriptorSet camSet = m_cameraUniforms->get_set(frameIndex);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_spraySystem->get_pipeline_layout(), 0, 1, &camSet, 0,
-                            nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_spraySystem->get_pipeline_layout(), 0, 1, &camSet,
+                            0, nullptr);
     m_spraySystem->record_draws(cmd, frameIndex);
 }
 
@@ -857,8 +985,8 @@ void Renderer::recordBloomExtract(VkCommandBuffer cmd, VkExtent2D extent) {
                             &bloomExtSet, 0, nullptr);
 
     PostProcessParams pp{};
-    pp.threshold       = 1.0f;
-    pp.bloom_intensity = 0.3f;
+    pp.threshold       = 1.77f;   // lie preset (was 1.0)
+    pp.bloom_intensity = 1.097f;  // lie preset (was 0.3)
     pp.exposure        = 1.0f;
 #ifdef SWISH_DEBUG_UI
     pp.threshold       = m_debugParams.bloomThreshold;
@@ -1043,14 +1171,14 @@ void Renderer::recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex) {
 #endif
         const Mat4 proj = m_camera->get_projection_matrix();
         SsrParams  sp{};
-        sp.proj           = proj;
-        sp.invProj        = glm::inverse(proj);
-        sp.invView        = glm::inverse(m_camera->get_view_matrix());
-        sp.maxDist        = d.ssrMaxDist;
-        sp.thickness      = d.ssrThickness;
-        sp.stride         = d.ssrStride;
-        sp.intensity      = d.ssrEnabled ? d.ssrIntensity : 0.0f;
-        sp.wetness = m_rainSystem ? m_rainSystem->get_wetness() : 0.0f;
+        sp.proj      = proj;
+        sp.invProj   = glm::inverse(proj);
+        sp.invView   = glm::inverse(m_camera->get_view_matrix());
+        sp.maxDist   = d.ssrMaxDist;
+        sp.thickness = d.ssrThickness;
+        sp.stride    = d.ssrStride;
+        sp.intensity = d.ssrEnabled ? d.ssrIntensity : 0.0f;
+        sp.wetness   = m_rainSystem ? m_rainSystem->get_wetness() : 0.0f;
         // Puddle coverage must mirror lighting.frag's SP_PUDDLE_COVERAGE so SSR reflects
         // in exactly the pools the wet model turns to mirrors. Release ships puddle-free
         // (define is 0.0), so SSR there fires only on the generally-wet road (wetness ×
@@ -1174,14 +1302,15 @@ void Renderer::recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uin
                             0, nullptr);
 
     PostProcessParams pp{};
-    pp.bloom_intensity = 0.3f;
+    pp.bloom_intensity = 1.097f;  // lie preset (was 0.3)
     // Shipped grade (composite.frag). Exposure feeds the pre-AgX multiply; contrast /
     // saturation are the post-tonemap "look". Raised from the old 0.45 — that value was
     // fighting the double-gamma washout; now the AgX EOTF (pow 2.2) linearises correctly,
     // the scene is no longer hot, so exposure returns to ~1.0 with a mild punchy grade.
-    pp.exposure   = 1.25f;
-    pp.contrast   = 1.12f;
-    pp.saturation = 1.2f;
+    pp.exposure   = 2.0f;    // lie preset (was 1.25)
+    pp.contrast   = 1.499f;  // lie preset (was 1.12)
+    pp.saturation = 0.988f;  // lie preset (was 1.2)
+    pp.brightness = 0.032f;  // lie preset (was 0.0)
 #ifdef SWISH_DEBUG_UI
     pp.bloom_intensity = m_debugParams.bloomIntensity;
     // Auto-exposure drives the exposure when enabled; else the manual slider.
@@ -1241,6 +1370,8 @@ void Renderer::recreateSwapchain() {
 #ifdef SWISH_DEBUG_UI
             if (m_taa)
                 m_taa->recreate(hdrViews, depthViews, renderExtent, m_device->getDevice());
+            if (m_dof)
+                m_dof->recreate(hdrViews, depthViews, renderExtent, m_device->getDevice());
 #endif
 
             if (m_glassPass)
@@ -1301,10 +1432,10 @@ void Renderer::set_clear_day(bool clear) {
         // Original overcast preset (matches the pre-existing hardcoded sun).
         m_sunDir   = glm::normalize(Vec3(0.3f, 0.6f, 0.15f));
         m_sunColor = Vec3(1.0f, 0.95f, 0.85f);
-        m_clarity  = 0.0f;
-        // Overcast is soft even light — higher ambient (0.22 → 0.35) so the cabin reads
-        // as evenly lit (like the LIE overcast reference), not a black interior.
-        m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(m_sunColor, 0.35f), m_clarity);
+        m_clarity  = 0.242f;  // lie preset (was 0.0)
+        // Overcast is soft even light — ambient lifted to the lie preset (0.35 → 0.823)
+        // so the cabin reads as evenly lit, not a black interior.
+        m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(m_sunColor, 0.823f), m_clarity);
     }
     // Re-bake the sky cubemaps for the new weather (dirty-checked; only on change).
     maybeRebakeIBL();
@@ -1409,7 +1540,29 @@ void Renderer::upload_scene_geometry(const MeshData& mesh, const std::vector<Dra
 
 void Renderer::destroy_scene_geometry() {
     m_sceneGeometry.cleanup(m_device->getDevice());
+    m_chunkGeometry.cleanup(m_device->getDevice());
+    m_interchangeGeometry.cleanup(m_device->getDevice());
+    m_chunkSlotOffsetsZ.clear();
+    m_interchangeSlotOffsetsZ.clear();
+    m_introOffsetZ = 0.0f;
     m_cameraUniforms->set_lights({});
+}
+
+void Renderer::upload_chunk_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws) {
+    m_chunkGeometry.upload(services(), mesh, draws);
+}
+
+void Renderer::set_road_chunks(float introOffsetZ, const std::vector<float>& slotOffsetsZ) {
+    m_introOffsetZ      = introOffsetZ;
+    m_chunkSlotOffsetsZ = slotOffsetsZ;
+}
+
+void Renderer::upload_interchange_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws) {
+    m_interchangeGeometry.upload(services(), mesh, draws);
+}
+
+void Renderer::set_interchanges(const std::vector<float>& slotOffsetsZ) {
+    m_interchangeSlotOffsetsZ = slotOffsetsZ;
 }
 
 void Renderer::upload_dynamic_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws) {
