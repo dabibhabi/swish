@@ -1,38 +1,24 @@
 {
   "main": {
-    "id": "f84501ed7440ea9c",
+    "id": "189c1d428e04c08a",
     "type": "split",
     "children": [
       {
-        "id": "ecf97edd06953c4c",
+        "id": "f023a341c23e5859",
         "type": "tabs",
         "children": [
           {
-            "id": "9cdbc1199966709b",
+            "id": "52d7c751576edec3",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "src/core/App/REFACTOR.md",
+                "file": "metal_debugging.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "REFACTOR"
-            }
-          },
-          {
-            "id": "3ffd9755ea9f1722",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "docs/GLOSSARY.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "GLOSSARY"
+              "title": "metal_debugging"
             }
           }
         ]
@@ -41,15 +27,15 @@
     "direction": "vertical"
   },
   "left": {
-    "id": "c16af1803c2c73a3",
+    "id": "f87f0f5e48eda46a",
     "type": "split",
     "children": [
       {
-        "id": "2140e0b42e2ada56",
+        "id": "c7fd2d0956146138",
         "type": "tabs",
         "children": [
           {
-            "id": "623266f2295f430b",
+            "id": "bad8d4a90ea9c134",
             "type": "leaf",
             "state": {
               "type": "file-explorer",
@@ -62,7 +48,7 @@
             }
           },
           {
-            "id": "5946e1a94580b94b",
+            "id": "4d59c790a9dba656",
             "type": "leaf",
             "state": {
               "type": "search",
@@ -79,7 +65,7 @@
             }
           },
           {
-            "id": "0bd74648376f40f3",
+            "id": "dad6132910b18dc6",
             "type": "leaf",
             "state": {
               "type": "bookmarks",
@@ -92,24 +78,23 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300,
-    "collapsed": true
+    "width": 300
   },
   "right": {
-    "id": "0266178ad77b3372",
+    "id": "d06b794dfcbbd537",
     "type": "split",
     "children": [
       {
-        "id": "a5fa9e086bc621fd",
+        "id": "64094fefb5a74a59",
         "type": "tabs",
         "children": [
           {
-            "id": "26325e9cb264e1f3",
+            "id": "37cc0d1cc37dfba3",
             "type": "leaf",
             "state": {
               "type": "backlink",
               "state": {
-                "file": "tasks/glen-cove-lie-selfguide.md",
+                "file": "metal_debugging.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -119,25 +104,25 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for glen-cove-lie-selfguide"
+              "title": "Backlinks for metal_debugging"
             }
           },
           {
-            "id": "e87618912f8bba70",
+            "id": "89f7f68c46480381",
             "type": "leaf",
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "tasks/glen-cove-lie-selfguide.md",
+                "file": "metal_debugging.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from glen-cove-lie-selfguide"
+              "title": "Outgoing links from metal_debugging"
             }
           },
           {
-            "id": "57b779ca7a450da4",
+            "id": "605cfbe434ef5184",
             "type": "leaf",
             "state": {
               "type": "tag",
@@ -152,7 +137,7 @@
             }
           },
           {
-            "id": "b0907e0119bb4130",
+            "id": "578d6579c6477a6c",
             "type": "leaf",
             "state": {
               "type": "all-properties",
@@ -166,18 +151,18 @@
             }
           },
           {
-            "id": "8a6b6ea5d7912250",
+            "id": "5676eae498613463",
             "type": "leaf",
             "state": {
               "type": "outline",
               "state": {
-                "file": "tasks/glen-cove-lie-selfguide.md",
+                "file": "metal_debugging.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of glen-cove-lie-selfguide"
+              "title": "Outline of metal_debugging"
             }
           }
         ]
@@ -198,53 +183,26 @@
       "bases:Create new base": false
     }
   },
-  "active": "9cdbc1199966709b",
+  "active": "52d7c751576edec3",
   "lastOpenFiles": [
-    "build/CMakeFiles/swish.dir/src/core/App/App.cpp-f136b339.o.tmp",
-    "build/CMakeFiles/swish.dir/src/main.cpp-dea1d61a.o.tmp",
-    "build/compile_commands.json.tmp0fa1c",
-    "build/CMakeFiles/rules.ninja.tmp7e7f9",
-    "build/build.ninja.tmp6d33a",
-    "build/Testing/Temporary/CTestCheckpoint.txt",
-    "build/Testing/Temporary/LastTest.log.tmp4fc42",
-    "build-dbgcheck/swish",
-    "build-dbgcheck/CMakeFiles/Progress/93",
-    "build-dbgcheck/CMakeFiles/swish.dir/src/debug/DebugParamsIO.cpp.o",
-    "build-dbgcheck/CMakeFiles/swish.dir/src/debug/DebugParamsIO.cpp.o.d",
-    "build-dbgcheck/_deps/catch2-src/docs/why-catch.md",
-    "build-dbgcheck/_deps/catch2-src/docs/usage-tips.md",
-    "build-dbgcheck/_deps/catch2-src/docs/tutorial.md",
-    "build-dbgcheck/_deps/catch2-src/docs/tostring.md",
-    "build-dbgcheck/_deps/catch2-src/docs/test-fixtures.md",
-    "build-dbgcheck/_deps/catch2-src/docs/test-cases-and-sections.md",
-    "build-dbgcheck/_deps/catch2-src/docs/skipping-passing-failing.md",
-    "build-dbgcheck/_deps/catch2-src/docs/reporters.md",
-    "build-dbgcheck/_deps/catch2-src/docs/reporter-events.md",
-    "build-dbgcheck/_deps/catch2-src/docs/release-process.md",
-    "build-dbgcheck/_deps/catch2-src/docs/release-notes.md",
-    "build-dbgcheck/_deps/catch2-src/docs/own-main.md",
-    "build-dbgcheck/_deps/catch2-src/docs/other-macros.md",
-    "build-dbgcheck/_deps/catch2-src/docs/opensource-users.md",
-    "build-dbgcheck/_deps/catch2-src/docs/migrate-v2-to-v3.md",
-    "build-dbgcheck/_deps/catch2-src/docs/matchers.md",
-    "build-dbgcheck/_deps/catch2-src/docs/logging.md",
-    "build-dbgcheck/_deps/catch2-src/docs/list-of-examples.md",
-    "build-dbgcheck/_deps/catch2-src/docs/limitations.md",
-    "build-dbgcheck/_deps/catch2-src/docs/generators.md",
-    "build-dbgcheck/_deps/catch2-src/docs/faq.md",
-    "build-dbgcheck/_deps/catch2-src/docs/event-listeners.md",
-    "build-dbgcheck/_deps/catch2-src/docs/deprecations.md",
-    "build-dbgcheck/_deps/catch2-src/docs/contributing.md",
-    "build-dbgcheck/_deps/catch2-src/docs/configuration.md",
-    "build-dbgcheck/_deps/catch2-src/data/artwork/catch2-logo-small.png",
-    "build-dbgcheck/_deps/catch2-src/data/artwork/catch2-logo-small-with-background.png",
-    "build-dbgcheck/_deps/catch2-src/data/artwork/catch2-hand-logo.png",
-    "build-dbgcheck/_deps/catch2-src/data/artwork/catch2-c-logo.png",
-    "build-dbgcheck/_deps/imguizmo-src/images/vectoreditor.png",
-    "build-dbgcheck/_deps/imguizmo-src/images/translation.gif",
-    "build-dbgcheck/_deps/imguizmo-src/images/sequencer.png",
-    "build-dbgcheck/_deps/imguizmo-src/images/sample.png",
-    "build-dbgcheck/_deps/imguizmo-src/images/rotation.gif",
-    "build-dbgcheck/_deps/imguizmo-src/images/nodeeditor.jpg"
+    "src/utils/README.md",
+    "plan/car_system_port.md",
+    "docs/architecture.md",
+    "docs/data-types.md",
+    "shaders/README.md",
+    "plan/README.md",
+    "src/scene/README.md",
+    "src/renderer/README.md.tmp.80459.67a405024764",
+    "src/scene/README.md.tmp.80459.4b6b130d986d",
+    "README.md.tmp.80459.76ee5b26c43f",
+    "README.md.tmp.80459.7b81827da02d",
+    "README.md.tmp.80459.929f2e1468a3",
+    "README.md.tmp.80459.667d6ec0ea16",
+    "docs/architecture.md.tmp.80459.bc83495a70f8",
+    "src/renderer/README.md.tmp.80459.3a0baab5198c",
+    "src/renderer/README.md.tmp.80459.8af6683ff9e8",
+    "src/renderer/README.md.tmp.80459.d4fd0ea64f2f",
+    "docs/README.md",
+    "tests/README.md"
   ]
 }
