@@ -247,6 +247,8 @@ add_executable(swish
     src/renderer/GlassPass/GlassPass.cpp
     src/renderer/WindshieldRainPass/WindshieldRainPass.cpp
     src/utils/StbImage.cpp
+    src/scene/RoadGeometry/RoadGeometry.cpp
+    src/scene/Treadmill/Treadmill.cpp
 )
 
 add_dependencies(swish shaders bake_configs)

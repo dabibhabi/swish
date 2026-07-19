@@ -12,9 +12,7 @@ namespace swish {
 
 Scene::Scene(std::function<void(Renderer&)> on_load) : m_on_load(std::move(on_load)) {}
 
-void Scene::run(Renderer& renderer) {
-    m_on_load(renderer);
-}
+void Scene::run(Renderer& renderer) { m_on_load(renderer); }
 
 // ══════════════════════════════════════════════════════════════════════
 // SceneManager

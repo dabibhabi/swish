@@ -25,6 +25,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Source-registry self-test (create_object / prune_sources anchors)
+        # Fast, build-free guard: fails if the add_executable(swish) anchor that
+        # the scaffolding/prune scripts depend on ever moves or is restructured.
+        run: bash scripts/test_source_registry.sh
+
       - name: Install build tools + GLFW + GLM
         run: |
           sudo apt-get update

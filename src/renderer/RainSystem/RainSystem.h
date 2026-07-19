@@ -68,6 +68,9 @@ public:
     float            get_wetness() const { return m_wetness; }
     float            get_intensity() const { return m_intensity; }
     VkPipelineLayout get_pipeline_layout() const { return m_pipeLayout; }
+    float           get_streak_len() const { return m_streakLen; }
+    float           get_time() const { return m_time; }
+    
 
     // Base streak length (WU) before the per-frame intensity scaling. Debug UI
     // drives this live; defaults to the shipped kStreakLen.

@@ -5,9 +5,9 @@ EXECUTABLE := $(BUILD_DIR)/swish
 # e.g.  make car-analyze CAR=cars/foo.glb BLENDER=/Applications/Blender.app/Contents/MacOS/Blender
 BLENDER ?= blender
 
-.PHONY: build run swish debug clean format glslc-test car-analyze test
+.PHONY: build run swish debug clean format glslc-test car-analyze test prune prune-check
 
-build:
+build: prune-check
 	@cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DSWISH_DEBUG_UI=OFF
 	@cmake --build $(BUILD_DIR)
 
@@ -31,6 +31,16 @@ test: build
 
 clean:
 	@rm -rf $(BUILD_DIR)
+
+# Remove dead sources (deleted modules) from the swish target in CMakeLists.txt.
+prune:
+	@bash scripts/prune_sources.sh
+
+# Report dead sources without editing CMakeLists.txt. Run before `build` as a
+# non-fatal warning so a deleted module is flagged (not silently rewritten).
+prune-check:
+	@bash scripts/prune_sources.sh --check || \
+		echo "  -> run 'make prune' to remove them, then rebuild."
 
 format:
 	@bash scripts/format.sh

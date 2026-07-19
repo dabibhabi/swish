@@ -4,6 +4,101 @@ All notable changes to Swish are documented here.
 
 ---
 
+### 2026-07-18 — Source-registry CI self-test; scaffolded RoadGeometry + Treadmill modules
+
+Added a build-free CI guard that fails if the `add_executable(swish)` anchor the scaffolding scripts depend on ever moves, and scaffolded the two `App` refactor modules (`RoadGeometry`, `Treadmill`) through `create_object.sh`.
+
+<details><summary>Technical summary</summary>
+
+**Motivation.** `create_object.sh` / `prune_sources.sh` anchor on the literal `add_executable(swish` line and its closing `)`. If that block is renamed, wrapped in a variable, or split, the `awk` anchors silently stop matching and the automation breaks with no signal.
+
+**Approach.**
+- **Self-test** — [scripts/test_source_registry.sh](scripts/test_source_registry.sh) drives a full create→delete→prune round-trip against a probe module and asserts: the source is inserted, it lands *inside* the swish block, `prune --check` flags it once deleted, `prune` removes it, and `CMakeLists.txt` ends **byte-identical** to a pre-run snapshot. A `trap`-based cleanup restores `CMakeLists.txt` and removes the probe on any exit path. No build required — fast.
+- **CI** — new early step in [.github/workflows/ci.yml](.github/workflows/ci.yml) runs it right after checkout, before the (slow) SDK install / build.
+- **Modules** — scaffolded `src/scene/RoadGeometry/{h,cpp}` and `src/scene/Treadmill/{h,cpp}` via `create_object.sh` (per [src/core/App/REFACTOR.md](src/core/App/REFACTOR.md) §2); both auto-registered in the swish target. Currently empty `= default` stubs — the `App::run()` logic has **not** been moved into them yet.
+
+**Verification.** Self-test passes and leaves `CMakeLists.txt` unchanged; `cmake` configures clean with the two new sources; both stub TUs compile and `swish` links; `ctest` stays **52/52**.
+
+| File | Change |
+|---|---|
+| [scripts/test_source_registry.sh](scripts/test_source_registry.sh) | **New.** Round-trip self-test of the scaffolding/prune anchors. |
+| [.github/workflows/ci.yml](.github/workflows/ci.yml) | Added the self-test as an early build-free step. |
+| [CMakeLists.txt](CMakeLists.txt) | `RoadGeometry.cpp` + `Treadmill.cpp` added to the swish target (via the script). |
+| `src/scene/RoadGeometry/{RoadGeometry.h,RoadGeometry.cpp}` | **New.** Empty stub module (scaffold). |
+| `src/scene/Treadmill/{Treadmill.h,Treadmill.cpp}` | **New.** Empty stub module (scaffold). |
+
+</details>
+
+---
+
+### 2026-07-18 — Module scaffolding auto-registers in CMake; `make prune` removes dead sources
+
+`create_object.sh` now appends the new `.cpp` to the `swish` target and a new `prune_sources.sh` (`make prune`) strips sources whose files were deleted, so adding/removing a module no longer means hand-editing `CMakeLists.txt`.
+
+<details><summary>Technical summary</summary>
+
+**Motivation.** The old [create_object.sh](scripts/create_object.sh) only made files; you still hand-edited the `add_executable(swish …)` list, and deleting a module left a dangling source line that breaks `cmake` configure. (It also had two bugs — brace-in-quotes and no shebang — fixed in the prior entry.)
+
+**Approach.**
+- **Insert** — after scaffolding, `create_object.sh` inserts `    src/<dir>/<Name>/<Name>.cpp` as the last entry before the `)` that closes the `add_executable(swish` block, via an `awk` range match on that block. Idempotent: skips if the path is already listed. Only the `.cpp` is added (headers aren't TUs and aren't listed today).
+- **Prune** — [prune_sources.sh](scripts/prune_sources.sh) reads every `*.cpp` line inside the same block, tests each against the real filesystem in bash (`[ -f ]`), and either reports (`--check`, exit 1 if any) or rewrites the file dropping the dead lines. Matches on the trimmed path so indentation is irrelevant.
+- **Wiring** — `make prune` / `make prune-check` in the [Makefile](Makefile); `build` gains a `prune-check` prerequisite that **warns, non-fatally**, about dead sources.
+
+**Why not hook `make clean`.** `clean` only does `rm -rf build/` and is expected to be safe/idempotent; silently rewriting a source-controlled `CMakeLists.txt` from it could clobber uncommitted edits. Pruning is therefore an explicit `make prune`, surfaced (not performed) at build time.
+
+```mermaid
+graph LR
+  A[create_object.sh dir Name] --> B[scaffold .h/.cpp]
+  B --> C[awk: insert .cpp before block ')']
+  D[delete module] --> E[make prune-check warns]
+  E --> F[make prune: awk drops dead line]
+```
+
+**Verification.** create→delete→prune round-trip leaves `CMakeLists.txt` **byte-identical** to the pre-run snapshot (`diff` empty); prune-check reports clean afterward; insert/prune/`--check`/clobber/bad-arg cases all pass.
+
+| File | Change |
+|---|---|
+| [scripts/create_object.sh](scripts/create_object.sh) | Appends the new `.cpp` to the `swish` target (idempotent); prints reconfigure hint. |
+| [scripts/prune_sources.sh](scripts/prune_sources.sh) | **New.** Removes/reports `swish` sources missing on disk; `--check` mode. |
+| [Makefile](Makefile) | Added `prune` / `prune-check` targets; `build` depends on `prune-check` (non-fatal warn). |
+
+</details>
+
+---
+
+### 2026-07-18 — clangd IDE tooling: root `.clangd` config pointing at build/ compile DB
+
+Set up reliable clangd Go-to-Definition / Find-All-References / Outline across project + Vulkan SDK headers by adding a root `.clangd` that points at the CMake-generated `build/compile_commands.json`.
+
+<details><summary>Technical summary</summary>
+
+**Motivation.** `CMAKE_EXPORT_COMPILE_COMMANDS` was already `ON` ([CMakeLists.txt:6](CMakeLists.txt#L6)), so `build/compile_commands.json` (155 TUs) is generated on every configure — but `build/` is gitignored and clangd only auto-discovers a compile DB in the project root or a `build/` subdir. It worked by luck; making it explicit removes the ambiguity and lets us tune indexing/diagnostics.
+
+**What was verified (no assumptions).** Dependencies are Homebrew + CMake FetchContent — **no vcpkg/conan/submodules**. Include roots actually present in the compile DB:
+
+| Dependency | Resolves via |
+|---|---|
+| Vulkan SDK (headers + validation layers) | `-isystem /Users/adminh/VulkanSDK/1.4.321.0/macOS/include` |
+| GLFW, GLM | `-isystem /opt/homebrew/include` |
+| VulkanMemoryAllocator | `-I build/_deps/vulkanmemoryallocator-src/include` |
+| tinygltf | `-I build/_deps/tinygltf-src` |
+| toml++ | `-I build/_deps/tomlplusplus-src/include` |
+| Catch2 (tests) | `-I build/_deps/catch2-*` |
+| macOS SDK / libc++ | auto (Apple clangd matches `/usr/bin/c++`, resolves `-isysroot`) |
+
+**Sanity check.** `clangd --check` on [VulkanContext.cpp](src/renderer/VulkanContext/VulkanContext.cpp) (calls `vkCreateInstance`/`VkInstance`/`VkPhysicalDevice`) confirmed the SDK `-isystem` is in the resolved cc1 command and the Vulkan headers parse into the preamble. The 7 reported "errors" are benign `VK_MAKE_VERSION` macro-token artifacts — zero `file not found` / `unknown type` diagnostics.
+
+**Fix.** Added [.clangd](.clangd) (`CompileFlags.CompilationDatabase: build`, background index, light clang-tidy) and gitignored the `.cache/` index dir.
+
+| File | Change |
+|---|---|
+| [.clangd](.clangd) | **New.** Points clangd at `build/`; C++17; background index; performance/bugprone tidy checks. |
+| [.gitignore](.gitignore) | Added `.cache/` (clangd background-index cache). |
+
+</details>
+
+---
+
 ## [Unreleased]
 
 ### 2026-07-05 — Baked the debug-tuned `lie` preset into the release (`make run`) build
