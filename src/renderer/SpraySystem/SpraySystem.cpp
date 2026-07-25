@@ -175,8 +175,8 @@ void SpraySystem::cleanup(VkDevice device) {
 
 void SpraySystem::createParticleBuffer(const RendererServices& s) {
     const VkDeviceSize size = sizeof(SprayParticle) * kSprayMaxParticles;
-    m_particleBuffer        = gpu::deviceLocalBuffer(s.allocator, size,
-                                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    m_particleBuffer = gpu::deviceLocalBuffer(s.allocator, size,
+                                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     // Zero the buffer once so every particle starts dead (life = 0). One-time submit
     // (mirrors SceneGeometry's staging pattern); the compute pass takes over after.

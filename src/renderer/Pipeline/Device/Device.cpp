@@ -7,6 +7,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <iostream>
 #include <set>
 #include <stdexcept>
 #include <vector>
@@ -22,14 +23,22 @@ void Device::init(VkInstance instance, VkSurfaceKHR surface) {
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
+    int bestScore = 0;
     for (const auto& device : devices) {
-        if (rateDevice(device, surface) > 0) {
+        const int score = rateDevice(device, surface);
+        if (score > bestScore) {
+            bestScore        = score;
             m_physicalDevice = device;
-            break;
         }
     }
     if (m_physicalDevice == VK_NULL_HANDLE) {
         throw std::runtime_error("no suitable GPU found — check Vulkan drivers and extensions");
+    }
+
+    {
+        VkPhysicalDeviceProperties props{};
+        vkGetPhysicalDeviceProperties(m_physicalDevice, &props);
+        std::cerr << "Vulkan device: " << props.deviceName << " (score=" << bestScore << ")\n";
     }
 
     // Cache queue families so callers don't have to re-enumerate

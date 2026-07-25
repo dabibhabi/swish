@@ -110,8 +110,8 @@ Call `getQueueFamilies()` to retrieve the cached `QueueFamilyIndices` — do not
 
 Negotiates:
 - **Image count:** `min(minImageCount + 1, maxImageCount)`
-- **Surface format:** prefers `VK_FORMAT_B8G8R8A8_SRGB` + `VK_COLOR_SPACE_SRGB_NONLINEAR_KHR`
-- **Present mode:** prefers `VK_PRESENT_MODE_MAILBOX_KHR` (low-latency triple-buffer), falls back to `FIFO`
+- **Surface format:** prefers `VK_FORMAT_B8G8R8A8_SRGB` + `VK_COLOR_SPACE_SRGB_NONLINEAR_KHR` (standard sRGB; avoids Linux HDR black-screen from extended-sRGB-linear)
+- **Present mode:** `VK_PRESENT_MODE_FIFO_KHR` (vsync; FPS tracks display refresh)
 
 Must be fully recreated on resize — see [Swapchain Recreation](#swapchain-recreation).
 

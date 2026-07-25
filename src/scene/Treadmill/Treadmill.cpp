@@ -23,8 +23,7 @@ void Treadmill::set_ribbons(std::vector<Ribbon> ribbons) {
     m_ixRibbons = std::move(ribbons);
 }
 
-void Treadmill::update(CarEntity& car, Renderer& renderer, GLFWwindow* window, float deltaTime,
-                       bool debugEdit) {
+void Treadmill::update(CarEntity& car, Renderer& renderer, GLFWwindow* window, float deltaTime, bool debugEdit) {
     using RG = RoadGeometry;
 
     Vec3 pos = car.get_position();
@@ -59,10 +58,9 @@ void Treadmill::update(CarEntity& car, Renderer& renderer, GLFWwindow* window, f
     RG::drivable_bounds(pos.x, carTrueZ, m_introLen, bMinX, bMaxX);
     car.set_road_bounds(bMinX, bMaxX);
 
-    const int kCar =
-        static_cast<int>(std::floor((-static_cast<double>(m_introLen) - carTrueZ) / RG::kChunkLen));
-    const int          kStart = std::max(0, kCar - RG::kChunksBehind);
-    const int          kEnd   = kCar + RG::kChunksAhead;
+    const int kCar   = static_cast<int>(std::floor((-static_cast<double>(m_introLen) - carTrueZ) / RG::kChunkLen));
+    const int kStart = std::max(0, kCar - RG::kChunksBehind);
+    const int kEnd   = kCar + RG::kChunksAhead;
     std::vector<float> slotOffsets;
     for (int k = kStart; k <= kEnd; ++k) {
         double slotTrueStart = -static_cast<double>(m_introLen) - static_cast<double>(k) * RG::kChunkLen;
@@ -72,9 +70,8 @@ void Treadmill::update(CarEntity& car, Renderer& renderer, GLFWwindow* window, f
 
     // Sparse elevated interchanges (~1.5 mi apart) around the car; interchange j is
     // centred at trueZ = −introLen − (j+1)·spacing. Culling drops the far ones.
-    const float  kInterchangeSpacing = 8.0f * RG::kChunkLen;
-    const double nIx =
-        (-static_cast<double>(m_introLen) - carTrueZ) / static_cast<double>(kInterchangeSpacing);
+    const float        kInterchangeSpacing = 8.0f * RG::kChunkLen;
+    const double       nIx   = (-static_cast<double>(m_introLen) - carTrueZ) / static_cast<double>(kInterchangeSpacing);
     const int          jNear = static_cast<int>(std::floor(nIx));
     std::vector<float> ixOffsets;
     for (int j = std::max(0, jNear - 2); j <= jNear + 1; ++j) {
@@ -92,7 +89,7 @@ void Treadmill::update(CarEntity& car, Renderer& renderer, GLFWwindow* window, f
     if (!m_ixRibbons.empty() && !debugEdit) {
         const float spd   = car.get_speed();
         const int   steer = (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS ? -1 : 0) +
-                          (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS ? 1 : 0);
+                            (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS ? 1 : 0);
         if (m_carRibbon >= 0) {
             const float   ixZ = static_cast<float>(m_ixTrueZ + m_originShift);  // render-frame Z of the instance
             const Ribbon* r   = &m_ixRibbons[m_carRibbon];
@@ -135,8 +132,7 @@ void Treadmill::update(CarEntity& car, Renderer& renderer, GLFWwindow* window, f
             const Vec3 entry = m_ixRibbons[0].pts.front();
             const Vec3 cp    = car.get_position();
             for (float ixOff : ixOffsets) {
-                if (std::abs((cp.z - ixOff) - entry.z) < 7000.f && std::abs(cp.x - entry.x) < 5000.f &&
-                    spd > 500.f) {
+                if (std::abs((cp.z - ixOff) - entry.z) < 7000.f && std::abs(cp.x - entry.x) < 5000.f && spd > 500.f) {
                     m_carRibbon = 0;
                     m_ixTrueZ   = static_cast<double>(ixOff) - m_originShift;
                     m_ribbonS   = 0.f;

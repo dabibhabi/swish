@@ -577,9 +577,9 @@ void RoadScene::generate_guardrail(MeshBuilder& builder, const RoadLayout& layou
     float beam_bot = beam_top - beam_h;
     float d        = 0.22f * kFt;  // ridge depth toward road
     float y0 = beam_bot, y1 = beam_bot + 0.25f * beam_h, y2 = beam_bot + 0.50f * beam_h, y3 = beam_bot + 0.75f * beam_h,
-          y4  = beam_top;
-    Vec3 nOut = {0.751f, -0.661f, 0.0f};  // out+up facet → faces road, tilted down
-    Vec3 nIn  = {0.751f, 0.661f, 0.0f};   // in+up facet  → faces road, tilted up
+          y4   = beam_top;
+    Vec3  nOut = {0.751f, -0.661f, 0.0f};  // out+up facet → faces road, tilted down
+    Vec3  nIn  = {0.751f, 0.661f, 0.0f};   // in+up facet  → faces road, tilted up
     builder.addSlopedQuad(rail_x0, rail_x0 + d, y0, y1, z_far, z_near, nOut, m_rail_tint, MAT_METAL, m_metal_tile);
     builder.addSlopedQuad(rail_x0 + d, rail_x0, y1, y2, z_far, z_near, nIn, m_rail_tint, MAT_METAL, m_metal_tile);
     builder.addSlopedQuad(rail_x0, rail_x0 + d, y2, y3, z_far, z_near, nOut, m_rail_tint, MAT_METAL, m_metal_tile);

@@ -24,8 +24,8 @@ public:
     ~RoadGeometry();
 
     // ── Treadmill tuning (world units) ────────────────────────────────
-    static constexpr float kChunkLen        = 300000.0f;   // 300 m
-    static constexpr int   kChunksAhead     = 8;           // 8·300 m = 2.4 km ≈ camera far plane
+    static constexpr float kChunkLen        = 300000.0f;  // 300 m
+    static constexpr int   kChunksAhead     = 8;          // 8·300 m = 2.4 km ≈ camera far plane
     static constexpr int   kChunksBehind    = 2;
     static constexpr float kRebaseThreshold = 1200000.0f;  // rebase when |render Z| exceeds ~1.2 km
     static constexpr float kCameraFar       = 2400000.0f;  // ≈ kChunksAhead·kChunkLen (chunks fill to here)

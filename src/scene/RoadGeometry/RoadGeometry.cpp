@@ -41,7 +41,8 @@ void RoadGeometry::drivable_bounds(float x, double trueZ, float introLen, float&
 
 float RoadGeometry::ribbon_length(const Ribbon& r) {
     float len = 0.0f;
-    for (size_t i = 1; i < r.pts.size(); ++i) len += glm::length(r.pts[i] - r.pts[i - 1]);
+    for (size_t i = 1; i < r.pts.size(); ++i)
+        len += glm::length(r.pts[i] - r.pts[i - 1]);
     return len;
 }
 

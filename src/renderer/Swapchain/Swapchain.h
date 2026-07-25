@@ -23,7 +23,7 @@ public:
     // Steps:
     //   1. Query swap chain support (via Device::querySwapChainSupport)
     //   2. Choose surface format — prefer VK_FORMAT_B8G8R8A8_SRGB
-    //   3. Choose present mode — prefer MAILBOX (triple buffer), fallback FIFO
+    //   3. Choose present mode — FIFO (vsync; FPS tracks display refresh)
     //   4. Choose extent — match the framebuffer size (careful on Retina!)
     //   5. Choose image count — min + 1, clamped to max
     //   6. vkCreateSwapchainKHR
@@ -52,7 +52,7 @@ private:
     // Picks the best surface format from available options
     VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& available) const;
 
-    // Picks the best present mode (MAILBOX > FIFO)
+    // Picks the present mode (FIFO / vsync)
     VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& available) const;
 
     // Determines swap extent (uses framebuffer size, not window size)
