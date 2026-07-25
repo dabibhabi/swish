@@ -168,6 +168,28 @@ struct Submesh {
     // Interior cabin geometry (node name contains "Interior") — tinted light gray
     // by CarEntity::get_draw_calls as rain rises, via the gbuffer.frag wash sentinel.
     bool is_interior = false;
+
+    // ── Road-wheel articulation ───────────────────────────────────────
+    // Corner index into CarEntity's WheelFrame table (0 FL · 1 FR · 2 BL ·
+    // 3 BR, −1 = not wheel-related), assigned by the loader from the piece
+    // node's translation. wheel_spins marks tire/rim/disc pieces (rotate
+    // with speed); caliper pieces get a corner but wheel_spins = false —
+    // they steer with the front uprights and never spin.
+    int8_t wheel_corner = -1;
+    bool   wheel_spins  = false;
+};
+
+// ── WheelFrame ────────────────────────────────────────────────────────
+// One road-wheel corner's pivot frame, recovered by the loader (pieces are
+// grouped by node ancestry + the four exact piece translations) and given
+// the same normalization as sw_pivot_frame: RootNode-relative, +90° Y,
+// grounded, scale-stripped. The frame's rotation is the corner's as-baked
+// pose — camber tilt (≈1° front / 2° rear) plus the 180° side flip — so
+// spin conjugated through it turns about the true axle (no rim wobble).
+struct WheelFrame {
+    Mat4  frame     = Mat4(1.f);
+    float radius    = 0.34f;  // rolling radius (m) = wheel-center height above ground
+    float spin_sign = 1.f;    // ±1 so +θ at forward speed rolls the wheel forward
 };
 
 // ── DrawCall ──────────────────────────────────────────────────────────

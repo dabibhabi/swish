@@ -37,7 +37,8 @@ void App::set_rain_level(int level) {
     m_renderer->set_rain_intensity(rain);
     // Drive the interior cabin wash from the same rain level so the cockpit
     // reads light gray as rain rises (off → light → heavy).
-    if (m_car) m_car->set_rain_intensity(rain);
+    if (m_car)
+        m_car->set_rain_intensity(rain);
     // Rain and the clear-day preset are mutually exclusive — an azure sunny
     // sky with rain falling reads wrong, so turning rain on cancels clear day.
     if (rain > 0.0f && m_clear_day) {
@@ -50,7 +51,8 @@ void App::set_clear_day(bool clear_day) {
     m_clear_day = clear_day;
     m_renderer->set_clear_day(clear_day);
     // Clear day is dry — reset the rain cycle (both world rain and cabin wash).
-    if (clear_day) set_rain_level(0);
+    if (clear_day)
+        set_rain_level(0);
 }
 
 void App::set_wiper(bool enabled) {
@@ -83,7 +85,8 @@ bool App::KeyEdge::pressed(GLFWwindow* window, int key) {
 
 void App::mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
-    if (!app || !app->m_cursor_captured) return;
+    if (!app || !app->m_cursor_captured)
+        return;
 
     float xf = static_cast<float>(xpos);
     float yf = static_cast<float>(ypos);
@@ -110,12 +113,16 @@ void App::mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     }
 
     Camera* camera = app->m_renderer->get_camera();
-    if (camera) { camera->process_mouse(x_offset, y_offset); }
+    if (camera) {
+        camera->process_mouse(x_offset, y_offset);
+    }
 }
 
 void App::framebuffer_resize_callback(GLFWwindow* window, int /*width*/, int /*height*/) {
     auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
-    if (app && app->m_window) { app->m_window->mark_resized(); }
+    if (app && app->m_window) {
+        app->m_window->mark_resized();
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -218,8 +225,8 @@ int App::run() {
         camera->set_pitch(-3.0f);  // slight downward driving angle
 
         // Collision bounds: keep camera within EB roadway
-        camera->set_collision_bounds(RoadGeometry::kBarrierRight + 100.0f, RoadGeometry::kEbRoadRight - 100.0f,
-                                     500.0f, 5000.0f);
+        camera->set_collision_bounds(RoadGeometry::kBarrierRight + 100.0f, RoadGeometry::kEbRoadRight - 100.0f, 500.0f,
+                                     5000.0f);
         camera->set_collision_enabled(true);
 
         VkExtent2D extent = renderer.services().swapchainExtent;
@@ -273,7 +280,7 @@ int App::run() {
     //   • overcast weather w/ 0.242 clarity + 0.823 ambient (set_clear_day's else branch)
     //   • a wet road at full rain (the preset is a rain scene: rain_intensity = 1.0)
     set_clear_day(false);  // applies the tuned overcast weather + bakes IBL
-    set_rain_level(2);      // R-key cycle resumes correctly (off → light → heavy)
+    set_rain_level(2);     // R-key cycle resumes correctly (off → light → heavy)
 
     // ── 9. Main loop with delta time ──────────────────────────────
     float last_frame_time = static_cast<float>(glfwGetTime());
@@ -294,23 +301,35 @@ int App::run() {
 
         // Note: drawFrame's handlePresent also checks wasResized, but checking here
         // ensures the flag is consumed even on frames where drawing is skipped.
-        if (m_window->wasResized()) { m_window->resetResizedFlag(); }
+        if (m_window->wasResized()) {
+            m_window->resetResizedFlag();
+        }
 
         // Toggle cursor capture with Escape (edge-detected — no toggle spam)
-        if (m_esc_key.pressed(glfw_window, GLFW_KEY_ESCAPE)) { set_cursor_captured(!cursor_captured()); }
+        if (m_esc_key.pressed(glfw_window, GLFW_KEY_ESCAPE)) {
+            set_cursor_captured(!cursor_captured());
+        }
 
         // Toggle cockpit / free-fly camera with C (edge-detected)
-        if (m_c_key.pressed(glfw_window, GLFW_KEY_C)) { set_cockpit(!cockpit()); }
+        if (m_c_key.pressed(glfw_window, GLFW_KEY_C)) {
+            set_cockpit(!cockpit());
+        }
 
         // R key cycles rain intensity: off → light → heavy → off
-        if (m_r_key.pressed(glfw_window, GLFW_KEY_R)) { set_rain_level(rain_level() + 1); }
+        if (m_r_key.pressed(glfw_window, GLFW_KEY_R)) {
+            set_rain_level(rain_level() + 1);
+        }
 
         // V key toggles the windshield wiper (edge-detected continuous sweep)
-        if (m_v_key.pressed(glfw_window, GLFW_KEY_V)) { set_wiper(!wiper_enabled()); }
+        if (m_v_key.pressed(glfw_window, GLFW_KEY_V)) {
+            set_wiper(!wiper_enabled());
+        }
 
         // G key toggles the clear-day preset (bright sunny sky). A clear day is
         // dry, so it also resets the rain cycle to off.
-        if (m_g_key.pressed(glfw_window, GLFW_KEY_G)) { set_clear_day(!clear_day()); }
+        if (m_g_key.pressed(glfw_window, GLFW_KEY_G)) {
+            set_clear_day(!clear_day());
+        }
 
 #ifdef SWISH_DEBUG_UI
         // Backtick (`) toggles debug edit-mode: free the cursor for the panel and
@@ -364,6 +383,8 @@ int App::run() {
                     (debug_edit && dp.steerAxisEdit)
                         ? glm::quat(dp.steerQuat.w, dp.steerQuat.x, dp.steerQuat.y, dp.steerQuat.z)
                         : glm::quat(1.f, 0.f, 0.f, 0.f));
+                // Road-wheel tuning (panel defaults = the shipped behavior).
+                m_car->set_wheel_tuning(dp.wheelSpinEnabled, dp.wheelSteerEnabled, dp.wheelSpinMul);
             }
 #endif
 

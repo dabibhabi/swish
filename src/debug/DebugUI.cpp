@@ -461,6 +461,14 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             }
         }
 
+        // ── Road wheels (spin + steer articulation) ────────────────────
+        if (ImGui::CollapsingHeader("Road Wheels")) {
+            ImGui::Checkbox("Spin##wheels", &p.wheelSpinEnabled);
+            ImGui::Checkbox("Steer with input##wheels", &p.wheelSteerEnabled);
+            ImGui::SliderFloat("Spin multiplier", &p.wheelSpinMul, 0.0f, 10.0f);
+            ImGui::TextDisabled("defaults = shipped look (on / on / 1.0)");
+        }
+
         // ── Fog ───────────────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Fog")) {
             ImGui::ColorEdit3("Fog color", &p.fogColor.x);

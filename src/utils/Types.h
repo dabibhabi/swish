@@ -1,10 +1,13 @@
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <vector>
+
+#define SWISH_PI 3.14159265358979323846f
 
 namespace swish {
 

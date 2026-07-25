@@ -1,6 +1,7 @@
 #include "CarEntity.h"
 
 #include "CarPhysics.h"
+#include "WheelKinematics.h"
 
 #include <GLFW/glfw3.h>
 
@@ -72,6 +73,17 @@ void CarEntity::update(float dt) {
     // Dead-stop below threshold while coasting (no throttle / reverse input).
     if (std::abs(m_forward_speed) < kSpeedDeadZone && m_throttle == 0.f && !m_reverse)
         m_forward_speed = 0.f;
+
+    // ── Road-wheel spin (kinematic rolling) ───────────────────────────
+    // Rolling without slip: ω = v / r per corner (front/rear radii differ).
+    // Signed v runs the wheels backward in reverse; the per-corner spin
+    // SIGN (which axle direction the baked frame points) is applied at
+    // draw-matrix time, so θ itself is side-agnostic.
+    if (m_wheels_valid && m_wheel_spin_on) {
+        const float v_roll = (m_forward_speed / kWorldUnitsPerMeter) * m_wheel_spin_mul;
+        for (int c = 0; c < 4; c++)
+            m_wheel_spin[c] = wheel_spin_step(m_wheel_spin[c], v_roll, m_wheel_frames[c].radius, dt);
+    }
 
     if (m_forward_speed == 0.f)
         return;
@@ -155,6 +167,34 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
     Mat4  car_model = get_model_matrix();
     float sw_angle  = m_steering_angle * kSteerRatio;
 
+    // ── Road-wheel matrices ────────────────────────────────────────────
+    // One matrix per corner for spinning pieces (tire/rim/disc) and one for
+    // steer-only pieces (calipers; only the fronts actually turn). In car
+    // space:  T(P) · R_y(−δ) · F · R_x(s·θ) · F⁻¹  — steer sits LEFT of
+    // spin so the axle turns with the upright, and spin is conjugated
+    // through the corner's baked frame F (camber tilt + 180° side flip),
+    // i.e. about the true axle: spinning about an untilted axis instead
+    // wobbles the cambered rim by ± r·sin(2°) ≈ 13 mm at the rear.
+    Mat4 wheelM[4];
+    Mat4 steerM[4];
+    if (m_wheels_valid) {
+        const float steer_rad = m_wheel_steer_on ? glm::radians(-m_steering_angle) : 0.f;
+        for (int c = 0; c < 4; c++) {
+            const WheelFrame& wf    = m_wheel_frames[c];
+            const bool        front = c < 2;  // 0 FL, 1 FR steer; rears don't
+            const Mat4 spin = wf.frame * glm::rotate(Mat4(1.f), wf.spin_sign * m_wheel_spin[c], Vec3(1.f, 0.f, 0.f)) *
+                              glm::inverse(wf.frame);
+            Mat4       steer(1.f);
+            if (front && steer_rad != 0.f) {
+                const Vec3 P(wf.frame[3]);
+                steer = glm::translate(Mat4(1.f), P) * glm::rotate(Mat4(1.f), steer_rad, Vec3(0.f, 1.f, 0.f)) *
+                        glm::translate(Mat4(1.f), -P);
+            }
+            wheelM[c] = car_model * steer * spin;
+            steerM[c] = car_model * steer;
+        }
+    }
+
     // Cabin wash DISABLED (0.0): the interior now stays crisp and detailed in rain
     // via the `dry` wettable mask (whole car excluded from the wet-road BRDF, see
     // SceneGeometry + lighting.frag) plus depth-resolved fog that leaves the near
@@ -178,6 +218,10 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
             Mat4 C   = glm::mat4_cast(m_steer_axis_correction);
             Mat4 R   = glm::rotate(Mat4(1.f), glm::radians(-sw_angle), Vec3(0.f, 0.f, 1.f));
             dc.model = car_model * s.sw_pivot_frame * C * R * glm::inverse(s.sw_pivot_frame);
+        } else if (m_wheels_valid && s.wheel_corner >= 0) {
+            // Road wheels: tire/rim/disc pieces spin (+steer at the front);
+            // caliper pieces only steer with the front uprights.
+            dc.model = s.wheel_spins ? wheelM[s.wheel_corner] : steerM[s.wheel_corner];
         } else {
             dc.model = car_model;
         }

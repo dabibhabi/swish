@@ -19,7 +19,9 @@
 #include <tiny_gltf.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -86,6 +88,26 @@ glm::mat4 norm_matrix_y90(const glm::mat4& M) {
     glm::vec3 t(M[3][0], M[3][1], M[3][2]);
     out[3] = glm::vec4(t.z, t.y, -t.x, 1.f);
     return out;
+}
+
+// ── Road-wheel piece classification ────────────────────────────────
+// The GLB has no per-wheel pivot nodes. Instead, ALL wheel geometry hangs
+// under one node whose name starts with "Combined3DWheel" (tires/rims/
+// discs — these spin) and all caliper geometry under "CombinedCalliperZone"
+// (steer with the front uprights, never spin; the asset spells it with a
+// double L). Membership is inherited down the subtree.
+enum class WheelPieceClass : uint8_t { None, Spinning, Caliper };
+
+void classify_wheel_nodes(const tinygltf::Model& model, int node_idx, WheelPieceClass current,
+                          std::vector<WheelPieceClass>& out) {
+    const auto& node = model.nodes[node_idx];
+    if (node.name.rfind("Combined3DWheel", 0) == 0)
+        current = WheelPieceClass::Spinning;
+    else if (node.name.rfind("CombinedCalliperZone", 0) == 0)
+        current = WheelPieceClass::Caliper;
+    out[node_idx] = current;
+    for (int child : node.children)
+        classify_wheel_nodes(model, child, current, out);
 }
 
 template <typename T>
@@ -187,6 +209,11 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     for (int root : scene.nodes)
         gltf_walk_nodes(gltf, root, glm::mat4(1.f), node_world, node_visited);
 
+    // Wheel/caliper membership by ancestry (see classify_wheel_nodes).
+    std::vector<WheelPieceClass> node_wheel_class(gltf.nodes.size(), WheelPieceClass::None);
+    for (int root : scene.nodes)
+        classify_wheel_nodes(gltf, root, WheelPieceClass::None, node_wheel_class);
+
     glm::mat4 ref_inverse(1.f);
 
     // ── Steering wheel articulation ───────────────────────────────────
@@ -218,6 +245,27 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     std::vector<Submesh> submeshes;       // opaque (G-buffer)
     std::vector<Submesh> glassSubmeshes;  // BLEND (forward transparent pass)
 
+    // ── Road-wheel corner recovery ────────────────────────────────────
+    // Wheel/caliper pieces are grouped by their frame translation: measured,
+    // the piece translations take exactly four values (bit-identical within
+    // a corner) = the wheel centers, in raw mesh space meters — front
+    // ±(0.725, 0.345, 1.196), rear ±(0.708, 0.362, −1.256). Corner is the
+    // sign pattern (+z = nose, +x = driver/left side); the spread and range
+    // checks are tripwires for a future re-export, tripping a loud fallback
+    // to the rigid pre-feature look rather than mis-pivoted wheels.
+    struct CornerAccum {
+        bool      seen = false;
+        glm::vec3 center{0.f};
+        glm::mat4 frame{1.f};  // captured from a SPINNING piece: proper rotation
+                               // (left calipers carry a mirror scale — never used)
+        bool  frame_from_wheel = false;
+        int   wheel_pieces = 0, caliper_pieces = 0;
+        float max_spread = 0.f;
+    };
+    CornerAccum wheel_corners[4];  // 0 FL · 1 FR · 2 BL · 3 BR
+    bool        wheels_ok = true;
+    const auto  corner_of = [](const glm::vec3& t) { return (t.z > 0.f ? 0 : 2) + (t.x > 0.f ? 0 : 1); };
+
     for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
         const auto& node = gltf.nodes[ni];
         if (!node_visited[ni] || node.mesh < 0)
@@ -225,6 +273,8 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
 
         glm::mat4 xform      = ref_inverse * node_world[ni];
         glm::mat3 normal_mat = glm::transpose(glm::inverse(glm::mat3(xform)));
+
+        const WheelPieceClass wclass = node_wheel_class[ni];
 
         for (const auto& prim : gltf.meshes[node.mesh].primitives) {
             if (prim.mode != TINYGLTF_MODE_TRIANGLES || prim.indices < 0)
@@ -313,6 +363,36 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
             sm.is_interior       = isInterior;
             sm.is_steering_wheel = !isGlass && found_sw_pivot && (node.name == "Steering_Wheel");
 
+            // ── Road-wheel tagging + corner accumulation ──────────────
+            if (!isGlass && wclass != WheelPieceClass::None) {
+                const glm::vec3 t(xform[3]);
+                // Plausibility window (meters, raw mesh space) around the
+                // measured centers; anything outside invalidates recovery.
+                if (std::abs(t.x) < 0.4f || std::abs(t.x) > 1.2f || std::abs(t.z) < 0.8f || std::abs(t.z) > 1.8f ||
+                    t.y < 0.2f || t.y > 0.6f) {
+                    wheels_ok = false;
+                } else {
+                    const int c   = corner_of(t);
+                    auto&     acc = wheel_corners[c];
+                    if (!acc.seen) {
+                        acc.seen   = true;
+                        acc.center = t;
+                    }
+                    acc.max_spread = std::max(acc.max_spread, glm::length(t - acc.center));
+                    if (wclass == WheelPieceClass::Spinning) {
+                        acc.wheel_pieces++;
+                        if (!acc.frame_from_wheel) {
+                            acc.frame            = xform;
+                            acc.frame_from_wheel = true;
+                        }
+                    } else {
+                        acc.caliper_pieces++;
+                    }
+                    sm.wheel_corner = static_cast<int8_t>(c);
+                    sm.wheel_spins  = (wclass == WheelPieceClass::Spinning);
+                }
+            }
+
             if (prim.material >= 0 && prim.material < kMaxCarMaterials) {
                 sm.material = static_cast<MaterialId>(MAT_CAR_0 + prim.material);
                 // Glass base color from the glTF material factor (RGBA).
@@ -375,6 +455,58 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         }
     }
 
+    // ── Finalize road-wheel frames (mirrors the sw_pivot treatment) ───
+    std::array<WheelFrame, 4> wheel_frames{};
+    for (int c = 0; wheels_ok && c < 4; c++) {
+        const auto& acc = wheel_corners[c];
+        // A healthy corner: seen, frame from a spinning piece, a real piece
+        // population, and bit-identical translations (≤ 1 mm spread).
+        if (!acc.seen || !acc.frame_from_wheel || acc.wheel_pieces < 50 || acc.max_spread > 1e-3f) {
+            wheels_ok = false;
+            break;
+        }
+        glm::mat4 F = norm_matrix_y90(acc.frame);
+        F[3].y -= bb_min.y;
+        for (int col = 0; col < 3; col++)
+            F[col] = glm::vec4(glm::normalize(glm::vec3(F[col])), 0.f);
+
+        WheelFrame wf;
+        wf.frame  = F;
+        wf.radius = F[3].y;  // grounded center height = rolling radius (m)
+        // The axle is the frame-local +X. Forward rolling is a rotation about
+        // −ẑ in car space (+X nose, +Y up, +Z right), so the sign flips with
+        // the corner's baked 180° side flip.
+        const glm::vec3 axle(glm::normalize(glm::vec3(F[0])));
+        wf.spin_sign = axle.z > 0.f ? -1.f : 1.f;
+        // The axle must be lateral-ish (camber only tilts it 1–2°) and the
+        // radius must look like a 992 tire, else recovery is untrustworthy.
+        if (std::abs(axle.z) < 0.9f || wf.radius < 0.25f || wf.radius > 0.45f)
+            wheels_ok = false;
+        wheel_frames[c] = wf;
+    }
+    if (!wheels_ok) {
+        // Loud fallback: untag everything → wheels render rigid (the exact
+        // pre-feature look) instead of spinning about wrong pivots.
+        for (auto& sm : submeshes) {
+            sm.wheel_corner = -1;
+            sm.wheel_spins  = false;
+        }
+        std::cout << "ModelManager::load_car: WHEEL RECOVERY FAILED — corner grouping/frame checks "
+                     "tripped; wheels render rigid"
+                  << std::endl;
+    } else {
+        static constexpr const char* kCornerName[4] = {"FL", "FR", "BL", "BR"};
+        for (int c = 0; c < 4; c++) {
+            const auto&     wf = wheel_frames[c];
+            const glm::vec3 axle(glm::vec3(wf.frame[0]));
+            std::cout << "ModelManager::load_car: wheel " << kCornerName[c] << " center (" << wf.frame[3].x << ", "
+                      << wf.frame[3].y << ", " << wf.frame[3].z << ") m, radius " << wf.radius << " m, spin sign "
+                      << wf.spin_sign << ", camber " << glm::degrees(std::acos(std::min(1.f, std::abs(axle.z))))
+                      << " deg, pieces " << wheel_corners[c].wheel_pieces << "+" << wheel_corners[c].caliper_pieces
+                      << std::endl;
+        }
+    }
+
     glm::vec3 size = bb_max - bb_min;
     std::cout << "ModelManager::load_car: '" << path << "' bbox (m) length " << size.x << " x height " << size.y
               << " x width " << size.z << ", grounded by " << -bb_min.y
@@ -394,6 +526,8 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         car->add_submesh(sm);
     for (const auto& sm : glassSubmeshes)
         car->add_glass_submesh(sm);
+    if (wheels_ok)
+        car->set_wheel_frames(wheel_frames);
 
     return car;
 }

@@ -26,28 +26,26 @@ struct DebugParams {
     // When on, the composite exposure is driven by the smoothed scene luminance
     // (exposure = aeKey / adaptedLum, clamped) instead of the manual value above.
     bool  autoExposure = false;
-    float aeKey        = 0.30f;  // target mid-grey the average maps toward
-    float aeSpeed      = 2.0f;   // adaptation rate (per second)
-    float aeMin        = 0.05f;  // exposure clamp (min)
-    float aeMax        = 2.0f;   // exposure clamp (max)
+    float aeKey        = 0.30f;   // target mid-grey the average maps toward
+    float aeSpeed      = 2.0f;    // adaptation rate (per second)
+    float aeMin        = 0.05f;   // exposure clamp (min)
+    float aeMax        = 2.0f;    // exposure clamp (max)
     float brightness   = 0.032f;  // lie preset (was 0.0) — post-grade lift   [-1, 1]
     float contrast     = 1.499f;  // lie preset (was 1.12) — post-grade contrast around 0.5
     float saturation   = 0.988f;  // lie preset (was 1.2) — 0 = greyscale, 1 = neutral
-    float temperature  = 0.0f;   // warm/cool shift   [-1, 1]
-    float tint         = 0.0f;   // green/magenta shift [-1, 1]
+    float temperature  = 0.0f;    // warm/cool shift   [-1, 1]
+    float tint         = 0.0f;    // green/magenta shift [-1, 1]
 
     // ── Sky (gradient endpoints lerped by `clarity`; sun disc) ────────
     glm::vec3 skyHorizonOvercast{0.86f, 0.87f, 0.89f};  // LIE overcast: even light grey-white
-    glm::vec3 skyHorizonClear{0.85f, 1.0f,
-                              1.25f};  // lie preset (was 0.55,0.82,1.30) — bright light blue near horizon
+    glm::vec3 skyHorizonClear{0.85f, 1.0f, 1.25f};  // lie preset (was 0.55,0.82,1.30) — bright light blue near horizon
     glm::vec3 skyZenithOvercast{0.76f, 0.79f, 0.83f};  // overcast: slightly darker grey (subtle gradient)
-    glm::vec3 skyZenithClear{0.5f, 0.8f,
-                             1.35f};   // lie preset (was 0.28,0.52,1.50) — deep azure
-    float     clarity       = 0.242f;  // lie preset (was 0.0) — 0 = overcast, 1 = clear
-    float     sunDiscExpMin = 32.0f;   // disc sharpness at overcast
-    float     sunDiscExpMax = 220.0f;  // disc sharpness at clear
-    float     sunDiscStrMin = 0.242f;  // lie preset (was 0.3) — disc strength at overcast
-    float     sunDiscStrMax = 0.9f;    // disc strength at clear
+    glm::vec3 skyZenithClear{0.5f, 0.8f, 1.35f};       // lie preset (was 0.28,0.52,1.50) — deep azure
+    float     clarity       = 0.242f;                  // lie preset (was 0.0) — 0 = overcast, 1 = clear
+    float     sunDiscExpMin = 32.0f;                   // disc sharpness at overcast
+    float     sunDiscExpMax = 220.0f;                  // disc sharpness at clear
+    float     sunDiscStrMin = 0.242f;                  // lie preset (was 0.3) — disc strength at overcast
+    float     sunDiscStrMax = 0.9f;                    // disc strength at clear
 
     // ── Sun / directional light ───────────────────────────────────────
     glm::vec3 sunColor{1.0f, 0.95f, 0.85f};
@@ -79,10 +77,10 @@ struct DebugParams {
     // View-space ray-march of the depth buffer, added to the composite. Units are
     // world units (1 m = 1000 WU). Artifact-prone — tune live against the scene.
     bool  ssrEnabled   = true;
-    float ssrMaxDist   = 36018.0f;   // lie preset (was 120000) — max reflected-ray travel (WU)
-    float ssrThickness = 1835.0f;    // lie preset (was 4000) — depth-intersection tolerance (WU)
-    float ssrStride    = 8063.0f;    // lie preset (was 2500) — initial march step (WU)
-    float ssrIntensity = 0.714f;     // lie preset (was 0.6) — reflection strength
+    float ssrMaxDist   = 36018.0f;  // lie preset (was 120000) — max reflected-ray travel (WU)
+    float ssrThickness = 1835.0f;   // lie preset (was 4000) — depth-intersection tolerance (WU)
+    float ssrStride    = 8063.0f;   // lie preset (was 2500) — initial march step (WU)
+    float ssrIntensity = 0.714f;    // lie preset (was 0.6) — reflection strength
 
     // ── God-rays (screen-space light shafts, Mitchell 2007) ───────────
     // Sun-anchored radial blur of the lit HDR, added at composite. UN-gated in the
@@ -209,6 +207,15 @@ struct DebugParams {
     bool      steerAxisEdit = false;
     glm::vec3 steerEuler{0.0f, 0.0f, 0.0f};       // pitch, yaw, roll (degrees) — slider state
     glm::vec4 steerQuat{0.0f, 0.0f, 0.0f, 1.0f};  // x, y, z, w — quaternion editor (applied)
+
+    // ── Road wheels (kinematic spin + steer articulation) ─────────────
+    // Defaults ARE the shipped behavior (spin + steer on, 1× rate) — App
+    // pushes these into CarEntity every frame under SWISH_DEBUG_UI, and the
+    // entity's own defaults match, so an untouched panel changes nothing.
+    // wheelSpinMul exaggerates ω for eyeballing slow footage.
+    bool  wheelSpinEnabled  = true;
+    bool  wheelSteerEnabled = true;
+    float wheelSpinMul      = 1.0f;
 
     // ── UI state (not a scene parameter, but lives with the rest) ─────
     bool editMode  = false;  // true = cursor free to drive the panel; false = drive-mode (panel ignores mouse)

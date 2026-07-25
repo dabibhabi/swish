@@ -2,6 +2,7 @@
 
 #include "Entity.h"
 
+#include <array>
 #include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -63,6 +64,24 @@ public:
     // tint applied in get_draw_calls (via the gbuffer.frag color.a sentinel).
     void set_rain_intensity(float intensity) { m_rain_intensity = intensity; }
 
+    // ── Road-wheel articulation (kinematic spin + steer) ──────────────
+    // Loader-recovered per-corner pivot frames (0 FL · 1 FR · 2 BL · 3 BR).
+    // Until this is called, wheel submeshes render rigid (pre-feature look).
+    void set_wheel_frames(const std::array<WheelFrame, 4>& frames) {
+        m_wheel_frames = frames;
+        m_wheels_valid = true;
+    }
+    bool wheels_valid() const { return m_wheels_valid; }
+
+    // Debug-UI tuning (App pushes these under SWISH_DEBUG_UI each frame).
+    // The defaults ARE the shipped behavior, so release — which never calls
+    // this — behaves exactly like an untouched panel.
+    void set_wheel_tuning(bool spin_on, bool steer_on, float spin_mul) {
+        m_wheel_spin_on  = spin_on;
+        m_wheel_steer_on = steer_on;
+        m_wheel_spin_mul = spin_mul;
+    }
+
     // World-space unit vector pointing toward the car's nose (+X at yaw=0).
     Vec3 get_forward() const {
         float yaw = glm::radians(m_rotation.y);
@@ -80,6 +99,16 @@ private:
     float     m_steering_angle = 0.f;                       // degrees, negative = left, positive = right
     float     m_rain_intensity = 0.f;                       // [0,1] — drives the interior cabin wash tint
     glm::quat m_steer_axis_correction{1.f, 0.f, 0.f, 0.f};  // debug spin-axis fix (identity = none)
+
+    // Road-wheel state: per-corner spin angle θ, wrapped to [0, 2π) every
+    // step (WheelKinematics.h) so float precision holds over km drives.
+    std::array<WheelFrame, 4> m_wheel_frames{};
+    std::array<float, 4>      m_wheel_spin{0.f, 0.f, 0.f, 0.f};
+    bool                      m_wheels_valid = false;
+    // Debug tuning (defaults = shipped behavior; see set_wheel_tuning).
+    bool  m_wheel_spin_on  = true;
+    bool  m_wheel_steer_on = true;
+    float m_wheel_spin_mul = 1.f;
 
     // Per-frame longitudinal controls, set by handle_input(), applied in update().
     float m_throttle = 0.f;    // [0,1]

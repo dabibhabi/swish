@@ -27,6 +27,7 @@ Everything you need to understand, extend, and contribute to Swish.
 | [learning-path.md](learning-path.md) | Study map — graphics algorithms, GPU methods, and the math (ODEs, SH, splines, volumetrics) behind rain · car · road · light, with resources and questions |
 | [data-types.md](data-types.md) | Every data struct (DTO) and UBO, with exact layouts and std140 rules |
 | [car_system.md](car_system.md) | GLB loading and car-mesh normalization algorithm |
+| [wheels/README.md](wheels/README.md) | Wheel/tire articulation plan — spin/steer/suspension phases A–C, decision log (4 open questions), risk register; synthesizes the three expert research docs in `wheels/research/` |
 | [research-rain-rendering.md](research-rain-rendering.md) | Cited survey of realistic-rain techniques (streaks, drops-on-glass, GPU particles, veils) — AI-assisted |
 | [research-night-scene-realism.md](research-night-scene-realism.md) | Cited survey of night-scene realism (wet-road BRDF, many-lights, tone mapping, atmospherics, motion) — AI-assisted |
 | [investigations/](investigations/) | Debugging write-ups (e.g. the VUID-00067 semaphore fix) |
@@ -67,3 +68,5 @@ All diagrams are valid [Excalidraw](https://excalidraw.com) JSON (version 2). Op
 | [architecture-layman](diagrams/architecture-layman.excalidraw) | Plain-language "how one frame becomes the picture" (8 steps) |
 | [architecture-technical](diagrams/architecture-technical.excalidraw) | Full per-frame pass pipeline + descriptor sets + compute + the 4 new GPU features |
 | [roadside-detail](diagrams/roadside-detail.excalidraw) | Roadside-detail generation: config → baker → RoadScene section generators → MeshBuilder quads/DrawCalls → SceneGeometry → G-buffer → lighting, with a sign-gantry anatomy inset |
+| [wheel-tire-plan](diagrams/wheel-tire-plan.excalidraw) | Wheel articulation plan — load-time GLB clustering → wheel groups/pivot frames; per-frame WheelState[4] → 9-group matrix LUT → get_draw_calls → G-buffer/CSM/glass |
+| [wheel-articulation-asbuilt](diagrams/wheel-articulation-asbuilt.excalidraw) | Wheel articulation AS BUILT (Phase A, 2026-07-24) — loader ancestry/corner recovery → WheelFrame[4]; per-frame θ wrap + corner LUT → unchanged GPU passes; debug panel + test matrix |
