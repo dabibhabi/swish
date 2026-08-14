@@ -40,3 +40,24 @@ blank-line grouping, which Regroup ignores.
   — because…`) makes clang-format ignore it and re-sort anyway. Put the explanation on separate lines above.
 - **General:** `make format` is not always safe — after running it, rebuild BOTH configs (a release-only
   build won't compile the debug-only TUs where this bites) before declaring done.
+
+## A silent-zero grep is not evidence of absence (2026-07-28)
+
+**Mistake:** During a docs audit I ran `grep -rilE "god-ray\|godray" docs/*.md`, got nothing, and
+reported that god-rays / TAA / spray / DOF were **undocumented**. They are all documented, in
+`docs/realism-features.md`, with their own sections. I'd told the user the docs had a large hole that
+didn't exist.
+
+**Why it happened:** in an ERE (`-E`), `\|` is an *escaped* pipe — it matches a literal `|` character,
+not alternation. Every one of my multi-alternative patterns was silently searching for a string
+containing a pipe, and every one returned zero matches. Zero matches looked like a finding.
+
+**Rule for myself:**
+1. Before concluding something is **absent**, prove the pattern can find something **present** —
+   re-run it against a term you know exists. A negative grep is only as trustworthy as its regex.
+2. Watch the escaping dialect: `grep -E "a|b"` (alternation) vs `grep "a\|b"` (BRE alternation) vs
+   `grep -E "a\|b"` (literal pipe — almost never what I want). When in doubt, use `-e a -e b`.
+3. A result that is *uniformly* empty across many patterns is a smell — real codebases are patchy.
+   Uniform zero usually means the tool is broken, not the codebase.
+4. Correct the record explicitly when this happens. Related: [[swish-visual-verification]] — same
+   family of error, trusting an indirect signal instead of looking at the thing itself.

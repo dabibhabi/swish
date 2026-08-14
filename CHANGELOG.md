@@ -4,6 +4,211 @@ All notable changes to Swish are documented here.
 
 ---
 
+### 2026-08-05 — Added docs/lessons-from-chrono/: 10-part deep dive mapping Project Chrono's vehicle dynamics onto swish
+
+Wrote a new documentation series (`docs/lessons-from-chrono/00`–`09`) that goes below the existing `examples/chrono/VEHICLE_DYNAMICS_GUIDE.md` into Chrono's solver mathematics (measure differential inclusions, friction-cone projections, APGD/BB/PSOR/ADMM, Lie-group rotation stepping, the numerics toolbox) and above it into a prioritized plan for swish's wet-road realism — no source code changed.
+
+<details><summary>Technical summary</summary>
+
+**Motivation.** The realism push is now bottlenecked on vehicle dynamics (wheel Phases B/C, wet-μ) more than rendering. The existing Chrono guide maps *where* the car logic lives; this series extracts the *lessons* — the rigorous math, the implementation patterns, and an explicit swish seam for each — so Phase C's wet-grip work starts from verified theory instead of folklore. Largely AI-generated (labeled in the series index); every Chrono `file:line` citation was read directly, and the two central absence claims were re-verified by grep + call-site reading: NSC contact consumes only `static_friction` (`ChContactNSC.cpp:53`), and Pac02's relaxation lengths (`CalcSigmaK/A`) are computed but never called.
+
+**Key findings the series is built on.**
+
+- Chrono's contact formulation is genuinely measure-theoretic: velocity is BV, "acceleration as measure" (`ChTimestepperImplicit.cpp:430`), impulse-level Anitescu stepping, and a closed-form Moreau projection onto the friction cone (`ChConstraintContactNormal.cpp:47-95`) whose middle branch is
+
+$$
+\hat f_n = \frac{\mu\,\lVert f_t\rVert + f_n}{\mu^2 + 1}, \qquad \hat f_t = \mu \hat f_n
+$$
+
+- **Chrono has no wet-road / rain / hydroplaning model anywhere** (negative result, grep-verified). Its four variable-friction hooks all have hard limits — notably the per-tire μ clamp to $[0.1, 1.0]$ and the fact that μ scales only curve *saturation*, never slip stiffness (`ChTMeasyTire.cpp:119-121, 160-172`). The wet model in file 07 is therefore synthesis: $\mu(w,v)$ with a speed fade plus NASA/Horne hydroplaning onset $v_p \approx 1.76\sqrt{p\,[\text{kPa}]}$, gated on film depth vs tread — designed to plug into the already-plumbed-but-inert `set_rain_intensity` seam and Phase C decision 4.
+- TMeasy's numerics repay study: through-origin quadratic load interpolation for forces vs affine for slip landmarks, the C¹ master-curve monotonicity bound $\mathrm{d}f_0 \ge 2F_m/s_m$, and a Dahl bristle standstill model integrated by closed-form BDF1.
+
+```mermaid
+graph LR
+    A["01 architecture"] --> B["02 tires"] --> H["07 wet roads"] --> J["09 swish map"]
+    A --> D["03 contact/measure theory"] --> E["04 solvers"] --> I["08 numerics"] --> J
+    A --> F["05 rotations"]
+    A --> G["06 driveline/drivers"]
+```
+
+| File | Change |
+|------|--------|
+| [docs/lessons-from-chrono/00-index.md](docs/lessons-from-chrono/00-index.md) | New — series map, reading order, notation table, AI-provenance label. |
+| [docs/lessons-from-chrono/01-architecture.md](docs/lessons-from-chrono/01-architecture.md) | New — one-system-of-equations vs layered closed-form models; two-clock sub-stepping; functor/pure-header/report-struct patterns. |
+| [docs/lessons-from-chrono/02-tire-models.md](docs/lessons-from-chrono/02-tire-models.md) | New — slip singularity, Fiala→Pac02 ladder, TMeasy internals, Dahl bristle, regularization catalog; proposed `lateral_tire_force()` (TMeasy-lite) for the `CarPhysics.h:101` seam. |
+| [docs/lessons-from-chrono/03-contact-as-measure-theory.md](docs/lessons-from-chrono/03-contact-as-measure-theory.md) | New — BV velocity, differential measures, MDIs, cone/polar/normal cones, Moreau decomposition, the 9-line projection + SVG geometry, nonexpansive-vs-contractive. |
+| [docs/lessons-from-chrono/04-solvers-and-metric-spaces.md](docs/lessons-from-chrono/04-solvers-and-metric-spaces.md) | New — CCP as fixed point, natural residual, APGD (incl. the `:132` backtracking inconsistency), BB spectral steps, PSOR/Mangasarian, ADMM, mass matrix as Riemannian metric. |
+| [docs/lessons-from-chrono/05-rotations-and-lie-groups.md](docs/lessons-from-chrono/05-rotations-and-lie-groups.md) | New — quaternion exp/log numerics, 7/6-coordinate retraction stepping, SO(3) metric; ties to `wrap_angle_2pi` and the wheel-frame conjugation. |
+| [docs/lessons-from-chrono/06-driveline-powertrain-drivers.md](docs/lessons-from-chrono/06-driveline-powertrain-drivers.md) | New — torque-converter pump law + domain policies, the 5.4× K-unit trap (≈29× torque), shift hysteresis+latency, PID/Stanley/ACC controllers. |
+| [docs/lessons-from-chrono/07-wet-roads-and-rain.md](docs/lessons-from-chrono/07-wet-roads-and-rain.md) | New — the negative result; Chrono's four friction hooks + limits; the synthesized wet-μ model with worked `effective_mu()` code, wiring plan, and test contract. |
+| [docs/lessons-from-chrono/08-numerics-toolbox.md](docs/lessons-from-chrono/08-numerics-toolbox.md) | New — tables/extrapolation policy, Thomas-algorithm splines + diagonal-dominance argument, monotone-map inversion, singular-integrand quadrature, regularization bestiary, A-stability + Phase B substep. |
+| [docs/lessons-from-chrono/09-swish-map.md](docs/lessons-from-chrono/09-swish-map.md) | New — seam-by-seam action table reconciled with Phases B/C, invariants (dry-handling bit-identical), and the "do not build" list. |
+| [docs/README.md](docs/README.md) | Added the series to the reference-docs index. |
+
+Verified: all internal and cross-repo links resolve; math/mermaid/callout syntax lint-checked for Obsidian + GitHub rendering; `make test` 56/56 (no source changes).
+
+</details>
+
+---
+
+### 2026-08-02 — Split Types.h into per-library type headers under utils/types/
+
+Split the monolithic `Types.h` into focused headers (`GlmTypes`, `StdTypes`, `GlfwTypes`) with short snake_case aliases so code can drop `std::`/`glm::` namespace noise; `Types.h` remains a backward-compatible umbrella.
+
+<details><summary>Technical summary</summary>
+
+**Motivation:** [src/utils/Types.h](src/utils/Types.h) mixed glm aliases, constants, and library includes in one file, and everyday code still spelled out `std::vector`, `glm::mat3`, `uint32_t`, etc. A usage survey of `src/` (177× `std::vector`, 171× `std::array`, 48× `glm::vec3`, 32× `GLFWwindow`, …) drove which aliases were worth adding.
+
+**Approach:** new `src/utils/types/` directory; `Types.h` becomes an umbrella with `// IWYU pragma: export` so all existing includes keep compiling unchanged. Naming convention is lowercase / snake_case (`vec3`, `unique_ptr<T>`, `str`); the old capitalized glm aliases (`Vec3`, `Mat4`, …) are kept as legacy names since ~150 call sites use them. Release output is unaffected (aliases only; `SWISH_PI` macro preserved).
+
+| File | Change |
+|------|--------|
+| [src/utils/types/GlmTypes.h](src/utils/types/GlmTypes.h) | New — `vec2/3/4`, `ivec2`, `uvec2`, `mat3`, `mat4`, `quat`, plus legacy `Vec2/3/4`, `Mat4`, `Quat`. |
+| [src/utils/types/StdTypes.h](src/utils/types/StdTypes.h) | New — `u8..u64`, `i8..i64`, `f32/f64`, `usize`, `vector<T>`, `array<T,N>`, `unique_ptr<T>`, `str`. |
+| [src/utils/Constants.h](src/utils/Constants.h) | New — engine constants `PI` (constexpr, plus legacy `SWISH_PI` macro), `WORLD_SCALE`, `MAX_FRAMES_IN_FLIGHT`; separate from `types/` since these are values, not types. |
+| [src/utils/types/GlfwTypes.h](src/utils/types/GlfwTypes.h) | New — forward-declares `GLFWwindow`, aliases `glfw_window` (avoids full GLFW include and the `swish::Window` name collision). |
+| [src/utils/Types.h](src/utils/Types.h) | Rewritten as umbrella header including the four above. |
+
+Verified with `make test`: 56/56 passing.
+
+</details>
+
+---
+
+### 2026-07-28 — Documentation audit: corrected the stale "four paused GPU features" brief and documented the endless-road subsystem
+
+> Audited every project-instruction and reference doc against the shipped tree. `CLAUDE.md` was telling every session that god-rays, IBL, puddles+spray and TAA were "not started — do NOT begin without confirmation" three weeks after all four shipped, and listed the wrong descriptor-set indices and test count; `render-pipeline.md` documented an ACES tonemapper the composite hasn't used since AgX landed, and an "SSAO — Disabled" pass that ships in release. Fixed those, added the missing depth-of-field section to `realism-features.md`, and wrote a new [`docs/endless-road.md`](docs/endless-road.md) for the streaming corridor (Layers 0–4b), which previously existed only in CHANGELOG entries.
+
+<details>
+<summary>Technical summary</summary>
+
+**Motivation.** `CLAUDE.md` is loaded into the context of every session, so an error there is an error in every future turn — not a passive typo. Its "⏭️ Upcoming / deferred tasks — READ THIS FIRST" block instructed agents not to start four features that had shipped on 2026-07-03, which is exactly the kind of instruction that causes duplicated or contradictory work. `tasks/todo.md`, by contrast, was **already correct** (all four marked `✓ LANDED`) — the drift was confined to the instruction file and two reference docs.
+
+**Root causes of the drift.** All three stale claims are the same shape: a fact was written down when it was true, the code moved, and the doc didn't. Specifically —
+
+| Stale claim | Reality | Since |
+|---|---|---|
+| Four GPU features "not started" | All shipped | `0f2de20`, 2026-07-03 |
+| `lighting.frag` set 3 = scene-params | Set 3 = IBL; scene-params moved to set 4 | `decc9c6` |
+| `make test` → 52/52 | 56 tests (wheel Phase A added 4) | 2026-07-24 |
+| Composite tonemaps with ACES Narkowicz | AgX (Blender 3.4 / Sobotka) | before `c809944` |
+| "SSAO — Disabled", AO is a white fallback | SSAO ships in release | `9cb806b` |
+
+**Also recorded the platform constraint.** The user confirmed swish targets macOS/MoltenVK only, so `VK_KHR_ray_tracing_pipeline` and `VK_KHR_acceleration_structure` are unavailable and RT reflections / SVGF denoising are off the roadmap. This is now stated in `CLAUDE.md` and in a new "Not built (and why)" section in `realism-features.md`, so it doesn't get re-proposed.
+
+**New doc — [`docs/endless-road.md`](docs/endless-road.md).** The endless corridor was the largest genuinely undocumented subsystem: Layers 0–4b all shipped on 2026-07-05 but lived only in CHANGELOG entries and `tasks/todo.md` checkboxes. The doc covers the locked design decisions, the `RoadGeometry` tuning constants, Gribb–Hartmann frustum culling, the chunk treadmill and its origin rebase
+
+$$z_\text{render} = z_\text{true} + \Delta_\text{origin}$$
+
+(with $\Delta_\text{origin}$ accumulated in whole `kChunkLen` steps as a `double`, which is *why* the rebase is invisible — the periodic tile is identical after the shift), the ribbon primitive, the elevated diamond interchanges, and the ribbon-follower state machine that makes ramps drivable where an `(x,z) → y` height query cannot, because decks overlap.
+
+```mermaid
+graph LR
+  FREE["Free driving"] -->|on-ramp| ATT["Attached to ribbon"]
+  ATT -->|"s += speed·dt, t ← steer"| ATT
+  ATT -->|junction| NEXT[next / branch] --> ATT
+  ATT -->|ramp ends| FREE
+```
+
+**Verification.** Docs-only — no source, shader or build file touched, so the build and the 56/56 test suite are unaffected by construction. Every relative markdown link in the five touched files was checked to resolve against the working tree (the sole reported miss is the literal `[path](path)` placeholder inside the CHANGELOG-convention text itself). Each corrected fact was verified against the source, not against another doc: descriptor sets read from `shaders/lighting.frag`, the tonemapper from `shaders/composite.frag`, the pass order from `Renderer::recordFrame`, the test count from `ctest -N`, and the treadmill constants from `RoadGeometry.h`.
+
+**Process note.** An initial pass wrongly reported god-rays/TAA/spray/DOF as undocumented; the audit grep used `-E` with `\|`, which matches a literal pipe rather than alternation, so every multi-term pattern silently returned nothing. Recorded in [`tasks/lessons.md`](tasks/lessons.md) as "a silent-zero grep is not evidence of absence".
+
+| File | Change |
+|------|--------|
+| [CLAUDE.md](CLAUDE.md) | Rewrote the project blurb (endless road, full realism suite) and replaced the stale "four paused features" block with a current-state section: platform/RT constraint, the four features marked shipped, and a ranked list of what is genuinely open. Fixed test count 52 → 56 and the descriptor-set indices (IBL = 3, scene-params = 4). Expanded the docs map with `endless-road.md`, `wheels/`, `glen-cove-lie.md`, `vma-memory.md`. |
+| [docs/endless-road.md](docs/endless-road.md) | **New** — the endless LIE corridor: design decisions, constants, culling, treadmill + rebase, service roads, ribbons, interchanges, ribbon-follower, deferred work. |
+| [docs/render-pipeline.md](docs/render-pipeline.md) | Reframed as the *base* chain with a pointer to the interleaved realism passes; ACES → AgX (with the gamut-compression/EOTF chain and the `c809944` double-gamma bug); corrected composite inputs to the real 5 bindings; replaced the false "SSAO — Disabled" block with a "passes not listed here" pointer; noted reverse-Z. |
+| [docs/realism-features.md](docs/realism-features.md) | Added the missing **DoF** section (CoC math, Poisson gather, debug gating); added a release/debug/hybrid gating table; added "Not built (and why)" covering RT, local probes, froxels, per-object velocity, clearcoat; added DoF + TAA + spray-compute to the pass-order mermaid. |
+| [docs/README.md](docs/README.md) | Indexed `endless-road.md` and `vma-memory.md`; corrected the render-pipeline and realism-features row descriptions. |
+| [tasks/lessons.md](tasks/lessons.md) | New lesson on trusting a zero-match grep without validating the regex. |
+
+</details>
+
+---
+
+### 2026-07-24 — Wheel articulation Phase A: all four road wheels spin with speed, fronts steer with input
+
+Implemented kinematic wheel spin + steer articulation — the loader recovers the four wheel groups and pivot frames from the flattened GLB (no Blender re-export), and `CarEntity` composes per-corner draw matrices through the shipped steering-wheel conjugation path; zero render-pipeline changes, 56/56 tests, visually verified.
+
+<details><summary>Technical summary</summary>
+
+**Motivation.** Phase A of the wheel plan ([docs/wheels/README.md](docs/wheels/README.md), decisions locked 2026-07-24): the road wheels were welded to the body — the most visible realism gap at chase distance.
+
+**Approach.**
+
+- **Loader recovery** ([src/scene/ModelManager/ModelManager.cpp](src/scene/ModelManager/ModelManager.cpp)) — `classify_wheel_nodes` walks the GLB stamping subtree membership (`Combined3DWheel*` → spinning tire/rim/disc pieces; `CombinedCalliperZone*` → steer-only calipers). Each piece's RootNode-relative frame translation lands on exactly one of four wheel centers, so corner = sign pattern (+z nose, +x driver side), with ≤ 1 mm spread + plausibility-window tripwires that fall back **loudly** to untagged (rigid, pre-feature) wheels. Per corner a `WheelFrame` is captured from a spinning piece and given the exact `sw_pivot_frame` treatment (+90° Y swizzle, grounding shift, scale strip); the rolling radius is the grounded center height and the spin sign is $s_w = -\operatorname{sgn}(\hat a_w \cdot \hat z)$ from the frame's own axle direction, so the asset's baked 180° side flip and 1°/2° camber are handled by measurement, not assumption.
+- **Kinematics** ([src/scene/Entity/WheelKinematics.h](src/scene/Entity/WheelKinematics.h), new) — pure SI, GPU-free, `CarPhysics.h`-style: $\theta' = \operatorname{wrap}_{2\pi}\!\big(\theta + \tfrac{v}{r}\,dt\big)$. Wrapping every step keeps θ below 2π where a float ULP is ~4·10⁻⁷ rad; unwrapped θ at km distances reaches ~10⁴ rad where the ULP is ~10⁻³ rad of visible rim quantization.
+- **Runtime** ([src/scene/Entity/CarEntity.cpp](src/scene/Entity/CarEntity.cpp)/[.h](src/scene/Entity/CarEntity.h)) — per-corner θ integrates in `update`; `get_draw_calls` builds a corner LUT and stamps tagged submeshes ([src/scene/SceneTypes.h](src/scene/SceneTypes.h): `wheel_corner`, `wheel_spins`, `WheelFrame`):
+
+$$M_{\text{wheel}}[c] = M_{\text{car}} \cdot \underbrace{T(P_c)\,R_y(-\delta)\,T(-P_c)}_{\text{fronts only}} \cdot \underbrace{F_c\,R_x(s_c\,\theta_c)\,F_c^{-1}}_{\text{spin in the baked frame}}$$
+
+  Steer sits **left** of spin so the axle turns with the upright; conjugating spin through the measured baked frame $F_c$ spins about the true (cambered, side-flipped) axle — an untilted axis would wobble the rim by $\pm\,r\sin 2° \approx 13$ mm at the rear. Calipers reuse the steer sandwich only; rears stay at $M_{\text{car}}$.
+- **Debug UI** (all `#ifdef SWISH_DEBUG_UI`) — "Road Wheels" panel ([src/debug/DebugUI.cpp](src/debug/DebugUI.cpp), [src/debug/DebugParams.h](src/debug/DebugParams.h)) with spin/steer toggles + spin multiplier, pushed via `CarEntity::set_wheel_tuning` from [src/core/App/App.cpp](src/core/App/App.cpp); defaults equal the shipped behavior.
+- **Release note:** this is the phase's one intentional release-visible change — wheels now animate. At rest with centered steering every new transform is identity, so the static frame is unchanged; the render pipeline, descriptors, and draw counts are untouched (all passes already consume per-draw `dc.model`).
+
+```mermaid
+graph LR
+    GLB["porsche.glb"] --> CLS["ancestry classify<br/>+ corner by translation"] --> WF["WheelFrame[4]<br/>F, r, s"] --> CE["CarEntity"]
+    CE --> UPD["update: θ = wrap(θ + v·dt/r)"] --> LUT["corner LUT<br/>T(P)·Ry(−δ)·F·Rx(s·θ)·F⁻¹"] --> DC["dc.model"] --> GPU["G-buffer · CSM ×3 · glass<br/>(unchanged)"]
+```
+
+**Verification.**
+
+- `make test` **56/56** (4 new: ω = v/r incl. reverse sign; wrap-into-range; zero-speed hold; 4.2 km wrapped-θ drift ≤ 5·10⁻³ rad vs a double reference). Debug-UI config compiles clean.
+- Loader log on boot: all 4 corners, radii 0.346 m F / 0.363 m R, camber 1.0°/2.0°, spin signs L +1 / R −1, pieces 302+140 / 267+113 — matching the research measurements exactly.
+- Visual (release build, window-only screenshots via a **temp chase-camera force, reverted after**): full-lock LEFT swings the front-left wheel out toward the camera, full-lock RIGHT tucks it away, rears never move; magnified rim crops 0.22 s apart show the rim detail walking counter-clockwise around a perfectly concentric hub (car moving away, viewed from the left = correct direction, **no camber wobble**); wheels stay seated in their arches at speed; rest frame identical to pre-feature.
+
+| File | Change |
+|---|---|
+| [src/scene/Entity/WheelKinematics.h](src/scene/Entity/WheelKinematics.h) | **New.** Pure SI wheel kinematics: `wrap_angle_2pi`, `wheel_spin_step`. |
+| [src/scene/SceneTypes.h](src/scene/SceneTypes.h) | `Submesh::wheel_corner`/`wheel_spins` tags; new `WheelFrame` struct. |
+| [src/scene/ModelManager/ModelManager.cpp](src/scene/ModelManager/ModelManager.cpp) | Ancestry classification, corner grouping + tripwires, frame/radius/sign recovery, rigid fallback, per-corner boot log. |
+| [src/scene/Entity/CarEntity.h](src/scene/Entity/CarEntity.h) | Wheel state (`WheelFrame[4]`, per-corner θ), `set_wheel_frames`, `set_wheel_tuning`. |
+| [src/scene/Entity/CarEntity.cpp](src/scene/Entity/CarEntity.cpp) | θ integration in `update`; corner LUT + stamping in `get_draw_calls`. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) | `wheelSpinEnabled` / `wheelSteerEnabled` / `wheelSpinMul` (defaults = shipped). |
+| [src/debug/DebugUI.cpp](src/debug/DebugUI.cpp) | "Road Wheels" collapsing section. |
+| [src/core/App/App.cpp](src/core/App/App.cpp) | Pushes wheel tuning to the car inside the existing `SWISH_DEBUG_UI` block. |
+| [tests/test_car_physics.cpp](tests/test_car_physics.cpp) | 4 new `[wheel][kinematic]` cases (52 → 56). |
+| [docs/diagrams/wheel-articulation-asbuilt.excalidraw](docs/diagrams/wheel-articulation-asbuilt.excalidraw) | **New.** As-built data-flow diagram (load-time / per-frame / GPU lanes + debug/tests). |
+| [docs/README.md](docs/README.md) · [docs/wheels/README.md](docs/wheels/README.md) · [tasks/todo.md](tasks/todo.md) | Indexed the diagram; marked Phase A shipped (deviations noted: per-wheel gizmos deferred; reverse pinned by unit test). |
+
+Follow-ups: Phase B (ride height + suspension), Phase C (slip/lockup + coupled wet-μ per decision 4), per-wheel debug gizmos.
+
+</details>
+
+### 2026-07-24 — Wheel & tire articulation: four-agent planning pass (docs only)
+
+Planned the next phase — visibly spinning, steering, realistically riding wheels — via four parallel research agents (physics/math, graphics/Vulkan, C++/HPC, PM synthesis); no code changed; the four gating decisions were made the same day (loader grouping · parallel steer · ride-height-first · wet-μ coupled into handling).
+
+<details><summary>Technical summary</summary>
+
+**Motivation.** The road wheels are welded to the body — the most visible realism gap at chase distance. Wheel spin had been deferred in [plan/car_system_port.md](plan/car_system_port.md) because `porsche.glb` appeared to lack per-wheel pivot nodes.
+
+**Findings.**
+
+- **Zero render-pipeline changes needed** — the G-buffer ([src/renderer/SceneGeometry/SceneGeometry.cpp](src/renderer/SceneGeometry/SceneGeometry.cpp):142-173), every CSM cascade (:193-206, loop at [src/renderer/Renderer/Renderer.cpp](src/renderer/Renderer/Renderer.cpp):724-741), and the glass pass consume the same per-draw `dc.model`, so articulation is pure CPU matrix composition mirroring the shipped steering wheel ([src/scene/Entity/CarEntity.cpp](src/scene/Entity/CarEntity.cpp):173-183).
+- **The asset blocker dissolves without a Blender re-export**: the 1,138 wheel pieces' node translations are bit-identical to exactly 4 wheel centers (wheelbase 2.452 m matches `kWheelbase`; center heights 0.345/0.362 m = real 992 tire radii), and the 506 caliper pieces separate by node ancestry (`Combined3DWheel…` vs `CombinedCalliperZone…`).
+- **A cross-agent conflict was settled by direct GLB measurement**: the transform-bearing piece nodes carry rotations — left wheels are the right-side instance rotated 180° about $\hat y$, every corner has baked camber $R_z(1°\ \text{front}/2°\ \text{rear})$, left calipers are X-mirrored via $q(180°\ \text{about}\ \hat x)\cdot S(-1,-1,-1)$ — so spin must be conjugated through each corner's measured baked frame with a per-corner sign:
+
+$$M_w = M_{\text{car}} \cdot T(P_w) \cdot R_{\text{steer}}(\hat y, -\delta)\big|_{\text{fronts}} \cdot R_{\text{spin}}(\hat a_w,\ s_w\,\theta) \cdot T(-P_w)$$
+
+- Staged roadmap: **A** kinematic spin + steer → **B** ride height + quarter-car suspension (analytic `road_surface_y`, semi-implicit Euler at fixed 1/240 s substep) → **C** slip/lockup visuals + wet-μ from rain intensity. Decision log is in the plan doc — **all four decided 2026-07-24**: loader-side grouping; parallel steer; Phase B ride-height first; wet μ **coupled into handling** (Phase C ships a real grip change).
+
+| File | Change |
+|---|---|
+| [docs/wheels/README.md](docs/wheels/README.md) | **New.** Executive plan: architecture, phases A–C with acceptance criteria, decision log, risk register. |
+| [docs/wheels/research/01-physics-theory.md](docs/wheels/research/01-physics-theory.md) | **New.** Rolling kinematics, θ-wrap/ULP analysis, Ackermann, slip, quarter-car, transform derivations. |
+| [docs/wheels/research/02-graphics-vulkan.md](docs/wheels/research/02-graphics-vulkan.md) | **New.** Draw/shadow-path proof, GLB measurements, loader-vs-re-export analysis, perf/MoltenVK notes. |
+| [docs/wheels/research/03-implementation-plan.md](docs/wheels/research/03-implementation-plan.md) | **New.** State design, update ordering, numerics, algorithms, test matrix, phase/file plan (+ dated §0.1 correction after the measurement above). |
+| [docs/diagrams/wheel-tire-plan.excalidraw](docs/diagrams/wheel-tire-plan.excalidraw) | **New.** Load-time GLB clustering + per-frame matrix data-flow (valid Excalidraw JSON). |
+| [docs/README.md](docs/README.md) | Indexed the new doc + diagram. |
+| [tasks/todo.md](tasks/todo.md) | Prepended the PLANNED section: 4 open decisions + phase checklist. |
+
+All four wheel docs carry a "largely AI-generated" label per org transparency policy.
+
+</details>
+
 ### 2026-07-18 — Source-registry CI self-test; scaffolded RoadGeometry + Treadmill modules
 
 Added a build-free CI guard that fails if the `add_executable(swish)` anchor the scaffolding scripts depend on ever moves, and scaffolded the two `App` refactor modules (`RoadGeometry`, `Treadmill`) through `create_object.sh`.

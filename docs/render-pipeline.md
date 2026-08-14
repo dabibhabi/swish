@@ -1,6 +1,17 @@
 # Render Pipeline
 
-Each frame records 6 render passes into a single command buffer, submitted once to the graphics queue.
+This doc covers the **base** deferred chain — the 6 passes that were the whole pipeline before the
+realism suite landed. They are still the spine of every frame, and the per-pass I/O and shader math
+below are current. But the shipped frame records roughly a dozen passes: CSM, SSAO, SSR, god-rays,
+DoF, forward rain/spray/glass/windshield, the luminance pyramid and TAA all interleave with these.
+For the **full pass order and the passes not listed here**, see
+[realism-features.md](realism-features.md).
+
+Everything is recorded into a single command buffer and submitted once to the graphics queue — there
+is no async-compute queue. The one compute pipeline (road-spray simulation) runs on the graphics
+queue too, and the IBL bake is a one-time out-of-frame submit with a `vkQueueWaitIdle`.
+
+Depth is **reverse-Z** (near = 1.0, far = 0.0, `GREATER` compare) since commit `b7bc273`.
 
 ```
 Scene geometry          Dynamic geometry (car)
@@ -38,7 +49,7 @@ Scene geometry          Dynamic geometry (car)
                  │
         ┌────────┴────────┐
         │   Composite     │  fullscreen.vert + composite.frag
-        │   (full res)    │  HDR + bloom → ACES → swapchain
+        │  (swap res)     │  HDR + bloom + SSR + shafts → AgX → swapchain
         └─────────────────┘
 ```
 
@@ -257,52 +268,65 @@ The per-tap offset is $\mathbf{d} = \text{texelSize}$, so $o_k\cdot\mathbf{d}$ w
 ---
 
 <details>
-<summary><strong>Pass 5 — Composite (ACES Tonemapping)</strong></summary>
+<summary><strong>Pass 5 — Composite (AgX Tonemapping)</strong></summary>
 
 **Shaders:** `fullscreen.vert` + `composite.frag`  
 **Framebuffer:** one per **swapchain image** (not per frame-in-flight)  
-**Output:** final sRGB frame written directly to the swapchain image
+**Output:** final sRGB frame written directly to the swapchain image. When SSAA is active this pass
+also performs the **downsample** from render resolution to swapchain resolution.
 
 ### Inputs
 
 | Binding | Source |
 |---------|--------|
-| 0 | HDR color (Pass 2) |
+| 0 | HDR color (Pass 2, after every screen-space pass has written back into it) |
 | 1 | Blurred bloom (Pass 4b) |
-| 2 | AO (white fallback — SSAO disabled) |
+| 2 | AO (SSAO ½-res + blur; white when SSAO is off) |
+| 3 | SSR reflection (`rgb` = radiance, `a` = mask) |
+| 4 | God-rays light shafts (`rgb` = radiance, half-res) |
 
 ### Composite Formula
 
-The buffers combine **in this order** — AO multiplies the scene first, *then* bloom is added (so glow is not darkened by occlusion), then exposure:
+The buffers combine **in this order** — AO multiplies the scene first, *then* the additive terms
+(bloom, SSR, god-rays) are added so glow is not darkened by occlusion, then exposure:
 
-$$\text{color} = \bigl(\text{hdr}\cdot\text{ao} + \text{bloom}\cdot k_\text{intensity}\bigr)\cdot\text{exposure}$$
+$$\text{color} = \bigl(\text{hdr}\cdot\text{ao} + \text{bloom}\cdot k_\text{intensity} + \text{ssr} + \text{shafts}\bigr)\cdot\text{exposure}$$
 
-$$\text{color} = \text{ACES}(\text{color})$$
+$$\text{color} = \text{AgX}(\text{color})$$
 
-### ACES Tonemapping — Narkowicz 2015
+### AgX Tonemapping — Blender 3.4 (Troy Sobotka)
 
-$$f(x) = \frac{x(ax + b)}{x(cx + d) + e}$$
+**The composite ships AgX, not ACES.** AgX was adopted for better hue preservation and highlight
+desaturation than the ACES Narkowicz rational fit — a bright sun disc or headlight rolls off toward
+white instead of skewing hue. The chain is:
 
-| Constant | Value |
-|----------|-------|
-| $a$ (`kAcesA`) | 2.51 |
-| $b$ (`kAcesB`) | 0.03 |
-| $c$ (`kAcesC`) | 2.43 |
-| $d$ (`kAcesD`) | 0.59 |
-| $e$ (`kAcesE`) | 0.14 |
+$$c' = \mathbf{M}_\text{outset}\;\bigl[\,\sigma(\mathbf{M}_\text{inset}\,c)\,\bigr]$$
 
-This is a rational approximation of the ACES RRT+ODT curve. It maps HDR linear values $[0, \infty)$ to display-referred $[0, 1]$, with a characteristic S-curve that lifts shadows and rolls off highlights. Applied per-channel before sRGB gamma.
+where $\mathbf{M}_\text{inset}$ / $\mathbf{M}_\text{outset}$ are the AgX gamut-compression matrices and
+$\sigma$ is the per-channel AgX sigmoid (`agxCurve`). The sigmoid emits a **display-encoded (~2.2
+gamma) signal**, so the shader applies the AgX EOTF afterwards — see the note in
+[`composite.frag`](../shaders/composite.frag). Getting this wrong was a real bug: commit `c809944`
+fixed a double-gamma-encode that washed the whole image out.
+
+A post-tonemap grade (saturation / contrast / lift, identity at defaults) and a pre-tonemap white
+balance sit either side of the curve.
 
 </details>
 
 ---
 
 <details>
-<summary><strong>SSAO — Disabled</strong></summary>
+<summary><strong>Passes not listed here</strong></summary>
 
-The SSAO shaders (`ssao.frag`, `ao_blur.frag`) exist and the AO images are allocated by `PostProcessManager`, but the SSAO and AO-blur passes are **not recorded**. The composite pass still samples the AO binding, so the AO target is primed with white pixels once at init — AO then multiplies as `1.0` (a no-op) until SSAO is re-enabled.
+This doc covers the **base** deferred chain only. The shipped frame interleaves a further set of
+passes — CSM shadow atlas (before the G-buffer), SSAO, SSR, god-rays, DoF, forward rain / spray /
+glass / windshield, the luminance pyramid, and TAA — between lighting and composite. Those are
+documented in [realism-features.md](realism-features.md), which also carries the full pass-order
+graph. The endless-road geometry that feeds the G-buffer is in [endless-road.md](endless-road.md).
 
-**Status:** pending VUID-09600 fix (sampler reads from an image in undefined layout).
+Note also that depth is **reverse-Z** (near = 1.0, far = 0.0, `GREATER` compare, infinite far plane)
+since commit `b7bc273`, which killed z-fighting on distant barriers. Any new pass that reconstructs
+position from depth must account for that.
 
 </details>
 

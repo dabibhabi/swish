@@ -1,13 +1,8 @@
-// tinygltf is header-only. We provide one translation unit that defines
-// the implementation. stb_image is already defined in StbImage.cpp, so
-// we tell tinygltf not to re-include or re-define it.
 #define TINYGLTF_IMPLEMENTATION
 #define TINYGLTF_NO_INCLUDE_STB_IMAGE
 #define TINYGLTF_NO_INCLUDE_STB_IMAGE_WRITE
 #define TINYGLTF_NO_STB_IMAGE_WRITE
 
-// tinygltf internally calls stbi_* functions; stb_image.h must be visible
-// so it can see the declarations (implementation is in StbImage.cpp).
 #include "ModelManager.h"
 
 #include "../../renderer/Renderer/Renderer.h"
@@ -45,9 +40,7 @@ const T* gltf_accessor_data(const tinygltf::Model& model, int accessor_idx) {
     return reinterpret_cast<const T*>(buffer.data.data() + view.byteOffset + acc.byteOffset);
 }
 
-size_t gltf_accessor_count(const tinygltf::Model& model, int accessor_idx) {
-    return model.accessors[accessor_idx].count;
-}
+size_t gltf_accessor_count(const tinygltf::Model& model, int accessor_idx) { return model.accessors[accessor_idx].count; }
 
 // Local transform of a glTF node: either the explicit matrix or T·R·S.
 glm::mat4 gltf_node_local_matrix(const tinygltf::Node& node) {
@@ -67,7 +60,6 @@ glm::mat4 gltf_node_local_matrix(const tinygltf::Node& node) {
     return t * r * s;
 }
 
-// Depth-first walk computing each node's world transform.
 void gltf_walk_nodes(const tinygltf::Model& model, int node_idx, const glm::mat4& parent, std::vector<glm::mat4>& world,
                      std::vector<bool>& visited) {
     const auto& node  = model.nodes[node_idx];
@@ -78,7 +70,7 @@ void gltf_walk_nodes(const tinygltf::Model& model, int node_idx, const glm::mat4
         gltf_walk_nodes(model, child, w, world, visited);
 }
 
-// +90° about Y mesh normalization: (x, y, z) → (z, y, −x).
+
 glm::mat4 norm_matrix_y90(const glm::mat4& M) {
     glm::mat4 out(1.f);
     for (int c = 0; c < 3; c++) {
@@ -90,12 +82,7 @@ glm::mat4 norm_matrix_y90(const glm::mat4& M) {
     return out;
 }
 
-// ── Road-wheel piece classification ────────────────────────────────
-// The GLB has no per-wheel pivot nodes. Instead, ALL wheel geometry hangs
-// under one node whose name starts with "Combined3DWheel" (tires/rims/
-// discs — these spin) and all caliper geometry under "CombinedCalliperZone"
-// (steer with the front uprights, never spin; the asset spells it with a
-// double L). Membership is inherited down the subtree.
+
 enum class WheelPieceClass : uint8_t { None, Spinning, Caliper };
 
 void classify_wheel_nodes(const tinygltf::Model& model, int node_idx, WheelPieceClass current,
@@ -173,14 +160,13 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         const auto& mat  = gltf.materials[mi];
         std::string slot = "car_" + std::to_string(mi);
 
-        // Albedo
+
         int albedo_img = -1;
         if (mat.pbrMetallicRoughness.baseColorTexture.index >= 0)
             albedo_img = gltf.textures[mat.pbrMetallicRoughness.baseColorTexture.index].source;
         if (upload_gltf_image(gltf, albedo_img, slot, *tex_mgr).empty())
             tex_mgr->register_from_pixels(slot, {200, 200, 200, 255}, 1, 1);
 
-        // Normal map
         int normal_img = -1;
         if (mat.normalTexture.index >= 0)
             normal_img = gltf.textures[mat.normalTexture.index].source;
@@ -197,12 +183,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
             tex_mgr->register_from_pixels(rough_name, {200, 200, 200, 255}, 1, 1);
     }
 
-    // ── Compute world transforms via a node walk ──────────────────────
-    // Vertices are baked with each node's transform RELATIVE to the node
-    // named "RootNode": the chain above it (Sketchfab axis conversion +
-    // FBX unit scale) nets ~10x and must NOT be baked, while the chains
-    // below it place pivoted parts (steering wheel, wipers, …) correctly.
-    // RootNode-relative space is the asset's raw mesh space: meters, Y-up.
+
     std::vector<glm::mat4> node_world(gltf.nodes.size(), glm::mat4(1.f));
     std::vector<bool>      node_visited(gltf.nodes.size(), false);
     const auto&            scene = gltf.scenes[gltf.defaultScene >= 0 ? gltf.defaultScene : 0];
@@ -216,13 +197,6 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
 
     glm::mat4 ref_inverse(1.f);
 
-    // ── Steering wheel articulation ───────────────────────────────────
-    // The Steering_Wheel node's origin sits at the hub center (confirmed in
-    // Blender). Use that matrix as the conjugation frame:
-    //   dc.model = car_model * (M * R_local(θ) * M^-1)
-    // This rotates the already-baked vertices around their own hub in local
-    // axis space. Scale is stripped before storing so M is a pure rotation +
-    // translation and glm::inverse stays numerically stable.
     int       steering_wheel_idx = -1;
     glm::mat4 sw_pivot_frame(1.f);
     bool      found_sw_pivot = false;
@@ -237,22 +211,11 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         found_sw_pivot = true;
     }
 
-    // ── Build combined MeshData from all mesh nodes ───────────────────
-    // Opaque and glass geometry share the same VBO/IBO. Glass primitives
-    // (alphaMode=BLEND) are tracked in a separate submesh list so the
-    // G-buffer pass can skip them while the GlassPass can draw them.
+
     MeshData             mesh;
     std::vector<Submesh> submeshes;       // opaque (G-buffer)
     std::vector<Submesh> glassSubmeshes;  // BLEND (forward transparent pass)
 
-    // ── Road-wheel corner recovery ────────────────────────────────────
-    // Wheel/caliper pieces are grouped by their frame translation: measured,
-    // the piece translations take exactly four values (bit-identical within
-    // a corner) = the wheel centers, in raw mesh space meters — front
-    // ±(0.725, 0.345, 1.196), rear ±(0.708, 0.362, −1.256). Corner is the
-    // sign pattern (+z = nose, +x = driver/left side); the spread and range
-    // checks are tripwires for a future re-export, tripping a loud fallback
-    // to the rigid pre-feature look rather than mis-pivoted wheels.
     struct CornerAccum {
         bool      seen = false;
         glm::vec3 center{0.f};
@@ -281,21 +244,9 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
                 continue;
 
             const bool isGlass = (prim.material >= 0 && gltf.materials[prim.material].alphaMode == "BLEND");
-
-            // Windshield = the OUTER exterior glass pane only ("Window_Geo"),
-            // excluding the red taillight glass ("RED_GLASS"). The cabin-facing
-            // inner pane ("WindowInside_Geo") is deliberately NOT tagged — painting
-            // rain on it puts droplets inside the cabin (see issue.md §2a). Note
-            // "WindowInside_Geo" does not contain the substring "Window_Geo", so
-            // dropping that OR-term is sufficient to exclude it. The combined outer
-            // mesh also holds side/rear glass; the windshield rain shader confines
-            // drops to the forward-facing pane via a surface-normal mask.
             const bool isWindshield = isGlass && node.name.find("Window_Geo") != std::string::npos &&
                                       node.name.find("RED_GLASS") == std::string::npos;
 
-            // Interior cabin geometry — node names "Kit1_Interior_Geo_..." and
-            // "Kit1_InteriorTilling_Geo_..." both contain "Interior". Match
-            // case-insensitively, but never tag glass (the cabin wash is opaque).
             std::string lowerName = node.name;
             std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -338,7 +289,6 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
                 mesh.addVertex(v);
             }
 
-            // Indices — handle all common component types
             const auto& idx_acc = gltf.accessors[prim.indices];
             size_t      n_idx   = idx_acc.count;
             switch (idx_acc.componentType) {
@@ -363,11 +313,9 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
             sm.is_interior       = isInterior;
             sm.is_steering_wheel = !isGlass && found_sw_pivot && (node.name == "Steering_Wheel");
 
-            // ── Road-wheel tagging + corner accumulation ──────────────
             if (!isGlass && wclass != WheelPieceClass::None) {
                 const glm::vec3 t(xform[3]);
-                // Plausibility window (meters, raw mesh space) around the
-                // measured centers; anything outside invalidates recovery.
+
                 if (std::abs(t.x) < 0.4f || std::abs(t.x) > 1.2f || std::abs(t.z) < 0.8f || std::abs(t.z) > 1.8f ||
                     t.y < 0.2f || t.y > 0.6f) {
                     wheels_ok = false;
@@ -395,7 +343,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
 
             if (prim.material >= 0 && prim.material < kMaxCarMaterials) {
                 sm.material = static_cast<MaterialId>(MAT_CAR_0 + prim.material);
-                // Glass base color from the glTF material factor (RGBA).
+
                 if (isGlass) {
                     const auto& bc = gltf.materials[prim.material].pbrMetallicRoughness.baseColorFactor;
                     sm.color = Vec4(static_cast<float>(bc[0]), static_cast<float>(bc[1]), static_cast<float>(bc[2]),
@@ -418,12 +366,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     if (mesh.empty())
         throw std::runtime_error("ModelManager::load_car: no usable geometry in '" + path + "'");
 
-    // ── Normalize mesh space + bounding-box scan (single pass) ───────
-    // The asset's nose points down mesh +Z, but the entity convention is
-    // nose = +X at yaw 0, so that R_y(yaw)·(+X) equals the physics forward
-    // vector and the body lines up with the direction of travel. Rotate
-    // +90° about Y: (x, y, z) → (z, y, −x), directions included.
-    // Track bb_min simultaneously so we avoid a second O(n) pass.
+
     glm::vec3 bb_min(std::numeric_limits<float>::max());
     glm::vec3 bb_max(std::numeric_limits<float>::lowest());
     for (auto& v : mesh.getVertices()) {
@@ -434,54 +377,40 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         bb_max     = glm::max(bb_max, v.position);
     }
 
-    // ── Ground the model ──────────────────────────────────────────────
-    // The glTF origin sits at axle height, not at the tire contact patch.
-    // Shift all vertices so the lowest point lands at y = 0; then an entity
-    // position of y = 0 means "tires resting on the road surface".
     for (auto& v : mesh.getVertices())
         v.position.y -= bb_min.y;
 
     if (found_sw_pivot) {
         sw_pivot_frame = norm_matrix_y90(sw_pivot_frame);
         sw_pivot_frame[3].y -= bb_min.y;
-        // Strip accumulated scale from the pivot node so conjugation is
-        // a pure rotation (M * R * M^-1). The SteeringWheel_Pivot carries
-        // scale ≈ 0.1 which would make inverse(M) blow up to ≈ 10×.
-        for (int c = 0; c < 3; c++)
-            sw_pivot_frame[c] = glm::vec4(glm::normalize(glm::vec3(sw_pivot_frame[c])), 0.f);
+
+        for (int c = 0; c < 3; c++) sw_pivot_frame[c] = glm::vec4(glm::normalize(glm::vec3(sw_pivot_frame[c])), 0.f);
+
         for (auto& sm : submeshes) {
-            if (sm.is_steering_wheel)
-                sm.sw_pivot_frame = sw_pivot_frame;
+            if (sm.is_steering_wheel) sm.sw_pivot_frame = sw_pivot_frame;
         }
     }
 
-    // ── Finalize road-wheel frames (mirrors the sw_pivot treatment) ───
     std::array<WheelFrame, 4> wheel_frames{};
     for (int c = 0; wheels_ok && c < 4; c++) {
         const auto& acc = wheel_corners[c];
-        // A healthy corner: seen, frame from a spinning piece, a real piece
-        // population, and bit-identical translations (≤ 1 mm spread).
+
         if (!acc.seen || !acc.frame_from_wheel || acc.wheel_pieces < 50 || acc.max_spread > 1e-3f) {
             wheels_ok = false;
             break;
         }
-        glm::mat4 F = norm_matrix_y90(acc.frame);
+        glm::mat4 F = norm_matrix_y90(acc.frame); // Frame
         F[3].y -= bb_min.y;
-        for (int col = 0; col < 3; col++)
-            F[col] = glm::vec4(glm::normalize(glm::vec3(F[col])), 0.f);
+        for (int col = 0; col < 3; col++) F[col] = glm::vec4(glm::normalize(glm::vec3(F[col])), 0.f);
 
         WheelFrame wf;
         wf.frame  = F;
         wf.radius = F[3].y;  // grounded center height = rolling radius (m)
-        // The axle is the frame-local +X. Forward rolling is a rotation about
-        // −ẑ in car space (+X nose, +Y up, +Z right), so the sign flips with
-        // the corner's baked 180° side flip.
+
         const glm::vec3 axle(glm::normalize(glm::vec3(F[0])));
         wf.spin_sign = axle.z > 0.f ? -1.f : 1.f;
-        // The axle must be lateral-ish (camber only tilts it 1–2°) and the
-        // radius must look like a 992 tire, else recovery is untrustworthy.
-        if (std::abs(axle.z) < 0.9f || wf.radius < 0.25f || wf.radius > 0.45f)
-            wheels_ok = false;
+
+        if (std::abs(axle.z) < 0.9f || wf.radius < 0.25f || wf.radius > 0.45f) wheels_ok = false;
         wheel_frames[c] = wf;
     }
     if (!wheels_ok) {
@@ -522,14 +451,11 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
 
     auto car = std::make_unique<CarEntity>();
     car->set_mesh_data(std::move(mesh));
-    for (const auto& sm : submeshes)
-        car->add_submesh(sm);
-    for (const auto& sm : glassSubmeshes)
-        car->add_glass_submesh(sm);
-    if (wheels_ok)
-        car->set_wheel_frames(wheel_frames);
+    for (const auto& sm : submeshes) car->add_submesh(sm);
+    for (const auto& sm : glassSubmeshes) car->add_glass_submesh(sm);
+    if (wheels_ok) car->set_wheel_frames(wheel_frames);
 
     return car;
 }
 
-}  // namespace swish
+}

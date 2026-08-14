@@ -11,18 +11,6 @@ struct GLFWwindow;
 
 namespace swish {
 
-// ══════════════════════════════════════════════════════════════════════
-// CarEntity — driveable vehicle using a simplified bicycle-model.
-//
-// Arrow keys: UP = throttle, DOWN = brake/reverse, LEFT/RIGHT = steer.
-// WASD remains free for the spectator camera.
-//
-// Coordinate convention: the loader normalizes the mesh so the nose
-// points +X at yaw=0; heading and velocity share one definition:
-//   forward = R_y(yaw)·(+X) = (cos(yaw_rad), 0, -sin(yaw_rad))
-// so yaw=+90° faces -Z (down the road) and the body always lines up
-// with the direction of travel.
-// ══════════════════════════════════════════════════════════════════════
 
 class CarEntity : public ModelEntity {
 public:

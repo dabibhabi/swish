@@ -19,15 +19,18 @@ Everything you need to understand, extend, and contribute to Swish.
 | [GLOSSARY.md](GLOSSARY.md) | One-line lookup of terms, abbreviations, classes, conventions, coordinate spaces, controls |
 | [architecture.md](architecture.md) | The 5-layer stack, startup sequence, RendererServices, swapchain recreation |
 | [rain/README.md](rain/README.md) | Rain system architecture — falling rain, refractive windshield drops, wetness map + wiper |
-| [render-pipeline.md](render-pipeline.md) | The 6-pass deferred pipeline, per-pass I/O, all shader math |
-| [realism-features.md](realism-features.md) | The GPU realism suite — SSAO, CSM, split-sum IBL, SSR, SSAA, auto-exposure, AgX — with math and MoltenVK notes |
+| [render-pipeline.md](render-pipeline.md) | The **base** deferred chain (G-buffer → lighting → bloom → composite), per-pass I/O, all shader math. The realism passes that interleave with it live in the next row. |
+| [realism-features.md](realism-features.md) | The GPU realism suite as built — SSAO, CSM, split-sum IBL, SSR, god-rays, puddles, GPU spray, DoF, TAA + motion blur, SSAA, auto-exposure, AgX — with math, release/debug gating, and MoltenVK notes |
+| [endless-road.md](endless-road.md) | The endless LIE corridor — per-draw culling, the 300 m chunk treadmill + origin rebase, service roads, the ribbon primitive, elevated diamond interchanges, and the ribbon-follower that makes ramps drivable |
 | [glen-cove-lie.md](glen-cove-lie.md) | The Glen Cove LIE roadside-detail effort — goal, phased plan/status (Phase 1 done, 2a in progress), and the procedural roadside-prop generation pipeline |
+| [vma-memory.md](vma-memory.md) | VMA allocation and the RAII handle conventions (`GpuImage` / `GpuBuffer`) |
 | [debug-ui.md](debug-ui.md) | The in-engine live-tuning UI (`make debug`) — DebugParams, set-3 UBO, gizmos, TOML presets, and the release-safety strategy |
 | [concepts.md](concepts.md) | Study aid — OOP/OOD patterns and GPU concepts, each mapped to the file in this repo where it lives |
 | [learning-path.md](learning-path.md) | Study map — graphics algorithms, GPU methods, and the math (ODEs, SH, splines, volumetrics) behind rain · car · road · light, with resources and questions |
 | [data-types.md](data-types.md) | Every data struct (DTO) and UBO, with exact layouts and std140 rules |
 | [car_system.md](car_system.md) | GLB loading and car-mesh normalization algorithm |
 | [wheels/README.md](wheels/README.md) | Wheel/tire articulation plan — spin/steer/suspension phases A–C, decision log (4 open questions), risk register; synthesizes the three expert research docs in `wheels/research/` |
+| [lessons-from-chrono/](lessons-from-chrono/00-index.md) | 10-part deep dive into Project Chrono's vehicle dynamics (`examples/chrono`) — tire models, non-smooth contact as measure theory, CCP solvers, Lie-group rotations, numerics toolbox — each mapped to a swish seam; culminates in the wet-road model plan (07) and the prioritized swish map (09). AI-assisted |
 | [research-rain-rendering.md](research-rain-rendering.md) | Cited survey of realistic-rain techniques (streaks, drops-on-glass, GPU particles, veils) — AI-assisted |
 | [research-night-scene-realism.md](research-night-scene-realism.md) | Cited survey of night-scene realism (wet-road BRDF, many-lights, tone mapping, atmospherics, motion) — AI-assisted |
 | [investigations/](investigations/) | Debugging write-ups (e.g. the VUID-00067 semaphore fix) |
@@ -51,7 +54,7 @@ All diagrams are valid [Excalidraw](https://excalidraw.com) JSON (version 2). Op
 | Diagram | Shows |
 |---------|-------|
 | [system-overview](diagrams/system-overview.excalidraw) | Component ownership hierarchy |
-| [render-pipeline](diagrams/render-pipeline.excalidraw) | The 6 render passes and barriers |
+| [render-pipeline](diagrams/render-pipeline.excalidraw) | The 6 base render passes and barriers (pre-realism-suite) |
 | [vulkan-sync](diagrams/vulkan-sync.excalidraw) | Fence + semaphore timing across frames |
 | [scene-data-flow](diagrams/scene-data-flow.excalidraw) | Asset → GPU → draw call pipeline |
 | [descriptor-sets](diagrams/descriptor-sets.excalidraw) | Set 0 / set 1 bindings and push constants |

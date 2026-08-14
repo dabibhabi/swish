@@ -1,19 +1,26 @@
 # GPU Realism Features
 
 The `debug-ui` branch layered a suite of physically-motivated GPU effects on top of
-the base 6-pass deferred pipeline documented in [render-pipeline.md](render-pipeline.md):
+the base deferred pipeline documented in [render-pipeline.md](render-pipeline.md):
 **SSAO**, **cascaded shadow maps (CSM)**, **split-sum image-based lighting (IBL)**,
-**screen-space reflections (SSR)**, **god-rays** (volumetric light shafts), **SSAA**
+**screen-space reflections (SSR)**, **god-rays** (volumetric light shafts), **puddles**,
+**GPU-compute road spray**, **depth of field**, **TAA + motion blur**, **SSAA**
 (internal supersampling), and an **auto-exposure** (eye-adaptation) loop. Together they
 take the scene from "flat CG"
 toward the wet, overcast, low-contrast look of the reference LIE photograph.
 
-Some ship in **release** (SSAO, CSM, IBL, SSAA — objective, verifiable improvements);
-others are **debug-only, tunable** (SSR, auto-exposure — judgment calls that want live
-dialing). **God-rays** are a hybrid: they *ship in release* (un-gated) yet expose live
-density/decay/weight sliders in debug, reading the same defaults in both builds. The gating
-strategy is described in [debug-ui.md](debug-ui.md#release-safety);
-this doc covers the graphics.
+**This doc is the as-built record for all of them** — including the four features that were paused
+on 2026-07-02 and then shipped on 2026-07-03 (god-rays, IBL, puddles + spray, TAA).
+
+Release vs debug gating varies per feature:
+
+| Ships in release | Debug-only (off by default) | Hybrid |
+|---|---|---|
+| SSAO · CSM · IBL · SSAA · puddles · spray (wetness-gated) | auto-exposure · DoF · TAA + motion blur | god-rays (release, un-gated, with live sliders) · SSR (release on wet road; debug gate elsewhere) |
+
+The gating strategy is described in [debug-ui.md](debug-ui.md#release-safety); this doc covers the
+graphics. Note that "wetness-gated" features are byte-identical on a dry road, which is what release
+defaults to.
 
 > **Diagram:** the extended pass graph is in
 > [`docs/diagrams/deferred-pipeline-extended.excalidraw`](diagrams/deferred-pipeline-extended.excalidraw).
@@ -33,14 +40,19 @@ graph LR
   LIT --> SSAO["SSAO ½-res + blur<br/>hdr *= ao"]
   LIT --> SSR["SSR march (debug)<br/>hdr += reflection"]
   LIT --> GR["God-rays ½-res (release)<br/>radial blur → hdr += shafts"]
-  LIT --> FWD["Forward rain / glass / windshield"]
-  FWD --> LUM["Luminance pyramid (debug)<br/>128² → 1×1 → host readback"]
-  FWD --> BLOOM[Bloom extract + blur]
+  GR --> DOF["DoF gather (debug)<br/>CoC from depth → copy back to hdr"]
+  DOF --> FWD["Forward rain / spray / glass / windshield"]
+  FWD --> TAA["TAA + motion blur (debug)<br/>reproject + clamp → copy back to hdr"]
+  TAA --> LUM["Luminance pyramid (debug)<br/>128² → 1×1 → host readback"]
+  TAA --> BLOOM[Bloom extract + blur]
   BLOOM --> COMP["Composite (swap res)<br/>exposure · AgX · grade · SSAA resolve"]
   SSAO --> COMP
   SSR --> COMP
   GR --> COMP
 ```
+
+The spray **compute** dispatch (the renderer's only compute pipeline) is recorded outside any render
+pass, between god-rays and the forward rain pass, on the same graphics queue.
 
 Barriers are the subtle part: each screen-space pass has to flip the HDR or depth
 image between `COLOR_ATTACHMENT` / `SHADER_READ` / `TRANSFER_SRC` at the right moment,
@@ -523,11 +535,50 @@ off (`taaEnabled = false`), so release never compiles it and even a debug build 
 toggled. To trial TAA: enable it and drop the SSAA scale to 1.0; promoting it to the release default is
 a one-flag follow-up once its in-motion quality is validated by driving.
 
+## DoF — depth-of-field gather (debug-only)
+
+**Files:** [src/renderer/DofPass/DofPass.cpp](../src/renderer/DofPass/DofPass.cpp),
+[shaders/dof.frag](../shaders/dof.frag).
+
+**What it does.** A single-pass gather depth-of-field resolve, structured as a clone of `TaaPass`: it
+reads the lit HDR + scene depth, derives a per-pixel **circle of confusion** from the view-space
+distance, averages a 16-tap Poisson disk of the HDR scaled by that CoC, and copies the result back
+into the HDR image so bloom/composite are untouched. It runs **right after god-rays** — depth is
+still readable there, and it lands before the forward passes so rain and glass stay sharp.
+
+Because depth is reverse-Z with `GLM_FORCE_DEPTH_ZERO_TO_ONE`, `ndc.z = d` directly. View-space
+distance comes from an inverse-projection unprojection:
+
+$$\mathbf{c} = \text{invProj}\cdot(\text{uv}\cdot 2-1,\; d,\; 1),\qquad \text{dist} = -\frac{c_z}{c_w}$$
+
+$$\text{coc} = \operatorname{clamp}\!\left(\frac{|\text{dist}-\text{focusDist}|}{\max(\text{focusRange},\,1)},\,0,\,1\right)\cdot \text{maxCoC}$$
+
+Sky (`d ≤ 0.0001`) is forced to full blur rather than trusting the near-degenerate reconstruction at
+`d ≈ 0`. Below `coc < 0.5` the centre sample passes straight through, so in-focus regions cost one tap.
+
+**Debug-gated, off by default** — the whole class is under `SWISH_DEBUG_UI`, so release is
+byte-identical. The debug UI exposes focus distance / range / max CoC. Note this is a *gather* blur,
+not the circular-bokeh DOF the reference frames call for (`C9` in `tasks/todo.md`) — bokeh discs on
+distant headlights would need a separate scatter-style pass.
+
+---
+
+## Not built (and why)
+
+- **Ray-traced reflections / RT denoising (SVGF).** MoltenVK does not expose
+  `VK_KHR_ray_tracing_pipeline` or `VK_KHR_acceleration_structure`, so there is no RT path on this
+  platform. Reflections are IBL + SSR only.
+- **Parallax-corrected cubemap probes.** Only the single sky-baked IBL cube exists; no local probes.
+- **Froxel volumetrics.** God-rays are the screen-space stand-in; the froxel grid (`C4`) is planned.
+- **Per-object motion vectors.** See the TAA section — motion comes from depth reprojection.
+- **Clearcoat / flake car paint.** The GGX base has no second lobe and no flake term.
+
 ---
 
 ## See also
 
 - [debug-ui.md](debug-ui.md) — how every parameter above is tuned live and gated for release.
 - [concepts.md](concepts.md) — the OOP/OOD and GPU concepts behind these features, as a study aid.
-- [render-pipeline.md](render-pipeline.md) — the base 6-pass deferred pipeline these extend.
-- CHANGELOG entries dated **2026-07-01** and **2026-07-02** — the authoritative per-feature write-ups.
+- [render-pipeline.md](render-pipeline.md) — the base deferred pipeline these extend.
+- [endless-road.md](endless-road.md) — the corridor geometry that feeds the G-buffer.
+- CHANGELOG entries dated **2026-07-01** through **2026-07-04** — the authoritative per-feature write-ups.

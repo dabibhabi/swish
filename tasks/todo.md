@@ -1,3 +1,44 @@
+# 📚 Lessons-from-Chrono doc series — SHIPPED (2026-08-05)
+
+Wrote [docs/lessons-from-chrono/](../docs/lessons-from-chrono/00-index.md) (10 files, AI-assisted,
+labeled): a deep dive below `examples/chrono/VEHICLE_DYNAMICS_GUIDE.md` into the solver math
+(measure differential inclusions, cone projections, APGD/BB/PSOR/ADMM, Lie-group stepping,
+numerics toolbox) and above it into the wet-road plan. **No code changed**; `make test` 56/56.
+
+- [x] Explore + verify Chrono internals (both absence claims grep+call-site verified: NSC uses
+      only `static_friction`; Pac02 relaxation lengths computed but never called; **Chrono has NO
+      rain/wet/hydroplaning model anywhere** — file 07 is synthesis, not a port)
+- [x] Files 00–09 written, links lint-verified, indexed in docs/README.md, CHANGELOG'd
+- **Feeds Phase C directly:** 07 §4 has the worked `effective_mu()` + wiring plan + test contract
+  for decision 4's μ coupling; 02 §8 has the TMeasy-lite lateral curve for the `CarPhysics.h:101`
+  seam; 09 §1 sequences both against Phases B/C.
+
+# 🛞 Wheel & tire articulation — PLANNED + decided, Phase A next (2026-07-24)
+
+Planning phase complete (four-agent research pass: physics/math · graphics/Vulkan · C++/HPC · PM
+synthesis). **No code changed.** Full plan: [docs/wheels/README.md](../docs/wheels/README.md);
+research in [docs/wheels/research/](../docs/wheels/research/); diagram
+[docs/diagrams/wheel-tire-plan.excalidraw](../docs/diagrams/wheel-tire-plan.excalidraw).
+Headlines: **zero render-pipeline changes** (G-buffer, all CSM cascades, and glass consume the same
+per-draw `dc.model`); the "GLB has no wheel pivots" blocker **dissolves** — the 1,138 wheel-piece
+translations are bit-identical to the 4 wheel centers → loader-side grouping (ancestry + exact
+translation), no Blender re-export; measured 2026-07-24: piece nodes carry baked camber (1°/2°) +
+a 180° left-side flip → per-corner frames/spin signs (general conjugation form).
+
+- [x] **Decision 1** — wheel pivot source: **(b) loader-side grouping** (decided 2026-07-24)
+- [x] **Decision 2** — Ackermann split: **parallel steer** (decided 2026-07-24)
+- [x] **Decision 3** — Phase B scope: **crown ride-height/attitude first**, weight transfer later (decided 2026-07-24)
+- [x] **Decision 4** — Phase C wet μ: **coupled into handling** — real gameplay change, CHANGELOG the grip delta (decided 2026-07-24)
+- [x] **Phase A** — kinematic spin + steer articulation (loader wheel groups, `WheelKinematics.h`,
+      θ integration + wrap, group-LUT stamping in `get_draw_calls`, tests, debug panel) — **SHIPPED
+      2026-07-24**: 56/56 tests; loader log confirms 4 corners (r 0.346/0.363 m, camber 1°/2°, signs
+      L+1/R−1, pieces 302+140/267+113); visual pass = full-lock steer both ways + rim-rotation crops
+      + no camber wobble (temp chase-cam force reverted). Per-wheel gizmos deferred. (CHANGELOG.)
+- [ ] **Phase B** — ride height + quarter-car suspension (4-corner `road_surface_y`, semi-implicit
+      Euler @ fixed 1/240 s substep, visual-only offsets — never write `m_position`) — effort M
+- [ ] **Phase C** — slip/lockup visuals + rain-μ tie-in (visual ω chase off existing traction-cap
+      signals; verify rain at BOTH extremes 0 and 1.0) — effort S–M
+
 # 🎬 Wow-factor weighting — calibrated to the UE reference (2026-07-02)
 
 Reference: four Unreal Engine cinematic stills the user supplied as the visual bar (black 911 GT3 R,

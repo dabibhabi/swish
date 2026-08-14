@@ -2,6 +2,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include "scene/Entity/CarPhysics.h"
+#include "scene/Entity/WheelKinematics.h"
 
 using namespace swish;
 using Catch::Matchers::WithinAbs;
@@ -115,4 +116,49 @@ TEST_CASE("Dynamic bicycle stays numerically stable at high speed", "[car][tire]
     REQUIRE(std::isfinite(r));
     REQUIRE(std::fabs(r) < 2.0f);   // bounded, no divergence
     REQUIRE(std::fabs(vl) <= 40.0f);
+}
+
+// ── Road-wheel kinematics (wheel articulation, Phase A) ───────────────
+
+TEST_CASE("Wheel spin follows rolling without slip (omega = v/r)", "[wheel][kinematic]") {
+    // 10 m/s on the measured 0.345 m front radius for one 60 Hz frame.
+    const float dt    = 1.0f / 60.0f;
+    const float theta = wheel_spin_step(0.0f, 10.0f, 0.345f, dt);
+    REQUIRE_THAT(theta, WithinAbs(10.0f * dt / 0.345f, 1e-5f));
+    // The larger rear radius (0.362 m) spins slower at the same speed.
+    REQUIRE(wheel_spin_step(0.0f, 10.0f, 0.362f, dt) < theta);
+}
+
+TEST_CASE("Reverse runs the wheel backward and wraps into range", "[wheel][kinematic]") {
+    const float dt    = 1.0f / 60.0f;
+    const float theta = wheel_spin_step(0.1f, -5.0f, 0.345f, dt);
+    // 0.1 - 5*dt/0.345 < 0, so the step must wrap back up into [0, 2π).
+    REQUIRE(theta >= 0.0f);
+    REQUIRE(theta < kTwoPi);
+    REQUIRE_THAT(theta, WithinAbs(0.1f - 5.0f * dt / 0.345f + kTwoPi, 1e-4f));
+}
+
+TEST_CASE("Zero speed leaves the wheel angle unchanged", "[wheel][kinematic]") {
+    REQUIRE_THAT(wheel_spin_step(1.2f, 0.0f, 0.345f, 1.0f / 60.0f), WithinAbs(1.2f, 1e-6f));
+}
+
+TEST_CASE("Wrapped theta stays bounded and accurate over a km-scale drive", "[wheel][kinematic]") {
+    // 4.2 km at 30 m/s in 60 Hz steps: ~8,400 steps / ~12,170 rad unwrapped —
+    // far past where an unwrapped float32 theta quantizes visibly (ULP ≈ 1e-3
+    // rad up there). The wrapped float must stay inside [0, 2π) and keep
+    // tracking a double-precision reference.
+    const float  r = 0.345f, v = 30.0f, dt = 1.0f / 60.0f;
+    const int    steps = static_cast<int>(4200.0f / (v * dt));
+    const double step  = static_cast<double>(v) * dt / r;
+    float        theta = 0.0f, thetaMin = 0.0f, thetaMax = 0.0f;
+    double       ref   = 0.0;
+    for (int i = 0; i < steps; ++i) {
+        theta    = wheel_spin_step(theta, v, r, dt);
+        ref      = std::fmod(ref + step, 6.283185307179586);
+        thetaMin = std::min(thetaMin, theta);
+        thetaMax = std::max(thetaMax, theta);
+    }
+    REQUIRE(thetaMin >= 0.0f);
+    REQUIRE(thetaMax < kTwoPi);
+    REQUIRE_THAT(theta, WithinAbs(static_cast<float>(ref), 5e-3f));
 }
