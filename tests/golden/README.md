@@ -7,7 +7,7 @@ a test fails when the output drifts, which for a refactor means an unintended ch
 |------|-------------|------------|
 | `road_mesh.txt` | `RoadScene::generate()`, `generate_chunk(4000)`, `generate_interchange_scene()` (counts, bounds, material index totals, FNV-1a hashes of vertices/indices/draw calls/lights, positions quantised to 0.01 WU) | `tests/test_golden_mesh.cpp` |
 | `car_trajectory.csv` | The real `CarEntity::update()` at dt = 1/60 over four scenarios (launch, throttle-then-brake, dry steady turn, wet steady turn), sampled every 0.5 s | `tests/test_golden_car.cpp` (tolerance 1e-3 abs + 1e-3 rel; gear exact) |
-| `release_spv.sha256` | SHA-256 of the 33 release-build `.spv` shaders (C++17 baseline) | shell one-liner below |
+| `release_spv.sha256` | SHA-256 of the 33 release-build `.spv` shaders (recorded at the C++17 baseline; unchanged through C++20 and C++23) | shell one-liner below |
 
 ## Toolchain-bound
 

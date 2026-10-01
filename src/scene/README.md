@@ -69,7 +69,7 @@ Above it, lateral velocity and yaw rate are integrated from a dynamic bicycle mo
 
 $$\psi \mathrel{-}= \deg(\dot{\psi})\, dt$$
 
-Yaw *decreases* for positive (right) steering/yaw-rate because $R_y$ is counter-clockwise from above. Heading is wrapped to $(-180°, 180°]$:
+Yaw *decreases* for positive (right) steering/yaw-rate because $R_y$ is counter-clockwise from above. Heading is wrapped with the formula below. Because `fmod` keeps the dividend's sign, the result is in $(-540°, 180°)$, not $(-180°, 180°]$; the car golden records this (tutorial ch. 12 / B12):
 
 $$\psi = \operatorname{fmod}(\psi + 180,\ 360) - 180$$
 

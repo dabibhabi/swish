@@ -60,9 +60,8 @@ inline float exp_smooth(float x, float target, float k, float dt) {
 // CarEntity's ±180°-wrapped rotation.y.
 inline float exp_smooth_angle_deg(float x, float target, float k, float dt) {
     // Shortest signed delta in (-180, 180]: shift into a positive fmod range,
-    // wrap, then re-center — the same wrap-to-range trick CarEntity.h uses
-    // for heading itself (m_rotation.y = fmod(m_rotation.y + 180, 360) - 180),
-    // just applied to the (target - x) delta instead of the angle itself.
+    // wrap, then re-center. (CarEntity.cpp wraps heading as fmod(y + 180, 360) - 180
+    // WITHOUT the +360 shift, so its result can go below -180; tutorial ch. 12.)
     float delta = std::fmod(target - x + 540.0f, 360.0f) - 180.0f;
     return exp_smooth(x, x + delta, k, dt);
 }

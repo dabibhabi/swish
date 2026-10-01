@@ -25,7 +25,7 @@ while (!window.shouldClose()) {
     dt         = frame_delta(last)                // min(now - last, 1/15 s)
     debug_edit = debug_edit_mode()                // false in release
 
-    poll_events()                                 // glfwPollEvents + consume resize flag
+    poll_events()                                 // glfwPollEvents (resize flag left to the renderer)
     process_key_bindings()                        // Esc, C, R, V, G (+ backtick in debug), row order
     camera.poll_input(...)                        // free-fly WASD / helicopter Q,E
     update_car(dt, debug_edit)                    // drive, Y-snap, corridor, wheel visuals, push draws
@@ -74,7 +74,7 @@ Thin GLFW wrapper. Created with `GLFW_CLIENT_API = GLFW_NO_API` — no OpenGL co
 | `pollEvents()` | `glfwPollEvents()` — returns immediately; used every frame |
 | `waitEvents()` | `glfwWaitEvents()` — blocks CPU until any event arrives; used in minimize spin |
 | `mark_resized()` | Called by GLFW resize callback; sets `m_resized = true` |
-| `wasResized()` | Returns and clears `m_resized` |
+| `wasResized()` | Returns `m_resized` (read-only; `Renderer::recreateSwapchain` clears it via `resetResizedFlag()`) |
 | `getFramebufferSize()` | Returns actual pixel size (differs from window size on HiDPI displays) |
 
 <details>
