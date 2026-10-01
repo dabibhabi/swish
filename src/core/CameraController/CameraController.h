@@ -29,8 +29,9 @@ public:
     CameraMode mode() const { return m_mode; }
 
     // Switch preset. Zeroes the mouse-look offsets and forces the cockpit yaw-follow
-    // to re-initialise from the current heading, and drops the FOV kick so re-entering
-    // cockpit never inherits a stale baseline. (Log output stays in App::set_camera_mode.)
+    // to re-initialise from the current heading. NOTE: the FOV-kick speed baseline
+    // (m_prev_car_speed) is NOT reset, so re-entering cockpit can give a one-frame
+    // kick (tutorial ch. 10 / B10). (Log output stays in App::set_camera_mode.)
     void set_mode(CameraMode mode);
 
     // Base FOV read back from the Camera once after set_perspective(): the single source

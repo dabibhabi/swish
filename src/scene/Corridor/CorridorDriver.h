@@ -58,7 +58,7 @@ public:
     void place_at_start(CarEntity& car);
 
     // Per-frame: rebase the origin, refresh the visible-segment window, clamp
-    // the car into its carriageway, snap its Y, and stop it at the ends.
+    // the car into its carriageway, and stop it at the ends. (App snaps the car's Y.)
     void update(CarEntity& car, Renderer& renderer, float deltaTime, bool debugEdit);
 
     // renderZ = trueZ + origin_shift().
