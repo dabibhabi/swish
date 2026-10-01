@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(swish LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -192,7 +192,7 @@ add_custom_target(shaders DEPENDS ${SHADER_SPV_FILES})
 # --- Config baker (TOML → binary) ---
 add_executable(toml_baker tools/toml_baker.cpp)
 target_link_libraries(toml_baker PRIVATE tomlplusplus::tomlplusplus)
-target_compile_features(toml_baker PRIVATE cxx_std_20)
+target_compile_features(toml_baker PRIVATE cxx_std_23)
 # Include root: same "scene/...", "utils/..." paths as the game (it shares RoadConfig.h and Units.h).
 target_include_directories(toml_baker PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
