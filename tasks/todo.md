@@ -16,12 +16,12 @@ Mirrors the approved plan (`~/.claude/plans/im-figuring-out-with-sunny-unicorn.m
 per phase (`refactor/NN-topic` off `debug-ui`); refactor phases are behaviour-preserving, **B-phases** carry
 intended changes. Gate per phase: `make test` + `make test-debug` green, 0 warnings, Arch GCC builds + unit
 tests, 33 `.spv` + goldens + pass-order/bindings tests, `make check` + `make format-check`, screenshots for
-anything visible, changelog. Commit/merge only when the owner asks.
+anything visible, changelog. Commit/merge only when the owner asks. **Arch GCC gate deferred** (owner, 2026-10-01): macOS AppleClang + CI clang gate each phase; Arch is reconciled later in one pass.
 
 ### M0 — baseline and hygiene (Claude)
 - [x] P0.0 Baseline: release 218/218, debug-UI 241/241, 33/33 `.spv`, `make check` OK — committed `aab1c9c` (2026-10-01)
 - [x] P0.1 (B) Quick fixes (2026-10-01, branch `refactor/00-quick-fixes`; tests green, manual key/resize check still open): cursor/edit-mode desync; weather preset desync; resize flag cleared before renderer reads it; fog "km" label; duplicated shadow dump line; double `glfwTerminate`; `EnumCycle` `Count == 0`; dead Treadmill gantry message + stale comments; stale `Window.h` TODOs
-- [x] P0.2 (2026-10-01, Apple+debug green; Arch GCC pending) C++23 bump alone (`CMakeLists.txt:4`, `toml_baker`); all hashes/goldens unchanged, 0 warnings on 3 compilers
+- [x] P0.2 (2026-10-01, Apple+debug green; Arch GCC gate deferred by owner until the Arch reconciliation) C++23 bump alone (`CMakeLists.txt:4`, `toml_baker`); all hashes/goldens unchanged, 0 warnings on 3 compilers
 - [ ] P0.3 Build: `swish_scene_core` static lib, `swish_utils` INTERFACE, warnings on tests/`toml_baker`, CI builds both test targets (clang Release) + `make check` + format-check, compiler guard on golden mesh test
 - [ ] P0.4 Test seam: replace `#define private public` in `test_golden_car.cpp`
 - [ ] P0.5 Doc drift fixes (Units.h test path, golden README contradiction, CODING_RULES rule 9, `rel`/`NOREL`, DESIGN_PATTERNS line ref, restore `docs/utils-component-design.md`)
