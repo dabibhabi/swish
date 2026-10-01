@@ -203,6 +203,9 @@ void Renderer::recreateSwapchain() {
     m_swapchain->cleanup(m_device->getDevice());
 
     m_swapchain->init(*m_device, m_context->getSurface(), static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    // Any recreate (present OOD, acquire OOD, SSAA apply) satisfies a pending resize;
+    // this is the only place the flag is cleared.
+    m_window->resetResizedFlag();
 
     m_syncObjects->recreateRenderFinishedSemaphores(m_device->getDevice(), m_swapchain->getImageCount());
 

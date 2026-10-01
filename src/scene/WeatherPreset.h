@@ -34,6 +34,17 @@ inline std::string_view weather_preset_name(WeatherPreset p) {
     }
 }
 
+// "Clear day" presets: a sunny sky that reads wrong with rain falling.
+constexpr bool is_clear_day(WeatherPreset p) {
+    return p == WeatherPreset::PartlyCloudy || p == WeatherPreset::GoldenHour;
+}
+
+// The preset to show once rain is at `rain` (0..1): rain cancels a clear-day sky
+// (it becomes Cloudy); any other preset is kept.
+constexpr WeatherPreset preset_for_rain(WeatherPreset p, float rain) {
+    return (rain > 0.0f && is_clear_day(p)) ? WeatherPreset::Cloudy : p;
+}
+
 // Filename under ASSET_DIR "Sky/" for the preset's environment map.
 inline std::string_view weather_preset_hdri_file(WeatherPreset p) {
     switch (p) {

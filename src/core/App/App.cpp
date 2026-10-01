@@ -38,17 +38,21 @@ void App::set_rain_level(int level) {
     // reads light gray as rain rises (off → light → heavy).
     if (m_car)
         m_car->set_rain_intensity(rain);
-    // Rain and the clear-day preset are mutually exclusive — an azure sunny
-    // sky with rain falling reads wrong, so turning rain on cancels clear day.
-    if (rain > 0.0f && m_clear_day) {
-        m_clear_day = false;
-        m_renderer->set_clear_day(false);
-    }
+#ifdef SWISH_DEBUG_UI
+    // apply_debug_params copies the panel's rain slider into the renderer every
+    // frame; keep the slider in step so the R key is not overwritten next frame.
+    m_renderer->debug_params().rainIntensity = rain;
+#endif
+    // Rain and a clear-day sky are mutually exclusive — an azure sunny sky with
+    // rain falling reads wrong — so rain switches a clear-day preset to Cloudy.
+    // Going through set_weather_preset keeps m_weather_preset (the G-key cycle)
+    // in step with what the renderer shows.
+    if (const WeatherPreset p = preset_for_rain(m_weather_preset, rain); p != m_weather_preset)
+        set_weather_preset(p);
 }
 
 void App::set_weather_preset(WeatherPreset preset) {
     m_weather_preset = preset;
-    m_clear_day      = (preset == WeatherPreset::PartlyCloudy || preset == WeatherPreset::GoldenHour);
     m_renderer->set_weather_preset(preset);
     std::cout << "[weather] " << weather_preset_name(preset) << std::endl;
 }
@@ -60,19 +64,7 @@ void App::set_wiper(bool enabled) {
 
 void App::set_camera_mode(CameraMode mode) {
     m_camera_ctl.set_mode(mode);  // resets look offsets + cockpit smoothing / FOV kick
-    std::cout << "[camera] " << camera_mode_name(mode);
-    if (mode == CameraMode::Helicopter && m_car) {
-        const float introLen = m_treadmill.intro_len();
-        const float gantryZ  = RoadGeometry::intro_exit_gantry_z(introLen);
-        const float carZ     = m_car->get_position().z;
-        // Along -Z drive: positive meters-ahead means gantry is still in front.
-        const float ahead_m = (carZ - gantryZ) / 1000.0f;
-        if (ahead_m > 0.0f)
-            std::cout << " — EXIT ONLY gantry ~" << static_cast<int>(ahead_m + 0.5f) << " m ahead";
-        else
-            std::cout << " — EXIT ONLY gantry ~" << static_cast<int>(-ahead_m + 0.5f) << " m behind";
-    }
-    std::cout << std::endl;
+    std::cout << "[camera] " << camera_mode_name(mode) << std::endl;
 }
 
 void App::set_cursor_captured(bool captured) {
@@ -91,6 +83,9 @@ int App::run() {
     float last_frame_time = static_cast<float>(glfwGetTime());
     while (!m_window->shouldClose()) {
         const float dt = frame_delta(last_frame_time);
+#ifdef SWISH_DEBUG_UI
+        sync_debug_edit_mode_from_panel();  // the panel may have toggled it last frame
+#endif
         // In debug edit-mode the scene freezes so you can tune a static frame.
         const bool debug_edit = debug_edit_mode();
 
@@ -123,13 +118,10 @@ bool App::debug_edit_mode() const {
 }
 
 void App::poll_events() {
+    // The resize flag is NOT consumed here: the renderer's present step reads it and
+    // Renderer::recreateSwapchain clears it. (Clearing it here, before drawFrame, made
+    // that check dead and left resizes relying on VK_ERROR_OUT_OF_DATE alone.)
     m_window->pollEvents();
-
-    // Note: drawFrame's handlePresent also checks wasResized, but checking here
-    // ensures the flag is consumed even on frames where drawing is skipped.
-    if (m_window->wasResized()) {
-        m_window->resetResizedFlag();
-    }
 }
 
 // Drive the car (arrow keys), then hand its draw state to the renderer.

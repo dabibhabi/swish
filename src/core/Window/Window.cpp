@@ -14,6 +14,7 @@ void Window::init(uint32_t width, uint32_t height, const char* title) {
     if (!glfwInit()) {
         throw std::runtime_error("Failed to initialize GLFW");
     }
+    m_glfwInitialized = true;
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     m_window = glfwCreateWindow(width, height, title, nullptr, nullptr);
@@ -30,7 +31,11 @@ void Window::cleanup() {
         glfwDestroyWindow(m_window);
         m_window = nullptr;
     }
-    glfwTerminate();
+    // App::shutdown() and ~Window both call this; terminate GLFW only once.
+    if (m_glfwInitialized) {
+        glfwTerminate();
+        m_glfwInitialized = false;
+    }
 }
 
 bool Window::shouldClose() const {

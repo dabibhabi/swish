@@ -115,8 +115,6 @@ public:
     void  set_car_position(Vec3 position);
     void  set_wiper_enabled(bool enabled);
 
-    void set_clear_day(bool clear);
-
     // HDRI + sun/clarity look for driving weather. Rebakes IBL from assets/Sky/.
     void          set_weather_preset(WeatherPreset preset);
     WeatherPreset weather_preset() const { return m_weather.preset(); }

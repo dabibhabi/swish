@@ -19,8 +19,8 @@ tests, 33 `.spv` + goldens + pass-order/bindings tests, `make check` + `make for
 anything visible, changelog. Commit/merge only when the owner asks.
 
 ### M0 — baseline and hygiene (Claude)
-- [ ] P0.0 Baseline: `make test` + `make check` green on the dirty tree; owner asks for the baseline commit
-- [ ] P0.1 (B) Quick fixes: cursor/edit-mode desync; weather preset desync; resize flag cleared before renderer reads it; fog "km" label; duplicated shadow dump line; double `glfwTerminate`; `EnumCycle` `Count == 0`; dead Treadmill gantry message + stale comments; stale `Window.h` TODOs
+- [x] P0.0 Baseline: release 218/218, debug-UI 241/241, 33/33 `.spv`, `make check` OK — committed `aab1c9c` (2026-10-01)
+- [x] P0.1 (B) Quick fixes (2026-10-01, branch `refactor/00-quick-fixes`; tests green, manual key/resize check still open): cursor/edit-mode desync; weather preset desync; resize flag cleared before renderer reads it; fog "km" label; duplicated shadow dump line; double `glfwTerminate`; `EnumCycle` `Count == 0`; dead Treadmill gantry message + stale comments; stale `Window.h` TODOs
 - [ ] P0.2 C++23 bump alone (`CMakeLists.txt:4`, `toml_baker`); all hashes/goldens unchanged, 0 warnings on 3 compilers
 - [ ] P0.3 Build: `swish_scene_core` static lib, `swish_utils` INTERFACE, warnings on tests/`toml_baker`, CI builds both test targets (clang Release) + `make check` + format-check, compiler guard on golden mesh test
 - [ ] P0.4 Test seam: replace `#define private public` in `test_golden_car.cpp`

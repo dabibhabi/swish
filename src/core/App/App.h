@@ -3,7 +3,6 @@
 #include "core/CameraController/CameraController.h"
 #include "scene/CameraMode.h"
 #include "scene/Corridor/CorridorDriver.h"  // real LIE corridor (owned by App)
-#include "scene/Treadmill/Treadmill.h"      // endless-road state (owned by App)
 #include "scene/WeatherPreset.h"
 
 #include <memory>
@@ -61,17 +60,8 @@ private:
     float m_last_mouse_y    = 0.0f;
     bool  m_cursor_captured = true;
 
-    // Endless-road illusion (origin rebase, chunk window, interchanges, ribbon
-    // follower). All the treadmill state that used to live here directly now lives
-    // in Treadmill; App just owns it and calls update() once per frame.
-    //
-    // RETIRED as the active road by Phase 3a — the corridor below replaced it
-    // (docs/phase-3-osm-lie-corridor.md §5). Kept only because the authored
-    // intro's exit-gantry helper still reports off intro_len(); nothing uploads
-    // chunk or interchange geometry any more, so it drives no draws.
-    Treadmill m_treadmill;
-
     // ── Real-world LIE corridor (Phase 3a) ────────────────────────────
+    // (Replaced the endless-road Treadmill, which App no longer owns.)
     // The baked OSM-derived alignment plus the finite-corridor mechanics that
     // replaced the treadmill: origin rebase, visible-segment window, corridor-
     // frame drivable bounds, and the terminus stops / U-turn pads.
@@ -91,9 +81,6 @@ private:
 
     // Weather HDRI preset (G key cycles partly cloudy → cloudy → very cloudy → golden hour)
     WeatherPreset m_weather_preset = WeatherPreset::PartlyCloudy;
-
-    // Legacy clear-day flag (still cleared when rain turns on)
-    bool m_clear_day = false;
 
 #ifdef SWISH_DEBUG_UI
     // Debug edit-mode (backtick `): frees the cursor for the ImGui panel and
@@ -137,6 +124,11 @@ private:
     void on_cycle_weather();
 #ifdef SWISH_DEBUG_UI
     void on_toggle_debug_edit();
+    // The one writer of edit mode: frees/captures the cursor and freezes the sim.
+    void set_debug_edit_mode(bool edit);
+    // The panel's "Edit mode" checkbox / Reset write DebugParams::editMode directly;
+    // route a change there through set_debug_edit_mode so App's state follows.
+    void sync_debug_edit_mode_from_panel();
 #endif
 
     static void mouse_callback(GLFWwindow* window, double xpos, double ypos);

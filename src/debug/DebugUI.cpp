@@ -330,8 +330,6 @@ void printValues(const DebugParams& p) {
     std::printf("steerAxisEdit=%d steerEuler={%.2f,%.2f,%.2f} steerQuat={%.4f,%.4f,%.4f,%.4f}\n",
                 p.steerAxisEdit ? 1 : 0, p.steerEuler.x, p.steerEuler.y, p.steerEuler.z, p.steerQuat.x, p.steerQuat.y,
                 p.steerQuat.z, p.steerQuat.w);
-    std::printf("shadowBias=%.5f shadowFloor=%.3f csmShadowFar=%.1f csmLambda=%.3f\n", p.shadowBias, p.shadowFloor,
-                p.csmShadowFar, p.csmLambda);
     std::printf("shadowBias=%.5f shadowFloor=%.3f lightSize=%.2f csmShadowFar=%.1f csmLambda=%.3f\n", p.shadowBias,
                 p.shadowFloor, p.shadowLightSize, p.csmShadowFar, p.csmLambda);
     std::printf("depthBiasConst=%.3f depthBiasSlope=%.3f\n", p.depthBiasConst, p.depthBiasSlope);
@@ -599,15 +597,16 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
         // ── Fog ───────────────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Fog")) {
             ImGui::ColorEdit3("Fog color", &p.fogColor.x);
-            // Display distance in km; store in world units.
-            float distKm = p.fogDist63 / 1000.0f;
-            if (ImGui::SliderFloat("Dist @63% (km)", &distKm, 1.0f, 5000.0f, "%.0f"))
-                p.fogDist63 = distKm * 1000.0f;
+            // Display distance in metres; store in world units (1 m = 1000 WU).
+            namespace uu = util::units;
+            float distM  = uu::to_m(p.fogDist63);
+            if (ImGui::SliderFloat("Dist @63% (m)", &distM, 1.0f, 5000.0f, "%.0f"))
+                p.fogDist63 = uu::m(distM);
             ImGui::SliderFloat("Fog max", &p.fogMax, 0.0f, 1.0f);
             // Always-on aerial haze (dry days too) — dissolves distance into the sky.
-            float hazeKm = p.hazeDist / 1000.0f;
-            if (ImGui::SliderFloat("Haze dist (km)", &hazeKm, 100.0f, 5000.0f, "%.0f"))
-                p.hazeDist = hazeKm * 1000.0f;
+            float hazeM = uu::to_m(p.hazeDist);
+            if (ImGui::SliderFloat("Haze dist (m)", &hazeM, 100.0f, 5000.0f, "%.0f"))
+                p.hazeDist = uu::m(hazeM);
             ImGui::SliderFloat("Haze max", &p.hazeMax, 0.0f, 1.0f);
         }
 

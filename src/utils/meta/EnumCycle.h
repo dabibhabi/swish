@@ -19,8 +19,9 @@
 
 namespace swish::util::meta {
 
+// `Count == 0` is rejected: next_enum would take a modulo by zero.
 template <typename E>
-concept CountedEnum = std::is_enum_v<E> && requires { E::Count; };
+concept CountedEnum = std::is_enum_v<E> && requires { E::Count; } && (static_cast<long long>(E::Count) > 0);
 
 // Number of real values (the `Count` sentinel).
 template <CountedEnum E>

@@ -91,8 +91,7 @@ void Renderer::drawFrame(float deltaTime) {
 
     auto handlePresent = [&](VkResult r) {
         if (vkx::swapchain_needs_recreation(r) || m_window->wasResized()) {
-            m_window->resetResizedFlag();
-            recreateSwapchain();
+            recreateSwapchain();  // clears the window's resize flag
         } else if (!vkx::is_success(r)) {
             throw std::runtime_error("failed to present swap chain image!");
         }

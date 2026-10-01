@@ -42,11 +42,6 @@ void Renderer::set_wiper_enabled(bool enabled) {
     m_wiperEnabled = enabled;
 }
 
-void Renderer::set_clear_day(bool clear) {
-    // Kept for App compatibility: clear day ≈ partly cloudy HDRI look.
-    set_weather_preset(clear ? WeatherPreset::PartlyCloudy : WeatherPreset::Cloudy);
-}
-
 void Renderer::set_weather_preset(WeatherPreset preset) {
     m_weather.set_preset(preset);
 }

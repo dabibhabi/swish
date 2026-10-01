@@ -61,3 +61,23 @@ containing a pipe, and every one returned zero matches. Zero matches looked like
    Uniform zero usually means the tool is broken, not the codebase.
 4. Correct the record explicitly when this happens. Related: [[swish-visual-verification]] — same
    family of error, trusting an indirect signal instead of looking at the thing itself.
+
+## 2026-10-01 — `make format` is repo-wide; never run it inside a scoped phase
+
+**What happened:** after editing 15 files in the quick-fix phase I ran `make format`, which reformatted
+the 20 already-unformatted files across the repo too (Units.h, toml_baker, tests…), mixing unrelated
+churn into a one-cause-per-diff branch. Caught it from `git diff --stat` and restored the untouched files.
+
+**Rule for myself:**
+1. Format only what I touched: `clang-format -i $(git diff --name-only | grep -E '\.(h|cpp)$')`.
+2. If a touched file was already unformatted at baseline, do not reformat it in a refactor phase. Formatting
+   the backlog is its own M2 cleanup commit.
+3. Always read `git diff --stat` before reporting a phase done.
+
+## 2026-10-01 — Ask decisions as selectable prompts, not a text wall
+
+**What happened:** during the grilling skill I printed 10 numbered questions as markdown. The owner
+replied "ask the questions one by one so i can select".
+
+**Rule for myself:** for owner decisions use `AskUserQuestion` (at most 4 per call, options + recommended
+first), even when a skill's template shows a text format. Text only for explanations.

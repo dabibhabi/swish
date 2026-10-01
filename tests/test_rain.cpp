@@ -2,6 +2,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include "renderer/RainSystem/RainPhysics.h"
+#include "scene/WeatherPreset.h"
 
 using namespace swish;
 using Catch::Matchers::WithinAbs;
@@ -53,4 +54,19 @@ TEST_CASE("Intensity maps linearly to rain rate", "[rain]") {
     REQUIRE_THAT(intensity_to_rain_rate(0.0f, 25.0f), WithinAbs(0.0f, 1e-6f));
     REQUIRE_THAT(intensity_to_rain_rate(1.0f, 25.0f), WithinAbs(25.0f, 1e-6f));
     REQUIRE_THAT(intensity_to_rain_rate(0.5f, 25.0f), WithinAbs(12.5f, 1e-6f));
+}
+
+// ── Rain vs weather preset (App::set_rain_level) ─────────────────────
+// Regression: rain used to switch the renderer to Cloudy only after a G-key
+// press had set a stale clear-day flag, and never updated the App's preset,
+// so the next G press appeared to do nothing.
+TEST_CASE("Rain switches a clear-day preset to Cloudy and keeps the others", "[rain][weather]") {
+    STATIC_REQUIRE(preset_for_rain(WeatherPreset::PartlyCloudy, 0.35f) == WeatherPreset::Cloudy);
+    STATIC_REQUIRE(preset_for_rain(WeatherPreset::GoldenHour, 1.0f) == WeatherPreset::Cloudy);
+    STATIC_REQUIRE(preset_for_rain(WeatherPreset::VeryCloudy, 1.0f) == WeatherPreset::VeryCloudy);
+    STATIC_REQUIRE(preset_for_rain(WeatherPreset::Cloudy, 1.0f) == WeatherPreset::Cloudy);
+    // Dry: nothing changes, including the startup preset.
+    STATIC_REQUIRE(preset_for_rain(WeatherPreset::PartlyCloudy, 0.0f) == WeatherPreset::PartlyCloudy);
+    // After rain moved PartlyCloudy -> Cloudy, G advances from Cloudy.
+    REQUIRE(next_weather_preset(preset_for_rain(WeatherPreset::PartlyCloudy, 1.0f)) == WeatherPreset::VeryCloudy);
 }

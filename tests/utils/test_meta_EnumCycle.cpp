@@ -11,6 +11,9 @@ namespace {
 enum class Mode : uint8_t { A = 0, B, C, Count };
 static_assert(um::CountedEnum<Mode>);
 static_assert(!um::CountedEnum<int>);
+// Count == 0 would make next_enum take a modulo by zero: rejected by the concept.
+enum class Empty : uint8_t { Count = 0 };
+static_assert(!um::CountedEnum<Empty>);
 static_assert(um::enum_count<Mode>() == 3);
 static_assert(um::next_enum(Mode::A) == Mode::B);
 static_assert(um::next_enum(Mode::C) == Mode::A);

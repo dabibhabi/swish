@@ -84,6 +84,10 @@ void App::process_key_bindings() {
 }
 
 void App::on_toggle_cursor_capture() {
+    // Edit mode owns the cursor (always free for the panel); Esc there would
+    // re-capture it under the panel, so it is ignored until you leave edit mode.
+    if (debug_edit_mode())
+        return;
     set_cursor_captured(!cursor_captured());
 }
 
@@ -107,10 +111,24 @@ void App::on_cycle_weather() {
 // Backtick (`) toggles debug edit-mode: free the cursor for the panel and
 // freeze the sim; press again to return to driving.
 void App::on_toggle_debug_edit() {
-    m_debug_edit_mode = !m_debug_edit_mode;
-    glfwSetInputMode(m_window->getHandle(), GLFW_CURSOR, m_debug_edit_mode ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
-    m_first_mouse = true;
-    m_renderer->set_debug_edit_mode(m_debug_edit_mode);
+    set_debug_edit_mode(!m_debug_edit_mode);
+}
+
+void App::set_debug_edit_mode(bool edit) {
+    m_debug_edit_mode = edit;
+    // Edit frees the cursor, driving re-captures it. Going through
+    // set_cursor_captured keeps m_cursor_captured, the GLFW cursor mode and
+    // m_first_mouse in step: setting the GLFW mode directly used to leave
+    // m_cursor_captured stale (Esc, `, ` gave a disabled cursor whose mouse
+    // deltas were dropped; in edit mode panel drags turned the camera).
+    set_cursor_captured(!edit);
+    m_renderer->set_debug_edit_mode(edit);
+}
+
+void App::sync_debug_edit_mode_from_panel() {
+    const bool panel = m_renderer->debug_params().editMode;
+    if (panel != m_debug_edit_mode)
+        set_debug_edit_mode(panel);
 }
 #endif
 

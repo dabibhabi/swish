@@ -58,7 +58,7 @@ The backtick row (`on_toggle_debug_edit`) exists only under `SWISH_DEBUG_UI`.
 
 ### Resize Flag Consumption
 
-`wasResized()` returns and **clears** the flag in one call. This prevents double-recreation if both `pollEvents` and `drawFrame` check for resize in the same frame.
+`wasResized()` only reads the flag. It has exactly one consumer: the renderer's present step checks it, and `Renderer::recreateSwapchain` clears it (any recreate satisfies a pending resize). `App` never touches it. Clearing it in `App::poll_events`, before `drawFrame`, used to make the present check dead (fixed 2026-10-01).
 
 </details>
 

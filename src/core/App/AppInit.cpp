@@ -44,8 +44,8 @@ std::vector<uint8_t> make_rumble_pixels(uint32_t w, uint32_t h) {
 }  // namespace
 
 void App::init() {
-    // Road geometry math + treadmill constants live in RoadGeometry (pure, static);
-    // endless-road state + per-frame update live in m_treadmill.
+    // Road geometry math lives in RoadGeometry (pure, static); the drivable road
+    // and its per-frame update live in m_corridor (CorridorDriver).
     init_window_and_renderer();
     init_textures();
 

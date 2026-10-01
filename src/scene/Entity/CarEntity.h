@@ -102,8 +102,8 @@ public:
     bool wheels_valid() const { return m_wheels_valid; }
 
     // Phase-B quarter-car suspension (archive/docs/wheels/phase-b-spec.md). A LATE
-    // per-frame update: call from App.cpp AFTER Treadmill::update() (so the
-    // body Y-snap and any endless-road rebase have settled) and before draw
+    // per-frame update: call from App.cpp AFTER CorridorDriver::update() (so the
+    // body Y-snap and any origin rebase have settled) and before draw
     // calls are generated. Touches ONLY the per-corner suspension state; the
     // vertical offset it produces is composed into get_draw_calls' local
     // wheel/steer matrices (§7) — the entity transform itself is untouched (§8).

@@ -8,6 +8,10 @@ All notable changes to Swish are documented here.
 
 Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest month first.
 
+### 2026-10 (1 entries)
+
+- 2026-10-01 — [Quick fixes before the typed-C++ refactor: input/edit-mode, weather, resize, GLFW teardown](docs/changelog/2026-10.md#2026-10-01--quick-fixes-before-the-typed-c-refactor-inputedit-mode-weather-resize-glfw-teardown)
+
 ### 2026-09 (7 entries)
 
 - 2026-09-29 — [Archive reorganisation: stale docs and local-only bulk moved to archive/](docs/changelog/2026-09.md#2026-09-29--archive-reorganisation-stale-docs-and-local-only-bulk-moved-to-archive)

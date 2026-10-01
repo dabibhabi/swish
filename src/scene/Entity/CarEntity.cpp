@@ -277,7 +277,7 @@ void CarEntity::update(float dt) {
 
 // ── Phase-B quarter-car suspension (kinematic travel only) ────────────
 // archive/docs/wheels/phase-b-spec.md. LATE update: App.cpp calls this after
-// Treadmill::update() so the body's Y-snap (and any endless-road rebase)
+// CorridorDriver::update() so the body's Y-snap (and any origin rebase)
 // have already settled. Touches ONLY the per-corner suspension state —
 // the entity transform is never written here (§8); the resulting offset is
 // consumed solely as a local draw-matrix translation in get_draw_calls (§7).
