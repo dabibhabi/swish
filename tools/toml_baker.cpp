@@ -4,8 +4,8 @@
 // Usage: toml_baker <input.toml> <output.bin>
 //
 // Unit conversion:
-//   kFt = 0.3048 * 1000.0 = 304.8  (feet → world units)
-//   WORLD_SCALE = 1000.0            (meters → world units)
+//   kFt = 0.3048f * 1000.0f = 304.8  (feet → world units; from utils/units/Units.h)
+//   WORLD_SCALE = 1000.0             (meters → world units; kWuPerMetre)
 // ═══════════════════════════════════════════════════════════════════════
 
 #include <cstdint>
@@ -16,60 +16,17 @@
 
 #include <toml++/toml.hpp>
 
-// IMPORTANT: This struct layout MUST match src/scene/RoadScene/RoadConfig.h exactly.
-// If fields are added/removed/reordered in RoadConfig.h, update this file in lockstep.
-// A layout mismatch silently corrupts road.bin with no compile-time error.
-#pragma pack(push, 1)
-struct RoadConfig {
-    uint32_t magic;
-    uint32_t version;
+// RoadConfig (packed layout, MAGIC, VERSION) and the unit constants come from the SAME headers the
+// game reads, so the baked layout cannot drift; RoadConfig.h static_asserts sizeof(RoadConfig).
+#include "scene/RoadScene/RoadConfig.h"
+#include "utils/units/Units.h"
 
-    float road_length;
-    float lane_width;
-    int32_t lane_count;
-    float shoulder_width_wb;
-    float shoulder_width_eb;
-    float grass_extent;
+using swish::RoadConfig;
 
-    float barrier_width;
-    float barrier_height;
-
-    float rail_width;
-    float rail_height;
-
-    float curb_height;
-    float curb_width;
-
-    float asphalt_tile;
-    float grass_tile;
-    float concrete_tile;
-    float metal_tile;
-
-    float marking_y_offset;
-    float dash_length;
-    float dash_gap;
-
-    float shoulder_tint[4];
-    float barrier_tint[4];
-    float rail_tint[4];
-    float white_marking[4];
-    float yellow_marking[4];
-
-    float ground_tint[4];
-    float grass_tint[4];
-    float asphalt_tint[4];
-    float concrete_tint[4];
-    float metal_tint[4];
-    float white_tint[4];
-    float yellow_tint[4];
-    float black_tint[4];
-};
-#pragma pack(pop)
-
-static constexpr float WORLD_SCALE = 1000.0f;
-static constexpr float kFt         = 0.3048f * WORLD_SCALE;
-static constexpr uint32_t MAGIC    = 0x53575243;
-static constexpr uint32_t VERSION  = 3;
+static constexpr float    WORLD_SCALE = swish::util::units::kWuPerMetre;
+static constexpr float    kFt         = swish::util::units::kWuPerFt;
+static constexpr uint32_t MAGIC       = RoadConfig::MAGIC;
+static constexpr uint32_t VERSION     = RoadConfig::VERSION;
 
 static bool read_color(const toml::array* arr, float out[4]) {
     if (!arr || arr->size() != 4) {

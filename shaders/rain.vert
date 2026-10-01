@@ -11,13 +11,7 @@ layout(location = 1) in vec2 uv;
 layout(location = 2) in vec4 seed;     // xyz = position seed [0,1], w = size/alpha variation [0,1]
 
 // ── Descriptor sets ───────────────────────────────────────────────────
-layout(set = 0, binding = 0) uniform CameraUBO {
-    mat4 view;
-    mat4 proj;
-    vec4 camPos;  // xyz = camera position, w = wetness
-    vec4 sunDir;
-    vec4 sunColor;
-} camera;
+#include "camera.glsl"
 
 layout(set = 1, binding = 0) uniform RainUBO {
     vec4 windAndTime;  // xyz = wind (WU/s), w = time

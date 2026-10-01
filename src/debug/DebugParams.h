@@ -1,11 +1,30 @@
 #pragma once
 
-#include "../scene/SceneTypes.h"  // MaterialOverride, MAT_COUNT, MaterialId
-#include "../utils/Types.h"       // swish::Vec3 / Vec4 (glm aliases)
+#include "scene/SceneTypes.h"   // MaterialOverride, MAT_COUNT, MaterialId
+#include "utils/types/Types.h"  // swish::Vec3 / Vec4 (glm aliases)
 
 #include <glm/glm.hpp>
+#include <optional>
 
 namespace swish {
+
+// Release-vs-debug default selection for registry tunables (see Tunables.def).
+// `release_value` is the pure rule; `build_default` applies it for this build config:
+// debug-UI builds use the debug default, release builds use the `.release` override
+// when one exists (none do today, so release == debug == the shipped look).
+template <class T>
+constexpr T release_value(T def, std::optional<T> rel) {
+    return rel.value_or(def);
+}
+template <class T>
+constexpr T build_default(T def, std::optional<T> rel) {
+#ifdef SWISH_DEBUG_UI
+    (void)rel;
+    return def;
+#else
+    return release_value<T>(def, rel);
+#endif
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // DebugParams — every live-tunable scene parameter, in one plain struct.
@@ -18,23 +37,23 @@ namespace swish {
 // ══════════════════════════════════════════════════════════════════════
 struct DebugParams {
     // ── Grade / composite (tone map + color grade in composite.frag) ──
-    float exposure       = 2.0f;    // lie preset (was 1.25) — tone-mapping exposure (manual)
-    float bloomThreshold = 1.77f;   // lie preset (was 1.0) — luminance above which bloom extracts
-    float bloomIntensity = 1.097f;  // lie preset (was 0.3) — additive bloom blend strength
+    float exposure       = 1.55f;  // retuned 2026-08-15 (lie preset had 2.0) — matches the release literal
+    float bloomThreshold = 1.77f;  // lie preset (was 1.0) — luminance above which bloom extracts
+    float bloomIntensity = 0.45f;  // retuned 2026-08-15 (lie preset had 1.097) — matches the release literal
 
     // ── Auto-exposure (eye adaptation) ────────────────────────────────
     // When on, the composite exposure is driven by the smoothed scene luminance
     // (exposure = aeKey / adaptedLum, clamped) instead of the manual value above.
     bool  autoExposure = false;
-    float aeKey        = 0.30f;   // target mid-grey the average maps toward
-    float aeSpeed      = 2.0f;    // adaptation rate (per second)
-    float aeMin        = 0.05f;   // exposure clamp (min)
-    float aeMax        = 2.0f;    // exposure clamp (max)
-    float brightness   = 0.032f;  // lie preset (was 0.0) — post-grade lift   [-1, 1]
-    float contrast     = 1.499f;  // lie preset (was 1.12) — post-grade contrast around 0.5
-    float saturation   = 0.988f;  // lie preset (was 1.2) — 0 = greyscale, 1 = neutral
-    float temperature  = 0.0f;    // warm/cool shift   [-1, 1]
-    float tint         = 0.0f;    // green/magenta shift [-1, 1]
+    float aeKey        = 0.30f;  // target mid-grey the average maps toward
+    float aeSpeed      = 2.0f;   // adaptation rate (per second)
+    float aeMin        = 0.05f;  // exposure clamp (min)
+    float aeMax        = 2.0f;   // exposure clamp (max)
+    float brightness   = 0.0f;   // retuned 2026-08-15 (lie preset had 0.032) — matches the release literal
+    float contrast     = 1.12f;  // retuned 2026-08-15 (lie preset had 1.499) — matches the release literal
+    float saturation   = 1.2f;   // retuned 2026-08-15 (lie preset had 0.988) — matches the release literal
+    float temperature  = 0.0f;   // warm/cool shift   [-1, 1]
+    float tint         = 0.0f;   // green/magenta shift [-1, 1]
 
     // ── Sky (gradient endpoints lerped by `clarity`; sun disc) ────────
     glm::vec3 skyHorizonOvercast{0.86f, 0.87f, 0.89f};  // LIE overcast: even light grey-white
@@ -49,7 +68,7 @@ struct DebugParams {
 
     // ── Sun / directional light ───────────────────────────────────────
     glm::vec3 sunColor{1.0f, 0.95f, 0.85f};
-    float     sunAmbient = 0.823f;  // lie preset (was 0.35) — ambient floor added to lit surfaces
+    float     sunAmbient = 0.50f;  // retuned 2026-08-15 (lie preset had 0.823) — matches the release literal
     // azimuth/elevation drive the sun direction vector; the Renderer converts
     // these spherical angles → sunDir (world space) before uploading.
     float sunAzimuth   = 0.0f;  // [-PI, PI], 0 = +Z
@@ -64,23 +83,17 @@ struct DebugParams {
     float hazeDist = 900000.0f;  // distance (WU) at which haze reaches ~63%
     float hazeMax  = 0.5f;       // haze ceiling [0,1] — fraction dissolved into sky at range
 
-    // ── Reflection (environment / gloss) ──────────────────────────────
-    float envGlossExp = 3.0f;  // Fresnel/gloss falloff exponent
-
-    // ── IBL (split-sum environment lighting from the procedural sky) ──
-    // Diffuse = cosine-weighted sky irradiance; specular = prefiltered sky
-    // reflection × Karis env-BRDF. 1.0 = physically-scaled; tune to taste.
-    float iblDiffuse  = 1.832f;  // lie preset (was 1.0)
-    float iblSpecular = 1.0f;
-
-    // ── SSR (screen-space reflections) ────────────────────────────────
-    // View-space ray-march of the depth buffer, added to the composite. Units are
-    // world units (1 m = 1000 WU). Artifact-prone — tune live against the scene.
-    bool  ssrEnabled   = true;
-    float ssrMaxDist   = 36018.0f;  // lie preset (was 120000) — max reflected-ray travel (WU)
-    float ssrThickness = 1835.0f;   // lie preset (was 4000) — depth-intersection tolerance (WU)
-    float ssrStride    = 8063.0f;   // lie preset (was 2500) — initial march step (WU)
-    float ssrIntensity = 0.714f;    // lie preset (was 0.6) — reflection strength
+    // ── Registry tunables (src/debug/Tunables.def — single source) ─────
+    // Fields + defaults below are generated from Tunables.def:
+    //   ssr        SSR view-space depth ray-march, added to the composite (world units,
+    //              1 m = 1000 WU). Artifact-prone — tune live against the scene.
+    //   reflection envGlossExp (Fresnel/gloss falloff exponent) + IBL split-sum environment
+    //              lighting: iblDiffuse = cosine-weighted sky irradiance, iblSpecular =
+    //              prefiltered sky reflection × Karis env-BRDF. 1.0 = physically scaled.
+    //   wet        wetPorosity / wetRoughness / puddlesEnabled / puddleCoverage (rest of the wet/rain block below)
+#define TUNE_B(n, g, k, def, label, rel) bool n = build_default<bool>(def, rel);
+#define TUNE_F(n, g, k, def, lo, hi, label, sfmt, prec, push, rel) float n = build_default<float>(def, rel);
+#include "Tunables.def"
 
     // ── God-rays (screen-space light shafts, Mitchell 2007) ───────────
     // Sun-anchored radial blur of the lit HDR, added at composite. UN-gated in the
@@ -103,8 +116,8 @@ struct DebugParams {
     float ssaoIntensity = 1.0f;     // occlusion strength multiplier
 
     // ── Shadows (single sun shadow map + depth bias) ──────────────────
-    float shadowBias       = 0.0f;       // lie preset (was 0.0018) — slope-scaled shadow-compare bias
-    float shadowFloor      = 1.0f;       // lie preset (was 0.25) — min visibility in full shadow (1.0 = no darkening)
+    float shadowBias       = 0.0018f;    // restored 2026-08-15 — required once shadows are live (acne)
+    float shadowFloor      = 0.25f;      // restored 2026-08-15 (lie preset 1.0 disabled shadow darkening entirely)
     float shadowHalfExtent = 45000.0f;   // (legacy single-map; unused by CSM)
     float shadowDepthRange = 200000.0f;  // (legacy single-map; unused by CSM)
     float depthBiasConst   = 4.0f;       // vkCmdSetDepthBias constant factor
@@ -132,17 +145,15 @@ struct DebugParams {
     int cullShadowTotal     = 0;
 
     // ── Wet / rain ────────────────────────────────────────────────────
-    float rainIntensity = 1.0f;     // lie preset (was 0.0) — [0,1] rain amount (drives haze + wetness)
-    float wetPorosity   = 0.631f;   // lie preset (was 0.35) — how much water darkens/soaks the surface
-    float wetRoughness  = 1.0f;     // lie preset (was 0.12) — roughness of wet (specular) surfaces
-    float streakLen     = 5162.0f;  // lie preset (was 3200) — windshield / surface streak length
+    float rainIntensity = 1.0f;  // lie preset (was 0.0) — [0,1] rain amount (drives haze + wetness)
+    // wetPorosity / wetRoughness (+ puddles below): generated from Tunables.def (see the registry block above).
+    float streakLen = 5162.0f;  // lie preset (was 3200) — windshield / surface streak length
 
-    // ── Puddles (W9 — road-gated standing water; ships, but dry release = off) ──
-    // A world-space procedural pool mask on the asphalt (gbMaterial.a road tag) that
-    // locally saturates the wet model to a mirror, reflecting the sky (IBL) and — in
-    // debug — the scene (SSR). Faded in with wetness, so only shows when raining.
-    bool  puddlesEnabled = true;
-    float puddleCoverage = 0.501f;  // lie preset (was 0.5) — [0,1] fraction of road that pools water
+    // ── Puddles (W9 — road-gated standing water) ──
+    // puddlesEnabled / puddleCoverage: generated from Tunables.def (wet group). A world-space
+    // procedural pool mask on the asphalt (gbMaterial.a road tag) that locally saturates the wet
+    // model to a mirror, reflecting the sky (IBL) and the scene (SSR, same coverage in release
+    // since 2026-09-29). Faded in with wetness, so only shows when raining.
 
     // ── Road spray (W9 — GPU compute particles behind the car) ──────────
     // Additive mist kicked up off a wet road at speed. Emission is gated by
@@ -158,6 +169,25 @@ struct DebugParams {
     glm::vec3 carPaint{1.0f, 1.0f, 1.0f};
     float     carRoughnessMul = 1.0f;
     bool      carOverride     = false;  // when true, use the above instead of the asset's material
+
+    // ── Clearcoat + flake (car paint BRDF) ─────────────────────────────
+    // clearcoatMul/flakeDensityMul are GLOBAL multipliers over the per-material
+    // authored defaults (SceneTypes.h: default_clearcoat_strength/default_flake_density),
+    // same "global multiplier over an authored table" pattern as ssaoIntensity/iblDiffuse.
+    // Identity (1,1) here matches the shipped release literals exactly. Set
+    // flakeDensityMul to 0 to isolate the clearcoat lobe while tuning (todo.md).
+    // clearcoatRoughness/flakeRoughness are the SHARED (not per-material) lobe
+    // roughnesses — real automotive clearcoat is tight/near-mirror regardless of
+    // the base paint; flake's highlight is broader, giving discrete glints rather
+    // than a mirror. flakeScale/flakeJitter size and strength the procedural
+    // per-pixel flake-cell normal perturbation (gbuffer.frag) — broadcast into
+    // every draw's push constants (paint.zw), not authored per-material.
+    float clearcoatMul       = 1.0f;
+    float flakeDensityMul    = 1.0f;
+    float clearcoatRoughness = 0.045f;  // tight, near-mirror
+    float flakeRoughness     = 0.12f;   // broader than clearcoat — discrete glints, not a mirror
+    float flakeScale         = 8.0f;    // flake cell size (WU; 1 m = 1000 WU) ≈ 8 mm
+    float flakeJitter        = 0.35f;   // flake normal-perturbation strength [0,1]
 
     // ── Per-material override table (per-submesh material editor) ─────
     // Indexed by MaterialId; an enabled entry replaces that material's metalness /
@@ -216,6 +246,23 @@ struct DebugParams {
     bool  wheelSpinEnabled  = true;
     bool  wheelSteerEnabled = true;
     float wheelSpinMul      = 1.0f;
+
+    // ── Telemetry HUD (speed/gear/rpm/grip readout; issue 5's readout half) ──
+    // The cockpit gauge cluster is BAKED PIXELS in the GLB texture atlas
+    // (verified: zero gauge/needle/dial nodes across 3341 nodes — the needle
+    // is painted at zero and can never move), so it cannot serve as a speed
+    // readout; this panel is the only one available. Read-only — no tuning
+    // here. Like cullMainSubmitted/steerPivotWorld above, these fields are
+    // NOT written by the debug UI itself: the app pushes CarEntity's live
+    // state into them once per frame (mirroring the steerPivotWorld push in
+    // App.cpp, under SWISH_DEBUG_UI), and DebugUI::begin_frame only displays
+    // them. Consequently they're excluded from TOML presets, same as the
+    // other transient/runtime fields in this struct.
+    bool  showTelemetry     = true;   // master visibility toggle for the Telemetry panel
+    float telemetrySpeedMps = 0.0f;   // CarEntity::get_speed() / kWorldUnitsPerMeter (m/s)
+    int   telemetryGear     = 0;      // CarEntity::get_gear(), 0 = 1st ... 6 = 7th
+    float telemetryRpm      = 0.0f;   // CarEntity::get_engine_rpm()
+    float telemetryMu       = 1.05f;  // CarEntity::get_effective_mu(); matches CarParams::tireMu dry default
 
     // ── UI state (not a scene parameter, but lives with the rest) ─────
     bool editMode  = false;  // true = cursor free to drive the panel; false = drive-mode (panel ignores mouse)

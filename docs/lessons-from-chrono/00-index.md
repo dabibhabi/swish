@@ -11,24 +11,24 @@ status: complete
 # Lessons from Chrono — index
 
 > [!info] What this series is
-> A deep dive into `examples/chrono/` (Project Chrono) aimed at one question: **what can swish
+> A deep dive into `archive/local/examples/chrono/` (Project Chrono) aimed at one question: **what can swish
 > steal to make driving through rain more real?** Each file follows the three-pass style of
-> [`examples/chrono/VEHICLE_DYNAMICS_GUIDE.md`](../../examples/chrono/VEHICLE_DYNAMICS_GUIDE.md)
+> [`archive/local/examples/chrono/VEHICLE_DYNAMICS_GUIDE.md`](../../archive/local/examples/chrono/VEHICLE_DYNAMICS_GUIDE.md)
 > — **Layman's terms** first, then **the math** (going further here: real analysis, measure
 > theory, convex analysis, metric spaces where they genuinely live in the code), then **the
 > code**, quoted verbatim with `file:line` references you can jump to. Every file ends with a
 > **→ swish** section pointing at the exact seam in our tree.
 >
 > *Provenance: AI-assisted deep-dive (Claude), 2026-08-05. All code excerpts verified against the
-> checkout at `examples/chrono/`; all swish line references verified against branch `debug-ui`.*
+> checkout at `archive/local/examples/chrono/`; all swish line references verified against branch `debug-ui`.*
 
 ## How this relates to the docs you already have
 
-- [`VEHICLE_DYNAMICS_GUIDE.md`](../../examples/chrono/VEHICLE_DYNAMICS_GUIDE.md) is the **map**:
+- [`VEHICLE_DYNAMICS_GUIDE.md`](../../archive/local/examples/chrono/VEHICLE_DYNAMICS_GUIDE.md) is the **map**:
   architecture, suspension functors, the tire-model menu, the DAE form, HHT. This series is the
   **territory** — it goes below that guide into the solver, the measure theory, and the numerics,
   and above it into "what do we do about it in swish."
-- [`docs/wheels/research/01-physics-theory.md`](../wheels/research/01-physics-theory.md) already
+- [`archive/docs/wheels/research/01-physics-theory.md`](../../archive/docs/wheels/research/01-physics-theory.md) already
   derives slip, the quarter-car, wet grip, and a Pacejka verdict *for swish*. We cross-link
   rather than restate; where Chrono does the same thing, the framing here is *"how a full
   multibody code implements what 01 §N sketches."*
@@ -95,10 +95,10 @@ Two tracks through it:
 | $K$ | the Coulomb friction cone; $K^\circ$ its polar cone; $N_K(x)$ the normal cone at $x$ |
 | $P_K$ | Euclidean projection onto $K$ |
 | $N$ | the Schur-complement (Delassus) operator $C_q M^{-1} C_q^\top - E$ |
-| WU | swish world units; $1\,\text{m} = 1000$ WU (`WORLD_SCALE`) |
+| WU | swish world units; $1\,\text{m} = 1000$ WU (`util::units::kWuPerMetre`; was `WORLD_SCALE` until 2026-09-29) |
 
 > [!tip] Conventions
-> Chrono excerpts are verbatim, headed `// examples/chrono/<path>:<lines>`. Swish excerpts are
+> Chrono excerpts are verbatim, headed `// archive/local/examples/chrono/<path>:<lines>`. Swish excerpts are
 > headed `// src/<path>:<lines>`. Claims of *absence* ("Chrono has no X") were re-verified by
 > grep + reading call sites on 2026-08-05 — the two big ones are flagged inline where they
 > matter ([03 §5](03-contact-as-measure-theory.md), [07 §1](07-wet-roads-and-rain.md)).

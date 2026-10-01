@@ -1,83 +1,135 @@
 #include "TaaPass.h"
 
+#include "renderer/RendererConfig.h"
+
 #ifdef SWISH_DEBUG_UI
 
-#include "../../utils/VulkanCheck.h"
-#include "../../utils/VulkanInit.h"
-#include "../Pipeline/Pipeline.h"
-#include "../Renderer/RendererServices.h"
-#include "../ResourceManager/ResourceManager.h"
+#include "debug/DebugParams.h"
+#include "renderer/Pipeline/Pipeline.h"
+#include "renderer/Renderer/RendererServices.h"
+#include "scene/Camera/Camera.h"
+#include "utils/math/Sequences.h"
+#include "utils/vulkan/Barrier.h"
+#include "utils/vulkan/Check.h"
+#include "utils/vulkan/Descriptors.h"
+#include "utils/vulkan/ImageView.h"
+#include "utils/vulkan/Init.h"
+#include "utils/vulkan/PushConstants.h"
+#include "utils/vulkan/RenderPass.h"
+#include "utils/vulkan/Rendering.h"
+#include "utils/vulkan/Samplers.h"
 
 #include <array>
+#include <glm/glm.hpp>
+#include <memory>
 
 namespace swish {
 
-namespace {
-// Explicit color-image barrier with the given stages/access (insertImageBarrier
-// doesn't cover the TRANSFER layouts the copy-back needs).
-void barrier(VkCommandBuffer cmd, VkImage img, VkImageLayout oldL, VkImageLayout newL, VkAccessFlags srcA,
-             VkAccessFlags dstA, VkPipelineStageFlags srcS, VkPipelineStageFlags dstS) {
-    VkImageMemoryBarrier b{};
-    b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    b.oldLayout           = oldL;
-    b.newLayout           = newL;
-    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.image               = img;
-    b.srcAccessMask       = srcA;
-    b.dstAccessMask       = dstA;
-    b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdPipelineBarrier(cmd, srcS, dstS, 0, 0, nullptr, 0, nullptr, 1, &b);
+void TaaPass::init(const PassInitCtx& ctx) {
+    create(ctx.services, ctx.images.views(Img::Hdr), ctx.images.views(Img::HdrDepth), ctx.images.views(Img::Velocity),
+           ctx.renderExtent);
 }
-}  // namespace
 
-void TaaPass::init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                   const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent) {
-    m_allocator     = s.allocator;
-    m_device        = s.device;
-    m_commandPool   = s.commandPool;
-    m_graphicsQueue = s.graphicsQueue;
-    m_extent        = extent;
+void TaaPass::onResize(const PassInitCtx& ctx) {
+    recreate(ctx.images.views(Img::Hdr), ctx.images.views(Img::HdrDepth), ctx.images.views(Img::Velocity),
+             ctx.renderExtent, ctx.services.device);
+}
 
-    createRenderPass(s.device);
+void TaaPass::beginFrame(const FrameUpdate& u) {
+    if (!u.camera)
+        return;
+    if (u.tune.taaEnabled) {
+        const uint32_t n = (m_frameCounter % 8u) + 1u;
+        u.camera->set_jitter(Vec2((util::math::halton(n, 2) - 0.5f) * 2.0f / static_cast<float>(m_extent.width),
+                                  (util::math::halton(n, 3) - 0.5f) * 2.0f / static_cast<float>(m_extent.height)));
+        m_frameCounter++;
+    } else {
+        u.camera->set_jitter(Vec2(0.0f, 0.0f));
+    }
+}
+
+void TaaPass::record(const FrameCtx& c) {
+    if (!c.tune.taaEnabled || !c.camera)
+        return;
+    const Mat4 view     = c.camera->get_view_matrix();
+    const Mat4 curInvVP = glm::inverse(c.camera->get_projection_matrix() * view);
+    TaaParams  tp;
+    tp.enabled         = true;
+    tp.historyBlend    = c.tune.taaHistoryBlend;
+    tp.motionBlur      = c.tune.motionBlurEnabled;
+    tp.motionBlurScale = c.tune.motionBlurScale;
+    resolve(c.cmd, c.frameIndex, c.images.image(Img::Hdr, c.frameIndex), tp, m_prevViewProj, curInvVP);
+    // Store this frame's un-jittered VP as next frame's reprojection source.
+    m_prevViewProj = c.camera->get_projection_matrix_unjittered() * view;
+}
+
+void TaaPass::create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                     const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
+                     const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& velocityViews, VkExtent2D extent) {
+    m_allocator        = s.allocator;
+    m_device           = s.device;
+    m_commandPool      = s.commandPool;
+    m_graphicsQueue    = s.graphicsQueue;
+    m_extent           = extent;
+    m_dynamicRendering = s.dynamicRendering;
+    m_sync2            = s.synchronization2;
+
+    // Classic path only: the render pass + framebuffers are not created when rendering dynamically.
+    if (!m_dynamicRendering)
+        createRenderPass(s.device);
     createImages(s);
-    createFramebuffers(s.device);
+    if (!m_dynamicRendering)
+        createFramebuffers(s.device);
 
-    VkSamplerCreateInfo si{};
-    si.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    si.magFilter    = VK_FILTER_LINEAR;
-    si.minFilter    = VK_FILTER_LINEAR;
-    si.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    si.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    VK_CHECK(vkCreateSampler(s.device, &si, nullptr, &m_sampler));
+    m_sampler = vkx::make_sampler(s.device);  // linear, clamp-to-edge
 
-    createDescriptors(s.device, hdrViews, depthViews);
-    createPipeline(s.device);
+    createDescriptors(s.device, hdrViews, depthViews, velocityViews);
+    createPipeline(s.device, s.pipelineCache);
     primeHistory(s);
 }
 
-void TaaPass::record(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, const TaaParams& params,
-                     const Mat4& prevViewProj, const Mat4& curInvViewProj) {
+void TaaPass::resolve(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, const TaaParams& params,
+                      const Mat4& prevViewProj, const Mat4& curInvViewProj) {
     if (!params.enabled)
         return;
 
     const uint32_t writeIdx = frameIndex;  // history read is taa[1-frameIndex] (bound in the set)
 
+    // Every transition goes through the shared vkx table; sync2 (vkCmdPipelineBarrier2) when the device
+    // enabled it, classic vkCmdPipelineBarrier otherwise. Same masks either way.
+    auto transition = [&](VkImage img, VkImageLayout oldL, VkImageLayout newL) {
+        vkx::image_barrier_auto(cmd, m_sync2, img, VK_IMAGE_ASPECT_COLOR_BIT, oldL, newL);
+    };
+    constexpr VkImageLayout kColor = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    constexpr VkImageLayout kRead  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    constexpr VkImageLayout kXSrc  = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    constexpr VkImageLayout kXDst  = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+
     // HDR (this frame's lit+forward result) → readable as the TAA input.
-    ResourceManager::insertImageBarrier(cmd, hdrImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    transition(hdrImage, kColor, kRead);
 
     // Resolve into taa[writeIdx].
     {
-        VkClearValue clear{};
-        auto         bi      = vk::makeRenderPassBeginInfo();
-        bi.renderPass        = m_renderPass;
-        bi.framebuffer       = m_framebuffers[writeIdx];
-        bi.renderArea.extent = m_extent;
-        bi.clearValueCount   = 1;
-        bi.pClearValues      = &clear;
-        vkCmdBeginRenderPass(cmd, &bi, VK_SUBPASS_CONTENTS_INLINE);
+        if (m_dynamicRendering) {
+            // No render pass to move the target for us: taa[writeIdx] rests in SHADER_READ (last frame's
+            // history read / primeHistory), so make it a colour attachment explicitly. This barrier also
+            // covers the write-after-read against last frame's history sample. Contents are fully
+            // overwritten (DONT_CARE load), matching the classic render pass.
+            transition(m_images[writeIdx].handle(), kRead, kColor);
+            vkx::RenderingInfo ri(m_extent);
+            ri.color(vkx::color_attachment(m_views[writeIdx], VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                                           VK_ATTACHMENT_STORE_OP_STORE));
+            vkx::begin_rendering(cmd, ri);
+        } else {
+            VkClearValue clear{};
+            auto         bi      = vkx::makeRenderPassBeginInfo();
+            bi.renderPass        = m_renderPass;
+            bi.framebuffer       = m_framebuffers[writeIdx];
+            bi.renderArea.extent = m_extent;
+            bi.clearValueCount   = 1;
+            bi.pClearValues      = &clear;
+            vkCmdBeginRenderPass(cmd, &bi, VK_SUBPASS_CONTENTS_INLINE);
+        }
 
         VkViewport vp{0.0f, 0.0f, float(m_extent.width), float(m_extent.height), 0.0f, 1.0f};
         vkCmdSetViewport(cmd, 0, 1, &vp);
@@ -95,37 +147,34 @@ void TaaPass::record(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage,
                                1.0f / float(m_extent.width), 1.0f / float(m_extent.height));
         vkCmdPushConstants(cmd, m_pipeLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &pc);
         vkCmdDraw(cmd, 3, 1, 0, 0);
-        vkCmdEndRenderPass(cmd);
+
+        if (m_dynamicRendering)
+            vkx::end_rendering(cmd);
+        else
+            vkCmdEndRenderPass(cmd);
     }
 
-    // Copy the resolved output back into HDR so bloom/composite read it unchanged.
-    barrier(cmd, m_images[writeIdx].handle(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-    barrier(cmd, hdrImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT);
+    // Copy the resolved output back into HDR so bloom/composite read it unchanged. Both paths leave
+    // taa[writeIdx] in COLOR_ATTACHMENT here (render pass finalLayout / the explicit barrier above).
+    transition(m_images[writeIdx].handle(), kColor, kXSrc);
+    transition(hdrImage, kRead, kXDst);
 
     VkImageCopy region{};
     region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.extent         = {m_extent.width, m_extent.height, 1};
-    vkCmdCopyImage(cmd, m_images[writeIdx].handle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, hdrImage,
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    vkCmdCopyImage(cmd, m_images[writeIdx].handle(), kXSrc, hdrImage, kXDst, 1, &region);
 
     // Restore HDR to COLOR_ATTACHMENT (as the forward passes left it) so the existing
     // downstream barrier/bloom logic is unchanged; leave taa[writeIdx] readable as
     // next frame's history.
-    barrier(cmd, hdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-    barrier(cmd, m_images[writeIdx].handle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    transition(hdrImage, kXDst, kColor);
+    transition(m_images[writeIdx].handle(), kXSrc, kRead);
 }
 
 void TaaPass::recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                       const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
+                       const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
+                       const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& velocityViews, VkExtent2D extent,
                        VkDevice device) {
     destroyImagesAndFramebuffers(device);
     m_extent = extent;
@@ -135,8 +184,9 @@ void TaaPass::recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrV
     s.graphicsQueue = m_graphicsQueue;
     s.allocator     = m_allocator;
     createImages(s);
-    createFramebuffers(device);
-    writeDescriptors(device, hdrViews, depthViews);
+    if (!m_dynamicRendering)
+        createFramebuffers(device);
+    writeDescriptors(device, hdrViews, depthViews, velocityViews);
     primeHistory(s);
 }
 
@@ -169,40 +219,14 @@ void TaaPass::createImages(const RendererServices& s) {
         m_images[i] = gpu::deviceLocalImage(
             s.allocator, m_extent.width, m_extent.height, m_format, VK_IMAGE_TILING_OPTIMAL,
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-        VkImageViewCreateInfo vi{};
-        vi.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        vi.image            = m_images[i].handle();
-        vi.viewType         = VK_IMAGE_VIEW_TYPE_2D;
-        vi.format           = m_format;
-        vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        VK_CHECK(vkCreateImageView(s.device, &vi, nullptr, &m_views[i]));
+        m_views[i] = vkx::make_image_view2d(s.device, m_images[i].handle(), m_format);
     }
 }
 
 void TaaPass::createRenderPass(VkDevice device) {
-    VkAttachmentDescription att{};
-    att.format         = m_format;
-    att.samples        = VK_SAMPLE_COUNT_1_BIT;
-    att.loadOp         = VK_ATTACHMENT_LOAD_OP_DONT_CARE;  // every pixel is written
-    att.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-    att.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    att.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-    att.finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference ref{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-    VkSubpassDescription  subpass{};
-    subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments    = &ref;
-
-    VkRenderPassCreateInfo rp{};
-    rp.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    rp.attachmentCount = 1;
-    rp.pAttachments    = &att;
-    rp.subpassCount    = 1;
-    rp.pSubpasses      = &subpass;
-    VK_CHECK(vkCreateRenderPass(device, &rp, nullptr, &m_renderPass));
+    vkx::ColorPassDesc d;
+    d.color      = {.format = m_format};  // DONT_CARE load: every pixel is written
+    m_renderPass = vkx::make_color_pass(device, d);
 }
 
 void TaaPass::createFramebuffers(VkDevice device) {
@@ -234,54 +258,34 @@ void TaaPass::destroyImagesAndFramebuffers(VkDevice device) {
 }
 
 void TaaPass::createDescriptors(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                                const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews) {
-    VkDescriptorSetLayoutBinding bindings[3]{};
-    for (uint32_t b = 0; b < 3; b++) {
-        bindings[b].binding         = b;
-        bindings[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        bindings[b].descriptorCount = 1;
-        bindings[b].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
-    }
-    VkDescriptorSetLayoutCreateInfo li{};
-    li.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    li.bindingCount = 3;
-    li.pBindings    = bindings;
-    VK_CHECK(vkCreateDescriptorSetLayout(device, &li, nullptr, &m_setLayout));
+                                const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
+                                const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& velocityViews) {
+    m_setLayout = vkx::make_sampler_layout(device, 4);
+    m_pool =
+        vkx::make_pool(device, {.maxSets = MAX_FRAMES_IN_FLIGHT, .combinedImageSamplers = 4 * MAX_FRAMES_IN_FLIGHT});
+    vkx::allocate_sets(device, m_pool, m_setLayout, m_sets);
 
-    VkDescriptorPoolSize       poolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 * MAX_FRAMES_IN_FLIGHT};
-    VkDescriptorPoolCreateInfo pi{};
-    pi.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pi.poolSizeCount = 1;
-    pi.pPoolSizes    = &poolSize;
-    pi.maxSets       = MAX_FRAMES_IN_FLIGHT;
-    VK_CHECK(vkCreateDescriptorPool(device, &pi, nullptr, &m_pool));
-
-    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
-    layouts.fill(m_setLayout);
-    VkDescriptorSetAllocateInfo ai{};
-    ai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    ai.descriptorPool     = m_pool;
-    ai.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-    ai.pSetLayouts        = layouts.data();
-    VK_CHECK(vkAllocateDescriptorSets(device, &ai, m_sets.data()));
-
-    writeDescriptors(device, hdrViews, depthViews);
+    writeDescriptors(device, hdrViews, depthViews, velocityViews);
 }
 
 void TaaPass::writeDescriptors(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                               const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews) {
+                               const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
+                               const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& velocityViews) {
     for (uint32_t f = 0; f < MAX_FRAMES_IN_FLIGHT; f++) {
-        // Set f resolves frame f: reads this frame's HDR + depth, and taa[1-f] history.
-        // Depth is sampled while it sits in DEPTH_STENCIL_READ_ONLY_OPTIMAL (set by the
-        // lighting pass, kept by the read-only-depth forward passes) — not the generic
-        // SHADER_READ layout, or the descriptor-layout-match validation trips.
-        VkDescriptorImageInfo infos[3] = {
+        // Set f resolves frame f: reads this frame's HDR + depth + per-object velocity
+        // (VelocityPass, todo.md), and taa[1-f] history. Depth is sampled while it sits in
+        // DEPTH_STENCIL_READ_ONLY_OPTIMAL (set by the lighting pass, kept by the read-only-
+        // depth forward passes) — not the generic SHADER_READ layout, or the descriptor-
+        // layout-match validation trips. The velocity buffer is written by VelocityPass and
+        // left in SHADER_READ_ONLY_OPTIMAL by its render pass's final layout.
+        VkDescriptorImageInfo infos[4] = {
             {m_sampler, hdrViews[f], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
             {m_sampler, depthViews[f], VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
             {m_sampler, m_views[(f + 1) % MAX_FRAMES_IN_FLIGHT], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+            {m_sampler, velocityViews[f], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         };
-        VkWriteDescriptorSet writes[3]{};
-        for (uint32_t b = 0; b < 3; b++) {
+        VkWriteDescriptorSet writes[4]{};
+        for (uint32_t b = 0; b < 4; b++) {
             writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[b].dstSet          = m_sets[f];
             writes[b].dstBinding      = b;
@@ -289,15 +293,19 @@ void TaaPass::writeDescriptors(VkDevice device, const std::array<VkImageView, MA
             writes[b].descriptorCount = 1;
             writes[b].pImageInfo      = &infos[b];
         }
-        vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
+        vkUpdateDescriptorSets(device, 4, writes, 0, nullptr);
     }
 }
 
-void TaaPass::createPipeline(VkDevice device) {
-    VkPushConstantRange pc{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push)};
-    m_pipeLayout = Pipeline::createLayout(device, {m_setLayout}, {pc});
+void TaaPass::createPipeline(VkDevice device, VkPipelineCache cache) {
+    const VkPushConstantRange pc = vkx::push_range<Push>(VK_SHADER_STAGE_FRAGMENT_BIT);
+    m_pipeLayout                 = pipeline::create_layout(device, {m_setLayout}, {pc});
 
     PipelineConfig cfg{};
+    if (m_dynamicRendering) {
+        cfg.dynamicRendering    = true;  // formats replace the render pass; renderPass argument is null
+        cfg.dynamicColorFormats = {m_format};
+    }
     cfg.vertShaderPath   = std::string(SHADER_DIR) + "fullscreen.vert.spv";
     cfg.fragShaderPath   = std::string(SHADER_DIR) + "taa.frag.spv";
     cfg.noVertexInput    = true;
@@ -305,7 +313,8 @@ void TaaPass::createPipeline(VkDevice device) {
     cfg.enableDepthTest  = false;
     cfg.enableDepthWrite = false;
     cfg.pipelineLayout   = m_pipeLayout;
-    m_pipeline           = Pipeline::create(device, cfg, m_renderPass, m_extent);
+    m_pipeline =
+        pipeline::create_graphics(device, cache, cfg, m_dynamicRendering ? VK_NULL_HANDLE : m_renderPass, m_extent);
 }
 
 void TaaPass::primeHistory(const RendererServices& s) {
@@ -324,8 +333,8 @@ void TaaPass::primeHistory(const RendererServices& s) {
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &bi);
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-        ResourceManager::insertImageBarrier(cmd, m_images[i].handle(), VK_IMAGE_LAYOUT_UNDEFINED,
-                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        vkx::image_barrier_auto(cmd, m_sync2, m_images[i].handle(), VK_IMAGE_ASPECT_COLOR_BIT,
+                                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     vkEndCommandBuffer(cmd);
 
     VkSubmitInfo submit{};
@@ -335,6 +344,10 @@ void TaaPass::primeHistory(const RendererServices& s) {
     vkQueueSubmit(s.graphicsQueue, 1, &submit, VK_NULL_HANDLE);
     vkQueueWaitIdle(s.graphicsQueue);
     vkFreeCommandBuffers(s.device, s.commandPool, 1, &cmd);
+}
+
+std::unique_ptr<IRenderPass> make_taa_pass() {
+    return std::make_unique<TaaPass>();
 }
 
 }  // namespace swish

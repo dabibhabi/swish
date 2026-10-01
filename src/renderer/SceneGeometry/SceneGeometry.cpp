@@ -1,9 +1,10 @@
 #include "SceneGeometry.h"
 
-#include "../DepthOnlyPipeline/DepthOnlyPipeline.h"
-#include "../MaterialDescriptors/MaterialDescriptors.h"
-#include "../ScenePipeline/ScenePipeline.h"
-#include "../Vertex.h"
+#include "renderer/DepthOnlyPipeline/DepthOnlyPipeline.h"
+#include "renderer/MaterialDescriptors/MaterialDescriptors.h"
+#include "renderer/ScenePipeline/ScenePipeline.h"
+#include "renderer/Vertex.h"
+#include "utils/geometry/Frustum.h"
 
 #include <cstring>
 
@@ -77,14 +78,8 @@ bool isCulled(const DrawCall& dc, const CullParams& cull, const Vec3& originOffs
     if (d - r > cull.maxDistance)
         return true;
 
-    if (cull.useFrustum) {
-        for (const Vec4& pl : cull.planes) {
-            // planes point inward; sphere is outside when signed distance < −r.
-            if (glm::dot(Vec3(pl), c) + pl.w < -r)
-                return true;
-        }
-    }
-    return false;
+    // Planes point inward; the sphere is outside when its signed distance is < -r.
+    return cull.useFrustum && util::geometry::sphere_outside_frustum(cull.planes, c, r);
 }
 
 }  // namespace
@@ -109,7 +104,8 @@ void SceneGeometry::upload(const RendererServices& s, const MeshData& mesh, cons
 
 void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials,
                                  const MaterialOverride* overrides, const CullParams& cull, Vec3 originOffset,
-                                 CullStats* stats) const {
+                                 CullStats* stats, const PaintTuning& paint, float flakeScale,
+                                 float flakeJitter) const {
     if (!has_geometry())
         return;
 
@@ -160,15 +156,27 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
         // but reads it with puddle coverage 0 → no effect (byte-identical).
         pushData.material.w = (dc.material == MAT_ASPHALT) ? 1.0f : 0.0f;
 
-        // Debug material override for this slot (metalness / roughness / colour).
+        // Clearcoat + flake (car paint BRDF): per-material authored default ×
+        // the global debug multiplier, unless a per-slot override is enabled.
+        // paint.zw (flake cell scale/jitter) are shared across every draw — not
+        // per-material — so they're broadcast in from the caller's `paint` args.
+        float clearcoat = default_clearcoat_strength(dc.material) * paint.clearcoatMul;
+        float flake     = default_flake_density(dc.material) * paint.flakeDensityMul;
+
+        // Debug material override for this slot (metalness / roughness / colour /
+        // clearcoat / flake).
         if (overrides != nullptr) {
             const MaterialOverride& o = overrides[dc.material];
             if (o.enabled) {
                 pushData.color      = Vec4(o.color, dc.color.a);  // keep .a (wash sentinel)
                 pushData.material.x = o.metalness;
                 pushData.material.z = o.roughnessMul;
+                clearcoat           = o.clearcoat;
+                flake               = o.flakeDensity;
             }
         }
+        pushData.paint = Vec4(clearcoat, flake, flakeScale, flakeJitter);
+
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(PushConstantData), &pushData);
         vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, 0, 0);

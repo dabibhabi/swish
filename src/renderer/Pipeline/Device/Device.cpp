@@ -1,12 +1,13 @@
 #include "Device.h"
 
-#include "../../../utils/VulkanCheck.h"
-#include "../Pipeline.h"
+#include "utils/vulkan/Check.h"
 
 #include <vk_mem_alloc.h>
 
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iostream>
 #include <set>
 #include <stdexcept>
 #include <vector>
@@ -62,6 +63,42 @@ void Device::init(VkInstance instance, VkSurfaceKHR surface) {
     VkPhysicalDeviceFeatures deviceFeatures{};
     createInfo.pEnabledFeatures = &deviceFeatures;
 
+    // Vulkan 1.3 features (dynamic rendering + synchronization2). Query, then enable what the device
+    // supports; unsupported is not an error (classic render pass + barrier path stays available).
+    // SWISH_CLASSIC_VULKAN=1 forces the classic path for testing both code paths on one machine.
+    VkPhysicalDeviceProperties devProps{};
+    vkGetPhysicalDeviceProperties(m_physicalDevice, &devProps);
+    const char* forceClassic  = std::getenv("SWISH_CLASSIC_VULKAN");
+    const bool  classicForced = forceClassic != nullptr && forceClassic[0] != '\0' && forceClassic[0] != '0';
+
+    VkPhysicalDeviceVulkan13Features supported13{};
+    supported13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    if (devProps.apiVersion >= VK_API_VERSION_1_3) {  // the 1.3 feature struct is only valid on a 1.3 device
+        VkPhysicalDeviceFeatures2 query{};
+        query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        query.pNext = &supported13;
+        vkGetPhysicalDeviceFeatures2(m_physicalDevice, &query);
+    }
+
+    m_dynamicRendering = !classicForced && supported13.dynamicRendering == VK_TRUE;
+    m_synchronization2 = !classicForced && supported13.synchronization2 == VK_TRUE;
+
+    VkPhysicalDeviceVulkan13Features enabled13{};
+    enabled13.sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    enabled13.dynamicRendering = m_dynamicRendering ? VK_TRUE : VK_FALSE;
+    enabled13.synchronization2 = m_synchronization2 ? VK_TRUE : VK_FALSE;
+
+    // pEnabledFeatures and a VkPhysicalDeviceFeatures2 in pNext are mutually exclusive. With no 1.3
+    // feature to enable the create info is exactly what it was before this change.
+    VkPhysicalDeviceFeatures2 enabledFeatures2{};
+    if (m_dynamicRendering || m_synchronization2) {
+        enabledFeatures2.sType      = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        enabledFeatures2.pNext      = &enabled13;
+        enabledFeatures2.features   = deviceFeatures;  // all core features stay off, as before
+        createInfo.pNext            = &enabledFeatures2;
+        createInfo.pEnabledFeatures = nullptr;
+    }
+
     std::vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
     uint32_t extensionCount;
@@ -83,6 +120,13 @@ void Device::init(VkInstance instance, VkSurfaceKHR surface) {
         throw std::runtime_error("failed to create logical device!");
     }
 
+    std::cout << "[Device] " << devProps.deviceName << " (Vulkan " << VK_VERSION_MAJOR(devProps.apiVersion) << '.'
+              << VK_VERSION_MINOR(devProps.apiVersion) << '.' << VK_VERSION_PATCH(devProps.apiVersion)
+              << "): dynamicRendering=" << (m_dynamicRendering ? "on" : "off")
+              << " synchronization2=" << (m_synchronization2 ? "on" : "off") << " -> "
+              << ((m_dynamicRendering || m_synchronization2) ? "Vulkan 1.3 path" : "classic render pass path")
+              << (classicForced ? " (forced by SWISH_CLASSIC_VULKAN)" : "") << '\n';
+
     vkGetDeviceQueue(m_device, m_queueFamilies.graphicsFamily.value(), 0, &m_graphicsQueue);
     vkGetDeviceQueue(m_device, m_queueFamilies.presentFamily.value(), 0, &m_presentQueue);
 
@@ -97,17 +141,15 @@ void Device::init(VkInstance instance, VkSurfaceKHR surface) {
         throw std::runtime_error("failed to create VMA allocator!");
     }
 
-    // Pipeline cache: created here so every subsequent Pipeline::create (all of
-    // which run after Device::init) feeds it.
+    // Pipeline cache: created here and handed out via getPipelineCache() (RendererServices::pipelineCache), so
+    // every pipeline::create_* that runs after Device::init feeds it.
     createPipelineCache();
-    Pipeline::set_cache(m_pipelineCache);
 }
 
 void Device::cleanup() {
     // Persist + destroy the pipeline cache before the device (pipelines that used
     // it were already destroyed by their subsystems' cleanup).
     if (m_pipelineCache != VK_NULL_HANDLE) {
-        Pipeline::set_cache(VK_NULL_HANDLE);
         savePipelineCache();
         vkDestroyPipelineCache(m_device, m_pipelineCache, nullptr);
         m_pipelineCache = VK_NULL_HANDLE;
@@ -228,7 +270,7 @@ int Device::rateDevice(VkPhysicalDevice device, VkSurfaceKHR surface) const {
     }
 
     // Prefer the vendor that matches the configured backend
-#if defined(SWISH_BACKEND_LINUX) || defined(SWISH_BACKEND_WINDOWS)
+#if defined(SWISH_BACKEND_LINUX)
     if (properties.vendorID == 0x1002 || properties.vendorID == 0x10DE)
         score += 500;  // AMD / NVIDIA
 #elif defined(SWISH_BACKEND_APPLE)

@@ -2,8 +2,8 @@
 
 #ifdef SWISH_DEBUG_UI
 
-#include "../renderer/GpuResource/GpuResource.h"
 #include "DebugParams.h"
+#include "renderer/GpuResource/GpuResource.h"
 
 #include <vulkan/vulkan.h>
 
@@ -15,7 +15,7 @@ namespace swish {
 
 // ══════════════════════════════════════════════════════════════════════
 // SceneParamsUBO — std140 mirror of the "look" constants promoted out of
-// lighting.frag (set 3, binding 0). Every member is a vec4 so each field is
+// lighting.frag (set 4, binding 0). Every member is a vec4 so each field is
 // 16-byte aligned: this sidesteps std140 vec3 padding entirely, which is the
 // safe layout on MoltenVK (the portability subset is unforgiving about it).
 // The unused .zw / .w lanes are pure padding — free to repurpose later.
@@ -31,13 +31,14 @@ struct SceneParamsUBO {
     glm::vec4 shadowParams;        // x=bias y=floor (zw unused)
     glm::vec4 wetParams;           // x=porosity y=roughnessCollapse z=puddleCoverage (w unused)
     glm::vec4 iblParams;           // x=diffuse intensity y=specular intensity (zw unused)
+    glm::vec4 paintParams;         // x=clearcoat roughness y=flake roughness (zw unused)
 };
-static_assert(sizeof(SceneParamsUBO) == 10 * 16, "SceneParamsUBO must stay 16-aligned vec4 rows");
+static_assert(sizeof(SceneParamsUBO) == 11 * 16, "SceneParamsUBO must stay 16-aligned vec4 rows");
 
-// Owns the debug-only scene-params UBO bound as set 3 on the deferred-lighting
+// Owns the debug-only scene-params UBO bound as set 4 on the deferred-lighting
 // pipeline: one persistently-mapped host-visible buffer + descriptor set per
 // frame in flight, plus the shared layout. Compiled only under SWISH_DEBUG_UI —
-// a release build keeps lighting.frag's literal constants and never sees set 3.
+// a release build keeps lighting.frag's literal constants and never sees set 4.
 class SceneParamsUniform {
 public:
     void init(VkDevice device, VmaAllocator allocator, uint32_t framesInFlight);

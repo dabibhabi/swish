@@ -8,11 +8,20 @@
 // neighborhood-clamps + blends the history, and copies the resolved result back
 // INTO the HDR image — so the existing bloom/composite chain is untouched. Pair it
 // with per-frame sub-pixel camera jitter (Camera::set_jitter) for supersampled TAA.
+//
+// Two recording paths behind the device capability flags (RendererServices):
+//   dynamicRendering  true  -> vkCmdBeginRendering/EndRendering, pipeline built with
+//                              VkPipelineRenderingCreateInfo, NO VkRenderPass / VkFramebuffer.
+//                     false -> the classic render pass + framebuffers.
+//   synchronization2  true  -> vkCmdPipelineBarrier2, false -> vkCmdPipelineBarrier (same masks).
+// The output image state at the end of record() is identical on both paths.
 
 #ifdef SWISH_DEBUG_UI
 
-#include "../../utils/Types.h"
-#include "../GpuResource/GpuResource.h"
+#include "renderer/GpuResource/GpuResource.h"
+#include "renderer/Passes/IRenderPass.h"
+#include "renderer/RendererConfig.h"
+#include "utils/types/Types.h"
 
 #include <vulkan/vulkan.h>
 
@@ -31,28 +40,44 @@ struct TaaParams {
     float motionBlurScale = 1.0f;  // velocity smear strength
 };
 
-class TaaPass {
+class TaaPass final : public IRenderPass {
 public:
-    TaaPass()  = default;
-    ~TaaPass() = default;
+    TaaPass()           = default;
+    ~TaaPass() override = default;
 
-    void init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent);
+    const char* name() const override { return "Taa"; }
 
-    // Resolve this frame: read HDR (`hdrImage`/its view) + depth + history, write the
-    // resolved output, copy it back into `hdrImage`. Leaves HDR in COLOR_ATTACHMENT
-    // (as the forward passes did) so the downstream barrier/bloom logic is unchanged.
-    // prevViewProj = last frame's UN-jittered world→clip; curInvViewProj = this frame's
-    // clip→world (jittered, matching the depth). Records its own barriers + render pass.
-    void record(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, const TaaParams& params,
-                const Mat4& prevViewProj, const Mat4& curInvViewProj);
+    // HDR, depth and the per-object velocity buffer (Img::Velocity, VelocityPass) come from the image registry;
+    // velocity is sampled as an extra input taa.frag uses in place of its depth-only motion estimate wherever valid
+    // (todo.md "Per-object velocity buffer").
+    void init(const PassInitCtx& ctx) override;
+    void onResize(const PassInitCtx& ctx) override;
 
-    void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
+    // Sub-pixel camera jitter (Halton 2,3) BEFORE the camera UBO / lighting invProj are built, so the whole frame
+    // and its depth reconstruction stay self-consistent. Zero when TAA is off, so the projection is exactly the
+    // unjittered matrix (SSAA / release unaffected). The sequence counter is private history of this pass.
+    void beginFrame(const FrameUpdate& u) override;
 
-    void cleanup(VkDevice device);
+    // Resolve this frame when tune.taaEnabled: read HDR + depth + velocity + history, write the resolved output,
+    // copy it back into HDR. Leaves HDR in COLOR_ATTACHMENT (as the forward passes did) so the downstream
+    // barrier/bloom logic is unchanged. Records its own barriers + render pass (or dynamic rendering). The
+    // reprojection uses last frame's UN-jittered view-projection (private history) + this frame's jittered
+    // clip-to-world (matching the depth).
+    void record(const FrameCtx& ctx) override;
+
+    void cleanup(VkDevice device) override;
 
 private:
+    void create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
+                const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& velocityViews, VkExtent2D extent);
+    void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
+                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& velocityViews, VkExtent2D extent,
+                  VkDevice device);
+    void resolve(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, const TaaParams& params,
+                 const Mat4& prevViewProj, const Mat4& curInvViewProj);
+
     // Push block (matches taa.frag).
     struct Push {
         Mat4 prevViewProj;
@@ -61,14 +86,16 @@ private:
     };
 
     void createImages(const RendererServices& s);
-    void createRenderPass(VkDevice device);
-    void createFramebuffers(VkDevice device);
+    void createRenderPass(VkDevice device);    // classic path only
+    void createFramebuffers(VkDevice device);  // classic path only
     void destroyImagesAndFramebuffers(VkDevice device);
     void createDescriptors(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                           const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews);
+                           const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
+                           const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& velocityViews);
     void writeDescriptors(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                          const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews);
-    void createPipeline(VkDevice device);
+                          const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews,
+                          const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& velocityViews);
+    void createPipeline(VkDevice device, VkPipelineCache cache);
     void primeHistory(const RendererServices& s);
 
     VmaAllocator  m_allocator     = nullptr;
@@ -91,6 +118,12 @@ private:
 
     VkExtent2D m_extent = {};
     VkFormat   m_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+
+    Mat4     m_prevViewProj = Mat4(1.0f);  // last TAA frame's un-jittered world->clip (cross-frame history)
+    uint32_t m_frameCounter = 0;           // Halton jitter sequence position
+
+    bool m_dynamicRendering = false;  // RendererServices::dynamicRendering captured at init()
+    bool m_sync2            = false;  // RendererServices::synchronization2 captured at init()
 };
 
 }  // namespace swish

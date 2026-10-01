@@ -1,20 +1,19 @@
 #include "ScenePipeline.h"
 
-#include "../../scene/SceneTypes.h"
-#include "../Pipeline/Pipeline.h"
-#include "../Vertex.h"
+#include "renderer/Pipeline/Pipeline.h"
+#include "renderer/Vertex.h"
+#include "scene/SceneTypes.h"
+#include "utils/vulkan/PushConstants.h"
 
 #include <string>
 
 namespace swish {
 
 void ScenePipeline::init(VkDevice device, const Config& cfg) {
-    VkPushConstantRange pushConstantRange{};
-    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    pushConstantRange.offset     = 0;
-    pushConstantRange.size       = sizeof(PushConstantData);
+    const VkPushConstantRange pushConstantRange =
+        vkx::push_range<PushConstantData>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
-    m_layout = Pipeline::createLayout(device, {cfg.cameraSetLayout, cfg.materialSetLayout}, {pushConstantRange});
+    m_layout = pipeline::create_layout(device, {cfg.cameraSetLayout, cfg.materialSetLayout}, {pushConstantRange});
 
     auto binding    = Vertex::getBindingDescription();
     auto attributes = Vertex::getAttributeDescriptions();
@@ -23,12 +22,12 @@ void ScenePipeline::init(VkDevice device, const Config& cfg) {
     config.vertShaderPath       = std::string(SHADER_DIR) + "basic.vert.spv";
     config.fragShaderPath       = std::string(SHADER_DIR) + "gbuffer.frag.spv";
     config.cullMode             = VK_CULL_MODE_BACK_BIT;
-    config.colorAttachmentCount = 3;
+    config.colorAttachmentCount = 4;  // albedo, normal, material, clearcoat+flake
     config.vertexBindings.push_back(binding);
     config.vertexAttributes.assign(attributes.begin(), attributes.end());
     config.pipelineLayout = m_layout;
 
-    m_pipeline = Pipeline::create(device, config, cfg.targetRenderPass, cfg.extent);
+    m_pipeline = pipeline::create_graphics(device, cfg.pipelineCache, config, cfg.targetRenderPass, cfg.extent);
 }
 
 void ScenePipeline::cleanup(VkDevice device) {

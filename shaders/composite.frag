@@ -1,12 +1,15 @@
 #version 450
 
+#include "bindings.glsl"
+#include "color.glsl"
+
 layout(location = 0) in vec2 fragUV;
 
-layout(set = 0, binding = 0) uniform sampler2D hdrScene;
-layout(set = 0, binding = 1) uniform sampler2D bloomTex;
-layout(set = 0, binding = 2) uniform sampler2D aoTex;
-layout(set = 0, binding = 3) uniform sampler2D ssrTex;   // SSR reflection (rgb = radiance, a = mask)
-layout(set = 0, binding = 4) uniform sampler2D godraysTex;  // god-rays light shafts (rgb = radiance, half-res)
+layout(set = SET_COMPOSITE, binding = BIND_COMP_HDR) uniform sampler2D hdrScene;
+layout(set = SET_COMPOSITE, binding = BIND_COMP_BLOOM) uniform sampler2D bloomTex;
+layout(set = SET_COMPOSITE, binding = BIND_COMP_AO) uniform sampler2D aoTex;
+layout(set = SET_COMPOSITE, binding = BIND_COMP_SSR) uniform sampler2D ssrTex;   // SSR reflection (rgb = radiance, a = mask)
+layout(set = SET_COMPOSITE, binding = BIND_COMP_GODRAYS) uniform sampler2D godraysTex;  // god-rays light shafts (rgb = radiance, half-res)
 
 layout(push_constant) uniform Params {
     float threshold;
@@ -56,7 +59,33 @@ vec3 AgX(vec3 c) {
     c = kAgXInset * c;
     c = clamp((log2(max(c, 1e-10)) + 12.47393) / 16.5, 0.0, 1.0);
     c = vec3(agxCurve(c.r), agxCurve(c.g), agxCurve(c.b));
-    c = clamp(kAgXOutset * c, 0.0, 1.0);
+
+    // Outset matrix cross-mixes the three independently-curved channels (its
+    // off-diagonal terms are negative, see kAgXOutset above). Near the top of the
+    // range this means one channel can cross 1.0 while the others — pulled DOWN by
+    // that same channel's negative cross-terms — are still short of it. Clamping
+    // each channel independently right after this matrix then clips the leading
+    // channel but leaves the lagging ones low, so blown highlights skew toward
+    // whichever channel got there first (reads as a magenta cast) instead of
+    // converging on neutral white. Fix: before the (single, final) clamp below,
+    // pull the lagging channels up toward the brightest channel, with the pull
+    // strength ramping in only over the last stretch of the range approaching the
+    // clip boundary (a pre-shoulder chroma compression) — normal mid-tone hues sit
+    // well below the ramp's lower edge and pass through completely unaffected,
+    // while anything that would actually clip is fully neutral (equal channels)
+    // by the time it gets there, so the shared clamp below can no longer skew hue.
+    // Ramp edge sits high on purpose. This value is display-encoded — the EOTF below
+    // raises it by 2.2 — so the edge maps to maxC^2.2 of final linear peak: 0.78 would
+    // be only ~0.58, desaturating ordinary bright saturated content (taillights, sunset
+    // sky, paint speculars) that was never going to clip. 0.94 maps to ~0.87, confining
+    // the pull to genuinely near-blown pixels. Sanity check: a saturated red at
+    // outC=(0.85,0.2,0.3) has maxC=0.85 < 0.94 → shoulder=0 → passes through untouched.
+    vec3 outC = kAgXOutset * c;
+    float maxC = max(max(outC.r, outC.g), outC.b);
+    float shoulder = smoothstep(0.94, 1.0, maxC);
+    outC = mix(outC, vec3(maxC), shoulder);
+    c = clamp(outC, 0.0, 1.0);
+
     // AgX EOTF — the sigmoid above outputs a display-encoded (~2.2-gamma) signal;
     // linearise it here. Our swapchain expects LINEAR input (extended-sRGB-linear, or
     // an sRGB format whose hardware re-encodes on write), so without this step the
@@ -101,11 +130,20 @@ void main() {
 
     // Post-tonemap grade (camera-app style). Identity at defaults (sat=1, contrast=1,
     // brightness=0), so release — which passes those defaults — is unchanged.
-    float gLuma = dot(mapped, vec3(0.2126, 0.7152, 0.0722));
-    mapped = mix(vec3(gLuma), mapped, params.saturation);   // saturation
-    mapped = (mapped - 0.5) * params.contrast + 0.5;        // contrast about mid-grey
-    mapped += params.brightness;                            // brightness
-    mapped = clamp(mapped, 0.0, 1.0);
+    //
+    // Decomposed into luma + chroma so each control acts on its own axis: contrast
+    // and brightness reshape luma only, saturation scales chroma only. Previously
+    // contrast was `(mapped - 0.5) * contrast + 0.5` applied per-channel directly on
+    // RGB — algebraically that scales the chroma component (channel - luma) by the
+    // SAME factor as luma, so at contrast > 1 it amplified whatever chroma error the
+    // tonemap let through (the magenta cast) before the two of them ever recombine.
+    // Operating on luma/chroma explicitly and recombining once keeps that
+    // amplification from happening, and leaves exactly one shared clamp at the end.
+    float gLuma       = dot(mapped, LUMA_709);
+    vec3  gChroma     = (mapped - gLuma) * params.saturation;       // saturation: chroma only
+    float gGradedLuma = (gLuma - 0.5) * params.contrast + 0.5;      // contrast: luma only, about mid-grey
+    gGradedLuma += params.brightness;                                // brightness: luma only
+    mapped = clamp(gGradedLuma + gChroma, 0.0, 1.0);
 
     outColor = vec4(mapped, 1.0);
 }

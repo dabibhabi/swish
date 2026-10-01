@@ -1,0 +1,32 @@
+// PassList.def -- THE explicit, ordered list of frame passes. Line order == command-buffer recording order.
+// Included (X-macro) by PassList.cpp. To add a pass: write Passes/FooPass.cpp (class + factory, see docs/RECIPES.md)
+// and add ONE line here, in the place of the frame where it records.
+//
+//   PRODUCER(Name)            the geometry producer: scene draws into the shadow atlas + G-buffer (R4). It is owned
+//                             by the Renderer (which keeps its scene-upload API), so it has no factory.
+//   PASS(Name, factory)       built in every configuration; `factory` is std::unique_ptr<IRenderPass> f().
+//   PASS_DEBUG(Name, factory) built only when SWISH_DEBUG_UI is defined (release output stays identical).
+//
+// `Name` is documentation and must match IRenderPass::name().
+
+// ── frame order ──────────────────────────────────────────────────────────────
+PRODUCER(Geometry)                        // shadow atlas, G-buffer, G-buffer -> lighting barriers
+PASS(Lighting, make_lighting_pass)
+PASS_DEBUG(Ssao, make_ssao_pass)          // scene depth still DEPTH_STENCIL_READ_ONLY here
+PASS_DEBUG(AoBlur, make_ao_blur_pass)
+PASS_DEBUG(Velocity, make_velocity_pass)  // only records when TAA is on
+PASS(Ssr, make_ssr_pass)
+PASS(GodRays, make_godrays_pass)
+PASS_DEBUG(Dof, make_dof_pass)
+PASS(SpraySim, make_spray_sim_pass)
+PASS(Rain, make_rain_pass)
+PASS(SprayDraw, make_spray_draw_pass)
+PASS(Glass, make_glass_pass)
+PASS(WindshieldRain, make_windshield_rain_pass)
+PASS_DEBUG(Taa, make_taa_pass)
+PASS(HdrFinalize, make_hdr_finalize_pass)
+PASS(BloomExtract, make_bloom_extract_pass)
+PASS(BloomBlurH, make_bloom_blur_h_pass)
+PASS(BloomBlurV, make_bloom_blur_v_pass)
+PASS(Composite, make_composite_pass)
+PASS_DEBUG(DebugOverlay, make_debug_overlay_pass)

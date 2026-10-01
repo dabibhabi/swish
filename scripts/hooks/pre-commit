@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Sample pre-commit hook for Swish. NOT installed automatically - run `make install-hooks`
+# to copy it into .git/hooks/ (it is a copy: re-run after editing this file).
+#
+# Runs the quick, build-free hygiene checks (about a second): changelog index, stray root
+# files, ignored-but-tracked files, source-glob registry, plus size warnings.
+# The clang-format check is skipped here because the tree is not fully formatted yet.
+# Bypass once with:  git commit --no-verify
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+if command -v make >/dev/null 2>&1 && [ -f Makefile ]; then
+    exec make -s check CHECK_ARGS=--quick
+fi
+exec bash scripts/check_repo.sh --quick

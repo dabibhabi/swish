@@ -19,11 +19,18 @@ void main() {
     float r = length(vUV);
     if (r >= 1.0 || vLife <= 0.0)
         discard;
-    float soft    = smoothstep(1.0, 0.0, r);        // round radial falloff
+    // Sharpened radial falloff: raising the old smoothstep to a power concentrates
+    // brightness into a small defined core and drops the mid/outer radius off much
+    // faster, so a droplet reads as a bright dot with a thin edge instead of one
+    // wide soft gaussian haze (the peak at r=0 is unchanged — only the shoulder
+    // steepens).
+    float soft    = pow(smoothstep(1.0, 0.0, r), 2.4);
     float fadeIn  = smoothstep(1.0, 0.82, vLife);   // ramp up just after spawn (no pop-in)
     float fadeOut = smoothstep(0.0, 0.30, vLife);   // fade out near death
-    float pv      = 0.30 + 0.70 * vSeed;            // per-particle brightness → stochastic, not uniform
+    float pv      = 0.25 + 0.55 * vSeed;            // per-particle brightness → stochastic, not uniform
     float a       = soft * fadeIn * fadeOut * pv * pc.tune.x;
-    vec3  mist    = vec3(0.85, 0.88, 0.93);         // bright cool water-white (droplets scatter light)
+    // Pulled slightly below pure white so several overlapping additive cores have
+    // headroom before they clip flat white.
+    vec3  mist    = vec3(0.72, 0.78, 0.88);         // cool water-white (droplets scatter light)
     outColor      = vec4(mist * a, a);              // additive (composite adds rgb)
 }

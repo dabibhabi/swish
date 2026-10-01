@@ -17,20 +17,14 @@
 //   - the persistent wetness map (windshield_wetness.frag) gates where drops appear,
 //     so the wiper — which clears that map — genuinely wipes them off
 //
-// See issue.md and docs/rain/technique-refraction.md.
+// See archive/docs/notes/issue.md and archive/docs/rain/technique-refraction.md.
 
 layout(location = 0) in vec2 fragUV;           // glass-space mesh UV
 layout(location = 1) in vec3 fragLocalNormal;  // object space (nose = +X)
 layout(location = 2) in vec3 fragNormal;       // world space (sun glint)
 layout(location = 3) in vec3 fragWorldPos;     // world space (sun glint)
 
-layout(set = 0, binding = 0) uniform CameraUBO {
-    mat4 view;
-    mat4 proj;
-    vec4 camPos;
-    vec4 sunDir;
-    vec4 sunColor;
-} camera;
+#include "camera.glsl"
 
 layout(set = 1, binding = 0) uniform WindshieldRainUBO {
     vec4 flowAndTime;    // xy = flow dir (screen hint), z = speed [0,1], w = time

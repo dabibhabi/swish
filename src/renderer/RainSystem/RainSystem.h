@@ -1,7 +1,9 @@
 #pragma once
 
-#include "../../utils/Types.h"
-#include "../GpuResource/GpuResource.h"
+#include "renderer/GpuResource/GpuResource.h"
+#include "renderer/Passes/IRenderPass.h"
+#include "renderer/RendererConfig.h"
+#include "utils/types/Types.h"
 
 #include <vulkan/vulkan.h>
 
@@ -40,43 +42,36 @@ struct RainInstance {
 // entirely by the vertex shader via: pos = (seed * volume + camPos + vel * time) mod volume
 // No instance-buffer updates needed after init — all motion is on GPU.
 // ══════════════════════════════════════════════════════════════════════
-class RainSystem {
+class RainSystem final : public IRenderPass {
 public:
-    RainSystem()  = default;
-    ~RainSystem() = default;
+    RainSystem()           = default;
+    ~RainSystem() override = default;
 
-    // hdrViews: per-frame HDR color image views from PostProcessManager.
-    // depthViews: per-frame HDR depth views — used for depth testing against scene geometry
-    //             so rain does not appear inside the car cabin.
-    void init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
-              VkDescriptorSetLayout cameraSetLayout);
-
-    // Advance the rain simulation and upload per-frame UBO.
-    // Call once per frame before record_draws.
-    void update(uint32_t frameIndex, float deltaTime, float intensity, Vec3 wind);
-
-    // Record all rain draw calls into cmd (inside its own render pass).
-    void record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const;
-
+    const char* name() const override { return "Rain"; }
+    // HDR color + depth views come from the image registry; depth is used for depth testing against scene geometry
+    // so rain does not appear inside the car cabin.
+    void init(const PassInitCtx& ctx) override;
     // Rebuild framebuffers when the swapchain (and HDR images) are recreated.
-    void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
-
-    void cleanup(VkDevice device);
-
-    float            get_wetness() const { return m_wetness; }
-    float            get_intensity() const { return m_intensity; }
-    VkPipelineLayout get_pipeline_layout() const { return m_pipeLayout; }
-    float           get_streak_len() const { return m_streakLen; }
-    float           get_time() const { return m_time; }
-    
-
-    // Base streak length (WU) before the per-frame intensity scaling. Debug UI
-    // drives this live; defaults to the shipped kStreakLen.
-    void set_streak_len(float len) { m_streakLen = len; }
+    void onResize(const PassInitCtx& ctx) override;
+    // Advance the rain simulation (gusting wind minus car velocity), upload the per-frame UBO and publish the
+    // integrated wetness + adapted intensity in FrameState. Runs in beginFrame, not update(), so passes that record
+    // EARLIER in the list but need this frame's wetness (the spray sim) can read it in their update().
+    void beginFrame(const FrameUpdate& u) override;
+    // Rain streaks: additive draw onto HDR in the pass's own render pass (LOAD, no barrier between lighting and rain).
+    void record(const FrameCtx& ctx) override;
+    void cleanup(VkDevice device) override;
 
 private:
+    void create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
+                VkDescriptorSetLayout cameraSetLayout);
+    void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
+    // Advance the simulation and upload the UBOs (the body of beginFrame).
+    void step(uint32_t frameIndex, float deltaTime, float intensity, Vec3 wind);
+    // Record all rain draw calls into cmd (inside its own render pass). Camera set 0 is bound by record().
+    void record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const;
+
     void createRenderPass(VkDevice device);
     void createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                             const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews);
@@ -85,7 +80,7 @@ private:
     void createInstanceBuffer(const RendererServices& s);
     void createRainUBOs(const RendererServices& s);
     void createDescriptors(VkDevice device, VkDescriptorSetLayout cameraSetLayout);
-    void createPipeline(VkDevice device, VkDescriptorSetLayout cameraSetLayout);
+    void createPipeline(VkDevice device, VkPipelineCache cache, VkDescriptorSetLayout cameraSetLayout);
 
     // ── Static geometry ────────────────────────────────────────────
     GpuBuffer m_quadVBO;  // RAII (VMA), host-visible
@@ -118,6 +113,11 @@ private:
     VkFormat   m_depthFormat = VK_FORMAT_UNDEFINED;
 
     // ── Simulation state ───────────────────────────────────────────
+    // Time-varying gusts (private to the pass): base horizontal wind before the gust envelope.
+    static constexpr float kBaseWindX = 4500.0f;
+    static constexpr float kBaseWindZ = 1200.0f;
+    float                  m_windTime = 0.0f;
+
     float m_time      = 0.0f;
     float m_intensity = 0.0f;
     float m_wetness   = 0.0f;

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../renderer/Vertex.h"
-#include "../utils/Types.h"
+#include "renderer/Vertex.h"
+#include "utils/types/Types.h"
 
 #include <vector>
 
@@ -83,6 +83,42 @@ struct MaterialOverride {
     float metalness    = 0.0f;
     float roughnessMul = 1.0f;
     Vec3  color        = Vec3(1.0f);
+    // Clearcoat + flake (see PushConstantData.paint / gbuffer.frag / lighting.frag).
+    // Same "enabled" gate as the fields above — the material editor's per-slot
+    // panel replaces the authored default() below for this slot when on.
+    float clearcoat    = 0.0f;
+    float flakeDensity = 0.0f;
+};
+
+// ── Clearcoat + flake authored defaults (per-MaterialId) ────────────────
+// A second, tight near-mirror GGX lobe (clearcoat) plus a stochastic per-pixel
+// normal-perturbation sparkle (flake) — see docs/car-asset-pipeline.md §3 and
+// tasks/todo.md's "Clearcoat + flake car paint" item. The current GLB loader
+// (ModelManager::load_car) assigns MAT_CAR_0..19 by raw glTF material index with
+// no semantic tag (paint vs rubber vs interior vs chrome — see car-asset-pipeline.md),
+// so every car material slot gets the same modest default; the per-material debug
+// editor (DebugParams::matOverrides) is how an individual slot gets tuned once its
+// identity is known, and non-car materials (road, signs, etc.) default to zero so
+// nothing outside the car is affected. flake defaults to 0 (opt-in) — clearcoat is
+// the default "paint" look; flake is a deliberate per-car dial.
+inline constexpr float kDefaultClearcoatStrength = 0.35f;
+inline constexpr float kDefaultFlakeDensity      = 0.0f;
+
+inline float default_clearcoat_strength(MaterialId mat) {
+    return (mat >= MAT_CAR_0 && mat <= MAT_CAR_19) ? kDefaultClearcoatStrength : 0.0f;
+}
+inline float default_flake_density(MaterialId mat) {
+    return (mat >= MAT_CAR_0 && mat <= MAT_CAR_19) ? kDefaultFlakeDensity : 0.0f;
+}
+
+// Global clearcoat/flake multipliers applied on top of the per-material defaults
+// above (debug UI, same "global multiplier over an authored table" pattern as
+// SSAO/IBL). Identity (1,1) in release, so release output is unaffected; setting
+// flakeDensityMul to 0 dials flake off entirely to tune the clearcoat lobe alone
+// (the todo.md requirement).
+struct PaintTuning {
+    float clearcoatMul    = 1.0f;
+    float flakeDensityMul = 1.0f;
 };
 
 // ── Point Light System (inspired by rind/Light.cpp) ──────────────────
@@ -119,6 +155,32 @@ struct Ribbon {
     int               branch    = -1;
 };
 
+// ── SweepFrame ────────────────────────────────────────────────────────
+// One station of a swept cross-section, for MeshBuilder::emit_sweep_band /
+// emit_sweep_wall (the real-corridor mesh generator, Phase 3a). `right` is
+// the unit lateral direction = cross(tangent, up), so a lateral offset t
+// lands at `center + right * t`; `arc` is cumulative arc length for UV
+// tiling. The frames are computed ONCE per tile and shared by every band in
+// the cross-section — if each band re-derived its own tangents, rounding
+// would open hairline slivers between adjacent bands.
+struct SweepFrame {
+    Vec3  center;
+    Vec3  right;
+    float arc = 0.0f;
+};
+
+// ── CorridorInstance ──────────────────────────────────────────────────
+// One visible corridor segment for this frame: which uploaded segment mesh to
+// bind, and the render-frame translation to draw it at. The scene layer
+// (CorridorDriver) computes `offset` = segment origin + origin-rebase shift in
+// DOUBLE and hands over the small float result. Segment-local vertices then sit
+// under ~6e5 WU (float32 ULP 0.06 WU) instead of the 2.9e7 WU absolute
+// coordinates at the corridor's east end (ULP 2 WU).
+struct CorridorInstance {
+    uint32_t segment = 0;
+    Vec3     offset  = Vec3(0.0f);
+};
+
 // ── MeshData ──────────────────────────────────────────────────────────
 // Encapsulates vertex and index buffers with controlled access.
 // Vertices and indices are only added through push methods, ensuring
@@ -131,8 +193,13 @@ public:
     const std::vector<Vertex>&   getVertices() const { return m_vertices; }
     const std::vector<uint32_t>& getIndices() const { return m_indices; }
 
-    // Mutable access for load-time mesh fixups (e.g. grounding a model).
-    std::vector<Vertex>& getVertices() { return m_vertices; }
+    // Load-time mesh fixups (e.g. grounding a model): apply `fn(Vertex&)` to every vertex in place. Unlike a mutable
+    // vector getter this cannot add/remove vertices, so the indices stay valid.
+    template <class F>
+    void forEachVertex(F&& fn) {
+        for (Vertex& v : m_vertices)
+            fn(v);
+    }
 
     bool empty() const { return m_vertices.empty() || m_indices.empty(); }
 
@@ -225,11 +292,20 @@ struct DrawCall {
 struct PushConstantData {
     Mat4 model;     // 64 B
     Vec4 color;     // 16 B
-    Vec4 material;  // 16 B — x = metalness [0,1], yzw reserved  (total 96 B)
+    Vec4 material;  // 16 B — x = metalness, y = wettable mask, z = roughness mul, w = road tag
+    // Clearcoat + flake (car paint BRDF). x = clearcoat lobe strength [0,1],
+    // y = flake density [0,1] (probability a world-space flake cell sparkles),
+    // z = flake cell scale (world units), w = flake normal-jitter strength [0,1].
+    // z/w are global debug tunables broadcast into every draw's push constants
+    // (not per-material) — see SceneGeometry::record_draws. 112 B total (still a
+    // 16-byte multiple; MoltenVK requires this).
+    Vec4 paint;
 };
+static_assert(sizeof(PushConstantData) % 16 == 0, "PushConstantData: push-constant block must be a 16-byte multiple");
 
 // Passes that don't consume `material` (glass / windshield) size their push
 // range + push to just the model+color prefix (still 16-aligned at 80 B).
 inline constexpr uint32_t kPushConstantModelColorSize = static_cast<uint32_t>(sizeof(Mat4) + sizeof(Vec4));
+static_assert(kPushConstantModelColorSize % 16 == 0, "model+color push range must be a 16-byte multiple");
 
 }  // namespace swish

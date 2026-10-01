@@ -15,7 +15,7 @@ status: complete
 > deep math than [03](03-contact-as-measure-theory.md)/[04](04-solvers-and-metric-spaces.md),
 > but dense in *engineering judgment* — including the best cautionary tale about units in the
 > whole tree. The Willis differential and shaft-network basics are in the
-> [existing guide](../../examples/chrono/VEHICLE_DYNAMICS_GUIDE.md#driveline--powertrain);
+> [existing guide](../../archive/local/examples/chrono/VEHICLE_DYNAMICS_GUIDE.md#driveline--powertrain);
 > this file goes into what it skipped.
 
 ## 1. The torque converter: a fluid coupling in two lookup tables
@@ -43,7 +43,7 @@ $\text{rad/s}/\sqrt{\text{N·m}}$ — remember this for §2.
 **The code:**
 
 ```cpp
-// examples/chrono/src/chrono/physics/ChShaftsTorqueConverter.cpp:98-116 (trimmed)
+// archive/local/examples/chrono/src/chrono/physics/ChShaftsTorqueConverter.cpp:98-116 (trimmed)
 double mR = GetSpeedRatio();
 if (mR > 1) { mR = 1 - (mR - 1); state_warning_reverseflow = true; }
 if (mR < 0) mR = 0;
@@ -71,7 +71,7 @@ In the HMMWV's converter data file, the *active* capacity-factor curve and a *co
 alternative* coexist:
 
 ```cpp
-// examples/chrono/src/chrono_models/vehicle/hmmwv/powertrain/HMMWV_AutomaticTransmissionShafts.cpp:46-52
+// archive/local/examples/chrono/src/chrono_models/vehicle/hmmwv/powertrain/HMMWV_AutomaticTransmissionShafts.cpp:46-52
 map->AddPoint(0.00, 15);
 map->AddPoint(0.25, 15);
 map->AddPoint(0.50, 15);
@@ -91,14 +91,14 @@ launches like a rocket or a slug.
 > A unit error inside a *squared* (or worse) term amplifies quadratically and produces plausible-
 > looking wrong numbers. Swish's protections against exactly this: SI-only pure headers with the
 > conversion confined to one boundary (`CarPhysics.h:3-5`), the `kWorldUnitsPerMeter` /
-> `WORLD_SCALE` duplication being a known wart worth unifying, and behavior-pinning tests
+> `WORLD_SCALE` duplication being a known wart worth unifying (done 2026-09-29: `util::units::kWuPerMetre`), and behavior-pinning tests
 > (`test_car_physics.cpp`'s launch-accel ≈ μg and top-speed 88–96 m/s brackets) that would catch
 > a 29× energy error instantly. The HMMWV file would have been saved by one such test.
 
 ## 3. Gear shifting: hysteresis + latency, and nothing else
 
 ```cpp
-// examples/chrono/src/chrono_vehicle/powertrain/ChAutomaticTransmissionShafts.cpp:127-146 (trimmed)
+// archive/local/examples/chrono/src/chrono_vehicle/powertrain/ChAutomaticTransmissionShafts.cpp:127-146 (trimmed)
 if (time - m_last_time_gearshift < m_gear_shift_latency)  // avoid bursts of gear shifts
     return;
 if (m_shift_mode == ShiftMode::AUTOMATIC && m_drive_mode == DriveMode::FORWARD) {
@@ -129,7 +129,7 @@ path" — it's the *signed projected distance* from a **sentinel point** cast ah
 to its closest point on the path, with sign from an orientation test:
 
 ```cpp
-// examples/chrono/src/chrono_vehicle/utils/ChSteeringController.cpp:154-171 (trimmed)
+// archive/local/examples/chrono/src/chrono_vehicle/utils/ChSteeringController.cpp:154-171 (trimmed)
 m_sentinel = ref_frame.TransformPointLocalToParent(m_dist * ChWorldFrame::Forward());
 CalcTargetLocation();
 ChVector3d err_vec = m_target - m_sentinel;

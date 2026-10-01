@@ -10,6 +10,10 @@ status: complete
 
 # 09 · The swish map: every lesson, one table, priorities settled
 
+> **Path note (2026-09-29):** `file:line` citations in this table predate the deep-clean. `CarPhysics.h` is now an umbrella
+> over `CarParams/Powertrain/Tire/Drivetrain/Longitudinal/Bicycle/WetGrip.h`, and `App.cpp` is split into
+> `App.cpp` / `AppInit.cpp` / `AppInput.cpp`. Line numbers are historical; find symbols with `rg`.
+
 > [!abstract] Goal
 > The payoff file. Each swish seam, the lesson that covers it, the concrete next action, and an
 > honest ROI — reconciled with [tasks/todo.md](../../tasks/todo.md) and the wheel plan
@@ -28,7 +32,7 @@ status: complete
 | **Film depth / lane-dependent grip** — crown formula is analytic (`RoadGeometry.cpp:11-17`) | puddles are shader-only | [07 §3](07-wet-roads-and-rain.md) (Gallaway) | one `film_depth(x_lateral, rainRate)` function feeding both puddle mask and `effective_mu`; **after** rows 1–2 ship | Medium — the "outer lane is scarier" touch |
 | **Table utility** — constants only today | curves impossible | [08 §1, §8](08-numerics-toolbox.md) | `PiecewiseLinear` pure header (~40 lines) when the first curve consumer lands | Medium (enabler, zero user-visible alone) |
 | **Engine torque curve + gears** — power-cap model (`longitudinal_accel`) | Chrono "SimpleMap" tier, gearless | [06 §5](06-driveline-powertrain-drivers.md) | two tables + shift hysteresis if ever wanted | **Low for rain** — explicitly outranked; revisit only post-Phase-C |
-| **Unit hygiene** — `kWorldUnitsPerMeter` duplicates `WORLD_SCALE` (`CarEntity.h:116` vs `Constants.h:13`) | two constants, one meaning | [06 §2](06-driveline-powertrain-drivers.md) (the 29× tale) | unify on `swish::WORLD_SCALE` next time either file is touched | Cheap insurance |
+| **Unit hygiene** — `kWorldUnitsPerMeter` duplicates `WORLD_SCALE` (`CarEntity.h:116` vs `Constants.h:13`) | two constants, one meaning | [06 §2](06-driveline-powertrain-drivers.md) (the 29× tale) | unify on `swish::WORLD_SCALE` next time either file is touched | Cheap insurance. **DONE 2026-09-29:** both (and four other copies) were replaced by `util::units::kWuPerMetre` in `src/utils/units/Units.h`; `Constants.h` was deleted |
 | **Anti-chatter for mode switches** — n/a yet | — | [06 §3](06-driveline-powertrain-drivers.md) | apply latency+hysteresis to the hydroplane *presentation* state when it lands | With row 6 |
 
 Sequenced against the existing roadmap (Phase B ride-height is independent and already planned;

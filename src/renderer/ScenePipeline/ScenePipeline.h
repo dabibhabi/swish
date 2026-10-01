@@ -11,6 +11,7 @@ public:
         VkDescriptorSetLayout materialSetLayout = VK_NULL_HANDLE;  // set 1
         VkRenderPass          targetRenderPass  = VK_NULL_HANDLE;  // PostProcessManager::get_gbuffer_render_pass()
         VkExtent2D            extent            = {0, 0};
+        VkPipelineCache       pipelineCache     = VK_NULL_HANDLE;  // RendererServices::pipelineCache
     };
 
     ScenePipeline() = default;

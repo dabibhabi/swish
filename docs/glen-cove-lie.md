@@ -1,3 +1,10 @@
+---
+verified: 2026-09-29
+against: c843ebe + uncommitted refactor   # git rev-parse --short HEAD; file references updated for the RoadScene split
+owner: docs-scribe
+covers: [src/scene/RoadScene/**]
+---
+
 # Glen Cove-area LIE roadside detail
 
 An in-progress effort to make Swish's procedural Long Island Expressway read like the
@@ -9,7 +16,7 @@ added without re-deriving it.
 > **Plan of record:** the phased plan lives in the private plan note
 > `twinkly-mixing-parasol.md`; the landed work is logged in
 > [`CHANGELOG.md`](../CHANGELOG.md) (entries dated 2026-07-03 / 2026-07-04).
-> **Diagram:** [`docs/diagrams/roadside-detail.excalidraw`](diagrams/roadside-detail.excalidraw).
+> **Diagram:** [`archive/docs/diagrams/roadside-detail.excalidraw`](../archive/docs/diagrams/roadside-detail.excalidraw).
 
 ## The look we're matching
 
@@ -24,7 +31,7 @@ how Swish gets each one:
 | **Davit / mast-arm light poles** | Procedural pole + arm + fixture, each with a warm point light | `generate_street_lamps` |
 | **Overpass bridges** (local roads crossing above) | Procedural concrete deck + railings every ~0.5 mi | `generate_overpass` |
 | **Sound barriers** on the embankments | Procedural panel walls with concrete posts | `generate_sound_barriers` |
-| **Tree-lined embankments** | **Deferred** — will be real `.glb` models, not billboards | (`generate_trees`, currently unused) |
+| **Tree-lined embankments** | Interim billboard wall on intro N Marginal (`generate_marginal_trees`); full corridor still deferred to `.glb` | `generate_marginal_trees` |
 | **Seeing far down a hazy highway** | Far plane raised to cover the whole road + always-on aerial haze | shader / camera (Phase 1) |
 
 Most of these props **already existed procedurally** before this effort — the road-scene
@@ -40,7 +47,7 @@ graph TD
   P2a["Phase 2a — Overhead sign gantries<br/>steel truss + Glen Cove green sign textures"]:::wip
   P2b["Phase 2b — Guardrails + median + markings"]:::todo
   P2c["Phase 2c — Light poles + overpasses"]:::todo
-  P2d["Phase 2d — Trees (DEFERRED → real .glb)"]:::defer
+  P2d["Phase 2d — Trees (PARTIAL: intro marginal billboards)"]:::wip
   P3["Phase 3 — Richer clear-blue sky (values only)"]:::todo
   P2e["Phase 2e — .glb hero props (needs assets)"]:::defer
   P4["Phase 4 — PCSS soft shadows"]:::todo
@@ -64,11 +71,12 @@ graph TD
   `sign_07.png` does not) — filling it (+ `_normal` / `_roughness`) is part of this phase, adding more
   `MAT_SIGN_*` slots if needed.
 - **Phase 2b/2c — not started.** W-beam guardrail + median cleanup; davit poles + overpass decks.
-- **Phase 2d — DEFERRED.** `generate_trees` is fully implemented (cross-billboard quads) but **never
-  called** from `generate()`. Rather than enable the billboards, trees will be authored as real
-  `.glb` models loaded through the model path. Do **not** enable the billboard generator.
-- **Phases 3/4/5 (clear-blue sky, PCSS, DOF)** and **2e (`.glb` hero props)** — not started; 2e is
-  blocked on sourcing/authoring licensed `.glb` assets.
+- **Phase 2d — PARTIAL.** Intro N Marginal now gets a dense billboard tree wall via
+  `generate_marginal_trees` (Street View stand-in for houses). The old full-corridor
+  `generate_trees` was dead code and was deleted on 2026-09-29; the eventual replacement is still real `.glb` models.
+- **Phases 3/4/5 (clear-blue sky, PCSS, DOF)** — landed through the realism suite rather than this plan: clear/overcast
+  sky matching (`91822bf`), PCSS in `lighting.frag` and `DofPass` (both debug-gated); see [realism-features.md](realism-features.md).
+- **2e (`.glb` hero props)** — not started; blocked on sourcing/authoring licensed `.glb` assets.
 
 > **One phase per turn**, each debug-UI-tunable and release-safe (`SWISH_DEBUG_UI=OFF` output
 > byte-identical unless the change is intentional and screenshot-verified), each with its own
@@ -96,45 +104,52 @@ graph LR
 ### 1. Config → `RoadConfig`
 
 Road dimensions, tiling, and tints live in [`config/road.toml`](../config/road.toml).
-[`tools/toml_baker.cpp`](../tools/toml_baker.cpp) packs them into a `road.bin` blob whose layout
-**must match** [`RoadConfig.h`](../src/scene/RoadScene/RoadConfig.h) field-for-field (magic `SWRC`,
-versioned). `RoadScene`'s default constructor loads `road.bin`; dimensions that must stay tunable
-belong in **both** `RoadConfig.h` and the mirror struct in `toml_baker.cpp`, kept in lockstep.
-Quick per-prop tints/sizes can stay as locals inside a generator (as most props already do).
+[`tools/toml_baker.cpp`](../tools/toml_baker.cpp) packs them into a `road.bin` blob using the **same**
+[`RoadConfig.h`](../src/scene/RoadScene/RoadConfig.h) the game reads (magic `SWRC`, versioned,
+`static_assert(sizeof(RoadConfig) == 292)`), so the layout cannot drift. `RoadScene`'s default constructor loads
+`road.bin`; a dimension that must stay tunable is added to `RoadConfig.h` plus one read in `toml_baker.cpp`.
+Cross-section constants shared with `RoadGeometry` live in [`RoadParams.h`](../src/scene/RoadScene/RoadParams.h).
+Quick per-prop tints/sizes can stay as locals inside a generator (as most props already do); write lengths with
+`util::units::ft()` / `m()`, never the literals `1000` or `0.3048`.
 
 ### 2. `RoadScene::generate()` and the section generators
 
-[`RoadScene::generate()`](../src/scene/RoadScene/RoadScene.cpp) (around line 576) wraps the output
+[`RoadScene::generate()`](../src/scene/RoadScene/RoadScene.cpp) wraps the output
 mesh + draw list in a `MeshBuilder`, computes a `RoadLayout` (eastbound start X, total road width,
-westbound inner edge), then calls each **section generator** in turn over the full road span
-`z_near = 0` … `z_far = -road_length`. Each generator has the uniform signature
+westbound inner edge), then walks the ordered `intro_elements()` table, calling each **section generator** in turn over
+the full road span `z_near = 0` … `z_far = -road_length` (the endless-road chunk path walks `chunk_elements()`; a new
+generator is registered by adding a row to the table, and `tests/test_road_scene.cpp` pins the order). Each generator
+has the uniform signature
 
 ```cpp
 void generate_*(MeshBuilder&, const RoadLayout&, float z_near, float z_far) const;
 ```
 
 (some also take `std::vector<LightDesc>&` to emit point lights). They read only instance state, so
-they are `const`. The call list in `generate()`:
+they are `const`. The call list in `generate()` (implemented across three topic files; find a symbol with `rg`):
 
-| Generator (`RoadScene.cpp`) | Emits | Material(s) |
+| Generator (file) | Emits | Material(s) |
 |---|---|---|
-| `generate_grass` / `generate_road_surfaces` / `generate_shoulders` | ground, lanes, shoulders | `MAT_GRASS`, `MAT_ASPHALT` |
-| `generate_jersey_barrier` (~424) | F-shape concrete median (sloped quads + weathering stain) | `MAT_CONCRETE` |
-| `generate_guardrail` (~469) | EB tall retaining wall + fence, WB W-beam rail | `MAT_CONCRETE`, `MAT_METAL` |
-| `generate_solid_markings` (~502) / `generate_dashed_markings` (~549) | edge/lane/HOV lines | tinted quads |
-| `generate_curbs` / `generate_rumble_strips` / `generate_dirt_strips` | curb, rumble, gravel strips | `MAT_CONCRETE`, `MAT_RUMBLE`, `MAT_DIRT` |
-| `generate_ambient_occlusion` (~661) | dark contact strips at structure bases | `MAT_DEFAULT` |
-| `generate_hov_diamonds` (~693) | HOV diamonds + "I-495" pavement text | `MAT_SIGN_6` |
-| **`generate_sign_posts` (~758)** | **roadside signs + overhead truss gantries** | `MAT_METAL`, `MAT_SIGN_*` |
-| `generate_overpass` (~929) | concrete bridge deck + railings every ~0.5 mi | `MAT_CONCRETE` |
-| `generate_sound_barriers` (~1086) | panel walls + concrete posts on the embankment | `MAT_CONCRETE` |
-| `generate_exit_ramp` (~1145) | diverging ramp + N Marginal Rd + gore markings | `MAT_ASPHALT` |
-| `generate_street_lamps` (~1338) | poles + arms + fixtures **and point lights** | `MAT_METAL` + `LightDesc[]` |
-| `generate_trees` (~1007) | cross-billboard trees — **implemented but NOT called (deferred)** | `MAT_TREE` |
+| `generate_grass` / `generate_road_surfaces` / `generate_shoulders` (`_Surfaces`) | ground, lanes, shoulders | `MAT_GRASS`, `MAT_ASPHALT` |
+| `generate_jersey_barrier` (`_Furniture`) | F-shape concrete median (sloped quads + weathering stain) | `MAT_CONCRETE` |
+| `generate_guardrail` (`_Furniture`) | EB tall retaining wall + fence, WB W-beam rail | `MAT_CONCRETE`, `MAT_METAL` |
+| `generate_solid_markings` / `generate_dashed_markings` (`_Surfaces`) | edge/lane/HOV lines | tinted quads |
+| `generate_curbs` / `generate_rumble_strips` / `generate_dirt_strips` (`_Surfaces`) | curb, rumble, gravel strips | `MAT_CONCRETE`, `MAT_RUMBLE`, `MAT_DIRT` |
+| `generate_ambient_occlusion` (`_Surfaces`) | dark contact strips at structure bases | `MAT_DEFAULT` |
+| `generate_hov_diamonds` (`_Furniture`) | HOV diamonds + "I-495" pavement text | `MAT_SIGN_6` |
+| **`generate_sign_posts`** (`_Furniture`) | **roadside signs + overhead truss gantries** | `MAT_METAL`, `MAT_SIGN_*` |
+| `generate_overpass` (`_Furniture`) | concrete bridge deck + railings every ~0.5 mi | `MAT_CONCRETE` |
+| `generate_sound_barriers` (`_Furniture`) | panel walls + concrete posts on the embankment | `MAT_CONCRETE` |
+| `generate_exit_ramp` (`_Ramps`) | EB diverge → N Marginal: chevron gore, W-beam on ramp, merge flare; Z/X locked to `RoadGeometry` intro-exit constants | `MAT_ASPHALT`, `MAT_METAL` |
+| `generate_marginal_trees` (`_Furniture`) | Dense MAT_TREE billboards along intro marginal (far side + berm); no houses | `MAT_TREE` |
+| `generate_street_lamps` (`_Furniture`) | poles + arms + fixtures **and point lights** | `MAT_METAL` + `LightDesc[]` |
+
+(`_Surfaces` = `RoadScene_Surfaces.cpp`, `_Furniture` = `RoadScene_Furniture.cpp`, `_Ramps` = `RoadScene_Ramps.cpp`. The
+former full-corridor `generate_trees` was deleted on 2026-09-29.)
 
 ### 3. `MeshBuilder` — quads become draw calls
 
-[`MeshBuilder`](../src/scene/RoadScene/RoadScene.h) is the only thing that touches the vertex/index
+[`MeshBuilder`](../src/scene/RoadScene/MeshBuilder.h) is the only thing that touches the vertex/index
 buffers, so generators can't miscompute base indices. Its helpers each append 4 vertices + 6 indices
 (two triangles, CCW-wound for Vulkan clip space) **and one `DrawCall`**:
 
@@ -150,10 +165,10 @@ scale); `tileSize == 0` uses full `[0,1]` UVs (for a single textured panel like 
 
 ### 4. Upload and per-frame draw
 
-[`Renderer::upload_scene_geometry`](../src/renderer/Renderer/Renderer.cpp) (~1406) hands the
+[`Renderer::upload_scene_geometry`](../src/renderer/Renderer/Renderer_State.cpp) hands the
 `MeshData` + `DrawCall[]` to [`SceneGeometry::upload`](../src/renderer/SceneGeometry/SceneGeometry.cpp),
 which stages them into device-local vertex/index buffers (one submit). Each frame,
-`SceneGeometry::record_draws` (~85) iterates the draw list and, per `DrawCall`:
+`SceneGeometry::record_draws` iterates the draw list and, per `DrawCall`:
 
 1. Binds **descriptor set 1** = that material's textures (`materials.get_set(dc.material)`).
 2. **Camera-relative rebase in double precision** — subtracts the camera position from the model's

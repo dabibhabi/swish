@@ -1,10 +1,11 @@
 #include "DepthOnlyPipeline.h"
 
-#include "../../scene/SceneTypes.h"  // (kept for parity with ScenePipeline; not strictly required)
-#include "../../utils/FileIO/FileIO.h"
-#include "../../utils/VulkanCheck.h"
-#include "../Pipeline/Pipeline.h"
-#include "../Vertex.h"
+#include "renderer/Pipeline/Pipeline.h"
+#include "renderer/Vertex.h"
+#include "scene/SceneTypes.h"  // (kept for parity with ScenePipeline; not strictly required)
+#include "utils/io/File.h"
+#include "utils/vulkan/Check.h"
+#include "utils/vulkan/ShaderModule.h"
 
 #include <array>
 #include <string>
@@ -27,17 +28,6 @@ constexpr float kDepthBiasSlopeFactor    = 1.5f;
 constexpr uint32_t kDepthPushConstSize = static_cast<uint32_t>(sizeof(DepthPushConstants));
 static_assert(kDepthPushConstSize == 128, "DepthPushConstants must be 128 B (2·mat4, 16-aligned for MoltenVK)");
 
-VkShaderModule createShaderModule(VkDevice device, const std::vector<char>& code) {
-    VkShaderModuleCreateInfo createInfo{};
-    createInfo.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    createInfo.codeSize = code.size();
-    createInfo.pCode    = reinterpret_cast<const uint32_t*>(code.data());
-
-    VkShaderModule shaderModule;
-    VK_CHECK(vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule));
-    return shaderModule;
-}
-
 }  // namespace
 
 void DepthOnlyPipeline::init(VkDevice device, const Config& cfg) {
@@ -47,29 +37,18 @@ void DepthOnlyPipeline::init(VkDevice device, const Config& cfg) {
     pushConstantRange.offset     = 0;
     pushConstantRange.size       = kDepthPushConstSize;
 
-    m_layout = Pipeline::createLayout(device, {}, {pushConstantRange});
+    m_layout = pipeline::create_layout(device, {}, {pushConstantRange});
 
     // ── Load SPIR-V (same SHADER_DIR convention as ScenePipeline) ──
-    auto vertCode = FileIO::readBinaryFile(std::string(SHADER_DIR) + "depth_only.vert.spv");
-    auto fragCode = FileIO::readBinaryFile(std::string(SHADER_DIR) + "depth_only.frag.spv");
+    auto vertCode = util::io::read_binary(std::string(SHADER_DIR) + "depth_only.vert.spv");
+    auto fragCode = util::io::read_binary(std::string(SHADER_DIR) + "depth_only.frag.spv");
 
-    VkShaderModule vertModule = createShaderModule(device, vertCode);
-    VkShaderModule fragModule = createShaderModule(device, fragCode);
-
-    // Scoped RAII destroy of shader modules (matches Pipeline::create).
-    struct ScopedShaderModule {
-        VkDevice       dev;
-        VkShaderModule mod;
-        ~ScopedShaderModule() {
-            if (mod != VK_NULL_HANDLE)
-                vkDestroyShaderModule(dev, mod, nullptr);
-        }
-        ScopedShaderModule(VkDevice d, VkShaderModule m) : dev(d), mod(m) {}
-        ScopedShaderModule(const ScopedShaderModule&)            = delete;
-        ScopedShaderModule& operator=(const ScopedShaderModule&) = delete;
-    };
-    ScopedShaderModule scopedVert{device, vertModule};
-    ScopedShaderModule scopedFrag{device, fragModule};
+    // RAII shader modules (destroyed when init() returns, after the pipeline exists — as before).
+    const vkx::DeviceRef deviceRef{device};  // must outlive the module handles below
+    const auto           vertModuleOwner = vkx::make_shader_module(deviceRef, vertCode);
+    const auto           fragModuleOwner = vkx::make_shader_module(deviceRef, fragCode);
+    const VkShaderModule vertModule      = vertModuleOwner.get();
+    const VkShaderModule fragModule      = fragModuleOwner.get();
 
     VkPipelineShaderStageCreateInfo vertStage{};
     vertStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -178,11 +157,10 @@ void DepthOnlyPipeline::init(VkDevice device, const Config& cfg) {
     pipelineInfo.renderPass          = cfg.targetRenderPass;
     pipelineInfo.subpass             = 0;
 
-    // NOTE: the shared process-wide VkPipelineCache (Pipeline::s_pipelineCache)
-    // is file-private to Pipeline.cpp and only fed by Pipeline::create(). This
-    // pass builds directly (to get depth bias), so it uses VK_NULL_HANDLE — a
-    // valid cache argument; the driver just compiles from scratch. If cache
-    // reuse matters here, the integrator can expose a getter on Pipeline.
+    // NOTE: the Device-owned VkPipelineCache (RendererServices::pipelineCache) is only fed by
+    // pipeline::create_graphics(). This pass builds directly (to get depth bias), so it uses VK_NULL_HANDLE, a
+    // valid cache argument; the driver just compiles from scratch. Behaviour kept as before the cache moved
+    // out of the global; to reuse the cache here, add a pipelineCache to its Config.
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_pipeline));
 
     (void)cfg.extent;  // extent is set dynamically in bind(); kept in Config for symmetry.

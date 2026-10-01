@@ -1,7 +1,7 @@
 #include "Swapchain.h"
 
-#include "../../utils/VulkanCheck.h"
-#include "../Pipeline/Device/Device.h"
+#include "renderer/Pipeline/Device/Device.h"
+#include "utils/vulkan/Check.h"
 
 #include <algorithm>
 #include <limits>
@@ -95,9 +95,6 @@ VkFormat Swapchain::getImageFormat() const {
 }
 VkExtent2D Swapchain::getExtent() const {
     return m_extent;
-}
-const std::vector<VkImage>& Swapchain::getImages() const {
-    return m_images;
 }
 const std::vector<VkImageView>& Swapchain::getImageViews() const {
     return m_imageViews;

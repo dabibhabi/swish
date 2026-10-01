@@ -1,17 +1,23 @@
 #include "RainSystem.h"
 
-#include "../../utils/Types.h"
-#include "../../utils/VulkanCheck.h"
-#include "../../utils/VulkanInit.h"
-#include "../Pipeline/Pipeline.h"
-#include "../Renderer/RendererServices.h"
-#include "../ResourceManager/ResourceManager.h"
 #include "RainPhysics.h"
+#include "debug/DebugParams.h"
+#include "renderer/CameraUniforms/CameraUniforms.h"
+#include "renderer/Passes/ForwardPass.h"
+#include "renderer/Pipeline/Pipeline.h"
+#include "renderer/Renderer/RendererServices.h"
+#include "renderer/RendererConfig.h"
+#include "renderer/ResourceManager/ResourceManager.h"
+#include "utils/types/Types.h"
+#include "utils/vulkan/Check.h"
+#include "utils/vulkan/Descriptors.h"
+#include "utils/vulkan/Init.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <memory>
 #include <random>
 #include <vector>
 
@@ -32,11 +38,50 @@ static constexpr float kFarIntensityScale  = 0.55f;  // dimmer/farther (fragAlph
 static constexpr float kFarStreakScale     = 0.8f;
 static constexpr float kFarTimePhase       = 317.0f;  // decorrelate far field from near (shared seeds)
 
-void RainSystem::init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                      const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
-                      VkDescriptorSetLayout cameraSetLayout) {
+void RainSystem::init(const PassInitCtx& ctx) {
+    create(ctx.services, ctx.images.views(Img::Hdr), ctx.images.views(Img::HdrDepth), ctx.renderExtent,
+           ctx.cameraSetLayout);
+}
+
+void RainSystem::onResize(const PassInitCtx& ctx) {
+    recreate(ctx.images.views(Img::Hdr), ctx.images.views(Img::HdrDepth), ctx.renderExtent, ctx.services.device);
+}
+
+void RainSystem::beginFrame(const FrameUpdate& u) {
+#ifdef SWISH_DEBUG_UI
+    m_streakLen = u.tune.streakLen;  // debug slider: base streak length (WU) before the intensity scaling
+#endif
+    // Time-varying gusts: superimpose a slow swing and a faster gust on the
+    // base horizontal wind so the streaks visibly slant and the slant DRIFTS
+    // over time. Two decorrelated sinusoids (periods ≈ 2π/0.35 ≈ 18 s and
+    // 2π/1.30 ≈ 4.8 s) give a wandering gust rather than a metronome. The
+    // gust modulates a ±1 envelope around a steady mean of ~1.0 so the wind
+    // never fully stalls. Vertical wind stays 0 (fall is handled by dropSpeed).
+    m_windTime += u.dt;
+    float gust = 1.0f + 0.55f * std::sin(m_windTime * 0.35f) + 0.35f * std::sin(m_windTime * 1.30f + 1.7f);
+    Vec3  gustWind(kBaseWindX * gust, 0.0f, kBaseWindZ * gust);
+
+    // Effective wind = gusting wind minus car velocity; rain leans forward at speed
+    Vec3 effectiveWind = gustWind - u.carVelocity;
+    step(u.frameIndex, u.dt, u.rainIntensity, effectiveWind);
+
+    u.state.wetness       = m_wetness;
+    u.state.rainIntensity = m_intensity;
+}
+
+void RainSystem::record(const FrameCtx& c) {
+    // Bind camera set (set 0) using the rain pipeline layout before the draw's own render pass begins.
+    // record_draws binds its own set 1 (rain UBO) internally.
+    VkDescriptorSet camSet = c.res.cameraUniforms->get_set(c.frameIndex);
+    vkCmdBindDescriptorSets(c.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeLayout, 0, 1, &camSet, 0, nullptr);
+    record_draws(c.cmd, c.frameIndex);
+}
+
+void RainSystem::create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                        const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
+                        VkDescriptorSetLayout cameraSetLayout) {
     m_extent      = extent;
-    m_depthFormat = ResourceManager::findDepthFormat(s.physicalDevice);
+    m_depthFormat = resource::findDepthFormat(s.physicalDevice);
 
     createRenderPass(s.device);
     createFramebuffers(s.device, hdrViews, depthViews);
@@ -44,10 +89,10 @@ void RainSystem::init(const RendererServices& s, const std::array<VkImageView, M
     createInstanceBuffer(s);
     createRainUBOs(s);
     createDescriptors(s.device, cameraSetLayout);
-    createPipeline(s.device, cameraSetLayout);
+    createPipeline(s.device, s.pipelineCache, cameraSetLayout);
 }
 
-void RainSystem::update(uint32_t frameIndex, float deltaTime, float intensity, Vec3 wind) {
+void RainSystem::step(uint32_t frameIndex, float deltaTime, float intensity, Vec3 wind) {
     m_intensity = intensity;
     m_time += deltaTime;
 
@@ -99,7 +144,7 @@ void RainSystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const {
     // but the count must match the render pass attachment count.
     VkClearValue clearVals[2]{};
 
-    auto beginInfo              = vk::makeRenderPassBeginInfo();
+    auto beginInfo              = vkx::makeRenderPassBeginInfo();
     beginInfo.renderPass        = m_renderPass;
     beginInfo.framebuffer       = m_framebuffers[frameIndex];
     beginInfo.renderArea.extent = m_extent;
@@ -195,62 +240,8 @@ void RainSystem::cleanup(VkDevice device) {
 // ── Private helpers ────────────────────────────────────────────────────
 
 void RainSystem::createRenderPass(VkDevice device) {
-    // Attachment 0: HDR color — LOAD to preserve deferred lighting output.
-    VkAttachmentDescription colorAtt{};
-    colorAtt.format         = VK_FORMAT_R16G16B16A16_SFLOAT;
-    colorAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
-    colorAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-    colorAtt.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAtt.initialLayout  = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAtt.finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    // Attachment 1: depth — read-only; scene depth is in DEPTH_STENCIL_READ_ONLY_OPTIMAL
-    // after transitionGBufferForLighting() transitions it from ATTACHMENT_OPTIMAL.
-    // The lighting fullscreen pass samples depth from this layout; we inherit that state.
-    VkAttachmentDescription depthAtt{};
-    depthAtt.format         = m_depthFormat;
-    depthAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
-    depthAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-    depthAtt.storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depthAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    depthAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depthAtt.initialLayout  = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    depthAtt.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-    VkAttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-    VkAttachmentReference depthRef{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
-
-    VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount    = 1;
-    subpass.pColorAttachments       = &colorRef;
-    subpass.pDepthStencilAttachment = &depthRef;
-
-    // After lighting pass: color was written (COLOR_ATTACHMENT_OUTPUT) and depth was
-    // sampled by the lighting shader (FRAGMENT_SHADER). Both must be visible to rain.
-    VkSubpassDependency dep{};
-    dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
-    dep.dstSubpass    = 0;
-    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-
-    VkAttachmentDescription atts[] = {colorAtt, depthAtt};
-
-    VkRenderPassCreateInfo rpInfo{};
-    rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    rpInfo.attachmentCount = 2;
-    rpInfo.pAttachments    = atts;
-    rpInfo.subpassCount    = 1;
-    rpInfo.pSubpasses      = &subpass;
-    rpInfo.dependencyCount = 1;
-    rpInfo.pDependencies   = &dep;
-
-    VK_CHECK(vkCreateRenderPass(device, &rpInfo, nullptr, &m_renderPass));
+    // HDR colour LOAD (preserve the deferred lighting output) + read-only scene depth; see ForwardPass.h.
+    m_renderPass = make_forward_hdr_pass(device, m_depthFormat);
 }
 
 void RainSystem::createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
@@ -346,28 +337,12 @@ void RainSystem::createDescriptors(VkDevice device, VkDescriptorSetLayout camera
     // Descriptor pool — sized for BOTH the near and far per-frame sets
     // (2 * MAX_FRAMES_IN_FLIGHT), or vkAllocateDescriptorSets for the far sets
     // would fail with VK_ERROR_OUT_OF_POOL_MEMORY.
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSize.descriptorCount = 2 * MAX_FRAMES_IN_FLIGHT;
-
-    VkDescriptorPoolCreateInfo poolInfo{};
-    poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes    = &poolSize;
-    poolInfo.maxSets       = 2 * MAX_FRAMES_IN_FLIGHT;
-    VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_descPool));
+    m_descPool =
+        vkx::make_pool(device, {.maxSets = 2 * MAX_FRAMES_IN_FLIGHT, .uniformBuffers = 2 * MAX_FRAMES_IN_FLIGHT});
 
     // Allocate sets — near and far share the same set-1 layout (m_rainLayout).
-    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
-    layouts.fill(m_rainLayout);
-
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool     = m_descPool;
-    allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-    allocInfo.pSetLayouts        = layouts.data();
-    VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, m_descSets.data()));
-    VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, m_descSetsFar.data()));
+    vkx::allocate_sets(device, m_descPool, m_rainLayout, m_descSets);
+    vkx::allocate_sets(device, m_descPool, m_rainLayout, m_descSetsFar);
 
     // Write the near + far rain UBO into their respective sets. Each
     // VkDescriptorBufferInfo must outlive its vkUpdateDescriptorSets call, so
@@ -397,9 +372,9 @@ void RainSystem::createDescriptors(VkDevice device, VkDescriptorSetLayout camera
     (void)cameraSetLayout;  // used only to build the pipeline layout below
 }
 
-void RainSystem::createPipeline(VkDevice device, VkDescriptorSetLayout cameraSetLayout) {
+void RainSystem::createPipeline(VkDevice device, VkPipelineCache cache, VkDescriptorSetLayout cameraSetLayout) {
     // Layout: set 0 = camera UBO (shared), set 1 = rain UBO (owned)
-    m_pipeLayout = Pipeline::createLayout(device, {cameraSetLayout, m_rainLayout});
+    m_pipeLayout = pipeline::create_layout(device, {cameraSetLayout, m_rainLayout});
 
     // Vertex input: binding 0 = per-vertex quad corner, binding 1 = per-instance seed
     VkVertexInputBindingDescription bindings[2]{};
@@ -438,7 +413,11 @@ void RainSystem::createPipeline(VkDevice device, VkDescriptorSetLayout cameraSet
     cfg.additiveBlending = true;
     cfg.pipelineLayout   = m_pipeLayout;
 
-    m_pipeline = Pipeline::create(device, cfg, m_renderPass, m_extent);
+    m_pipeline = pipeline::create_graphics(device, cache, cfg, m_renderPass, m_extent);
+}
+
+std::unique_ptr<IRenderPass> make_rain_pass() {
+    return std::make_unique<RainSystem>();
 }
 
 }  // namespace swish

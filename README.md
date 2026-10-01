@@ -30,7 +30,7 @@ windshield rain trails → HDR bloom → AgX tone mapping.
 |------|---------|---------------|
 | [Vulkan SDK](https://vulkan.lunarg.com/) | ≥ 1.3 | Graphics API + `glslc` shader compiler |
 | [CMake](https://cmake.org/) | ≥ 3.20 | Build system |
-| C++ compiler | C++17 | GCC ≥ 9, Clang ≥ 10, or MoltenVK toolchain on macOS |
+| C++ compiler | C++20 | Apple clang / Clang (the reference toolchain) or a recent GCC; the intro-mesh golden hashes only match Release + Clang |
 | [GLFW](https://www.glfw.org/) | ≥ 3.3 | Windowing + input |
 | [GLM](https://github.com/g-truc/glm) | any | Vector / matrix math |
 | [tinygltf](https://github.com/syoyo/tinygltf) | bundled | GLB / glTF model loading |
@@ -63,24 +63,25 @@ brew install glfw glm cmake
 ```
 </details>
 
-<details>
-<summary><b>Windows</b></summary>
-
-- Download & install the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home)
-- Install [CMake](https://cmake.org/download/)
-- GLFW + GLM via [vcpkg](https://vcpkg.io/): `vcpkg install glfw3 glm`
-</details>
+> Windows is no longer a supported backend (dropped 2026-09-29): macOS (MoltenVK) and Linux only.
 
 ### 2. Build & run
 
 ```bash
+make run          # release build into build/, then runs build/swish
+make debug        # Dear ImGui live-tuning build into build-debug/ (backtick toggles edit/drive)
+make test         # release build + ctest
+make help         # every target (check, format, new-class, ...)
+# or, without make:
 cmake -B build -DCMAKE_BUILD_TYPE=Release   # auto-detects your platform
 cmake --build build -j
-./build/swish                               # Linux/macOS  (Windows: build\swish.exe)
+./build/swish
 ```
 
 > Shaders compile automatically during the build via `glslc`. The first build writes all SPIR-V
-> binaries into `build/shaders/`.
+> binaries into `build/shaders/`. Keep `VULKAN_SDK` set (or pass `-DGLSLC=...`): CMake looks for `glslc`
+> in `$VULKAN_SDK/bin` first, and a different `glslc` version changes the SPIR-V bytes (the golden shader hashes in
+> `tests/golden/` assume the SDK's). Validation layers are on only in a plain `-DCMAKE_BUILD_TYPE=Debug` build.
 
 ---
 
@@ -90,12 +91,15 @@ cmake --build build -j
 |-----|--------|
 | `↑` `↓` | Throttle / brake |
 | `←` `→` | Steer left / right |
-| `C` | Toggle cockpit / free-fly camera |
+| `C` | Cycle camera (cockpit, chase, hood, bumper, roof, side, helicopter, free-fly) |
 | `W A S D` | Move camera (free-fly) |
 | `Q` `E` | Camera down / up |
 | `Shift` | Sprint (free-fly speed ×2) |
 | `R` | Cycle rain: off → light → heavy |
+| `V` | Toggle the windshield wiper |
+| `G` | Cycle the weather HDRI preset |
 | `ESC` | Toggle mouse capture |
+| `` ` `` | Debug build only: toggle edit (ImGui) vs drive mode |
 
 ---
 
@@ -108,7 +112,6 @@ Swish auto-detects the graphics backend from your OS. Override with `-DSWISH_BAC
 | `AUTO` | Detect from OS | — |
 | `LINUX_VULKAN` | Linux | AMD or NVIDIA |
 | `APPLE_METAL` | macOS (MoltenVK) | Apple GPU |
-| `WINDOWS_VULKAN` | Windows | AMD or NVIDIA |
 
 ```bash
 cmake -B build -DSWISH_BACKEND=LINUX_VULKAN   # force a backend
@@ -121,7 +124,7 @@ Discrete GPUs are preferred over integrated, and a matching vendor over a mismat
 ## Architecture
 
 Swish is a 5-layer stack: platform (App/Window) → Vulkan core → rendering subsystems → scene
-management → GLSL shaders. The `Renderer` is a central manager registry that owns every Vulkan
+management → GLSL shaders. The `Renderer` is a facade that owns every Vulkan
 subsystem and exposes a `RendererServices` bundle so scene code can upload geometry without holding
 raw handles.
 
@@ -135,7 +138,12 @@ Start at the [**documentation index**](docs/README.md). Highlights:
 
 | Document | Description |
 |----------|-------------|
+| [`docs/CODING_RULES.md`](docs/CODING_RULES.md) | **Read before writing code** — 12 rules, where each thing goes, what connects to what in plain English (`make rules`) |
+| [`docs/FEATURE_RULES.md`](docs/FEATURE_RULES.md) | **Read before planning a feature** — spec template, feature shapes and owners, build dark, prove it, turn it on (`make feature-rules`) |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | **Quick lookup** — every term, class, and convention, one line each |
+| [`docs/REPO_MAP.md`](docs/REPO_MAP.md) · [`docs/DIRECTORY.md`](docs/DIRECTORY.md) | Where everything lives (task-oriented map / full annotated tree) |
+| [`docs/RECIPES.md`](docs/RECIPES.md) | How to add a tunable, shader, render pass, road prop, test, util, config key |
+| [`docs/KEEPING_IT_CLEAN.md`](docs/KEEPING_IT_CLEAN.md) · [`docs/CLEANUP_2026-09-29.md`](docs/CLEANUP_2026-09-29.md) | Upkeep rules (`make check`) and what the 2026-09-29 deep clean changed |
 | [`docs/architecture.md`](docs/architecture.md) | 5-layer architecture, startup sequence, design patterns |
 | [`docs/render-pipeline.md`](docs/render-pipeline.md) | Per-frame 6-pass deferred pipeline + shader math |
 | [`docs/data-types.md`](docs/data-types.md) | Every struct/UBO with exact byte layouts and std140 rules |
@@ -147,10 +155,10 @@ Start at the [**documentation index**](docs/README.md). Highlights:
 
 | Directory | README |
 |-----------|--------|
-| `src/core/` | [`App` and `Window`](src/core/README.md) |
+| `src/core/` | [`App`, `CameraController` and `Window`](src/core/README.md) |
 | `src/renderer/` | [Renderer subsystems](src/renderer/README.md) |
 | `src/scene/` | [Scene management](src/scene/README.md) |
-| `src/utils/` | [Shared helpers (`VK_CHECK`, FileIO, type aliases)](src/utils/README.md) |
+| `src/utils/` | [Shared helpers by topic (`units`, `math`, `io`, `vulkan`, type aliases, ...)](src/utils/README.md) |
 | `shaders/` | [Shader pipeline](shaders/README.md) |
 | `tests/` | [Testing guide](tests/README.md) |
 | `tools/` | [Developer tools](tools/README.md) |
@@ -167,6 +175,8 @@ Start at the [**documentation index**](docs/README.md). Highlights:
 | [`scene-data-flow`](docs/diagrams/scene-data-flow.excalidraw) | Asset → GPU → draw calls |
 | [`descriptor-sets`](docs/diagrams/descriptor-sets.excalidraw) | Descriptor set bindings + push constants |
 | [`data-layout`](docs/diagrams/data-layout.excalidraw) | Vertex byte layout + std140 UBO layout |
+
+More diagrams (and which ones predate the 2026-09-29 refactor) are indexed in [`docs/README.md`](docs/README.md#diagrams).
 </details>
 
 ---
@@ -202,8 +212,8 @@ Start at the [**documentation index**](docs/README.md). Highlights:
 
 ## Investigations
 
-In-tree notes on non-obvious behavior found during development. See [`docs/investigations/`](docs/investigations/).
+In-tree notes on non-obvious behavior found during development. See [`archive/docs/investigations/`](archive/docs/investigations/).
 
 | Date | Topic |
 |------|-------|
-| 2026-04-21 | [Vulkan validation: `pSignalSemaphores-00067` and dormant-SSAO image layout](docs/investigations/2026-04-21-vulkan-validation-errors.md) |
+| 2026-04-21 | [Vulkan validation: `pSignalSemaphores-00067` and dormant-SSAO image layout](archive/docs/investigations/2026-04-21-vulkan-validation-errors.md) |

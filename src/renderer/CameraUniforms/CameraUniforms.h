@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../../scene/SceneTypes.h"
-#include "../GpuResource/GpuResource.h"
+#include "renderer/GpuResource/GpuResource.h"
+#include "scene/SceneTypes.h"
 
 #include <vulkan/vulkan.h>
 
@@ -29,7 +29,6 @@ public:
         m_lights      = lights;
         m_lightsDirty = true;
     }
-    bool has_lights() const { return !m_lights.empty(); }
 
     // Patches camPos.w in the already-mapped camera UBO for this frame.
     // Call after update() — does not disturb xyz.

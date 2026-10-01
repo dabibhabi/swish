@@ -18,7 +18,7 @@ layout(push_constant) uniform P {
     vec4 params;  // x = roughness [0,1]
 } pc;
 
-const float PI = 3.14159265359;
+#include "math.glsl"
 
 float radicalInverse_VdC(uint bits) {
     bits = (bits << 16u) | (bits >> 16u);

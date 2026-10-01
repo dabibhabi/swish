@@ -1,3 +1,10 @@
+---
+verified: 2026-09-29
+against: c843ebe + uncommitted refactor   # git rev-parse --short HEAD; set-4 UBO, presets path, key table and Tunables.def updated
+owner: docs-scribe
+covers: [src/debug/**, src/core/App/AppInput.cpp, shaders/lighting.frag]
+---
+
 # In-Engine Debug / Tuning UI
 
 A camera-app-style live-tuning overlay — sliders, gizmos, and TOML presets — for dialing
@@ -6,7 +13,7 @@ entirely behind `make debug` (`-DSWISH_DEBUG_UI=ON`): a normal `make run` releas
 never compiles a line of it and produces **byte-identical** output.
 
 > **Diagram:** the parameter data-flow is in
-> [`docs/diagrams/debug-ui-dataflow.excalidraw`](diagrams/debug-ui-dataflow.excalidraw).
+> [`archive/docs/diagrams/debug-ui-dataflow.excalidraw`](../archive/docs/diagrams/debug-ui-dataflow.excalidraw).
 
 ## What it is and why
 
@@ -23,15 +30,15 @@ release binary come from the same source.
 
 ## Edit mode vs drive mode
 
-Input is a two-mode state machine keyed on backtick, handled in
-[src/core/App/App.cpp](../src/core/App/App.cpp):
+Input is a two-mode state machine keyed on backtick. The backtick is one row of the data-driven key table in
+[src/core/App/AppInput.cpp](../src/core/App/AppInput.cpp) (`on_toggle_debug_edit`, present only under
+`SWISH_DEBUG_UI`); the per-frame gating lives in [src/core/App/App.cpp](../src/core/App/App.cpp):
 
 ```cpp
-// Backtick (`) toggles debug edit-mode: free the cursor for the panel and freeze the sim.
-bool bt_down = glfwGetKey(glfw_window, GLFW_KEY_GRAVE_ACCENT) == GLFW_PRESS;
-if (bt_down && !m_backtick_prev) {
-    m_debug_edit_mode = !m_debug_edit_mode;
-    glfwSetInputMode(glfw_window, GLFW_CURSOR,
+// AppInput.cpp key table: {GLFW_KEY_GRAVE_ACCENT, {}, &App::on_toggle_debug_edit}
+void App::on_toggle_debug_edit() {
+    m_debug_edit_mode = !m_debug_edit_mode;   // free the cursor for the panel and freeze the sim
+    glfwSetInputMode(m_window->getHandle(), GLFW_CURSOR,
                      m_debug_edit_mode ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
     m_renderer->set_debug_edit_mode(m_debug_edit_mode);
 }
@@ -40,9 +47,10 @@ if (bt_down && !m_backtick_prev) {
 - **Drive mode** (default): cursor captured, arrow keys drive the car, WASD free-flies the
   camera, the sim advances.
 - **Edit mode** (backtick): cursor freed for the panel, and the drive/physics input is
-  **gated off** — `m_car->handle_input(...)` / `update(...)` only run `if (!debug_edit)`,
-  and camera keyboard only runs `if (... && !debug_edit)`. The scene freezes so you tune a
-  static frame. Steering/sun gizmos are only interactive in edit mode.
+  **gated off** — `App::debug_edit_mode()` (always `false` in release) is passed into
+  `update_car` / `update_camera`, which skip car input + physics and camera keyboard when it is
+  true. The scene freezes so you tune a static frame. Steering/sun gizmos are only interactive
+  in edit mode.
 
 ```mermaid
 graph LR
@@ -54,7 +62,13 @@ graph LR
 ## The DebugParams single-struct pattern
 
 Every tunable in the engine is one field of a single POD-ish struct,
-[`DebugParams`](../src/debug/DebugParams.h). It is the **one source of truth** the UI
+[`DebugParams`](../src/debug/DebugParams.h). For the **converted groups** (`ssr` 5, `reflection` 3, and `wet` 4:
+porosity, roughness, puddles enabled, puddle coverage; 12 tunables) that field is generated from **one line** in
+[`src/debug/Tunables.def`](../src/debug/Tunables.def), an X-macro registry that also produces the TOML save/load,
+the ImGui slider, the dump line and (for `PUSH` rows) the push-constant copy through
+[`Tunables.h`](../src/debug/Tunables.h); the header of the `.def` file is the authoritative how-to and
+[RECIPES.md](RECIPES.md#add-a-tunable) has the checklist. Every other group is still hand-written in
+`DebugParams.h` / `DebugParamsIO.cpp` / `DebugUI.cpp`. `DebugParams` is the **one source of truth** the UI
 mutates and the renderer reads — no scattered globals, no per-subsystem config objects. The
 struct groups its ~90 fields the way the panel groups them: grade, auto-exposure, sky, sun,
 fog, reflection/IBL, SSR, SSAO, shadow/CSM, wet/rain, car/materials, steering, quality, plus
@@ -74,7 +88,7 @@ The flow from a slider to a shader reaction, every frame:
 ```mermaid
 graph LR
   UI["DebugUI panel<br/>sliders / gizmos"] -->|mutate| DP[DebugParams]
-  DP -->|"drawFrame: m_sceneParams.update(frame)"| UBO["SceneParamsUniform<br/>set-3 UBO (160B)"]
+  DP -->|"drawFrame: m_sceneParams.update(frame)"| UBO["SceneParamsUniform<br/>set-4 UBO (176B)"]
   DP -->|"push constants"| PC["composite grade,<br/>SSAO/SSR params"]
   DP -->|"apply_debug_params"| SUB["subsystems<br/>(rain streak, sun dir, cascades)"]
   UBO --> SH["shaders react<br/>next frame"]
@@ -87,7 +101,7 @@ and size:
 
 | Lane | Carries | Mechanism |
 |------|---------|-----------|
-| **Set-3 UBO** | Sky / fog / reflection / shadow / wet / IBL constants (13+ values) | [`SceneParamsUniform`](../src/debug/SceneParamsUniform.h), one host-mapped UBO per frame, bound as set 3 to the lighting pipeline |
+| **Set-4 UBO** | Sky / fog / reflection / shadow / wet / IBL / paint constants (13+ values) | [`SceneParamsUniform`](../src/debug/SceneParamsUniform.h), one host-mapped UBO per frame, bound as set 4 (`SET_SCENE_PARAMS`) to the lighting pipeline |
 | **Push constants** | Composite grade (exposure, brightness/contrast/saturation, temp/tint, bloom); SSAO/SSR params | Written into the per-pass push block each frame |
 | **CPU-side apply** | Sun direction, cascade fit, rain streak length, per-material overrides, steer override | `Renderer::apply_debug_params` + `App` feed subsystems directly |
 
@@ -100,8 +114,9 @@ and a provably-unchanged release build from one source tree.
 ### 1. `#ifdef SWISH_DEBUG_UI` gating
 
 The entire `src/debug/` module, the ImGui/ImGuizmo libraries, `DebugParamsIO`,
-`SceneParamsUniform`, the set-3 pipeline layout append, and every debug-only render pass
-(`recordSsaoPasses`, `recordSsrPass`, `recordLuminancePyramid`) are wrapped in
+`SceneParamsUniform`, the set-4 pipeline layout append, and every debug-only render pass
+(the `Ssao`, `AoBlur`, `Velocity`, `Dof`, `Taa` and `DebugOverlay` passes, listed as `PASS_DEBUG` in
+[`PassList.def`](../src/renderer/Passes/PassList.def), and the luminance pyramid in `HdrFinalizePass.cpp`) are wrapped in
 `#ifdef SWISH_DEBUG_UI`. Release doesn't compile, link, fetch, or record any of it. The
 define is set only by the `SWISH_DEBUG_UI` CMake option (see [CMakeLists.txt](../CMakeLists.txt),
 `option(SWISH_DEBUG_UI …)`), which also passes `-DSWISH_DEBUG_UI` to the shader compiler.
@@ -109,46 +124,48 @@ define is set only by the `SWISH_DEBUG_UI` CMake option (see [CMakeLists.txt](..
 ### 2. The `SP_*` macro pattern in lighting.frag
 
 `lighting.frag` reads every scene constant through an `SP_*` macro. Under `SWISH_DEBUG_UI`
-the macro reads the set-3 UBO; otherwise it expands to the **exact old literal**:
+the macro reads the set-4 UBO; otherwise it expands to the **exact old literal**:
 
 ```glsl
 #ifdef SWISH_DEBUG_UI
-  layout(set = 3, binding = 0) uniform SceneParamsUBO { /* 10 vec4 rows */ } sp;
-  #define SP_FOG_DIST63 sp.fogParams.x        // …18 macros total
+  layout(set = SET_SCENE_PARAMS, binding = BIND_SCENE_PARAMS) uniform SceneParamsUBO { /* 11 vec4 rows */ } sp;
+  #define SP_FOG_DIST63 sp.fogParams.x        // …two dozen macros in all
   #define SP_IBL_DIFFUSE sp.iblParams.x
 #else
-  #define SP_FOG_DIST63 1200000.0             // the exact old literal
-  #define SP_IBL_DIFFUSE 1.0
+  #define SP_FOG_DIST63 1200000.0             // the release literal
+  #define SP_IBL_DIFFUSE 1.30
 #endif
 ```
+
+(`SET_SCENE_PARAMS` = 4 and `BIND_SCENE_PARAMS` = 0 come from
+[`shaders/common/bindings.glsl`](../shaders/common/bindings.glsl), the single source of set/binding numbers.)
 
 The key property: **`main()` is textually identical in both builds** — only the *source*
 of each constant changes (a UBO read vs a compile-time literal). Compiling the release
 `lighting.frag` through `glslc -O` yields SPIR-V with an identical opcode stream and
 constant set (only internal SSA ids differ), and the release `.spv` contains **zero
-`DescriptorSet 3`** references. The debug `.spv` contains it. That's the proof that release
-is unchanged, not just an assumption.
+`DescriptorSet 4`** references. The debug `.spv` contains it. That's the proof that release
+is unchanged, not just an assumption. The 33 release `.spv` are also pinned by SHA-256 in
+[`tests/golden/release_spv.sha256`](../tests/golden/release_spv.sha256).
 
-The full macro table (with `#else` literals):
+The macro table (debug source; the release literals are the `#else` block of
+[`lighting.frag`](../shaders/lighting.frag), which is authoritative because the release look has been retuned
+several times since this doc's first version):
 
-| Macro | Debug source | Release literal |
-|-------|--------------|-----------------|
-| `SP_SKY_HORIZON_OVERCAST` | `sp.skyHorizonOvercast.rgb` | `vec3(0.70, 0.80, 0.90)` |
-| `SP_SKY_HORIZON_CLEAR` | `sp.skyHorizonClear.rgb` | `vec3(0.62, 0.80, 0.98)` |
-| `SP_SKY_ZENITH_OVERCAST` | `sp.skyZenithOvercast.rgb` | `vec3(0.35, 0.55, 0.85)` |
-| `SP_SKY_ZENITH_CLEAR` | `sp.skyZenithClear.rgb` | `vec3(0.09, 0.36, 0.86)` |
-| `SP_SUN_DISC_EXP_MIN/MAX` | `sp.sunDisc.x` / `.y` | `32.0` / `220.0` |
-| `SP_SUN_DISC_STR_MIN/MAX` | `sp.sunDisc.z` / `.w` | `0.3` / `0.9` |
-| `SP_FOG_COLOR` | `sp.fogColor.rgb` | `vec3(0.52, 0.57, 0.63)` |
-| `SP_FOG_DIST63` | `sp.fogParams.x` | `1200000.0` |
-| `SP_FOG_MAX` | `sp.fogParams.y` | `0.65` |
-| `SP_ENV_GLOSS_EXP` | `sp.fogParams.z` | `3.0` |
-| `SP_SHADOW_BIAS` | `sp.shadowParams.x` | `0.0018` |
-| `SP_SHADOW_FLOOR` | `sp.shadowParams.y` | `0.25` |
-| `SP_WET_POROSITY` | `sp.wetParams.x` | `0.35` |
-| `SP_WET_ROUGHNESS` | `sp.wetParams.y` | `0.12` |
-| `SP_IBL_DIFFUSE` | `sp.iblParams.x` | `1.0` |
-| `SP_IBL_SPECULAR` | `sp.iblParams.y` | `1.0` |
+| Macro | Debug source (`sp.`) |
+|-------|--------------|
+| `SP_SKY_HORIZON_OVERCAST` / `_CLEAR` | `skyHorizonOvercast.rgb` / `skyHorizonClear.rgb` |
+| `SP_SKY_ZENITH_OVERCAST` / `_CLEAR` | `skyZenithOvercast.rgb` / `skyZenithClear.rgb` |
+| `SP_SUN_DISC_EXP_MIN/MAX`, `SP_SUN_DISC_STR_MIN/MAX` | `sunDisc.x/.y`, `sunDisc.z/.w` |
+| `SP_FOG_COLOR`, `SP_FOG_DIST63`, `SP_FOG_MAX`, `SP_ENV_GLOSS_EXP` | `fogColor.rgb`, `fogParams.x`, `fogParams.y`, `fogParams.z` |
+| `SP_HAZE_DIST`, `SP_HAZE_MAX` | `fogParams.w`, `fogColor.w` (spare lanes) |
+| `SP_SHADOW_BIAS`, `SP_SHADOW_FLOOR`, `SP_SHADOW_LIGHT_SIZE` | `shadowParams.x`, `.y`, `.z` |
+| `SP_WET_POROSITY`, `SP_WET_ROUGHNESS`, `SP_PUDDLE_COVERAGE` | `wetParams.x`, `.y`, `.z` |
+| `SP_IBL_DIFFUSE`, `SP_IBL_SPECULAR` | `iblParams.x`, `.y` |
+| `SP_CLEARCOAT_ROUGHNESS`, `SP_FLAKE_ROUGHNESS` | `paintParams.x`, `.y` |
+
+For tunables in the registry, the release literal must equal the registry default (or the explicit release slot in
+`Tunables.def`); `swish_debug_tests` diffs the two.
 
 ### 3. Primed no-op textures
 
@@ -167,12 +184,14 @@ The net result: **the release binary renders exactly what it did before the debu
 existed**, verified by 52/52 tests and SPIR-V equivalence.
 
 <a id="scene-params-ubo"></a>
-## The scene-params UBO (descriptor set 3)
+## The scene-params UBO (descriptor set 4)
 
-> **Diagram:** [`docs/diagrams/descriptor-sets-scene-params.excalidraw`](diagrams/descriptor-sets-scene-params.excalidraw).
+> **Diagram:** [`archive/docs/diagrams/descriptor-sets-scene-params.excalidraw`](../archive/docs/diagrams/descriptor-sets-scene-params.excalidraw)
+> (stale: predates IBL taking set 3, so it shows this UBO one set too low).
 
-Sets 0/1/2 are camera / G-buffer textures / shadow. The debug UI appends a **fourth**
-descriptor set, **set 3 binding 0**, owned by [`SceneParamsUniform`](../src/debug/SceneParamsUniform.h):
+Sets 0/1/2/3 are camera+lights / G-buffer textures / shadow / IBL. The debug UI appends a **fifth**
+descriptor set, **set 4 binding 0** (`SET_SCENE_PARAMS`, `BIND_SCENE_PARAMS`), owned by [`SceneParamsUniform`](../src/debug/SceneParamsUniform.h)
+(it was set 3 until IBL landed on 2026-07-03 and took that slot):
 one persistently-mapped host-visible UBO + descriptor set **per frame-in-flight**, bound to
 the lighting pipeline. Each frame `Renderer::drawFrame` repacks the live `DebugParams` into
 it right after the camera UBO write.
@@ -180,12 +199,12 @@ it right after the camera UBO write.
 **std140, all-vec4 packing (MoltenVK-safe).** Every member is a `vec4`, with scalars packed
 into lanes, so each field is 16-byte aligned. This sidesteps std140's `vec3` padding rules
 entirely — the portability-subset-safe layout on MoltenVK, where mis-sized structs mis-map.
-A `static_assert(sizeof(SceneParamsUBO) == 10 * 16)` pins the layout at **160 bytes**:
+A `static_assert(sizeof(SceneParamsUBO) == 11 * 16)` pins the layout at **176 bytes**:
 
-$$\underbrace{4\times\text{vec4}}_{\text{sky horizon/zenith} \times \text{overcast/clear}}\;+\;\underbrace{\text{sunDisc}}_{(e_{\min},e_{\max},s_{\min},s_{\max})}\;+\;\text{fogColor}\;+\;\underbrace{\text{fogParams}}_{(d_{63},\,\text{max},\,\text{glossExp})}\;+\;\underbrace{\text{shadowParams}}_{(\text{bias},\text{floor})}\;+\;\underbrace{\text{wetParams}}_{(\text{poros},\text{rough})}\;+\;\underbrace{\text{iblParams}}_{(\text{diff},\text{spec})}=160\,\text{B}$$
+$$\underbrace{4\times\text{vec4}}_{\text{sky horizon/zenith} \times \text{overcast/clear}}\;+\;\underbrace{\text{sunDisc}}_{(e_{\min},e_{\max},s_{\min},s_{\max})}\;+\;\text{fogColor}\;+\;\underbrace{\text{fogParams}}_{(d_{63},\,\text{max},\,\text{glossExp},\,\text{hazeDist})}\;+\;\underbrace{\text{shadowParams}}_{(\text{bias},\text{floor},\text{lightSize})}\;+\;\underbrace{\text{wetParams}}_{(\text{poros},\text{rough},\text{puddle})}\;+\;\underbrace{\text{iblParams}}_{(\text{diff},\text{spec})}\;+\;\underbrace{\text{paintParams}}_{(\text{clearcoat rough},\text{flake rough})}=176\,\text{B}$$
 
-> The `iblParams` row was the 10th, appended when split-sum IBL landed (the CHANGELOG's
-> earlier `9×16` figure predates it); the current assert is `10×16`.
+> Row history: `iblParams` was the 10th row (split-sum IBL); `paintParams` is the 11th (clearcoat + flake
+> lobe roughness). The CHANGELOG's earlier `9×16` and `10×16` figures predate them.
 
 **CameraUBO tail-append convention.** Rather than a new set, CSM data rides on the existing
 camera UBO by appending after its vertex-shader prefix. `CameraUBO`
@@ -224,9 +243,12 @@ on-disk preset row.
 **File:** [src/debug/DebugParamsIO.cpp](../src/debug/DebugParamsIO.cpp)
 
 A hand-tuned look survives a quit via named presets on disk. Type a name, hit **Save** to
-write `CONFIG_DIR/presets/<name>.toml`, **Load** to restore it, or pick any existing preset
-from the "On disk" combo (scanned via `std::filesystem`). `CONFIG_DIR` is the compile-time
-config path, so it's cwd-independent.
+write `<presets_dir()>/<name>.toml`, **Load** to restore it, or pick any existing preset
+from the "On disk" combo (scanned via `std::filesystem`). `presets_dir()` resolves, in order:
+`$SWISH_PRESETS_DIR`, `$XDG_CONFIG_HOME/swish/presets/`, then `~/.config/swish/presets/`, so presets are
+per-user, outside `build/`, and survive `make clean`. The old location `build/config/presets/`
+(`CONFIG_DIR/presets/`) is still **read as a fallback** and listed in the combo, so pre-move presets keep
+working; new saves always go to the new directory.
 
 - The document is grouped exactly like the panel:
   `[grade] [sky] [sun] [fog] [reflection] [ssao] [ssr] [steering] [shadow] [wet] [car] [quality]`

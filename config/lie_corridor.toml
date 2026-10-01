@@ -1,0 +1,149 @@
+# ══════════════════════════════════════════════════════════════════════
+# Phase 3a — real-world Long Island Expressway corridor
+#
+# Source of truth for the OSM → netconvert → compaction → engine-asset
+# pipeline.  Baked to assets/corridor/lie_corridor.bin by:
+#
+#     python3 tools/lie_corridor.py all
+#
+# Everything here is human-authored; nothing in this file is derived.  The
+# *road* itself is not authored — it comes from the OpenStreetMap extract
+# (see [osm] below).  See docs/phase-3-osm-lie-corridor.md.
+# ══════════════════════════════════════════════════════════════════════
+
+[osm]
+# One-time Overpass extract (spec decision #3): pulled once, cached in the
+# repo, so the build has no recurring network dependency.  Bounding box is
+# (south, west, north, east) — Manhattan / Queens-Midtown Tunnel through
+# Nassau County to just past the Nassau/Suffolk line at exit 49 (NY-110).
+bbox = [40.66, -74.02, 40.83, -73.38]
+# The mainline selector.  `^I *495$` matches OSM's "I 495" ref tag.
+ref_regex = "^I *495$"
+# motorway_link ways within this many metres of the mainline are pulled too.
+# 3a does not use them; they are in the extract so 3b's ramp work needs no
+# second network pull.
+ramp_search_radius_m = 200
+overpass_url = "https://overpass-api.de/api/interpreter"
+raw_extract = "data/osm/lie_i495.osm.xml"
+
+[netconvert]
+# SUMO netconvert (spec decision #2) resolves OSM tags into lane-level
+# network geometry.  Run once, offline; its output is cached in the repo so
+# neither the build nor a player machine needs SUMO.
+#
+# --proj.plain-geo keeps the plain-XML shapes in WGS84 lon/lat, so the
+# WGS84 -> engine transform stays ours (spec §4.1, unit-tested in
+# tests/test_corridor.cpp) instead of depending on netconvert's UTM zone.
+# --geometry.remove false preserves the real centreline vertices; we want
+# the actual curvature, not a simplified graph.
+plain_prefix = "data/osm/lie_i495"
+net_output = "data/osm/lie_i495.net.xml"
+extra_args = [
+    "--geometry.remove", "false",
+    "--ramps.guess", "false",
+    "--junctions.join", "true",
+    "--no-turnarounds",
+]
+
+[corridor]
+# The six real interchanges that anchor the compaction (spec decision #4).
+# These are matched against OSM `highway=motorway_junction` node `ref` tags
+# ON the I-495 mainline — the positions are real, not authored.
+landmark_exits = ["27", "31", "38", "46", "48", "49"]
+# The corridor ends just past this exit (Nassau/Suffolk line sits between
+# 48 and 49), plus a short run-out so the last landmark isn't at the wall.
+east_terminus_exit = "49"
+east_runout_m = 400.0
+
+# ── Compaction heuristic (spec §4.2) ─────────────────────────────────
+# Stations within `landmark_radius_m` of a landmark keep real scale; the
+# rest are compressed by a factor c along the route's own tangent.  c is
+# NOT authored — it is solved from `target_length_miles` so the total lands
+# in the 16-20 mi band (see tools/lie_corridor.py :: solve_compaction).
+target_length_miles = 18.0
+landmark_radius_m = 900.0
+# Smoothstep blend either side of the radius, so the scale factor (and
+# therefore curvature) has no step discontinuity at the window edge.
+landmark_blend_m = 250.0
+
+# ── Curvature floor ─────────────────────────────────────────────────
+# Compaction preserves heading and scales arc length, so a compacted curve's
+# radius is R*f — compressing a real curve makes it TIGHTER by 1/f.  Without
+# a floor the heuristic invents corners the real road does not have: measured
+# at c = 0.455, the real alignment's tightest curve is 99 m (the tunnel
+# portal ramp, genuinely that tight) and only 1.05 km of 50 km is under
+# 500 m, but uniform compression gave a 46 m minimum and 6.05 km under 500 m.
+#
+# So no station is compressed below f = R_floor / R.  Real curves already
+# tighter than the floor are simply left at real scale (f = 1), so the
+# corridor's tightest curve stays the real 99 m tunnel ramp.
+#
+# 500 m was picked by sweeping the floor against the real curvature
+# distribution at the 18 mi target (mileage with radius under 400 m / 500 m,
+# real = 0.83 / 1.05 km of 50.2 km):
+#
+#     floor 300 m -> c 0.416, 10.30 / 12.66 km   (invents corners everywhere)
+#     floor 400 m -> c 0.328,  0.91 / 11.38 km   (fixes <400 m, not <500 m)
+#     floor 500 m -> c 0.185,  0.83 /  1.20 km   (matches the real road)
+#     floor 600 m -> c 0.000                     (infeasible at 18 mi)
+#
+# The cost is a smaller c, i.e. the straightaways compress harder — which is
+# the right place to spend it.  A compressed straight still looks like a
+# straight; a compressed curve looks like a different road.
+curvature_floor_radius_m = 500.0
+# Curvature is measured over +/- this baseline, not station to station: OSM
+# centreline vertices are not smooth and a one-station difference reads
+# digitising noise as curvature.
+curvature_baseline_m = 50.0
+# Dilate the floor by +/- this so a curve's apex keeps its protection.
+curvature_smooth_m = 100.0
+
+# ── Where the drive starts ──────────────────────────────────────────
+# Station 0 is the tunnel's Manhattan portal, whose approach is a real
+# ~100 m-radius loop ramp — a bad first frame and a bad standing start. Begin
+# at the first station past `min_start_m` whose radius clears
+# `start_min_radius_m`, so the start pose is derived, not hand-placed.
+min_start_m = 250.0
+start_min_radius_m = 600.0
+
+# ── Sampling / tiling ────────────────────────────────────────────────
+station_spacing_m = 10.0   # alignment sample spacing (compacted frame)
+segment_length_m = 1200.0  # one GPU vertex buffer + one render offset
+# One draw call per cross-section band per tile.  300 m for the same reason
+# the retired canonical chunk was 300 m: surface UVs restart at every tile
+# (they must, or arc-length UVs at the corridor's far end quantise to a whole
+# texture repeat in float32), and 300 m = 25 x LCM(3000, 4000, 1500, 1000 WU)
+# is a multiple of every surface tile size, so the restart is seamless.
+# segment_length_m must be an exact multiple of this, and this of
+# station_spacing_m.
+tile_length_m = 300.0
+lane_taper_m = 200.0       # lane-count change tapers over this distance
+
+# ── Cross-section (real Interstate dimensions, feet) ─────────────────
+# Lateral offsets are measured from the alignment centreline, which runs
+# down the middle of the median.  Positive = right of travel = eastbound.
+lane_width_ft = 12.0
+median_half_width_ft = 1.25   # centreline -> inner shoulder (barrier half)
+inner_shoulder_ft = 4.0
+outer_shoulder_ft = 10.0
+barrier_width_ft = 2.5
+barrier_height_ft = 2.83
+grass_extent_ft = 120.0
+edge_line_ft = 0.5
+dash_length_ft = 10.0
+dash_gap_ft = 30.0
+
+# Flat road surface height in world units.  This stretch of the LIE has no
+# meaningful grade (spec §2) and 3a builds it dead flat, so the physics
+# surface query and the mesh agree exactly.  Crown is a later polish item.
+road_y_wu = 6.0
+grass_y_wu = 0.0
+marking_lift_wu = 5.0
+
+# Turn-around pads (spec decision #7): at each end the median barrier is
+# omitted and asphalt is laid across it, so the player can U-turn onto the
+# opposite carriageway.  The corridor is finite; there is no other exit.
+turnaround_length_m = 220.0
+
+[output]
+asset = "assets/corridor/lie_corridor.bin"

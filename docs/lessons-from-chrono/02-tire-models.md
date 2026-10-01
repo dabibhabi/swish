@@ -15,7 +15,7 @@ status: complete
 > M_z$" — and exactly which pieces belong behind swish's tire seam at
 > [`CarPhysics.h:101-102`](../../src/scene/Entity/CarPhysics.h).
 > Slip basics are already derived for swish in
-> [wheels research 01 §4](../wheels/research/01-physics-theory.md); this file assumes them and
+> [wheels research 01 §4](../../archive/docs/wheels/research/01-physics-theory.md); this file assumes them and
 > goes into what that doc calls out of scope: the *industrial* models and their numerics.
 
 ## 1. Slip, and the division by zero at its heart
@@ -43,7 +43,7 @@ blend below 5 m/s in `CarEntity.cpp:102-113`.
 **The code** — TMeasy's version. Note it floors the *transport velocity*, not the ratio:
 
 ```cpp
-// examples/chrono/src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.cpp:153-159
+// archive/local/examples/chrono/src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.cpp:153-159
 m_states.R_eff = (2.0 * m_unloaded_radius + r_stat) * CH_1_3;
 m_states.P_len = 2.0 * std::sqrt(m_unloaded_radius * m_data.depth);
 m_states.vta = m_states.R_eff * std::abs(m_states.omega) + m_vnum;
@@ -84,7 +84,7 @@ What each rung buys, and what it demands:
 > The jump that matters perceptually is **Fiala → TMeasy**: real peak placement and load
 > sensitivity. The jump **TMeasy → Pac02** buys accuracy engineers need and players cannot feel,
 > at 3× the parameter-sourcing pain. The
-> [wheels research doc](../wheels/research/01-physics-theory.md) reached the same verdict on
+> [wheels research doc](../../archive/docs/wheels/research/01-physics-theory.md) reached the same verdict on
 > Pacejka for swish from the other direction.
 
 ## 3. TMeasy's load interpolation — a small gem of applied approximation
@@ -97,7 +97,7 @@ rules depending on what kind of quantity it's reconstructing.
 **The code:**
 
 ```cpp
-// examples/chrono/src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.h:250-257
+// archive/local/examples/chrono/src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.h:250-257
 // linear interpolation
 double InterpL(double w1, double w2) { return w1 + (w2 - w1) * (m_states.q - 1.0); }
 // quadratic interpolation
@@ -170,7 +170,7 @@ form** — solve the BDF1/trapezoidal update equation for $z_{n+1}$ by hand sinc
 $z_{n+1}$:
 
 ```cpp
-// examples/chrono/src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.cpp:310-315
+// archive/local/examples/chrono/src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.cpp:310-315
 if (m_use_bdf1) {
     // Calculate the new ODE states (Backward Euler / BDF1 / Gear1)
     // implicit, A-stable
@@ -192,7 +192,7 @@ forces are combined and **projected onto the friction disc** — a 2-ball metric
 sibling of [03](03-contact-as-measure-theory.md)'s cone projection:
 
 ```cpp
-// examples/chrono/src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.cpp:328-332
+// archive/local/examples/chrono/src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.cpp:328-332
 // combine forces (friction circle)
 if (F.Length() > fz * muscale) {
     F.Normalize();
@@ -238,7 +238,7 @@ $$
 silently:
 
 ```cpp
-// examples/chrono/src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.cpp:345-348
+// archive/local/examples/chrono/src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.cpp:345-348
 double df0loc = 0.0;
 if (sm > 0.0) {
     df0loc = std::max(2.0 * fm / sm, df0);

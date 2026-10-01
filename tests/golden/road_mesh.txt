@@ -1,0 +1,32 @@
+# RoadScene golden-mesh summary (tests/test_golden_mesh.cpp)
+# Regenerate: SWISH_UPDATE_GOLDENS=1 build/tests/swish_tests "[golden]"
+chunk4000.bounds_x100 -2456320 2548760 -27480 426720 -1571729 1171729
+chunk4000.drawcall_hash ac21a82b8f1bc454
+chunk4000.drawcalls 142
+chunk4000.index_hash 6f2c9dd59886233b
+chunk4000.indices 852
+chunk4000.light_hash 14650fb0739d0383
+chunk4000.lights 0
+chunk4000.material_index_counts 0:144 1:12 2:186 3:42 4:444 5:12 6:12 
+chunk4000.vertex_hash ed4ad28fe1aea95d
+chunk4000.vertices 568
+generate.bounds_x100 -200400 5870680 -27480 1518060 -50005488 11480002
+generate.drawcall_hash 837093b8bd3fa2b6
+generate.drawcalls 7691
+generate.index_hash 4cb09abe11496168
+generate.indices 46146
+generate.light_hash 575de07acbda5b6e
+generate.lights 6
+generate.material_index_counts 0:216 1:30 2:1614 3:4314 4:38196 5:12 6:12 7:1704 8:6 9:6 10:6 11:6 12:6 13:6 14:6 15:6 
+generate.vertex_hash 7db0f2819fcff629
+generate.vertices 30764
+interchange.bounds_x100 -2181600 2274040 0 701040 -670560 12801845
+interchange.drawcall_hash 75e42cc7525420d5
+interchange.drawcalls 60
+interchange.index_hash eb6f7d9a5ddd09c3
+interchange.indices 360
+interchange.light_hash 14650fb0739d0383
+interchange.lights 0
+interchange.material_index_counts 0:252 2:108 
+interchange.vertex_hash e8326712765996f
+interchange.vertices 240

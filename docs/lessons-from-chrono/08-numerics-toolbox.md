@@ -69,7 +69,7 @@ $$
 increasing, **tabulate the forward map and read the table backwards**:
 
 ```cpp
-// examples/chrono/src/chrono_vehicle/wheeled_vehicle/ChTire.cpp:368-378 (ConstructAreaDepthTable)
+// archive/local/examples/chrono/src/chrono_vehicle/wheeled_vehicle/ChTire.cpp:368-378 (ConstructAreaDepthTable)
 double alpha = 2 * std::acos(1 - depth / r);
 double area  = 0.5 * r * r * (alpha - std::sin(alpha));
 area2depth.AddPoint(area, depth);      // note the argument order: x = area, y = depth
@@ -131,7 +131,7 @@ h\lambda)$ — stable for **every** $h$ (A-stable): stiff modes are *damped*, no
 the step is chosen by accuracy on the modes you care about. The trapezoidal rule is also
 A-stable, second-order, but damps stiff modes only marginally ($|R(\infty)| = 1$) — which is
 exactly why vehicle work prefers HHT (tunable damping $\alpha$) over trapezoidal, per the
-[existing guide](../../examples/chrono/VEHICLE_DYNAMICS_GUIDE.md#core-dynamics-solver).
+[existing guide](../../archive/local/examples/chrono/VEHICLE_DYNAMICS_GUIDE.md#core-dynamics-solver).
 
 **Trick 1 — implicit made explicit-cost.** When the stiff ODE is *linear in the new state*,
 backward Euler's implicit equation solves in closed form — the Dahl bristle
@@ -149,7 +149,7 @@ translation of the same decision:
 | :-------------- | :----- | :------------------------------- |
 | longitudinal + bicycle | no (smooth forces, clamps) | semi-implicit Euler at render dt — current, correct |
 | wheel spin | no (kinematic) | exact update — current |
-| Phase B suspension ($f_n$ up to slider max) | **yes, by slider** | semi-implicit Euler at **fixed** $h = 1/240$ s: stable iff $h < \tfrac{2}{\omega_n}\big(\sqrt{1+\zeta^2} - \zeta\big)$ — the planned design, bound already derived in [wheels 03 §2.3](../wheels/research/03-implementation-plan.md) |
+| Phase B suspension ($f_n$ up to slider max) | **yes, by slider** | semi-implicit Euler at **fixed** $h = 1/240$ s: stable iff $h < \tfrac{2}{\omega_n}\big(\sqrt{1+\zeta^2} - \zeta\big)$ — the planned design, bound already derived in [wheels 03 §2.3](../../archive/docs/wheels/research/03-implementation-plan.md) |
 | Dahl-style bristle (if Phase C ever wants stiction) | yes | closed-form BDF1 per Trick 1 — free stability |
 
 The suspension row is the two-clock pattern from [01 §4](01-architecture.md): fixed substep

@@ -1,4 +1,25 @@
+---
+verified: 2026-09-29
+against: c843ebe + uncommitted refactor   # git rev-parse --short HEAD; file references updated for the RoadScene split
+owner: docs-scribe
+covers: [src/scene/Treadmill/**, src/scene/RoadScene/**, src/scene/RoadGeometry/**]
+---
+
 # Endless LIE — streaming corridor, service roads, drivable interchanges
+
+> **RETIRED as the active road (2026-08-23).** Phase 3a replaced this entire architecture with a
+> finite, real-world corridor derived from OpenStreetMap: the actual I-495 centreline, compacted from
+> 31.2 real miles to 17.994 — see [phase-3-osm-lie-corridor.md](phase-3-osm-lie-corridor.md) §8.
+> Nothing here drives any draws now; `App` builds the corridor via `build_corridor_segments` (`src/scene/Corridor/CorridorScene.h`) instead of `generate()` /
+> `generate_chunk` / `generate_interchange_scene`, and `CorridorDriver` replaced `Treadmill`.
+>
+> This document is kept because it is still the reference for **why** the retired design worked, and
+> three of its lessons carried straight into the replacement: seamless tile joins need a tile length
+> that is a multiple of every texture tile size (the corridor's 300 m tile is 300 m for exactly this
+> reason); geometry and physics must read the *same* curve or they drift (Layer 4b); and coordinates
+> the GPU sees must be kept small. The code (`Treadmill`, `RoadScene::generate_chunk`,
+> `generate_service_roads`, `generate_interchange`) is unwired but still present and still tested —
+> deleting it is stage 3b's job, since 3b replaces the interchange geometry.
 
 The goal the user set: make the drive **feel like 20–30 miles of believable Long Island Expressway**
 without authoring 30 miles of geometry, and without float32 precision falling apart at the far end.
@@ -22,13 +43,17 @@ junction UX, haze/far-plane tuning) is the one remaining piece.
 |---|---|
 | Treadmill state, rebase, chunk/interchange windows, ribbon-follower | [src/scene/Treadmill/Treadmill.h](../src/scene/Treadmill/Treadmill.h) · [.cpp](../src/scene/Treadmill/Treadmill.cpp) |
 | Shared road constants + drivable surface queries | [src/scene/RoadGeometry/RoadGeometry.h](../src/scene/RoadGeometry/RoadGeometry.h) |
-| Chunk / service-road / crossover / interchange mesh generation | [src/scene/RoadScene/RoadScene.cpp](../src/scene/RoadScene/RoadScene.cpp) |
-| Per-draw cull filter | [src/renderer/SceneGeometry/SceneGeometry.cpp](../src/renderer/SceneGeometry/SceneGeometry.cpp) |
-| Scene setup + per-frame `Treadmill::update` | [src/core/App/App.cpp](../src/core/App/App.cpp) |
+| `generate_chunk` + the ordered `chunk_elements()` table | [src/scene/RoadScene/RoadScene.cpp](../src/scene/RoadScene/RoadScene.cpp) |
+| Service roads, crossover, interchange, exit ramp generators | [src/scene/RoadScene/RoadScene_Ramps.cpp](../src/scene/RoadScene/RoadScene_Ramps.cpp) |
+| Surface / furniture generators the chunk reuses | [RoadScene_Surfaces.cpp](../src/scene/RoadScene/RoadScene_Surfaces.cpp), [RoadScene_Furniture.cpp](../src/scene/RoadScene/RoadScene_Furniture.cpp); quads/ribbons in [MeshBuilder.cpp](../src/scene/RoadScene/MeshBuilder.cpp) |
+| Shared cross-section constants (`kLie`, `kService`, `kExit`, `snap_dash_to_chunk`) | [src/scene/RoadScene/RoadParams.h](../src/scene/RoadScene/RoadParams.h) |
+| Per-draw cull filter | [src/renderer/SceneGeometry/SceneGeometry.cpp](../src/renderer/SceneGeometry/SceneGeometry.cpp); plane/sphere math in [src/utils/geometry/Frustum.h](../src/utils/geometry/Frustum.h) |
+| Scene setup (`AppInit.cpp`) + per-frame update (`App.cpp`; today only `m_corridor.update` runs, `m_treadmill` is unused) | [src/core/App/AppInit.cpp](../src/core/App/AppInit.cpp), [src/core/App/App.cpp](../src/core/App/App.cpp) |
 
 ## Tuning constants
 
-All in `RoadGeometry` (world units — recall **1 scene-metre = 1000 WU**):
+All in `RoadGeometry` (world units — recall **1 scene-metre = 1000 WU**, `util::units::kWuPerMetre`). The five
+never-used `get_*` accessors for these were deleted on 2026-09-29; read the `static constexpr` members directly:
 
 | Constant | Value | Meaning |
 |---|---|---|
@@ -142,11 +167,16 @@ the frontage road.
 
 ## What's deferred
 
-- **Layer 5 polish** — exit signage, network lights, junction UX, haze/far-plane tuning.
+- **Layer 5 polish** — endless at-grade exits (intro EB→N Marginal is polished separately),
+  network lights, junction UX, haze/far-plane tuning.
 - One-way service road (today you can re-enter against the flow).
 - Deck and ramp lane markings; embankment fill under the ramps.
 - Full `(ribbonId, s, t)` tracking as the general position representation.
 - Attach/junction UX is functional but basic.
+
+**Intro exit (2026-08-21):** the authored intro diverge has chevron gore, EXIT ONLY gantry locked
+to the ramp Z, W-beam on the ramp/marginal, marginal trees, and `drivable_bounds` opens onto
+N Marginal past the decel station. Endless chunks still have **no** flat mainline→frontage exit.
 
 ## See also
 

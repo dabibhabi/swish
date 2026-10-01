@@ -1,24 +1,50 @@
 #include "GlassPass.h"
 
-#include "../../scene/SceneTypes.h"
-#include "../../utils/VulkanCheck.h"
-#include "../../utils/VulkanInit.h"
-#include "../Pipeline/Pipeline.h"
-#include "../Renderer/RendererServices.h"
-#include "../ResourceManager/ResourceManager.h"
-#include "../Vertex.h"
+#include "renderer/CameraUniforms/CameraUniforms.h"
+#include "renderer/GeometryProducer/GeometryProducer.h"
+#include "renderer/Passes/ForwardPass.h"
+#include "renderer/Pipeline/Pipeline.h"
+#include "renderer/Renderer/RendererServices.h"
+#include "renderer/RendererConfig.h"
+#include "renderer/ResourceManager/ResourceManager.h"
+#include "renderer/Vertex.h"
+#include "scene/SceneTypes.h"
+#include "utils/vulkan/Check.h"
+#include "utils/vulkan/Init.h"
+
+#include <memory>
 
 namespace swish {
 
-void GlassPass::init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                     const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
-                     VkDescriptorSetLayout cameraSetLayout) {
+void GlassPass::init(const PassInitCtx& ctx) {
+    create(ctx.services, ctx.images.views(Img::Hdr), ctx.images.views(Img::HdrDepth), ctx.renderExtent,
+           ctx.cameraSetLayout);
+}
+
+void GlassPass::onResize(const PassInitCtx& ctx) {
+    recreate(ctx.images.views(Img::Hdr), ctx.images.views(Img::HdrDepth), ctx.renderExtent, ctx.services.device);
+}
+
+void GlassPass::record(const FrameCtx& c) {
+    const GeometryProducer& geo = *c.res.geometry;
+    const SceneGeometry&    car = geo.dynamic();
+    if (geo.glass_draws().empty() || !car.has_geometry())
+        return;
+
+    VkDescriptorSet camSet = c.res.cameraUniforms->get_set(c.frameIndex);
+    vkCmdBindDescriptorSets(c.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeLayout, 0, 1, &camSet, 0, nullptr);
+    record_draws(c.cmd, c.frameIndex, car.get_vertex_buffer(), car.get_index_buffer(), geo.glass_draws());
+}
+
+void GlassPass::create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                       const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
+                       VkDescriptorSetLayout cameraSetLayout) {
     m_extent      = extent;
-    m_depthFormat = ResourceManager::findDepthFormat(s.physicalDevice);
+    m_depthFormat = resource::findDepthFormat(s.physicalDevice);
 
     createRenderPass(s.device, m_depthFormat);
     createFramebuffers(s.device, hdrViews, depthViews);
-    createPipeline(s.device, cameraSetLayout);
+    createPipeline(s.device, s.pipelineCache, cameraSetLayout);
 }
 
 void GlassPass::record_draws(VkCommandBuffer cmd, uint32_t frameIndex, VkBuffer carVBO, VkBuffer carIBO,
@@ -27,7 +53,7 @@ void GlassPass::record_draws(VkCommandBuffer cmd, uint32_t frameIndex, VkBuffer 
         return;
 
     VkClearValue clearVals[2]{};
-    auto         beginInfo      = vk::makeRenderPassBeginInfo();
+    auto         beginInfo      = vkx::makeRenderPassBeginInfo();
     beginInfo.renderPass        = m_renderPass;
     beginInfo.framebuffer       = m_framebuffers[frameIndex];
     beginInfo.renderArea.extent = m_extent;
@@ -86,57 +112,8 @@ void GlassPass::cleanup(VkDevice device) {
 // ── Private helpers ────────────────────────────────────────────────────
 
 void GlassPass::createRenderPass(VkDevice device, VkFormat depthFormat) {
-    // Same structure as RainSystem: LOAD both attachments, depth read-only.
-    VkAttachmentDescription colorAtt{};
-    colorAtt.format         = VK_FORMAT_R16G16B16A16_SFLOAT;
-    colorAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
-    colorAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-    colorAtt.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAtt.initialLayout  = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAtt.finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentDescription depthAtt{};
-    depthAtt.format         = depthFormat;
-    depthAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
-    depthAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-    depthAtt.storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depthAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    depthAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depthAtt.initialLayout  = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    depthAtt.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-    VkAttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-    VkAttachmentReference depthRef{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
-
-    VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount    = 1;
-    subpass.pColorAttachments       = &colorRef;
-    subpass.pDepthStencilAttachment = &depthRef;
-
-    VkSubpassDependency dep{};
-    dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
-    dep.dstSubpass    = 0;
-    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-
-    VkAttachmentDescription atts[] = {colorAtt, depthAtt};
-
-    VkRenderPassCreateInfo rpInfo{};
-    rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    rpInfo.attachmentCount = 2;
-    rpInfo.pAttachments    = atts;
-    rpInfo.subpassCount    = 1;
-    rpInfo.pSubpasses      = &subpass;
-    rpInfo.dependencyCount = 1;
-    rpInfo.pDependencies   = &dep;
-
-    VK_CHECK(vkCreateRenderPass(device, &rpInfo, nullptr, &m_renderPass));
+    // Same structure as RainSystem: LOAD both attachments, depth read-only; see ForwardPass.h.
+    m_renderPass = make_forward_hdr_pass(device, depthFormat);
 }
 
 void GlassPass::createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
@@ -165,14 +142,14 @@ void GlassPass::destroyFramebuffers(VkDevice device) {
     }
 }
 
-void GlassPass::createPipeline(VkDevice device, VkDescriptorSetLayout cameraSetLayout) {
+void GlassPass::createPipeline(VkDevice device, VkPipelineCache cache, VkDescriptorSetLayout cameraSetLayout) {
     // Layout: set 0 = camera UBO, push constants = model + color (PushConstantData).
     VkPushConstantRange pcRange{};
     pcRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pcRange.offset     = 0;
     pcRange.size       = kPushConstantModelColorSize;  // glass shaders use model+color only
 
-    m_pipeLayout = Pipeline::createLayout(device, {cameraSetLayout}, {pcRange});
+    m_pipeLayout = pipeline::create_layout(device, {cameraSetLayout}, {pcRange});
 
     auto binding = Vertex::getBindingDescription();
     auto attrs   = Vertex::getAttributeDescriptions();
@@ -188,7 +165,11 @@ void GlassPass::createPipeline(VkDevice device, VkDescriptorSetLayout cameraSetL
     cfg.enableBlending   = true;   // SRC_ALPHA / ONE_MINUS_SRC_ALPHA
     cfg.pipelineLayout   = m_pipeLayout;
 
-    m_pipeline = Pipeline::create(device, cfg, m_renderPass, m_extent);
+    m_pipeline = pipeline::create_graphics(device, cache, cfg, m_renderPass, m_extent);
+}
+
+std::unique_ptr<IRenderPass> make_glass_pass() {
+    return std::make_unique<GlassPass>();
 }
 
 }  // namespace swish

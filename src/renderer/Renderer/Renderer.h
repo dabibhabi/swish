@@ -1,16 +1,16 @@
 #pragma once
 // scene headers
-#include "../../scene/SceneTypes.h"
-#include "../DeferredLightingPipeline/DeferredLightingPipeline.h"
-#include "../DepthOnlyPipeline/DepthOnlyPipeline.h"
-#include "../SceneGeometry/SceneGeometry.h"
-#include "../ScenePipeline/ScenePipeline.h"
 #include "RendererServices.h"
-
-#include "../../debug/DebugParams.h"
+#include "debug/DebugParams.h"
+#include "renderer/GeometryProducer/GeometryProducer.h"
+#include "renderer/Passes/ImageRegistry.h"
+#include "renderer/Passes/PassRegistry.h"
+#include "renderer/WeatherController/WeatherController.h"
+#include "scene/SceneTypes.h"
+#include "scene/WeatherPreset.h"
 #ifdef SWISH_DEBUG_UI
-#include "../../debug/DebugUI.h"
-#include "../../debug/SceneParamsUniform.h"
+#include "debug/DebugUI.h"
+#include "debug/SceneParamsUniform.h"
 #endif
 // vulkan headers
 #include <vulkan/vulkan.h>
@@ -32,33 +32,27 @@ class CommandManager;
 class SyncObjects;
 class Camera;
 class TextureManager;
-class SceneManager;
-class ModelManager;
 class PostProcessManager;
 class CameraUniforms;
 class MaterialDescriptors;
-class RainSystem;
-class SpraySystem;
-class GlassPass;
-class WindshieldRainPass;
 class IBLManager;
-class TaaPass;
-class DofPass;
 
-// The Renderer orchestrates the Vulkan draw loop and acts as a
-// central registry for managers (rind-style architecture).
+// The Renderer owns the Vulkan core and the shared subsystems, and drives the frame through the pass registry
+// (renderer/Passes/: the explicit ordered pass list in PassList.def is the command-buffer recording order).
 //
 // Architecture:
 //   App
 //    ├── Window
-//    ├── Renderer (Vulkan core + manager registry)
+//    ├── Renderer (Vulkan core + subsystem owner + frame driver)
 //    │    ├── VulkanContext, Device, Swapchain, CommandManager, SyncObjects
 //    │    ├── CameraUniforms              (set 0 — camera + lights UBOs)
 //    │    ├── MaterialDescriptors         (set 1 — PBR textures)
-//    │    ├── PostProcessManager          (G-buffer + HDR + bloom + composite)
-//    │    ├── ScenePipeline               (deferred G-buffer pipeline)
-//    │    ├── DeferredLightingPipeline    (lighting pipeline + layout)
-//    │    ├── SceneGeometry               (vertex/index buffers, draw calls)
+//    │    ├── PostProcessManager          (offscreen images, render passes, fullscreen pipelines, descriptor sets)
+//    │    ├── IBLManager                  (set 3) + WeatherController (sun/clarity/HDRI look, IBL rebake)
+//    │    ├── GeometryProducer            (scene geometry; shadow atlas + G-buffer; the registry's first entry)
+//    │    ├── PassRegistry                (Lighting, SSAO, SSR, god-rays, DoF, spray, rain, glass, windshield,
+//    │    │                                TAA, HdrFinalize, bloom, composite, overlay: see PassList.def)
+//    │    ├── ImageRegistry + FrameState  (named images and published CPU values the passes exchange)
 //    │    └── Camera*                     (set by scene)
 //    ├── TextureManager (owns all textures, ctor takes RendererServices)
 //    ├── SceneManager   (owns scenes, handles switching)
@@ -69,20 +63,14 @@ public:
     Renderer();
     ~Renderer();
 
-    
     void init(Window& window);
     void cleanup();
     void drawFrame(float deltaTime);
 
-    
     void register_texture_manager(TextureManager* mgr);
-    void register_scene_manager(SceneManager* mgr);
-    void register_model_manager(ModelManager* mgr);
-    
+
     TextureManager* get_texture_manager() const;
-    SceneManager*   get_scene_manager() const;
-    ModelManager*   get_model_manager() const;
-    
+
     RendererServices services() const;
 
     void upload_scene_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws);
@@ -94,44 +82,69 @@ public:
     void upload_interchange_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws);
     void set_interchanges(const std::vector<float>& slotOffsetsZ);
 
-    
+    // ── Real LIE corridor (Phase 3a) ──────────────────────────────────
+    // Unlike the retired treadmill's ONE canonical chunk instanced at many
+    // offsets, the corridor is a real road: every segment is a distinct mesh.
+    // Each gets its own vertex/index buffer and its own per-frame render
+    // offset (CorridorInstance), which is what keeps segment-local vertex
+    // coordinates inside float32's precise range on an 18 mi road. Culling,
+    // materials and the camera-relative rebase are unchanged — they come free
+    // from SceneGeometry::record_draws.
+    void add_corridor_segment(const MeshData& mesh, const std::vector<DrawCall>& draws);
+    void set_corridor_instances(const std::vector<CorridorInstance>& instances);
+
     void upload_dynamic_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws);
     void update_dynamic_draw_calls(const std::vector<DrawCall>& draws);
     void destroy_dynamic_geometry();
 
     void rebuild_material_descriptors();
-    
+
     void    set_camera(Camera* camera);
     Camera* get_camera() const;
-    
+
     void set_scene_lights(const std::vector<LightDesc>& lights);
-    
-    void set_rain_intensity(float intensity);  
-    void set_car_velocity(Vec3 velocity);      
-    void set_car_position(Vec3 position);      
-    void set_wiper_enabled(bool enabled);      
-    
+
+    void set_rain_intensity(float intensity);
+    // RainSystem's INTEGRATED wetness [0,1] (asymmetric wet/dry ramp — NOT
+    // raw rain intensity). 0 if the rain system hasn't been created yet.
+    // Wired to CarEntity::set_wetness() so the wet-grip physics model
+    // (CarPhysics.h::effective_mu) uses the same wetness the renderer's
+    // wet-road/puddle shading uses.
+    float get_wetness() const;
+    void  set_car_velocity(Vec3 velocity);
+    void  set_car_position(Vec3 position);
+    void  set_wiper_enabled(bool enabled);
+
     void set_clear_day(bool clear);
+
+    // HDRI + sun/clarity look for driving weather. Rebakes IBL from assets/Sky/.
+    void          set_weather_preset(WeatherPreset preset);
+    WeatherPreset weather_preset() const { return m_weather.preset(); }
 
 #ifdef SWISH_DEBUG_UI
 
     void debug_init();
     void set_debug_edit_mode(bool edit);
-    
+
     DebugParams& debug_params() { return m_debugParams; }
 #endif
 
-    
-    
     void update_glass_draw_calls(const std::vector<DrawCall>& glassDCs);
     void update_windshield_draw_calls(const std::vector<DrawCall>& windshieldDCs);
+
+#ifdef SWISH_DEBUG_UI
+    // Per-object velocity buffer (todo.md): CarEntity::get_prev_draw_models(), paired
+    // index-for-index with the dynamic geometry's current draw calls by VelocityPass.
+    void update_dynamic_prev_draw_models(const std::vector<Mat4>& prevModels) {
+        m_geometry.set_dynamic_prev_models(prevModels);
+    }
+#endif
 
     void wait_for_idle();
 
 private:
-
     bool has_post_process() const { return m_postProcess != nullptr; }
-        
+
     std::unique_ptr<VulkanContext>  m_context;
     std::unique_ptr<Device>         m_device;
     std::unique_ptr<Swapchain>      m_swapchain;
@@ -141,105 +154,55 @@ private:
     std::unique_ptr<PostProcessManager>  m_postProcess;
     std::unique_ptr<CameraUniforms>      m_cameraUniforms;
     std::unique_ptr<MaterialDescriptors> m_materialDescriptors;
-    std::unique_ptr<RainSystem>          m_rainSystem;
-    std::unique_ptr<SpraySystem>         m_spraySystem;  
-    std::unique_ptr<GlassPass>           m_glassPass;
-    std::unique_ptr<WindshieldRainPass>  m_windshieldRainPass;
-    std::unique_ptr<IBLManager>          m_ibl;  
+    std::unique_ptr<IBLManager>          m_ibl;
 
-    
+    // Render-pass registry (renderer/Passes/): the explicit ordered list of frame passes (PassList.def), the named
+    // images they exchange, the CPU values they publish for each other, and the subsystem pointers they may read.
+    PassRegistry  m_passes;
+    ImageRegistry m_images;
+    FrameState    m_frameState;
+    PassResources m_passRes;
+
     TextureManager* m_textureManager = nullptr;
-    SceneManager*   m_sceneManager   = nullptr;
-    ModelManager*   m_modelManager   = nullptr;
 
-    ScenePipeline            m_scenePipeline;
-    DeferredLightingPipeline m_deferredLighting;
-    DepthOnlyPipeline        m_depthOnlyPipeline;  
-    
-    SceneGeometry m_sceneGeometry;
-    SceneGeometry m_dynamicGeometry;
+    // Owns the scene geometry and draws it into the shadow atlas + G-buffer (R4); see GeometryProducer.h.
+    GeometryProducer m_geometry;
 
-    SceneGeometry      m_chunkGeometry;
-    float              m_introOffsetZ = 0.0f;
-    std::vector<float> m_chunkSlotOffsetsZ;
-
-    
-    SceneGeometry      m_interchangeGeometry;
-    std::vector<float> m_interchangeSlotOffsetsZ;
-
-    
     std::unique_ptr<Camera> m_camera;
 
-    
     float m_rainIntensity = 0.0f;
-    Vec3  m_rainWind      = Vec3(4500.0f, 0.0f, 1200.0f);  
-    Vec3  m_carVelocity   = Vec3(0.0f, 0.0f, 0.0f);        
-    Vec3  m_carPosition   = Vec3(0.0f, 0.0f, 0.0f);        
-    bool  m_wiperEnabled  = false;                         
-    float m_windTime      = 0.0f;                          
-    bool  m_clearDay      = false;                         
+    Vec3  m_carVelocity   = Vec3(0.0f, 0.0f, 0.0f);
+    Vec3  m_carPosition   = Vec3(0.0f, 0.0f, 0.0f);
+    bool  m_wiperEnabled  = false;
 
-    Vec3 m_sunDir = glm::normalize(Vec3(0.3f, 0.6f, 0.15f));
-    
-    std::array<Mat4, NUM_CASCADES> m_cascadeVP{};
-    Vec3                           m_cascadeSplits{0.0f};
-
-    float m_clarity       = 0.0f;
-    Vec3  m_sunColor      = Vec3(1.0f, 0.95f, 0.85f);
-    Vec3  m_bakedSunDir   = Vec3(1e9f);  
-    float m_bakedClarity  = -1.0f;
-    Vec3  m_bakedSunColor = Vec3(-1.0f);
+    // Sun / clarity / HDRI look + IBL rebake (R5). Bound to m_cameraUniforms / m_ibl / m_debugParams.
+    WeatherController m_weather;
 
 #ifdef SWISH_DEBUG_UI
-    
+
     DebugUI     m_debugUI;
     DebugParams m_debugParams;
-        
+
     SceneParamsUniform m_sceneParams;
-    
-    float m_aeAdaptedLum = 0.5f;
-    float m_aeExposure   = 0.45f;
 
-    std::unique_ptr<TaaPass> m_taa;
-    Mat4                     m_prevViewProjUnjit = Mat4(1.0f);
-    uint32_t                 m_taaFrameCounter   = 0;
-
-    
-    
-    std::unique_ptr<DofPass> m_dof;
 #endif
-    
-    std::vector<DrawCall> m_glassDrawCalls;
-    std::vector<DrawCall> m_windshieldDrawCalls;
+
+#ifndef SWISH_DEBUG_UI
+    const DebugParams m_defaultTune{};  // release: the shipped look (DebugParams defaults), read through tune()
+#endif
 
     uint32_t m_currentFrame = 0;
-    Window* m_window = nullptr;
+    Window*  m_window       = nullptr;
 
     void recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex);
-    void recordShadowPass(VkCommandBuffer cmd, uint32_t frameIndex);  
-    void computeCascades();
-    void recordGBufferPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExtent2D extent);
-    void transitionGBufferForLighting(VkCommandBuffer cmd, uint32_t frameIndex);
-    void recordLightingPass(VkCommandBuffer cmd, uint32_t frameIndex, VkExtent2D extent);
-    void recordRainPass(VkCommandBuffer cmd, uint32_t frameIndex);
-    void recordSprayPass(VkCommandBuffer cmd, uint32_t frameIndex);
-    void recordGlassPass(VkCommandBuffer cmd, uint32_t frameIndex);
-    void recordWindshieldRainPass(VkCommandBuffer cmd, uint32_t frameIndex);
-    void recordBloomExtract(VkCommandBuffer cmd, VkExtent2D extent);
-    void recordBloomBlur(VkCommandBuffer cmd, VkExtent2D extent, bool horizontal);
-    void recordGodRaysPass(VkCommandBuffer cmd, uint32_t frameIndex);
-    void recordSsrPass(VkCommandBuffer cmd, uint32_t frameIndex);
-#ifdef SWISH_DEBUG_UI
-    void recordSsaoPasses(VkCommandBuffer cmd, uint32_t frameIndex);
-    void recordLuminancePyramid(VkCommandBuffer cmd, uint32_t frameIndex);
-    void updateAutoExposure(float dt);
-#endif
-    void recordCompositePass(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t imageIndex, VkExtent2D extent);
-    void maybeRebakeIBL();
     void recreateSwapchain();
+    void init_passes(bool resize);  // (re)build the PassInitCtx and init / resize every registered pass
+    // FrameCtx for one frame; `tune` is the live DebugParams in debug builds and DebugParams{} defaults in release.
+    const DebugParams& tune() const;
+    FrameUpdate        make_frame_update(float dt);
 #ifdef SWISH_DEBUG_UI
     void apply_debug_params();
 #endif
 };
 
-}  
+}  // namespace swish

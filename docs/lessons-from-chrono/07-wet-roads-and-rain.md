@@ -15,7 +15,7 @@ status: complete
 > The chapter this series exists for. It opens with a negative result, maps the four hooks
 > Chrono *does* provide (and their hard limits), then synthesizes the wet-grip model swish
 > should build — with worked code, since this is where the payoff lives. Companion to
-> [wheels research 01 §4.6](../wheels/research/01-physics-theory.md) (wet grip + hydroplaning
+> [wheels research 01 §4.6](../../archive/docs/wheels/research/01-physics-theory.md) (wet grip + hydroplaning
 > for swish) and [docs/wheels/README.md Phase C](../wheels/README.md) (the shipping plan this
 > feeds).
 
@@ -43,7 +43,7 @@ Ranked by leverage; all verified against the checkout.
 ### 2a. `ChTerrain::FrictionFunctor` — a spatial μ field
 
 ```cpp
-// examples/chrono/src/chrono_vehicle/ChTerrain.h:94-101
+// archive/local/examples/chrono/src/chrono_vehicle/ChTerrain.h:94-101
 class CH_VEHICLE_API FrictionFunctor {
   public:
     virtual ~FrictionFunctor() {}
@@ -76,7 +76,7 @@ identified at — Fiala: `U *= m_mu / m_mu_0` (`ChFialaTire.cpp:172`); Pac89/Pac
 D-terms; TMeasy:
 
 ```cpp
-// examples/chrono/src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.cpp:119-121
+// archive/local/examples/chrono/src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.cpp:119-121
 ChClampValue(mu_road, 0.1f, 1.0f);
 m_states.muscale = mu_road / m_par.mu_0;
 ```

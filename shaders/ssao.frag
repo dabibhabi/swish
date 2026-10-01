@@ -23,9 +23,7 @@ vec3 viewPosFromDepth(vec2 uv, float depth) {
 }
 
 // Pseudo-random from UV (no noise texture needed)
-float hash(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-}
+#include "hash.glsl"
 
 void main() {
     float depth = texture(depthTex, fragUV).r;

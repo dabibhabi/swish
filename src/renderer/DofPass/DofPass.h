@@ -11,8 +11,10 @@
 
 #ifdef SWISH_DEBUG_UI
 
-#include "../../utils/Types.h"
-#include "../GpuResource/GpuResource.h"
+#include "renderer/GpuResource/GpuResource.h"
+#include "renderer/Passes/IRenderPass.h"
+#include "renderer/RendererConfig.h"
+#include "utils/types/Types.h"
 
 #include <vulkan/vulkan.h>
 
@@ -31,27 +33,29 @@ struct DofParams {
     float maxCoC     = 6.0f;       // max circle-of-confusion radius (texels)
 };
 
-class DofPass {
+class DofPass final : public IRenderPass {
 public:
-    DofPass()  = default;
-    ~DofPass() = default;
+    DofPass()           = default;
+    ~DofPass() override = default;
 
-    void init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent);
-
-    // Resolve this frame: read HDR (`hdrImage`/its view) + depth, write the blurred output,
-    // copy it back into `hdrImage`. Leaves HDR in COLOR_ATTACHMENT (as the god-rays pass did)
-    // so the downstream barrier/bloom logic is unchanged. `invProj` is clip→view (matches the
-    // scene depth); records its own barriers + render pass.
-    void record(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, const DofParams& params,
-                const Mat4& invProj);
-
-    void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
-
-    void cleanup(VkDevice device);
+    const char* name() const override { return "Dof"; }
+    void        init(const PassInitCtx& ctx) override;
+    void        onResize(const PassInitCtx& ctx) override;
+    // Resolve this frame when tune.dofEnabled: read HDR + depth, write the blurred output, copy it back into HDR.
+    // Leaves HDR in COLOR_ATTACHMENT (as the god-rays pass did) so the downstream barrier/bloom logic is unchanged.
+    // invProj is clip->view from this frame's projection (matches the scene depth and the SSR convention); records
+    // its own barriers + render pass.
+    void record(const FrameCtx& ctx) override;
+    void cleanup(VkDevice device) override;
 
 private:
+    void create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent);
+    void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
+    void resolve(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, const DofParams& params,
+                 const Mat4& invProj);
+
     // Push block (matches dof.frag). 64 + 16 + 16 = 96 B (16-byte aligned).
     struct Push {
         Mat4 invProj;
@@ -67,7 +71,7 @@ private:
                            const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews);
     void writeDescriptors(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                           const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews);
-    void createPipeline(VkDevice device);
+    void createPipeline(VkDevice device, VkPipelineCache cache);
 
     VmaAllocator  m_allocator     = nullptr;
     VkDevice      m_device        = VK_NULL_HANDLE;

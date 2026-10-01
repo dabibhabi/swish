@@ -5,11 +5,12 @@
 > [wheel-articulation-asbuilt](../diagrams/wheel-articulation-asbuilt.excalidraw). Deviations from
 > this plan: per-wheel debug *gizmos* were deferred (the Road Wheels panel ships spin/steer toggles
 > + spin multiplier); reverse-spin direction is pinned by unit test rather than screenshot (aliased
-> stills can't read direction). Phases B and C remain unstarted.
+> stills can't read direction). Phase B shipped 2026-08-15 (spec archived at
+> [archive/docs/wheels/phase-b-spec.md](../../archive/docs/wheels/phase-b-spec.md)); Phase C is still open (`tasks/todo.md`).
 >
 > Original planning preamble: this synthesizes three expert research docs
-> ([physics/math](research/01-physics-theory.md) · [rendering/asset](research/02-graphics-vulkan.md) ·
-> [implementation/numerics](research/03-implementation-plan.md)) into one staged plan. All four
+> ([physics/math](../../archive/docs/wheels/research/01-physics-theory.md) · [rendering/asset](../../archive/docs/wheels/research/02-graphics-vulkan.md) ·
+> [implementation/numerics](../../archive/docs/wheels/research/03-implementation-plan.md)) into one staged plan. All four
 > gating decisions were **made by the user on 2026-07-24** (see [Decision log](#decision-log)). Per project style this
 > doc guides the maintainer to implement — concepts, contracts, and file pointers, no drop-in code.
 
@@ -28,13 +29,13 @@ CPU matrix composition plus a loader upgrade.
 | --- | --- | --- |
 | Steering-wheel articulation (the template) | [src/scene/Entity/CarEntity.cpp](../../src/scene/Entity/CarEntity.cpp) lines 165–185: `dc.model = car · F · C · R(−θ) · F⁻¹` | A road wheel is the same pivot-frame conjugation with two rotations (steer, spin) and an accumulating angle |
 | Pivot-frame extraction | [src/scene/ModelManager/ModelManager.cpp](../../src/scene/ModelManager/ModelManager.cpp) lines 192–211, 364–376 | The normalize/ground/scale-strip treatment the four wheel frames must copy |
-| Bicycle-model physics | [src/scene/Entity/CarPhysics.h](../../src/scene/Entity/CarPhysics.h) — longitudinal 31–50, lateral 75–108 | Supplies $v$ (signed, WU/s), $\delta$ (±35°, right-positive), yaw rate, and free "traction-cap saturated" signals for Phase C |
-| Per-draw model matrices in every pass | [src/renderer/SceneGeometry/SceneGeometry.cpp](../../src/renderer/SceneGeometry/SceneGeometry.cpp) 142–173 (G-buffer push), 193–206 (depth push); shadow loop [src/renderer/Renderer/Renderer.cpp](../../src/renderer/Renderer/Renderer.cpp) 724–741 | G-buffer, all 3 CSM cascades, and glass consume the same `dc.model` — spinning wheels cast spinning shadows for free |
-| Analytic road height | [src/scene/RoadGeometry/RoadGeometry.cpp](../../src/scene/RoadGeometry/RoadGeometry.cpp) 11–17; hard Y snap at [src/core/App/App.cpp](../../src/core/App/App.cpp) 339–342 | Phase B "raycast" is four O(1) evaluations of the crown formula |
-| Rain intensity plumbed to the car | [src/core/App/App.cpp](../../src/core/App/App.cpp) 33–47 → `m_rain_intensity` ([CarEntity.h](../../src/scene/Entity/CarEntity.h):81) | Phase C wet-μ input already exists |
+| Bicycle-model physics | [src/scene/Entity/CarPhysics.h](../../src/scene/Entity/CarPhysics.h) (umbrella since 2026-09-29): `Longitudinal.h` (`longitudinal_accel`), `Bicycle.h` (`dynamic_bicycle_deriv`), `Tire.h`, `CarParams.h` | Supplies $v$ (signed, WU/s), $\delta$ (±35°, right-positive), yaw rate, and free "traction-cap saturated" signals for Phase C |
+| Per-draw model matrices in every pass | [src/renderer/SceneGeometry/SceneGeometry.cpp](../../src/renderer/SceneGeometry/SceneGeometry.cpp) 142–173 (G-buffer push), 193–206 (depth push); shadow loop `GeometryProducer::record_shadow` in [src/renderer/GeometryProducer/GeometryProducer.cpp](../../src/renderer/GeometryProducer/GeometryProducer.cpp) | G-buffer, all 3 CSM cascades, and glass consume the same `dc.model` — spinning wheels cast spinning shadows for free |
+| Analytic road height | [src/scene/RoadGeometry/RoadGeometry.cpp](../../src/scene/RoadGeometry/RoadGeometry.cpp) 11–17; hard Y snap in `App::update_car` ([src/core/App/App.cpp](../../src/core/App/App.cpp), `RoadGeometry::road_surface_y`) | Phase B "raycast" is four O(1) evaluations of the crown formula |
+| Rain intensity plumbed to the car | `App::set_rain_level` in [src/core/App/App.cpp](../../src/core/App/App.cpp) → `m_rain_intensity` ([CarEntity.h](../../src/scene/Entity/CarEntity.h):81) | Phase C wet-μ input already exists |
 | The asset ([assets/Porsche/porsche.glb](../../assets/Porsche/porsche.glb)) | 1,138 wheel pieces + 506 caliper pieces under two separate parent nodes; piece translations take **exactly 4 bit-identical values** = the wheel centers; wheelbase 2.452 m matches `kWheelbase`; radii 0.345 m front / 0.362 m rear (measured center heights) match real 992 tires | The "no pivots, flattened" blocker is **solved without Blender re-export**: group by exact translation + node ancestry at load |
 
-Prior art: [plan/car_system_port.md](../../plan/car_system_port.md) (§1.4 DownPour wheel
+Prior art: [plan/car_system_port.md](../../archive/docs/notes/plan/car_system_port.md) (§1.4 DownPour wheel
 articulation, §2 asset constraint, §6 loader risks) and [docs/car_system.md](../car_system.md)
 (open questions 1–2, which this plan answers).
 
@@ -44,7 +45,7 @@ Per frame, `CarEntity` integrates per-wheel state (spin angle θ wrapped to $[0,
 suspension travel), then `get_draw_calls` builds a small per-group matrix LUT — Body, 4 wheels,
 4 calipers — and stamps each of the 1,665 submeshes by its load-time group tag. The composed
 matrix per wheel is the steering-wheel sandwich with steer left of spin (steer carries the spin
-axis with the upright — see the conjugation proof in [01 §6.2](research/01-physics-theory.md)):
+axis with the upright — see the conjugation proof in [01 §6.2](../../archive/docs/wheels/research/01-physics-theory.md)):
 
 $$
 M_w = M_{\text{car}} \cdot T(P_w) \cdot R_{\text{steer}}(\hat y, -\delta)\big|_{\text{fronts}}
@@ -109,9 +110,18 @@ judge extremes, revert any temp forces, keep `make test` green (52/52 today).
 
 ### Phase B — ride height + suspension (effort: M, 1–2 sessions; second is eye-tuning)
 
+> **Landed in two parts.** Kinematic per-corner travel shipped 2026-08-15 to
+> [`phase-b-spec.md`](../../archive/docs/wheels/phase-b-spec.md). The **Phase-1 Turbo S retarget (2026-08-23)** then replaced
+> the GT3 ride rates (decision 5 above) and added the two things this section listed as deferred
+> *orientation* work: parametric **camber/toe gain curves** as a pure function of the same
+> `CornerSpring::x_m`, and an **anti-roll bar** as a cross-corner target shift (decisions 6-7).
+> Squat/dive/roll from load transfer — which needs `a_x`/`a_y` — is still open; Phase 1 built the
+> per-axle load-transfer half of it (`axle_loads_long()`), so what remains is feeding `ΔF_z / k`
+> into the corner targets.
+
 - **Scope:** sample `road_surface_y` under the four hubs; per-corner spring targets → semi-implicit
   Euler `suspension_step` at a **fixed internal substep** $h = 1/240$ s (stability bound
-  $h < \tfrac{2}{\omega_n}(\sqrt{1+\zeta^2}-\zeta)$ — derived in [03 §2.3](research/03-implementation-plan.md));
+  $h < \tfrac{2}{\omega_n}(\sqrt{1+\zeta^2}-\zeta)$ — derived in [03 §2.3](../../archive/docs/wheels/research/03-implementation-plan.md));
   defaults near $f_n \approx 1.4$ Hz, $\zeta \approx 0.45$; visual body heave/pitch/roll + per-wheel
   vertical travel composed **only into draw matrices**; springs relax to neutral while the ribbon
   follower owns the pose. Weight-transfer dive/squat/lean is deferred per decision 3
@@ -155,17 +165,20 @@ judge extremes, revert any temp forces, keep `make test` green (52/52 today).
 
 | # | Decision | Options | Expert recommendation | Status |
 | --- | --- | --- | --- | --- |
-| 1 | Wheel pivot source | (a) Blender re-export with `wheel_FL/FR/BL/BR` groups; (b) loader-side grouping by ancestry + exact translation | **(b)** — zero asset churn, exact centers verified, load-time asserts; re-export risks five silent name/order contracts + the scale-baking trap ([plan/car_system_port.md](../../plan/car_system_port.md):438, [02 §3.1](research/02-graphics-vulkan.md)); (a) remains the escape hatch | **DECIDED (b) loader-side** — 2026-07-24 |
+| 1 | Wheel pivot source | (a) Blender re-export with `wheel_FL/FR/BL/BR` groups; (b) loader-side grouping by ancestry + exact translation | **(b)** — zero asset churn, exact centers verified, load-time asserts; re-export risks five silent name/order contracts + the scale-baking trap ([plan/car_system_port.md](../../archive/docs/notes/plan/car_system_port.md):438, [02 §3.1](../../archive/docs/wheels/research/02-graphics-vulkan.md)); (a) remains the escape hatch | **DECIDED (b) loader-side** — 2026-07-24 |
 | 2 | Ackermann steer split | Parallel steer vs inner/outer split | **Parallel** — split is ~12.5° at full lock but ~0.002° at highway speed; keep `ackermann_split` as an optional debug toggle | **DECIDED parallel steer** — 2026-07-24 |
 | 3 | Phase B scope | Crown ride-height/attitude only vs + accel/brake/cornering weight transfer (dive ≤ ~2.5–3°, roll ≈ 2°/g) | Ride-height first; weight transfer is a bounded extension on the same springs | **DECIDED ride-height first** — 2026-07-24 |
 | 4 | Phase C wet μ | Cosmetic thresholds only vs coupled into `CarParams::tireMu` (real handling change) | Needs an explicit call — the coupling seam is one per-frame params copy, but it changes gameplay | **DECIDED coupled into handling** — 2026-07-24 |
+| 5 | Turbo S ride rates (Phase-1 retarget) | Keep the GT3's `fn` 2.3/2.5 Hz, ζ 0.55/0.60 under a Turbo S badge vs re-derive | **Re-derive.** A 1670 kg PASM road car is not a 1418 kg Cup-2 track car: springs ≈1.35× softer and `fn ∝ √k` ⇒ **1.8 / 2.0 Hz, ζ 0.45 / 0.50, travel ±45 mm, unsprung 42 kg**. Stability margin *improves* (114/98 ms vs the 1/240 s substep), so no substepping change. Still estimates, not an OEM sheet | **DECIDED re-derived** — 2026-08-23 ([phase-1 §8](../../archive/docs/phase-1-physics-speed-accuracy.md)) |
+| 6 | Camber/toe source (Phase-1 §4.3) | Digitise GLB suspension hardpoints vs published-alignment + linkage-family gain estimates | **Estimates.** The GLB contains *no* suspension linkage — wheels are rigid submeshes on loader-recovered pivot frames — and no public 992 hardpoint table exists, so there is nothing to digitise. Static alignment is the published factory range; gains come from double-wishbone-front / multi-link-rear characteristics (≈0.5 and 0.7 °/25 mm). Curve *shape* is the spec's as written | **DECIDED estimated gains** — 2026-08-23 |
+| 7 | Anti-roll bar representation | Separate rigid body / extra integrator vs cross-corner correction | **Correction term.** `-k_arb(x_i - x_j)` folds algebraically into the existing spring as a target shift `-(k_arb/k)(x_i - x_j)` — zero new state, one subtraction per corner, and provably zero in pure heave. Stored as the dimensionless *ratio* so it survives mass/rate retargets | **DECIDED target-shift** — 2026-08-23 |
 
 ## Risk register
 
 | # | Risk | Mitigation |
 | --- | --- | --- |
-| 1 | **Transform-order / sign bugs** (wheels spin backward, steer mirrored, spin axis stays un-steered → 35° hula-hoop wobble at lock) | Sign-convention table with derivations ([03 §3.3](research/03-implementation-plan.md), [01 §6.3](research/01-physics-theory.md)); steer-left-of-spin order pinned by proof; per-wheel debug gizmos; unit tests pin ω sign incl. reverse; mandatory screenshot pass at both extremes |
-| 2 | ~~The research docs disagree on raw node rotations~~ **RESOLVED by direct GLB measurement (2026-07-24)**: [02 §2.3](research/02-graphics-vulkan.md) is correct — the transform-bearing piece nodes carry rotations: left wheels = the right-side instance rotated ~180° about $\hat y$ (proper), baked **camber** $R_z(1°$ front $/\,2°$ rear$)$ matching real 992 alignment, and left calipers X-mirrored via $q(180°$ about $\hat x) \cdot S(-1,-1,-1)$. 03 §0.1's "pure translations / one global sign" checked the transform-less mesh grandchildren — one level too deep (corrected in place) | Implement the general form **as fact, not hedge**: spin conjugated through each corner's measured baked frame with per-corner derived sign $s_w = \operatorname{sgn}(\hat a_{\text{car}} \cdot \hat z)$; loader logs each recovered frame's rotation at load |
+| 1 | **Transform-order / sign bugs** (wheels spin backward, steer mirrored, spin axis stays un-steered → 35° hula-hoop wobble at lock) | Sign-convention table with derivations ([03 §3.3](../../archive/docs/wheels/research/03-implementation-plan.md), [01 §6.3](../../archive/docs/wheels/research/01-physics-theory.md)); steer-left-of-spin order pinned by proof; per-wheel debug gizmos; unit tests pin ω sign incl. reverse; mandatory screenshot pass at both extremes |
+| 2 | ~~The research docs disagree on raw node rotations~~ **RESOLVED by direct GLB measurement (2026-07-24)**: [02 §2.3](../../archive/docs/wheels/research/02-graphics-vulkan.md) is correct — the transform-bearing piece nodes carry rotations: left wheels = the right-side instance rotated ~180° about $\hat y$ (proper), baked **camber** $R_z(1°$ front $/\,2°$ rear$)$ matching real 992 alignment, and left calipers X-mirrored via $q(180°$ about $\hat x) \cdot S(-1,-1,-1)$. 03 §0.1's "pure translations / one global sign" checked the transform-less mesh grandchildren — one level too deep (corrected in place) | Implement the general form **as fact, not hedge**: spin conjugated through each corner's measured baked frame with per-corner derived sign $s_w = \operatorname{sgn}(\hat a_{\text{car}} \cdot \hat z)$; loader logs each recovered frame's rotation at load |
 | 3 | Frame-tilt wobble at speed (**confirmed**: the axle is cambered 1–2°, so spinning about an untilted axis wobbles the rim by ± ~13 mm at the rear) | Same general form as risk 2; explicit "no rim wobble at speed" acceptance check |
 | 4 | Loader-grouping brittleness if the asset ever changes | ε-tripwire on translation clustering; assert 4 corners + exact piece counts; loud logs next to the existing bbox log; graceful fallback to rigid body (today's look) |
 | 5 | Suspension fights the Y snap / ribbon follower | Visual-only offsets, never write back to `m_position`/`m_rotation`; neutral on ribbons; update ordered after the treadmill |
@@ -177,15 +190,15 @@ Smaller known deltas between the docs (pick via debug sliders, not debate): rear
 (measured center height — the loader's pivot truth) vs 0.367 m (a tire outer-geometry estimate);
 per-corner sprung mass 296/459 vs 327/508 kg (unsprung-mass accounting); front track
 1.45 m (mount face) vs ~1.58 m (tire centerline); Phase B shape — three heave/pitch/roll filters
-([01 §5.4](research/01-physics-theory.md)) vs four corner springs ([03 §4.2](research/03-implementation-plan.md)),
+([01 §5.4](../../archive/docs/wheels/research/01-physics-theory.md)) vs four corner springs ([03 §4.2](../../archive/docs/wheels/research/03-implementation-plan.md)),
 visually equivalent; 03's file plan assumes the latter.
 
 ## Reading list
 
-- [research/01-physics-theory.md](research/01-physics-theory.md) — rolling kinematics, wrapping/ULP, Ackermann, slip, quarter-car, transform derivations
-- [research/02-graphics-vulkan.md](research/02-graphics-vulkan.md) — draw-call/shadow flow proof, GLB measurements, loader-vs-re-export analysis, perf/MoltenVK notes
-- [research/03-implementation-plan.md](research/03-implementation-plan.md) — state design, update ordering, numerics, algorithms, test matrix, phase/file plan
-- [plan/car_system_port.md](../../plan/car_system_port.md) · [docs/car_system.md](../car_system.md) — prior art and the questions this plan answers
+- [research/01-physics-theory.md](../../archive/docs/wheels/research/01-physics-theory.md) — rolling kinematics, wrapping/ULP, Ackermann, slip, quarter-car, transform derivations
+- [research/02-graphics-vulkan.md](../../archive/docs/wheels/research/02-graphics-vulkan.md) — draw-call/shadow flow proof, GLB measurements, loader-vs-re-export analysis, perf/MoltenVK notes
+- [research/03-implementation-plan.md](../../archive/docs/wheels/research/03-implementation-plan.md) — state design, update ordering, numerics, algorithms, test matrix, phase/file plan
+- [plan/car_system_port.md](../../archive/docs/notes/plan/car_system_port.md) · [docs/car_system.md](../car_system.md) — prior art and the questions this plan answers
 - Diagram: [docs/diagrams/wheel-tire-plan.excalidraw](../diagrams/wheel-tire-plan.excalidraw)
 
 ---

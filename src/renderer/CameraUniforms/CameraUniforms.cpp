@@ -1,8 +1,9 @@
 #include "CameraUniforms.h"
 
-#include "../../scene/Camera/Camera.h"
-#include "../../utils/Types.h"
-#include "../../utils/VulkanCheck.h"
+#include "scene/Camera/Camera.h"
+#include "utils/types/Types.h"
+#include "utils/vulkan/Check.h"
+#include "utils/vulkan/Descriptors.h"
 
 #include <algorithm>
 #include <array>
@@ -114,26 +115,11 @@ void CameraUniforms::createBuffers(VmaAllocator allocator) {
 }
 
 void CameraUniforms::createDescriptors(VkDevice device) {
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSize.descriptorCount = m_frames * 2;  // camera + lights per frame
-
-    VkDescriptorPoolCreateInfo poolInfo{};
-    poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes    = &poolSize;
-    poolInfo.maxSets       = m_frames;
-    VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_pool));
-
-    std::vector<VkDescriptorSetLayout> layouts(m_frames, m_setLayout);
-    VkDescriptorSetAllocateInfo        allocInfo{};
-    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool     = m_pool;
-    allocInfo.descriptorSetCount = m_frames;
-    allocInfo.pSetLayouts        = layouts.data();
+    m_pool =
+        vkx::make_pool(device, {.maxSets = m_frames, .uniformBuffers = m_frames * 2});  // camera + lights per frame
 
     m_sets.resize(m_frames);
-    VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, m_sets.data()));
+    vkx::allocate_sets(device, m_pool, m_setLayout, m_sets);
 
     for (uint32_t i = 0; i < m_frames; i++) {
         VkDescriptorBufferInfo cameraInfo{m_cameraBuffers[i].handle(), 0, sizeof(CameraUBO)};

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "RoadParams.h"
+
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -57,7 +59,7 @@ struct RoadConfig {
     float dash_gap;
 
     // ── Crown slope ──────────────────────────────────────────────────────
-    static constexpr float kCrownSlope = 0.02f;
+    static constexpr float kCrownSlope = road::kCrownSlope;  // shared with RoadGeometry (RoadParams.h)
 
     // ── Colors [r, g, b, a] ──────────────────────────────────────────
     float shoulder_tint[4];
@@ -79,6 +81,9 @@ struct RoadConfig {
 #pragma pack(pop)
 
 static_assert(std::is_trivially_copyable_v<RoadConfig>, "RoadConfig must be trivially copyable for binary I/O");
+// On-disk layout of road.bin (VERSION 3). The baker includes this same header, so this is the only
+// place the size is pinned: bump VERSION and this number together when a field changes.
+static_assert(sizeof(RoadConfig) == 292, "RoadConfig layout changed: bump RoadConfig::VERSION and re-bake road.bin");
 
 // ── Load from binary file ─────────────────────────────────────────────
 

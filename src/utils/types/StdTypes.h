@@ -1,11 +1,16 @@
 #pragma once
 
-#include <array>
+// ── StdTypes.h ───────────────────────────────────────────────────────
+// Purpose   : short fixed-width scalar aliases (u32, f32, usize, ...) used across the codebase.
+// Units     : none. Namespace is plain `swish::` (vocabulary types, see Types.h).
+// Complexity: compile-time only.
+// Example   : swish::u32 count = 3;  swish::f32 dt = 0.016f;
+// See also  : Types.h (umbrella). The old swish::vector/array/unique_ptr/str aliases were removed
+//             (2026-09-29, zero unqualified uses); write std::vector etc. directly.
+// Test      : tests/utils/test_types_Types.cpp
+
 #include <cstddef>
 #include <cstdint>
-#include <memory>
-#include <string>
-#include <vector>
 
 namespace swish {
 
@@ -24,17 +29,5 @@ using f32 = float;
 using f64 = double;
 
 using usize = std::size_t;
-
-// Container / ownership aliases
-template <typename T>
-using vector = std::vector<T>;
-
-template <typename T, usize N>
-using array = std::array<T, N>;
-
-template <typename T>
-using unique_ptr = std::unique_ptr<T>;
-
-using str = std::string;
 
 }  // namespace swish

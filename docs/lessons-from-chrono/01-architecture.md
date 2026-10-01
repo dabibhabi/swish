@@ -28,7 +28,7 @@ series is not "become Chrono" — it's that Chrono is full of individually steal
 survive the trip into a closed-form world.
 
 **The math.** Chrono's single equation is the index-3 DAE from the
-[existing guide](../../examples/chrono/VEHICLE_DYNAMICS_GUIDE.md#core-dynamics-solver):
+[existing guide](../../archive/local/examples/chrono/VEHICLE_DYNAMICS_GUIDE.md#core-dynamics-solver):
 
 $$
 M\,\ddot q = F(q,\dot q,t) + C_q^\top \lambda, \qquad \Phi(q,t) = 0
@@ -74,7 +74,7 @@ Three recurring Chrono patterns transfer directly to any codebase:
 
 A suspension in Chrono doesn't hardcode Hooke's law — the spring element `ChLinkTSDA` owns a
 `ForceFunctor` object, and the HMMWV plugs in a 21-point tabulated nonlinear spring
-(see the [existing guide](../../examples/chrono/VEHICLE_DYNAMICS_GUIDE.md#suspension)). The
+(see the [existing guide](../../archive/local/examples/chrono/VEHICLE_DYNAMICS_GUIDE.md#suspension)). The
 force *law* is data + a small object; the *topology* is separate. The same separation appears in
 the terrain: friction is a functor you register (`ChTerrain.h:94-116`), not a constant you edit
 — that seam is the entire subject of [07](07-wet-roads-and-rain.md).
@@ -117,7 +117,7 @@ slide inside a couple of milliseconds), and it's cheaper to run a small model fa
 model fast.
 
 ```cpp
-// examples/chrono/src/demos/vehicle/wheeled_models/demo_VEH_HMMWV9_YUP.cpp:50-51
+// archive/local/examples/chrono/src/demos/vehicle/wheeled_models/demo_VEH_HMMWV9_YUP.cpp:50-51
 double step_size = 3e-3;        // rigid-body / vehicle-system step
 double tire_step_size = 1e-3;   // tires are sub-cycled at a *smaller* step
 ```
@@ -144,7 +144,7 @@ exactly the HMMWV two-clock pattern: render at whatever `dt` GLFW hands you, sub
 subsystem at a fixed $h$ chosen from its own $\omega_n$, hold the car state across the sub-cycle.
 The stability bound and the semi-implicit Euler choice are derived in
 [08 §6](08-numerics-toolbox.md) and
-[docs/wheels/research/03-implementation-plan.md](../wheels/research/03-implementation-plan.md).
+[archive/docs/wheels/research/03-implementation-plan.md](../../archive/docs/wheels/research/03-implementation-plan.md).
 
 ## 5. The tick, side by side
 

@@ -1,6 +1,16 @@
+---
+verified: 2026-09-29
+against: c843ebe + uncommitted refactor   # git rev-parse --short HEAD
+owner: docs-scribe
+covers: [src/core/**, src/renderer/**, src/scene/**, src/utils/**]
+---
+
 # Architecture
 
-Swish is organized as a 5-layer stack. Each layer depends only on the layers below it.
+Swish is organized as a 5-layer stack. Each layer depends only on the layers below it. Shared helpers live in
+`src/utils/<topic>/` (namespace `swish::util::<topic>`, Vulkan glue `swish::vkx`); project includes are rooted at
+`src/` and never use `../` (see [`src/utils/README.md`](../src/utils/README.md)). Where every file lives:
+[REPO_MAP.md](REPO_MAP.md) and [DIRECTORY.md](DIRECTORY.md).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -9,10 +19,11 @@ Swish is organized as a 5-layer stack. Each layer depends only on the layers bel
 │  Layer 2 — Vulkan Core       VulkanContext · Device · Swapchain │
 │                              CommandManager · SyncObjects        │
 ├─────────────────────────────────────────────────────────────────┤
-│  Layer 3 — Render Systems    PostProcessManager · ScenePipeline │
-│                              DeferredLightingPipeline           │
+│  Layer 3 — Render Systems    PassRegistry (Passes/) · one class │
+│                              per pass · GeometryProducer         │
+│                              PostProcessManager · WeatherController│
 │                              CameraUniforms · MaterialDescriptors│
-│                              TextureManager · ResourceManager    │
+│                              TextureManager · swish::resource    │
 ├─────────────────────────────────────────────────────────────────┤
 │  Layer 4 — Scene             SceneManager · RoadScene · Camera  │
 │                              Entity · CarEntity · ModelManager   │
@@ -30,7 +41,9 @@ See [`docs/diagrams/system-overview.excalidraw`](diagrams/system-overview.excali
 
 ### App (`src/core/App/`)
 
-The top-level orchestrator. `App::run()` is the main loop:
+The top-level orchestrator, split over three files: `App.cpp` (ctor, `run()`, per-frame stages, `shutdown()`),
+`AppInit.cpp` (`init()` and its steps) and `AppInput.cpp` (data-driven key table, GLFW callbacks); camera placement
+lives in `src/core/CameraController/`. `App::run()` is a short skeleton around the main loop:
 
 ```
 delta_time = min(now − last_frame, 1/15 s)
@@ -43,16 +56,17 @@ The cap prevents physics blow-up after focus loss or debugger pauses — without
 **Per-frame loop:**
 
 ```
-pollEvents()
-handle input (ESC edge-detect, C cockpit toggle, WASD free-fly, arrow keys car)
-car.update(delta_time)
-if cockpit mode: override camera position + yaw from car model matrix
-renderer.drawFrame()
+poll_events()
+process_key_bindings()      (key table: Esc cursor, C camera, R rain, V wiper, G weather, backtick edit mode in debug)
+camera.poll_input(...)      (free-fly WASD / helicopter Q,E)
+update_car(dt)              (drive, Y-snap, corridor update, wheel visuals, push draws)
+update_camera(dt)           (CameraController: cockpit/chase/... placement)
+renderer.drawFrame(dt)
 ```
 
-**Input edge detection:** the Escape key uses `m_esc_key_prev` to detect the rising edge of the key press. Without this, cursor-lock would toggle every frame (~60×/s) while the key is held.
+**Input edge detection:** each binding row in `m_key_bindings` carries its own `KeyEdge`, which fires only on the rising edge of the key press. Without this, a toggle such as cursor-lock would flip every frame (~60×/s) while the key is held. Details: [`src/core/README.md`](../src/core/README.md).
 
-**Ownership:** App owns `Window`, `Renderer`, `TextureManager`, `SceneManager`, `ModelManager`. The last three are registered with Renderer via `register_*()` so render-time code can access them through the registry without holding raw handles.
+**Ownership:** App owns `Window`, `Renderer`, `TextureManager`, `SceneManager`, `ModelManager`. Only `TextureManager` is registered with Renderer (`register_texture_manager`); the write-only `register_scene_manager` / `register_model_manager` hooks were deleted on 2026-09-29.
 
 ### Window (`src/core/Window/`)
 
@@ -86,11 +100,11 @@ VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME   // list portability devices
 VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR // flag
 ```
 
-Validation layer enablement uses `constexpr bool kEnableValidationLayers` so the compiler eliminates the debug path entirely in release builds.
+Validation layer enablement uses `constexpr bool kEnableValidationLayers` so the compiler eliminates the debug path entirely in release builds. It keys on `NDEBUG`, and both `make run` (Release) and `make debug` (RelWithDebInfo) define it, so validation layers are on **only** in a plain `-DCMAKE_BUILD_TYPE=Debug` build.
 
 ### Device (`src/renderer/Pipeline/Device/`)
 
-Selects the best `VkPhysicalDevice` using a score:
+Selects the best `VkPhysicalDevice` using a score. It also queries `VkPhysicalDeviceVulkan13Features` and enables **dynamic rendering** and **synchronization2** when the device supports them (`supportsDynamicRendering()` / `supportsSynchronization2()`, copied into `RendererServices`), logs the active path in one `[Device]` line, and owns the `VkPipelineCache`. `SWISH_CLASSIC_VULKAN=1` forces the classic path for testing. Details: [`src/renderer/README.md`](../src/renderer/README.md) "Vulkan 1.3 path".
 
 | Criterion | Score |
 |-----------|-------|
@@ -130,7 +144,7 @@ Owns two semaphore pools with **different sizes**:
 
 **Why different sizes?** VUID-00067 prohibits re-signaling a semaphore that is still pending in a present operation. Indexing `renderFinished` by swapchain image index (not frame slot) ensures each semaphore maps to one in-flight image, so it cannot be re-signaled while still being waited on by the previous present of that image.
 
-See [`docs/diagrams/vulkan-sync.excalidraw`](diagrams/vulkan-sync.excalidraw) and [`docs/investigations/2026-04-21-vulkan-validation-errors.md`](investigations/2026-04-21-vulkan-validation-errors.md).
+See [`docs/diagrams/vulkan-sync.excalidraw`](diagrams/vulkan-sync.excalidraw) and [`archive/docs/investigations/2026-04-21-vulkan-validation-errors.md`](../archive/docs/investigations/2026-04-21-vulkan-validation-errors.md).
 
 </details>
 
@@ -139,11 +153,26 @@ See [`docs/diagrams/vulkan-sync.excalidraw`](diagrams/vulkan-sync.excalidraw) an
 <details>
 <summary><strong>Layer 3 — Rendering Subsystems</strong></summary>
 
-All subsystems are `std::unique_ptr` members of `Renderer`. They receive raw Vulkan handles via the short-lived `RendererServices` bundle — never via long-lived stored references.
+All subsystems are `std::unique_ptr` members of `Renderer` (the passes are owned by its `PassRegistry`). They receive raw Vulkan handles via the short-lived `RendererServices` bundle — never via long-lived stored references.
+
+### Pass registry and frame flow
+
+The frame is one ordered list, [`src/renderer/Passes/PassList.def`](../src/renderer/Passes/PassList.def); line order is command-buffer recording order. `make_pass_registry` (`PassList.cpp`) turns it into factory calls, and `Renderer` drives the `PassRegistry` lifecycle: `init_all`, then per frame `begin_frame` / `update` / `record_all`, `resize_all` after a swapchain or SSAA recreate, `cleanup_all` in reverse. Passes exchange images by name (`enum class Img`, `ImageRegistry`) and CPU values through `FrameState`; barriers are eager (the pass that leaves an image in a layout records the barrier). Adding a pass is 2 files: `Passes/FooPass.cpp` and one list line ([RECIPES.md](RECIPES.md) add-a-render-pass).
+
+```mermaid
+graph LR
+  R["Renderer::drawFrame"] --> BF["PassRegistry::begin_frame<br/>(TAA jitter, exposure readback, rain step)"]
+  BF --> CU["GeometryProducer::compute_cascades<br/>+ CameraUniforms update"]
+  CU --> UP["PassRegistry::update<br/>(spray UBO, wiper)"]
+  UP --> RA["PassRegistry::record_all"]
+  RA --> G["Geometry<br/>shadow atlas + G-buffer"] --> L["Lighting"] --> S["[Ssao, AoBlur, Velocity]<br/>Ssr, GodRays, [Dof]"] --> F["SpraySim, Rain, SprayDraw,<br/>Glass, WindshieldRain, [Taa]"] --> H["HdrFinalize, Bloom x3,<br/>Composite, [DebugOverlay]"]
+```
+
+`GeometryProducer` (CSM cascades, shadow atlas, G-buffer and the scene-geometry upload API) is the first entry but is created by the `Renderer`; `WeatherController` owns the weather preset and the IBL rebake. Full per-pass reference: [`src/renderer/README.md`](../src/renderer/README.md) "Pass registry"; frame order with math: [render-pipeline.md](render-pipeline.md).
 
 ### PostProcessManager
 
-The largest subsystem. Owns all offscreen render targets:
+The largest subsystem, split over five files by topic (`PostProcessManager.cpp`, `_Passes`, `_Images`, `_Descriptors`, `_Pipelines`). It owns the GPU objects the fullscreen passes draw with (their recording lives in `Passes/`) and all offscreen render targets:
 
 | Image | Count | Size | Format |
 |-------|-------|------|--------|
@@ -157,17 +186,17 @@ The largest subsystem. Owns all offscreen render targets:
 | Bloom blur V | shared | 1/4 | `R16G16B16A16_SFLOAT` |
 | AO (disabled) | shared | 1/2 | `R8_UNORM` |
 
-Also owns all render passes, framebuffers, descriptor sets, and post-process pipelines (bloom extract, blur H, blur V, composite).
+Also owns the render passes, framebuffers, descriptor sets, and post-process pipelines (bloom extract, blur H, blur V, composite, SSAO, SSR, god-rays), and publishes its images to the `ImageRegistry`.
 
 On swapchain recreate, only extent-dependent images and framebuffers are rebuilt; pipelines persist.
 
 ### ScenePipeline
 
-G-buffer generation pipeline. `basic.vert` + `gbuffer.frag`. Enables back-face culling (`VK_CULL_MODE_BACK_BIT`). Used for both static road geometry and the dynamic car entity.
+G-buffer generation pipeline. `basic.vert` + `gbuffer.frag`. Enables back-face culling (`VK_CULL_MODE_BACK_BIT`). Used for both static road geometry and the dynamic car entity; owned by `GeometryProducer`.
 
 ### DeferredLightingPipeline
 
-`fullscreen.vert` + `lighting.frag`. Reads the G-buffer to compute PBR lighting. Inverse view and projection matrices are pushed as constants each frame (see [`docs/render-pipeline.md`](render-pipeline.md) for the math).
+`fullscreen.vert` + `lighting.frag`. Reads the G-buffer to compute PBR lighting; owned by `LightingPass` (`Passes/LightingPass.cpp`). Inverse view and projection matrices are pushed as constants each frame (see [`docs/render-pipeline.md`](render-pipeline.md) for the math).
 
 ### CameraUniforms
 
@@ -181,9 +210,9 @@ Uses `m_lightsDirty` flag — lights are only re-uploaded on `set_lights()`, not
 
 Descriptor sets (set 1) binding PBR texture triplets (albedo, normal, roughness) per `MaterialId`. All writes batched into a single `vkUpdateDescriptorSets` call via `kTexturesPerMaterial` constant.
 
-### TextureManager / ResourceManager
+### TextureManager / `swish::resource`
 
-`TextureManager` loads images (JPG/PNG via stb_image) into device-local `VkImage`s, maintaining a name-keyed cache and a shared sampler. `ResourceManager` provides static helpers: `createBuffer`, `createImage`, `insertImageBarrier`, one-time command recording.
+`TextureManager` loads images (JPG/PNG via stb_image) into device-local `VkImage`s, maintaining a name-keyed cache and a shared sampler. `swish::resource` (`src/renderer/ResourceManager/`) is a namespace of free functions, no longer a class: one-time-command helpers (`transitionImageLayout`, `copyBufferToImage`) and `findDepthFormat`. Buffers and images are allocated through VMA (`GpuBuffer` / `GpuImage`, [vma-memory.md](vma-memory.md)); inline layout transitions use `swish::vkx::image_barrier`.
 
 </details>
 
@@ -194,17 +223,15 @@ Descriptor sets (set 1) binding PBR texture triplets (albedo, normal, roughness)
 
 ### SceneManager
 
-Maintains a registry of named scenes. Each scene is a setup lambda invoked at startup and again after swapchain recreation:
+Owns a vector of `Scene`s; `Scene` is an alias for a setup callable (`using Scene = std::function<void(Renderer&)>`) invoked at startup and again after swapchain recreation. `App::init_scenes` registers the road scene:
 
 ```cpp
-sceneManager.register_scene("highway", [&]() {
-    RoadScene road;
-    road.generate(services);
-    renderer.upload_scene_geometry(road.getMeshData(), road.getDrawCalls());
-    renderer.set_scene_lights(road.getLights());
-    renderer.set_camera(new Camera(...));
-});
+scenes.push_back([this](Renderer& renderer) { build_road_scene(renderer); });
+m_sceneManager = std::make_unique<SceneManager>(*m_renderer, std::move(scenes));
+m_sceneManager->set_active_scene(0);
 ```
+
+`build_road_scene` (in `AppInit.cpp`) builds the real-LIE corridor meshes via `build_corridor_segments` (`scene/Corridor/CorridorScene.{h,cpp}`), uploads them and sets the POV camera.
 
 ### RoadScene
 
@@ -216,7 +243,7 @@ FPS-style POV camera. Angles stored as $(yaw, pitch)$ in degrees; view matrix co
 
 ### Entity / CarEntity
 
-`Entity` is a base class (position, Euler rotation, scale). `CarEntity` adds bicycle-model physics — exponential drag, clamped steering, yaw rate $\dot\psi = v\tan(\delta)/L$, heading wrapped via `fmod`. See [`src/scene/README.md`](../src/scene/README.md) for full equations.
+`Entity` is a base class (position, Euler rotation, scale). `CarEntity` adds bicycle-model physics — a longitudinal force balance (power/traction limited), clamped steering, a dynamic bicycle model above ~5 m/s, heading wrapped via `fmod`; the pure SI physics is in header-only topic files under `src/scene/Entity/` behind the `CarPhysics.h` umbrella. See [`src/scene/README.md`](../src/scene/README.md) for full equations.
 
 ### ModelManager
 
@@ -229,7 +256,7 @@ Loads GLB files via tinygltf. Node-walk bake collapses all node transforms into 
 <details>
 <summary><strong>Layer 5 — Shaders</strong></summary>
 
-All shaders are GLSL 4.50. CMake compiles them to SPIR-V via `glslc`, placing binaries in `build/shaders/*.spv`. Runtime loads via `FileIO::readBinaryFile(SHADER_DIR + name)`.
+All shaders are GLSL 4.50. CMake compiles them to SPIR-V via `glslc`, placing binaries in `build/shaders/*.spv`. Runtime loads via `util::io::read_binary(SHADER_DIR + name)` (`utils/io/File.h`) and wraps the bytes with `vkx::make_shader_module` (`utils/vulkan/ShaderModule.h`). Shared GLSL lives in `shaders/common/*.glsl` (`#include`), including `bindings.glsl`, the single source of set/binding numbers.
 
 **Descriptor set convention:**
 
@@ -237,6 +264,8 @@ All shaders are GLSL 4.50. CMake compiles them to SPIR-V via `glslc`, placing bi
 |-----|---------|-----------|
 | 0 | `CameraUBO` + `LightsUBO` | Every draw call |
 | 1 | PBR texture triplet (albedo, normal, roughness) | Per material |
+
+This table is the **G-buffer (scene) pass**. The **lighting pass** layout is 0 camera+lights, 1 G-buffer (5 targets), 2 shadow atlas, 3 IBL, 4 scene-params UBO (debug); see [REPO_MAP.md](REPO_MAP.md) section 3.
 
 Post-process passes bind their own descriptor sets (managed by `PostProcessManager`). The deferred-lighting pass reuses set 0 and binds the G-buffer images as its set 1. See [`docs/diagrams/descriptor-sets.excalidraw`](diagrams/descriptor-sets.excalidraw) for the binding layout, [`docs/data-types.md`](data-types.md) for the exact UBO byte layouts, and [`shaders/README.md`](../shaders/README.md) for per-shader math.
 
@@ -248,20 +277,23 @@ Post-process passes bind their own descriptor sets (managed by `PostProcessManag
 
 ```
 Window::init(800, 600, "swish")
-VulkanContext::init(window)          ← instance, surface, debug messenger
-Device::init(instance, surface)      ← pick GPU, logical device, queues
-Swapchain::init(device, surface)     ← images, image views, present mode
-CameraUniforms::init(services, N)    ← per-frame UBOs + descriptor sets
-MaterialDescriptors::init(device)    ← empty descriptor sets + layout
-CommandManager::init(device, N)      ← pool + N command buffers
-SyncObjects::init(device, N, imgs)   ← semaphores + fences
-PostProcessManager::init(services)   ← all offscreen images, passes, pipelines
-ScenePipeline::init(device, config)  ← basic.vert + gbuffer.frag
-DeferredLightingPipeline::init(...)  ← fullscreen.vert + lighting.frag (+ bloom + composite)
+Renderer::init(window)
+  VulkanContext::init(window)          ← instance, surface, debug messenger
+  Device::init(instance, surface)      ← pick GPU, Vulkan 1.3 features, logical device, queues, pipeline cache
+  Swapchain::init(device, surface)     ← images, image views, present mode
+  CameraUniforms::init(...)            ← per-frame UBOs + descriptor sets
+  MaterialDescriptors::init(device)    ← empty descriptor sets + layout
+  CommandManager::init(device, N)      ← pool + N command buffers
+  SyncObjects::init(device, N, imgs)   ← semaphores + fences
+  PostProcessManager::init(...)        ← all offscreen images, passes, pipelines; register_images
+  IBLManager::init(services)           ← set 3 layout + baked-sky IBL
+  SceneParamsUniform::init             ← set 4 (debug builds only)
+  make_pass_registry + PassRegistry::init_all   ← Geometry pipelines, Lighting pipeline, ... in PassList.def order
+  WeatherController::set_preset        ← first HDRI bake
 TextureManager::init(services)
   └─ load_directory(TEXTURE_DIR)
-ModelManager::load_car(path)         ← GLB → normalized MeshData
-RoadScene::generate(services)        ← procedural geometry → upload
+ModelManager::load_car(path)           ← GLB → normalized MeshData
+build_road_scene(renderer)             ← real-LIE corridor geometry (build_corridor_segments) → upload
 renderer.rebuild_material_descriptors()
 renderer.set_camera(new Camera(...))
 ```
@@ -279,6 +311,10 @@ struct RendererServices {
     VkCommandPool    commandPool;
     VkQueue          graphicsQueue;
     VkExtent2D       swapchainExtent;   // invalid after every resize
+    VmaAllocator     allocator;
+    bool             dynamicRendering;  // Vulkan 1.3 features enabled on the device
+    bool             synchronization2;
+    VkPipelineCache  pipelineCache;     // Device-owned, passed to pipeline::create_*; not a global
 };
 ```
 
@@ -296,8 +332,8 @@ Triggered by: resize (`wasResized()` flag) or `VK_ERROR_OUT_OF_DATE_KHR` / `VK_S
 **What gets recreated:**
 - `Swapchain` — new extent, possibly new image count
 - `SyncObjects::m_renderFinished` — resized to match new image count
-- `PostProcessManager` offscreen images + framebuffers — new extent
-- `DeferredLightingPipeline` viewport push constant — new extent
+- `PostProcessManager` offscreen images + framebuffers — new extent (re-registered in the `ImageRegistry`)
+- Every registry pass, via `PassRegistry::resize_all` (`onResize` rebuilds its framebuffers and descriptor writes)
 
 **What persists (no recreation needed):**
 - All pipeline objects (viewport/scissor are dynamic state)

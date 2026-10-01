@@ -65,7 +65,7 @@ equation because both are just parts of a measure.
 difference quotient — the discrete shadow of a measure, never a pointwise derivative:
 
 ```cpp
-// examples/chrono/src/chrono/timestepper/ChTimestepperImplicit.cpp:429-430
+// archive/local/examples/chrono/src/chrono/timestepper/ChTimestepperImplicit.cpp:429-430
 integrable->StateScatterAcceleration(
     (Vnew - V) * (1 / dt));  // -> system auxiliary data (i.e acceleration as measure, fits DVI/MDI)
 ```
@@ -73,7 +73,7 @@ integrable->StateScatterAcceleration(
 And the integrable interface warns you not to ask for classical derivatives:
 
 ```
-// examples/chrono/src/chrono/timestepper/ChIntegrable.h:111-115 (doc comment)
+// archive/local/examples/chrono/src/chrono/timestepper/ChIntegrable.h:111-115 (doc comment)
 "some solvers (ex in DVI) cannot compute a classical derivative dy/dt when v is a
 function of bounded variation, and f or R are distributions (e.g. impulsive
 contacts). In a DVI setting, one computes Dy, and returns Dy*(1/dt) ...
@@ -93,7 +93,7 @@ comment calls "the typical Anitescu stabilized timestepper for DVIs"
 (`ChTimestepperImplicit.cpp:465-467`):
 
 ```cpp
-// examples/chrono/src/chrono/timestepper/ChTimestepperImplicit.cpp:490-493
+// archive/local/examples/chrono/src/chrono/timestepper/ChTimestepperImplicit.cpp:490-493
 // becomes the Anitescu/Trinkle timestepper:
 //
 // [ M - dt*dF/dv - dt^2*dF/dx    Cq' ] [ v_new  ] = [ M*(v_old) + dt*f]
@@ -165,7 +165,7 @@ problems, LCPs, and CCPs as one family parameterized by which convex set $Y$ eac
 lives in:
 
 ```
-// examples/chrono/src/chrono/solver/ChSystemDescriptor.h:32-49 (doxygen, trimmed)
+// archive/local/examples/chrono/src/chrono/solver/ChSystemDescriptor.h:32-49 (doxygen, trimmed)
 The problem is described by a variational inequality VI(Z*x-d,K):
   | H -Cq'|*|q|- | f|= |0|
   | Cq -E | |l|  |-b|  |c|
@@ -249,7 +249,7 @@ with the tangential *direction* preserved.
 **The code** — all of it, and it is exactly the theorem:
 
 ```cpp
-// examples/chrono/src/chrono/solver/ChConstraintContactNormal.cpp:51-95 (trimmed)
+// archive/local/examples/chrono/src/chrono/solver/ChConstraintContactNormal.cpp:51-95 (trimmed)
 // Anitescu-Tasora projection on cone generator and polar cone
 // (contractive, but performs correction on three components: normal,u,v)
 
@@ -297,7 +297,7 @@ Three details reward a close read:
 consumes exactly one friction coefficient:
 
 ```cpp
-// examples/chrono/src/chrono/physics/ChContactNSC.cpp:53
+// archive/local/examples/chrono/src/chrono/physics/ChContactNSC.cpp:53
 Nx.SetFrictionCoefficient(mat.static_friction);
 ```
 

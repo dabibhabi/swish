@@ -210,3 +210,26 @@ TEST_CASE("RoadScene zero-length config produces no geometry", "[RoadScene]") {
     auto data = scene.generate();
     REQUIRE(data.meshData.getVertexCount() == 0);
 }
+
+// ── Road-element registry order ───────────────────────────────────────
+// Draw order is the DrawCall index identity (culling/instancing), so the two
+// registry tables must not be reordered by accident. The intro and chunk
+// orders differ on purpose; see RoadScene.h "Road-element registry".
+
+TEST_CASE("RoadScene registry order matches the recorded draw order", "[RoadScene][registry]") {
+    const std::vector<std::string_view> intro = {
+        "grass",           "road_surfaces", "shoulders",      "jersey_barrier",
+        "guardrail",       "solid_markings", "dashed_markings", "curbs",
+        "rumble_strips",   "dirt_strips",   "ambient_occlusion", "hov_diamonds",
+        "sign_posts",      "overpass",      "sound_barriers", "exit_ramp",
+        "marginal_trees",  "street_lamps",
+    };
+    const std::vector<std::string_view> chunk = {
+        "grass",         "road_surfaces", "shoulders",         "median_barrier_gapped",
+        "guardrail",     "solid_markings", "dashed_markings",  "curbs",
+        "rumble_strips", "dirt_strips",   "ambient_occlusion", "sound_barriers",
+        "service_roads", "street_lamps",
+    };
+    REQUIRE(RoadScene::intro_element_names() == intro);
+    REQUIRE(RoadScene::chunk_element_names() == chunk);
+}

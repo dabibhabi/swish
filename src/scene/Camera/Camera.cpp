@@ -87,6 +87,12 @@ void Camera::set_perspective(float fov_deg, float aspect, float near_plane, floa
     m_far    = far_plane;
 }
 
+void Camera::set_fov(float fov_deg) {
+    // Defensive clamp only (degenerate/undefined below ~1° or above ~170°);
+    // the actual game-feel range is chosen by the caller.
+    m_fov = std::clamp(fov_deg, 1.0f, 170.0f);
+}
+
 float Camera::get_fov() const {
     return m_fov;
 }

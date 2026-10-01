@@ -1,3 +1,9 @@
+---
+verified: 2026-09-29
+against: c843ebe + uncommitted refactor   # git rev-parse --short HEAD; only file references (CarPhysics split, App/AppInit) were re-checked
+owner: docs-scribe
+---
+
 # Car System — Implementation Guide
 
 ## Coordinate Convention (read this first)
@@ -101,11 +107,16 @@ classDiagram
     }
 
     class Renderer {
-        -SceneGeometry m_sceneGeometry
-        -SceneGeometry m_dynamicGeometry
+        -GeometryProducer m_geometry
         +upload_dynamic_geometry(MeshData, DrawCalls)
         +update_dynamic_draw_calls(DrawCalls)
         +destroy_dynamic_geometry()
+    }
+
+    class GeometryProducer {
+        -SceneGeometry m_dynamic
+        +upload_dynamic(services, MeshData, DrawCalls)
+        +update_dynamic_draw_calls(DrawCalls)
     }
 
     class SceneGeometry {
@@ -120,7 +131,8 @@ classDiagram
     Entity <|-- ModelEntity
     ModelEntity <|-- CarEntity
     ModelManager --> CarEntity : creates
-    Renderer --> SceneGeometry : m_dynamicGeometry
+    Renderer --> GeometryProducer : m_geometry
+    GeometryProducer --> SceneGeometry : m_dynamic
     App --> CarEntity : owns m_car
     App --> Renderer : calls update_dynamic_draw_calls
 ```
@@ -163,9 +175,9 @@ stateDiagram-v2
     CockpitCam --> RenderFrame
     DynamicGeometry --> RenderFrame
 
-    RenderFrame --> GBufferPass : recordGBufferPass()
-    GBufferPass --> StaticGeometry : m_sceneGeometry.record_draws()
-    GBufferPass --> DynGeometry2 : m_dynamicGeometry.record_draws()
+    RenderFrame --> GBufferPass : GeometryProducer::record_gbuffer()
+    GBufferPass --> StaticGeometry : scene geometry record_draws()
+    GBufferPass --> DynGeometry2 : m_dynamic.record_draws()
 
     StaticGeometry --> LightingPass
     DynGeometry2 --> LightingPass
@@ -175,7 +187,58 @@ stateDiagram-v2
 
 ---
 
-## Car Physics — State Diagram
+## Car Physics — as built (2026-08-23, Phase 1)
+
+> The state diagram and the "Improving the Drive Feel" section further down are
+> **onboarding material from the original kinematic prototype** and describe
+> constants (`kAccel`, `kDragCoeff`, `kBrakeAccel`) that no longer exist. They are
+> kept because the *shape* of the input state machine is still right. This block
+> is the authoritative summary of what actually runs.
+
+**Target car: 992 911 Turbo S, AWD.** 0-60 mph 2.8 s (measured 2.758 s) · Vmax
+~205 mph (measured 205.1 m/s→mph analytically, 203 mph and still climbing in
+engine) · 641 hp / 590 lb-ft · 1670 kg. See
+[`phase-1-physics-speed-accuracy.md`](../archive/docs/phase-1-physics-speed-accuracy.md).
+
+Per-frame chain, all of it in the `CarPhysics.h` umbrella (pure SI, unit-tested without a GPU; since 2026-09-29 split into
+`CarParams.h`, `Powertrain.h` (`engine_rpm`, `engine_torque`, gearbox), `Tire.h` (load transfer, friction circle),
+`Drivetrain.h` (`ptu_lock_fraction`, `awd_deliverable_force`), `Longitudinal.h` (`longitudinal_accel`), `Bicycle.h`
+(`dynamic_bicycle_deriv`, `steady_state_top_speed`) and `WetGrip.h` (`effective_mu`), all under `src/scene/Entity/`)
+with `CarEntity` converting at the world-unit boundary:
+
+```mermaid
+graph LR
+    RPM["engine_rpm(v, gear)<br/>no-slip driveline,<br/>floored at 3 m/s<br/>(= PDK clutch slip)"]
+    T["engine_torque(rpm)<br/>twin-turbo curve:<br/>800 N·m 2500-4000,<br/>478 kW @ 6750,<br/>0 @ 7200 redline"]
+    G["gear ratios x final drive<br/>7 of the 8-speed PDK's ratios<br/>(8th = cruise overdrive,<br/>unreachable at WOT)"]
+    PTU["ptu_lock_fraction<br/>lambda from rear<br/>over-demand"]
+    SPLIT["awd_deliverable_force<br/>front share 8% open -> 50% locked,<br/>cross-axle spill scaled by lambda"]
+    FC["per-axle friction circle<br/>Fx^2 + Fy^2 <= (mu Fz)^2<br/>with load transfer"]
+    RES["- aero drag - rolling"]
+    A["a_x"]
+
+    RPM --> T --> G --> PTU --> SPLIT --> FC --> RES --> A
+```
+
+Key properties, none of them clamped or scripted:
+- **Launch** = the four-wheel ceiling `mu*m*g` (1.05 g), because at a standstill the
+  rear axle is demanded far past its limit so the PTU clutch closes and the axles
+  tie together. Turbo lag in the torque curve is what keeps it off `mu*g` in the
+  first instants.
+- **Top speed** emerges where thrust meets drag, in 7th, essentially at the power
+  peak. `steady_state_top_speed()` scans every gear rather than assuming the
+  tallest one wins.
+- **Cornering costs acceleration**: `CarEntity` feeds the bicycle model's own
+  per-axle `F_y` into the same circle, so power-down and braking both lose
+  capacity while the tires are working laterally.
+- **Wet/hydroplaning** rides on top via `effective_mu()`, which only changes `mu`
+  — every limit above therefore collapses together.
+- **Suspension** is a per-corner quarter-car (`WheelKinematics.h`) plus
+  parametric camber/toe gain curves and an anti-roll bar folded in as a
+  cross-corner target shift. Wheels spin, steer, travel, and change alignment;
+  body Y is snapped to the road each frame in `App.cpp` (`update_car`).
+
+## Car Physics — State Diagram (input state machine; constants are historical)
 
 ```mermaid
 stateDiagram-v2
@@ -213,12 +276,17 @@ stateDiagram-v2
 
 ## Changing Car Position
 
-The car is spawned in `App.cpp` around line 182:
+The car is loaded in `App::load_car()` ([`src/core/App/AppInit.cpp`](../src/core/App/AppInit.cpp); `SWISH_CAR=<glb>`
+swaps in another model). Scale is set there, but **position and heading no longer come from a hard-coded pose**: the
+active road is the real-LIE corridor, so `m_corridor.place_at_start(*m_car)` puts the car at the corridor's west end
+(the Queens-Midtown Tunnel portal) with the alignment's heading and opens `CarEntity`'s world-X clamp (the lateral limit
+is enforced in corridor space by `CorridorDriver`). The table below describes the world-space convention that the old
+hard-coded pose used, which still holds for the chase/cockpit maths:
 
 ```cpp
-car_entity->set_position(Vec3(6501.0f, 0.0f, -20000.0f));
-car_entity->set_rotation(Vec3(0.f, 90.f, 0.f));  // +90° = nose down -Z
-car_entity->set_scale(Vec3(1000.f, 1000.f, 1000.f));
+car_entity->set_scale(Vec3(1000.f, 1000.f, 1000.f));        // AppInit.cpp: glTF metres to WU
+m_corridor.place_at_start(*m_car);                          // position + heading from the alignment
+// old fixed pose (retired): set_position(Vec3(6501, 0, -20000)); set_rotation(Vec3(0, 90, 0));  // +90° = nose down -Z
 ```
 
 | Parameter | Axis | Effect |

@@ -9,20 +9,15 @@ namespace swish {
 class Renderer;
 
 // ══════════════════════════════════════════════════════════════════════
-// Scene — A lambda wrapper that populates the world when activated.
+// Scene — A callback that populates the world when activated.
 //
 // Each scene is a function that receives a Renderer& and sets up
-// geometry, camera, and any other scene-specific state.
+// geometry, camera, and any other scene-specific state. It has no state or
+// invariants of its own, so it is a type alias, not a class (was a one-method
+// std::function wrapper).
 // ══════════════════════════════════════════════════════════════════════
 
-class Scene {
-public:
-    explicit Scene(std::function<void(Renderer&)> on_load);
-    void run(Renderer& renderer);
-
-private:
-    std::function<void(Renderer&)> m_on_load;
-};
+using Scene = std::function<void(Renderer&)>;
 
 // ══════════════════════════════════════════════════════════════════════
 // SceneManager — Owns all scenes and handles switching between them.
@@ -33,16 +28,16 @@ private:
 
 class SceneManager {
 public:
-    SceneManager(Renderer& renderer, std::vector<std::unique_ptr<Scene>> scenes);
+    SceneManager(Renderer& renderer, std::vector<Scene> scenes);
     ~SceneManager();
 
     void set_active_scene(int index);
     int  get_active_scene() const;
 
 private:
-    Renderer*                           m_renderer;
-    std::vector<std::unique_ptr<Scene>> m_scenes;
-    int                                 m_active_scene = -1;
+    Renderer*          m_renderer;
+    std::vector<Scene> m_scenes;
+    int                m_active_scene = -1;
 };
 
 }  // namespace swish

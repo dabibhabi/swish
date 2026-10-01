@@ -1,7 +1,7 @@
 #include "MaterialDescriptors.h"
 
-#include "../../utils/VulkanCheck.h"
-#include "../TextureManager/TextureManager.h"
+#include "renderer/TextureManager/TextureManager.h"
+#include "utils/vulkan/Check.h"
 
 #include <array>
 #include <cassert>

@@ -1,3 +1,10 @@
+---
+verified: 2026-09-29
+against: c843ebe + uncommitted refactor   # git rev-parse --short HEAD; SceneParamsUBO (11 rows) and push-block sizes added
+owner: docs-scribe
+covers: [src/scene/SceneTypes.h, src/renderer/Vertex.h, src/debug/SceneParamsUniform.h, src/renderer/PostProcessManager/PostProcessManager.h]
+---
+
 # Data Types Reference
 
 Swish moves data across layer boundaries with plain data structures — what enterprise codebases call **DTOs** (Data Transfer Objects). We don't use that term in the code (the C++ idiom is *aggregate* / *POD* / *value type*), but the role is real: these types carry data and have no behavior. This page catalogs every one, with exact field layouts.
@@ -192,6 +199,10 @@ struct RendererServices {
     VkCommandPool    commandPool     = VK_NULL_HANDLE;
     VkQueue          graphicsQueue   = VK_NULL_HANDLE;
     VkExtent2D       swapchainExtent = {0, 0};
+    VmaAllocator     allocator       = nullptr;          // single VMA sub-allocator
+    bool             dynamicRendering = false;           // Vulkan 1.3 features enabled on the device
+    bool             synchronization2 = false;
+    VkPipelineCache  pipelineCache   = VK_NULL_HANDLE;   // Device-owned; passed to pipeline::create_*
 };
 ```
 
@@ -229,6 +240,43 @@ struct SceneData {
 
 </details>
 
+<details>
+<summary><strong>SceneParamsUBO</strong> — <code>src/debug/SceneParamsUniform.h</code> (set 4, binding 0; debug builds only)</summary>
+
+Eleven `vec4` rows, `static_assert(sizeof(SceneParamsUBO) == 11 * 16)` = **176 B**. Mirrored by the `SceneParamsUBO` block in
+`shaders/lighting.frag` (the only reader). Set/binding numbers come from `shaders/common/bindings.glsl`.
+
+| Row | Lanes |
+|-----|-------|
+| `skyHorizonOvercast`, `skyHorizonClear`, `skyZenithOvercast`, `skyZenithClear` | rgb |
+| `sunDisc` | expMin, expMax, strMin, strMax |
+| `fogColor` | rgb, **w = haze max** |
+| `fogParams` | dist63, max, envGlossExp, **w = haze dist63** |
+| `shadowParams` | bias, floor, lightSize |
+| `wetParams` | porosity, roughness collapse, puddle coverage |
+| `iblParams` | diffuse, specular |
+| `paintParams` | clearcoat roughness, flake roughness |
+
+Adding a lane: use a free `.w` / `.z` first; a new row means updating the assert, the host struct, the GLSL block and
+`SceneParamsUniform.cpp::update`. See [debug-ui.md](debug-ui.md#scene-params-ubo) and [RECIPES.md](RECIPES.md#add-a-tunable).
+
+</details>
+
+<details>
+<summary><strong>Post-process push blocks</strong> — <code>src/renderer/PostProcessManager/PostProcessManager.h</code></summary>
+
+Push-constant blocks must be **16-byte multiples** on MoltenVK (`utils/vulkan/PushConstants.h`: every push range goes
+through `vkx::push_range<T>`, which static-asserts it); each of these also carries its own `static_assert`.
+
+| Struct | Size | Layout | Shader |
+|--------|------|--------|--------|
+| `PostProcessParams` | 64 B | 13 shader floats (52 B) + 3 host-only pad floats; bloom, composite and rain-haze controls | `composite.frag`, `bloom_*.frag` |
+| `SsaoParams` | 144 B | `mat4 invProjection`, `mat4 projection`, `float radius, bias, intensity, _pad0` | `ssao.frag` |
+| `SsrParams` | 224 B | `mat4 proj, invProj, invView`, `float maxDist, thickness, stride, intensity, wetness, puddleCoverage, _pad1, _pad2` | `ssr.frag` |
+| `GodRaysParams` | 32 B | `vec4 sunUV` (xy sun, z visibility), `vec4 tune` (density, decay, weight, intensity) | `godrays.frag` |
+
+</details>
+
 ---
 
 ## Enums & Config
@@ -255,7 +303,8 @@ The binary-serializable road configuration. `#pragma pack(push, 1)` — **byte-p
 
 - `MAGIC = 0x53575243` ("SWRC"), `VERSION = 3` — both validated on load; mismatch throws.
 - `static_assert(std::is_trivially_copyable_v<RoadConfig>)` guards binary I/O safety.
-- `kCrownSlope = 0.02f` is a `static constexpr` (2% cross-slope for drainage) — **not** a serialized field.
+- `kCrownSlope` (= `road::kCrownSlope` = 0.02f, in `RoadParams.h`) is a `static constexpr` (2% cross-slope for drainage) — **not** a serialized field.
+- `static_assert(sizeof(RoadConfig) == 292)` pins the size; `toml_baker` includes this same header, so the baked layout cannot drift.
 
 See [tools/README.md](../tools/README.md) for the full field list and the baker workflow.
 

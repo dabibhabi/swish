@@ -5,18 +5,13 @@ layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUV;
 layout(location = 3) in vec4 inTangent;
 
-layout(set = 0, binding = 0) uniform CameraUBO {
-    mat4 view;
-    mat4 proj;
-    vec4 camPos;
-    vec4 sunDir;
-    vec4 sunColor;
-} camera;
+#include "camera.glsl"
 
 layout(push_constant) uniform PushConstants {
     mat4 model;
     vec4 color;
     vec4 material;   // unused here; declared so vertex/fragment push blocks match
+    vec4 paint;       // unused here; clearcoat/flake — see gbuffer.frag
 } push;
 
 layout(location = 0) out vec3 fragNormal;

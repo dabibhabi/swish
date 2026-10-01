@@ -1,15 +1,23 @@
 #include "SpraySystem.h"
 
-#include "../../utils/VulkanCheck.h"
-#include "../../utils/VulkanInit.h"
-#include "../Pipeline/Pipeline.h"
-#include "../Renderer/RendererServices.h"
-#include "../ResourceManager/ResourceManager.h"
+#include "debug/DebugParams.h"
+#include "renderer/CameraUniforms/CameraUniforms.h"
+#include "renderer/Passes/ForwardPass.h"
+#include "renderer/Passes/PassRegistry.h"
+#include "renderer/Pipeline/Pipeline.h"
+#include "renderer/Renderer/RendererServices.h"
+#include "renderer/RendererConfig.h"
+#include "renderer/ResourceManager/ResourceManager.h"
+#include "utils/vulkan/Check.h"
+#include "utils/vulkan/Descriptors.h"
+#include "utils/vulkan/Init.h"
+#include "utils/vulkan/PushConstants.h"
 
 #include <array>
 #include <cmath>
 #include <cstring>
 #include <glm/glm.hpp>
+#include <memory>
 
 namespace swish {
 
@@ -21,24 +29,51 @@ static constexpr float kSprayUpSpeed   = 4500.0f;   // launch up speed (WU/s) �
 static constexpr float kSprayBackSpeed = 3000.0f;   // backward kick relative to travel (WU/s)
 static constexpr float kSpraySpread    = 1200.0f;   // lateral spread at the wheels (WU ≈ 1.2 m)
 
-void SpraySystem::init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                       const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
-                       VkDescriptorSetLayout cameraSetLayout) {
+void SpraySystem::init(const PassInitCtx& ctx) {
+    create(ctx.services, ctx.images.views(Img::Hdr), ctx.images.views(Img::HdrDepth), ctx.renderExtent,
+           ctx.cameraSetLayout);
+}
+
+void SpraySystem::onResize(const PassInitCtx& ctx) {
+    recreate(ctx.images.views(Img::Hdr), ctx.images.views(Img::HdrDepth), ctx.renderExtent, ctx.services.device);
+}
+
+void SpraySystem::update(const FrameUpdate& u) {
+    // Spawn spray behind the rear axle: offset the car origin backward along its
+    // heading. Emission is gated inside step() by wetness × speed, so a dry
+    // road (and the release build, which can't get wet) produces nothing.
+    Vec3 fwd         = (glm::length(u.carVelocity) > 1.0f) ? glm::normalize(u.carVelocity) : Vec3(0.0f, 0.0f, -1.0f);
+    Vec3 spawnCentre = u.carPosition - fwd * 1500.0f;  // ≈ 1.5 m behind the origin
+
+    SprayParams sprayParams;  // defaults = shipped look
+#ifdef SWISH_DEBUG_UI
+    sprayParams.enabled  = u.tune.sprayEnabled;
+    sprayParams.density  = u.tune.sprayDensity;
+    sprayParams.lifetime = u.tune.sprayLifetime;
+    sprayParams.size     = u.tune.spraySize;
+    sprayParams.opacity  = u.tune.sprayOpacity;
+#endif
+    step(u.frameIndex, u.dt, spawnCentre, u.carVelocity, u.state.wetness, sprayParams);
+}
+
+void SpraySystem::create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                         const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
+                         VkDescriptorSetLayout cameraSetLayout) {
     m_extent      = extent;
-    m_depthFormat = ResourceManager::findDepthFormat(s.physicalDevice);
+    m_depthFormat = resource::findDepthFormat(s.physicalDevice);
 
     createParticleBuffer(s);
     createSimUBOs(s);
     createComputeDescriptors(s.device);
-    createComputePipeline(s.device);
+    createComputePipeline(s.device, s.pipelineCache);
     createRenderPass(s.device);
     createFramebuffers(s.device, hdrViews, depthViews);
     createDrawDescriptors(s.device);
-    createDrawPipeline(s.device, cameraSetLayout);
+    createDrawPipeline(s.device, s.pipelineCache, cameraSetLayout);
 }
 
-void SpraySystem::update(uint32_t frameIndex, float deltaTime, Vec3 spawnCentre, Vec3 carVelocity, float wetness,
-                         const SprayParams& params) {
+void SpraySystem::step(uint32_t frameIndex, float deltaTime, Vec3 spawnCentre, Vec3 carVelocity, float wetness,
+                       const SprayParams& params) {
     // Frame seed decorrelates respawns/directions; keep it < 2²⁴ (shader uses uint()).
     m_frameSeed = std::fmod(m_frameSeed + 1.0f, 16777216.0f);
 
@@ -89,7 +124,7 @@ void SpraySystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const {
 
     VkClearValue clearVals[2]{};  // LOAD_OP_LOAD — ignored, but count must match
 
-    auto beginInfo              = vk::makeRenderPassBeginInfo();
+    auto beginInfo              = vkx::makeRenderPassBeginInfo();
     beginInfo.renderPass        = m_renderPass;
     beginInfo.framebuffer       = m_framebuffers[frameIndex];
     beginInfo.renderArea.extent = m_extent;
@@ -104,7 +139,7 @@ void SpraySystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const {
     vkCmdSetScissor(cmd, 0, 1, &sc);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_drawPipeline);
-    // Set 0 (camera) is bound by the caller (Renderer::recordSprayPass). Set 1 = SSBO.
+    // Set 0 (camera) is bound by the caller (the SprayDraw pass). Set 1 = SSBO.
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_drawPipeLayout, 1, 1, &m_drawSet, 0, nullptr);
 
     Vec4 tune(m_opacity, 0.0f, 0.0f, 0.0f);
@@ -175,8 +210,8 @@ void SpraySystem::cleanup(VkDevice device) {
 
 void SpraySystem::createParticleBuffer(const RendererServices& s) {
     const VkDeviceSize size = sizeof(SprayParticle) * kSprayMaxParticles;
-    m_particleBuffer        = gpu::deviceLocalBuffer(s.allocator, size,
-                                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    m_particleBuffer = gpu::deviceLocalBuffer(s.allocator, size,
+                                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     // Zero the buffer once so every particle starts dead (life = 0). One-time submit
     // (mirrors SceneGeometry's staging pattern); the compute pass takes over after.
@@ -231,18 +266,9 @@ void SpraySystem::createComputeDescriptors(VkDevice device) {
     layoutInfo.pBindings    = bindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_computeSetLayout));
 
-    VkDescriptorPoolSize poolSizes[2]{};
-    poolSizes[0].type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
-    poolSizes[1].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT;
-
-    VkDescriptorPoolCreateInfo poolInfo{};
-    poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 2;
-    poolInfo.pPoolSizes    = poolSizes;
-    poolInfo.maxSets       = MAX_FRAMES_IN_FLIGHT;
-    VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_computePool));
+    m_computePool = vkx::make_pool(device, {.maxSets        = MAX_FRAMES_IN_FLIGHT,
+                                            .uniformBuffers = MAX_FRAMES_IN_FLIGHT,
+                                            .storageBuffers = MAX_FRAMES_IN_FLIGHT});
 
     std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
     layouts.fill(m_computeSetLayout);
@@ -274,64 +300,15 @@ void SpraySystem::createComputeDescriptors(VkDevice device) {
     }
 }
 
-void SpraySystem::createComputePipeline(VkDevice device) {
-    m_computePipeLayout = Pipeline::createLayout(device, {m_computeSetLayout});
+void SpraySystem::createComputePipeline(VkDevice device, VkPipelineCache cache) {
+    m_computePipeLayout = pipeline::create_layout(device, {m_computeSetLayout});
     m_computePipeline =
-        Pipeline::createCompute(device, std::string(SHADER_DIR) + "spray_sim.comp.spv", m_computePipeLayout);
+        pipeline::create_compute(device, cache, std::string(SHADER_DIR) + "spray_sim.comp.spv", m_computePipeLayout);
 }
 
 void SpraySystem::createRenderPass(VkDevice device) {
-    // Identical to RainSystem: HDR color LOAD/STORE + read-only depth LOAD.
-    VkAttachmentDescription colorAtt{};
-    colorAtt.format         = VK_FORMAT_R16G16B16A16_SFLOAT;
-    colorAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
-    colorAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-    colorAtt.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAtt.initialLayout  = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAtt.finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentDescription depthAtt{};
-    depthAtt.format         = m_depthFormat;
-    depthAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
-    depthAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
-    depthAtt.storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depthAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    depthAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depthAtt.initialLayout  = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    depthAtt.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-    VkAttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-    VkAttachmentReference depthRef{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
-
-    VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount    = 1;
-    subpass.pColorAttachments       = &colorRef;
-    subpass.pDepthStencilAttachment = &depthRef;
-
-    VkSubpassDependency dep{};
-    dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
-    dep.dstSubpass    = 0;
-    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-
-    VkAttachmentDescription atts[] = {colorAtt, depthAtt};
-
-    VkRenderPassCreateInfo rpInfo{};
-    rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    rpInfo.attachmentCount = 2;
-    rpInfo.pAttachments    = atts;
-    rpInfo.subpassCount    = 1;
-    rpInfo.pSubpasses      = &subpass;
-    rpInfo.dependencyCount = 1;
-    rpInfo.pDependencies   = &dep;
-
-    VK_CHECK(vkCreateRenderPass(device, &rpInfo, nullptr, &m_renderPass));
+    // Identical to RainSystem: HDR colour LOAD/STORE + read-only depth LOAD; see ForwardPass.h.
+    m_renderPass = make_forward_hdr_pass(device, m_depthFormat);
 }
 
 void SpraySystem::createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
@@ -375,16 +352,7 @@ void SpraySystem::createDrawDescriptors(VkDevice device) {
     layoutInfo.pBindings    = &ssboBinding;
     VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_drawSetLayout));
 
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSize.descriptorCount = 1;
-
-    VkDescriptorPoolCreateInfo poolInfo{};
-    poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes    = &poolSize;
-    poolInfo.maxSets       = 1;
-    VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_drawPool));
+    m_drawPool = vkx::make_pool(device, {.maxSets = 1, .storageBuffers = 1});
 
     VkDescriptorSetAllocateInfo allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -404,13 +372,10 @@ void SpraySystem::createDrawDescriptors(VkDevice device) {
     vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 }
 
-void SpraySystem::createDrawPipeline(VkDevice device, VkDescriptorSetLayout cameraSetLayout) {
+void SpraySystem::createDrawPipeline(VkDevice device, VkPipelineCache cache, VkDescriptorSetLayout cameraSetLayout) {
     // set 0 = camera (shared), set 1 = particle SSBO (owned); push = opacity (vec4).
-    VkPushConstantRange pc{};
-    pc.stageFlags    = VK_SHADER_STAGE_FRAGMENT_BIT;
-    pc.offset        = 0;
-    pc.size          = sizeof(Vec4);
-    m_drawPipeLayout = Pipeline::createLayout(device, {cameraSetLayout, m_drawSetLayout}, {pc});
+    const VkPushConstantRange pc = vkx::push_range<Vec4>(VK_SHADER_STAGE_FRAGMENT_BIT);
+    m_drawPipeLayout             = pipeline::create_layout(device, {cameraSetLayout, m_drawSetLayout}, {pc});
 
     PipelineConfig cfg{};
     cfg.vertShaderPath   = std::string(SHADER_DIR) + "spray.vert.spv";
@@ -422,7 +387,39 @@ void SpraySystem::createDrawPipeline(VkDevice device, VkDescriptorSetLayout came
     cfg.additiveBlending = true;
     cfg.pipelineLayout   = m_drawPipeLayout;
 
-    m_drawPipeline = Pipeline::create(device, cfg, m_renderPass, m_extent);
+    m_drawPipeline = pipeline::create_graphics(device, cache, cfg, m_renderPass, m_extent);
+}
+
+namespace {
+
+// The draw half of the spray system: additive billboards onto HDR, recorded after the rain streaks. Finds the
+// SpraySim entry (which owns every GPU object) at init.
+class SprayDrawPass final : public IRenderPass {
+public:
+    const char* name() const override { return "SprayDraw"; }
+    void        init(const PassInitCtx& ctx) override { m_sim = ctx.passes.find<SpraySystem>(); }
+    void        record(const FrameCtx& c) override {
+        // Bind camera set (set 0) via the spray pipeline layout; record_draws binds its own set 1 (particle SSBO)
+        // and begins its render pass internally.
+        VkDescriptorSet camSet = c.res.cameraUniforms->get_set(c.frameIndex);
+        vkCmdBindDescriptorSets(c.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_sim->get_pipeline_layout(), 0, 1, &camSet, 0,
+                                nullptr);
+        m_sim->record_draws(c.cmd, c.frameIndex);
+    }
+    void cleanup(VkDevice) override {}
+
+private:
+    const SpraySystem* m_sim = nullptr;
+};
+
+}  // namespace
+
+std::unique_ptr<IRenderPass> make_spray_sim_pass() {
+    return std::make_unique<SpraySystem>();
+}
+
+std::unique_ptr<IRenderPass> make_spray_draw_pass() {
+    return std::make_unique<SprayDrawPass>();
 }
 
 }  // namespace swish

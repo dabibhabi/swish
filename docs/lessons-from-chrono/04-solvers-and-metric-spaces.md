@@ -48,7 +48,7 @@ $\gamma$ solves the problem, so $\rho$ is a computable "how unsolved is it" metr
 *literally this* as its stopping test:
 
 ```cpp
-// examples/chrono/src/chrono/solver/ChSolverAPGD.cpp:155-160
+// archive/local/examples/chrono/src/chrono/solver/ChSolverAPGD.cpp:155-160
 double gdiff = 1.0 / (nc * nc);
 sysd.SchurComplementProduct(tmp, gammaNew);  // tmp = N * gammaNew
 tmp = gammaNew - gdiff * (tmp - r);
@@ -82,7 +82,7 @@ sample, $L_0 = \lVert N(\gamma_0 - \hat\gamma_0)\rVert / \lVert\gamma_0 - \hat\g
 (`ChSolverAPGD.cpp:92-100`), then trusts backtracking. The main step is textbook:
 
 ```cpp
-// examples/chrono/src/chrono/solver/ChSolverAPGD.cpp:112-114
+// archive/local/examples/chrono/src/chrono/solver/ChSolverAPGD.cpp:112-114
 sysd.SchurComplementProduct(g, y);  // g = N * y
 gammaNew = y - t * (g - r);
 sysd.ConstraintsProject(gammaNew);
@@ -94,7 +94,7 @@ y\rVert^2$ that holds whenever the trial $L$ majorizes the true one) and doubles
 passes (`:124-141`). Momentum follows the classic $\theta$-recursion:
 
 ```cpp
-// examples/chrono/src/chrono/solver/ChSolverAPGD.cpp:143-150
+// archive/local/examples/chrono/src/chrono/solver/ChSolverAPGD.cpp:143-150
 // (15) theta_(k+1) = (-theta_k^2 + theta_k * sqrt(theta_k^2 + 4)) / 2
 thetaNew = (-theta * theta + theta * std::sqrt(theta * theta + 4.0)) / 2.0;
 // (16) Beta_(k+1) = theta_k * (1 - theta_k) / (theta_k^2 + theta_(k+1))
@@ -155,7 +155,7 @@ Because $N$ is only PSD, $\langle s, y\rangle = \langle s, Ns\rangle$ can hit ze
 nullspace directions — and the code guards exactly that, falling back to fixed small steps:
 
 ```cpp
-// examples/chrono/src/chrono/solver/ChSolverBB.cpp (spectral step, even iterations)
+// archive/local/examples/chrono/src/chrono/solver/ChSolverBB.cpp (spectral step, even iterations)
 double sDs = ms.dot(mb_tmp);  double sy = ms.dot(my);
 if (sy <= 0) { alpha = neg_BB1_fallback; }               // = 0.11
 else         { alpha = ChMin(a_max, ChMax(a_min, sDs / sy)); }

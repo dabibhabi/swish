@@ -3,8 +3,12 @@
 // The whole translation unit is empty unless the debug UI is compiled in.
 #ifdef SWISH_DEBUG_UI
 
-#include "../utils/VulkanCheck.h"
 #include "DebugParamsIO.h"
+#include "Tunables.h"
+#include "scene/Entity/CarPhysics.h"  // WetGripParams — hydroplaning thresholds for the Telemetry panel
+#include "utils/meta/Tags.h"
+#include "utils/units/Units.h"
+#include "utils/vulkan/Check.h"
 
 // ImGuizmo.h uses ImVec4/ImGuiID and MUST follow imgui.h. `.clang-format`
 // (IncludeBlocks: Regroup) would alphabetize "ImGuizmo" before "imgui" and break
@@ -20,10 +24,10 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
-#include <cstring>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <string>
+#include <string_view>
 
 namespace swish {
 
@@ -130,7 +134,9 @@ void DebugUI::createRenderPass(VkFormat fmt) {
     dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    // loadOp LOAD reads the composited image, so the dependency must also cover color-attachment READs
+    // (write-only here left the load unordered after the PRESENT_SRC -> COLOR_ATTACHMENT transition).
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
     VkRenderPassCreateInfo rpInfo{};
     rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -247,11 +253,54 @@ const char* materialName(int i) {
         default:
             break;
     }
-    if (i >= MAT_SIGN_0 && i <= MAT_SIGN_7)
+    const auto u = static_cast<uint32_t>(i);  // MaterialId is uint32_t; avoids -Wsign-compare
+    if (u >= MAT_SIGN_0 && u <= MAT_SIGN_7)
         return "sign";
-    if (i >= MAT_CAR_0 && i <= MAT_CAR_19)
+    if (u >= MAT_CAR_0 && u <= MAT_CAR_19)
         return "car";
     return "?";
+}
+
+// Human-readable label for CarEntity::get_gear()'s 0-indexed gear (Telemetry panel).
+const char* gearLabel(int gear) {
+    static constexpr const char* kLabels[7] = {"1st", "2nd", "3rd", "4th", "5th", "6th", "7th"};
+    return (gear >= 0 && gear < 7) ? kLabels[gear] : "?";
+}
+
+// Per-kind ImGui widget and printf-dump text: one overload per value-kind tag (utils/meta/Tags.h). A new kind
+// adds one `widget` and one `dump` here (plus put/get in DebugParamsIO.cpp); the group loops never change.
+void widget(const tunables::Tunable& t, tag::flag_t, bool& v) {
+    ImGui::Checkbox(t.label, &v);
+}
+void widget(const tunables::Tunable& t, tag::real_t, float& v) {
+    ImGui::SliderFloat(t.label, &v, t.lo, t.hi, t.sliderFmt);
+}
+void dump(const tunables::Tunable&, tag::flag_t, bool v) {
+    std::printf("%d", v ? 1 : 0);
+}
+void dump(const tunables::Tunable& t, tag::real_t, float v) {
+    std::printf("%.*f", t.dumpPrec, static_cast<double>(v));
+}
+
+// Registry-driven controls / dump for one Tunables.def group (declaration order).
+void draw_tunable_group(DebugParams& p, std::string_view group) {
+    for (const tunables::Tunable& t : tunables::all()) {
+        if (group != t.group)
+            continue;
+        tunables::visit(t, p, [&](auto kind, auto& v) { widget(t, kind, v); });
+    }
+}
+
+void dump_tunable_group(const DebugParams& p, std::string_view group) {
+    bool first = true;
+    for (const tunables::Tunable& t : tunables::all()) {
+        if (group != t.group)
+            continue;
+        std::printf("%s%s=", first ? "" : " ", t.name);
+        tunables::visit(t, p, [&](auto kind, auto v) { dump(t, kind, v); });
+        first = false;
+    }
+    std::printf("\n");
 }
 
 void printValues(const DebugParams& p) {
@@ -274,11 +323,10 @@ void printValues(const DebugParams& p) {
                 p.sunColor.y, p.sunColor.z, p.sunAmbient, p.sunAzimuth, p.sunElevation);
     std::printf("fogColor={%.3f,%.3f,%.3f} fogDist63=%.1f fogMax=%.3f\n", p.fogColor.x, p.fogColor.y, p.fogColor.z,
                 p.fogDist63, p.fogMax);
-    std::printf("envGlossExp=%.3f iblDiffuse=%.3f iblSpecular=%.3f\n", p.envGlossExp, p.iblDiffuse, p.iblSpecular);
+    dump_tunable_group(p, "reflection");
     std::printf("ssaoEnabled=%d ssaoRadius=%.1f ssaoBias=%.1f ssaoIntensity=%.3f\n", p.ssaoEnabled ? 1 : 0,
                 p.ssaoRadius, p.ssaoBias, p.ssaoIntensity);
-    std::printf("ssrEnabled=%d ssrIntensity=%.3f ssrMaxDist=%.1f ssrThickness=%.1f ssrStride=%.1f\n",
-                p.ssrEnabled ? 1 : 0, p.ssrIntensity, p.ssrMaxDist, p.ssrThickness, p.ssrStride);
+    dump_tunable_group(p, "ssr");
     std::printf("steerAxisEdit=%d steerEuler={%.2f,%.2f,%.2f} steerQuat={%.4f,%.4f,%.4f,%.4f}\n",
                 p.steerAxisEdit ? 1 : 0, p.steerEuler.x, p.steerEuler.y, p.steerEuler.z, p.steerQuat.x, p.steerQuat.y,
                 p.steerQuat.z, p.steerQuat.w);
@@ -287,8 +335,8 @@ void printValues(const DebugParams& p) {
     std::printf("shadowBias=%.5f shadowFloor=%.3f lightSize=%.2f csmShadowFar=%.1f csmLambda=%.3f\n", p.shadowBias,
                 p.shadowFloor, p.shadowLightSize, p.csmShadowFar, p.csmLambda);
     std::printf("depthBiasConst=%.3f depthBiasSlope=%.3f\n", p.depthBiasConst, p.depthBiasSlope);
-    std::printf("rainIntensity=%.3f wetPorosity=%.3f wetRoughness=%.3f streakLen=%.1f\n", p.rainIntensity,
-                p.wetPorosity, p.wetRoughness, p.streakLen);
+    std::printf("rainIntensity=%.3f streakLen=%.1f\n", p.rainIntensity, p.streakLen);
+    dump_tunable_group(p, "wet");
     std::printf("carOverride=%d carMetalness=%.3f carPaint={%.3f,%.3f,%.3f} carRoughnessMul=%.3f\n",
                 p.carOverride ? 1 : 0, p.carMetalness, p.carPaint.x, p.carPaint.y, p.carPaint.z, p.carRoughnessMul);
     std::printf("ssaaScale=%.3f\n", p.ssaaScale);
@@ -319,13 +367,92 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
     else
         io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
 
-    constexpr float kPi = 3.14159265358979323846f;
+    using util::units::kPi;  // == the literal 3.14159265358979323846f (static_assert in Units.h)
 
     if (p.showPanel) {
         ImGui::Begin("swish - debug");
 
         ImGui::Text("%.1f FPS", io.Framerate);
         ImGui::Checkbox("Edit mode (free cursor)", &p.editMode);
+
+        // ── Telemetry (speed / gear / rpm / grip HUD — issue 5's readout) ──
+        // The cockpit instrument cluster is BAKED PIXELS in the GLB texture
+        // atlas (verified: zero gauge/needle/dial nodes across 3341 nodes —
+        // the needle is painted at zero and can never move), so it cannot be
+        // driven as a speed readout; this panel is the only one available.
+        // Read-only: telemetry* fields are pushed once per frame from
+        // CarEntity's live state (App.cpp, mirroring the steerPivotWorld /
+        // cull-tally pattern used elsewhere in DebugParams) — this section
+        // only DISPLAYS them, no tuning here.
+        if (ImGui::CollapsingHeader("Telemetry", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Checkbox("Show HUD", &p.showTelemetry);
+            if (p.showTelemetry) {
+                const float mph = p.telemetrySpeedMps * 2.23694f;  // m/s -> mph
+                const float kmh = p.telemetrySpeedMps * 3.6f;      // m/s -> km/h
+
+                // Large/prominent speed readout (temporarily scale the font up).
+                ImGui::SetWindowFontScale(1.6f);
+                ImGui::Text("%.0f mph", mph);
+                ImGui::SetWindowFontScale(1.0f);
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%.0f km/h)", kmh);
+
+                ImGui::Separator();
+                ImGui::Text("Gear: %s", gearLabel(p.telemetryGear));
+
+                // RPM vs the 7200 rpm redline (CarPhysics.h::engine_torque — the
+                // WOT torque curve tapers to EXACTLY 0 there; 7200 is the Turbo S
+                // limit the Phase-1 retarget brought in, down from the GT3's 9000).
+                // Progress bar colored green -> amber -> red as it nears the limiter.
+                constexpr float kRedlineRpm = 7200.0f;
+                const float     rpmFrac     = glm::clamp(p.telemetryRpm / kRedlineRpm, 0.0f, 1.0f);
+                const ImVec4    rpmColor    = rpmFrac > 0.9f   ? ImVec4(0.90f, 0.15f, 0.15f, 1.0f)   // red
+                                              : rpmFrac > 0.7f ? ImVec4(0.95f, 0.75f, 0.10f, 1.0f)   // amber
+                                                               : ImVec4(0.20f, 0.75f, 0.30f, 1.0f);  // green
+                char            rpmLabel[32];
+                std::snprintf(rpmLabel, sizeof(rpmLabel), "%.0f / %.0f rpm", p.telemetryRpm, kRedlineRpm);
+                ImGui::PushStyleColor(ImGuiCol_PlotHistogram, rpmColor);
+                ImGui::ProgressBar(rpmFrac, ImVec2(-1.0f, 0.0f), rpmLabel);
+                ImGui::PopStyleColor();
+
+                ImGui::Separator();
+                ImGui::Text("Effective mu: %.3f", p.telemetryMu);
+
+                // Hydroplaning indicator. Thresholds anchor on WetGripParams
+                // (CarPhysics.h): muDry=1.10 (dry asphalt), muWet=0.60 (low-speed
+                // wet asphalt), muPlane=0.08 (full hydroplane).
+                //   DRY          mu >= muDry - 0.02   — effective_mu()'s hard
+                //                                        invariant returns EXACTLY
+                //                                        muDry when wetness <= 0,
+                //                                        so a tiny epsilon absorbs
+                //                                        float noise without
+                //                                        masking any real wetness.
+                //   HYDROPLANING mu <= (muWet+muPlane)/2 (~0.34) — grip has
+                //                                        collapsed more than
+                //                                        halfway from wet-grip
+                //                                        toward full plane: a
+                //                                        clear, not borderline,
+                //                                        plane rather than just
+                //                                        ordinary wet fade.
+                //   WET          everything between the two above.
+                constexpr WetGripParams kGrip{};
+                const float             kMuDryEps  = kGrip.muDry - 0.02f;                   // ~1.08
+                const float             kMuPlaneTh = (kGrip.muWet + kGrip.muPlane) * 0.5f;  // ~0.34
+                const char*             state;
+                ImVec4                  stateColor;
+                if (p.telemetryMu <= kMuPlaneTh) {
+                    state      = "HYDROPLANING";
+                    stateColor = ImVec4(0.95f, 0.15f, 0.15f, 1.0f);  // red
+                } else if (p.telemetryMu < kMuDryEps) {
+                    state      = "WET";
+                    stateColor = ImVec4(0.95f, 0.75f, 0.10f, 1.0f);  // amber
+                } else {
+                    state      = "DRY";
+                    stateColor = ImVec4(0.30f, 0.85f, 0.40f, 1.0f);  // green
+                }
+                ImGui::TextColored(stateColor, "%s", state);
+            }
+        }
 
         // ── Preset buttons row ────────────────────────────────────────
         if (ImGui::Button("Reset"))
@@ -344,8 +471,8 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             printValues(p);
 
         // ── Named disk presets (toml save/load) ───────────────────────
-        // Persist the current look to CONFIG_DIR/presets/<name>.toml and reload
-        // it later — or pick an existing preset from the combo to load it live.
+        // Persist the current look to <presets_dir>/<name>.toml (per-user, outside build/;
+        // see DebugParamsIO.h) and reload it later — or pick an existing preset from the combo to load it live.
         {
             static char                     nameBuf[64] = "lie";
             static std::vector<std::string> onDisk      = debugio::list_presets();
@@ -484,20 +611,27 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::SliderFloat("Haze max", &p.hazeMax, 0.0f, 1.0f);
         }
 
+        // ── Clearcoat / Flake (car paint BRDF) ─────────────────────────
+        if (ImGui::CollapsingHeader("Clearcoat / Flake")) {
+            ImGui::TextDisabled("Global multipliers over the per-material table (Materials panel)");
+            ImGui::SliderFloat("Clearcoat mul", &p.clearcoatMul, 0.0f, 2.0f);
+            ImGui::SliderFloat("Flake density mul", &p.flakeDensityMul, 0.0f, 2.0f);
+            ImGui::TextDisabled("Set flake mul to 0 to isolate the clearcoat lobe");
+            ImGui::Separator();
+            ImGui::SliderFloat("Clearcoat roughness", &p.clearcoatRoughness, 0.01f, 0.3f, "%.3f");
+            ImGui::SliderFloat("Flake roughness", &p.flakeRoughness, 0.02f, 0.4f, "%.3f");
+            ImGui::SliderFloat("Flake cell size (WU)", &p.flakeScale, 1.0f, 60.0f, "%.1f");
+            ImGui::SliderFloat("Flake jitter", &p.flakeJitter, 0.0f, 1.0f);
+        }
+
         // ── Reflections / IBL ─────────────────────────────────────────
         if (ImGui::CollapsingHeader("Reflections / IBL")) {
-            ImGui::SliderFloat("IBL diffuse", &p.iblDiffuse, 0.0f, 3.0f);
-            ImGui::SliderFloat("IBL specular", &p.iblSpecular, 0.0f, 3.0f);
-            ImGui::SliderFloat("Env gloss exp (legacy)", &p.envGlossExp, 0.5f, 8.0f);
+            draw_tunable_group(p, "reflection");  // IBL diffuse / specular, env gloss exp (Tunables.def)
         }
 
         // ── SSR (screen-space reflections) ────────────────────────────
         if (ImGui::CollapsingHeader("SSR")) {
-            ImGui::Checkbox("Enabled##ssr", &p.ssrEnabled);
-            ImGui::SliderFloat("Intensity##ssr", &p.ssrIntensity, 0.0f, 2.0f);
-            ImGui::SliderFloat("Max dist (WU)", &p.ssrMaxDist, 10000.0f, 500000.0f, "%.0f");
-            ImGui::SliderFloat("Thickness (WU)", &p.ssrThickness, 200.0f, 20000.0f, "%.0f");
-            ImGui::SliderFloat("Stride (WU)", &p.ssrStride, 200.0f, 10000.0f, "%.0f");
+            draw_tunable_group(p, "ssr");  // controls generated from Tunables.def
         }
 
         // ── God Rays (screen-space light shafts) ──────────────────────
@@ -553,11 +687,8 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
         // ── Wet / Rain ────────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Wet / Rain")) {
             ImGui::SliderFloat("Rain intensity", &p.rainIntensity, 0.0f, 1.0f);
-            ImGui::SliderFloat("Wet porosity", &p.wetPorosity, 0.0f, 1.0f);
-            ImGui::SliderFloat("Wet roughness", &p.wetRoughness, 0.0f, 1.0f);
             ImGui::SliderFloat("Streak length", &p.streakLen, 0.0f, 10000.0f, "%.0f");
-            ImGui::Checkbox("Puddles##puddle", &p.puddlesEnabled);
-            ImGui::SliderFloat("Puddle coverage", &p.puddleCoverage, 0.0f, 1.0f);
+            draw_tunable_group(p, "wet");  // Wet porosity / roughness, Puddles, Puddle coverage (Tunables.def)
             ImGui::Separator();
             ImGui::Checkbox("Road spray##spray", &p.sprayEnabled);
             ImGui::SliderFloat("Spray density", &p.sprayDensity, 0.0f, 1.0f);
@@ -581,6 +712,8 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::SliderFloat("Metalness##mat", &o.metalness, 0.0f, 1.0f);
             ImGui::SliderFloat("Roughness mul##mat", &o.roughnessMul, 0.0f, 2.0f);
             ImGui::ColorEdit3("Color##mat", &o.color.x);
+            ImGui::SliderFloat("Clearcoat##mat", &o.clearcoat, 0.0f, 1.0f);
+            ImGui::SliderFloat("Flake density##mat", &o.flakeDensity, 0.0f, 1.0f);
             if (ImGui::Button("Clear this slot"))
                 o = MaterialOverride{};
             ImGui::SameLine();

@@ -1,8 +1,9 @@
 #pragma once
 
-#include "../../scene/SceneTypes.h"
-#include "../../utils/Types.h"
-#include "../GpuResource/GpuResource.h"
+#include "renderer/GpuResource/GpuResource.h"
+#include "renderer/Passes/ImageRegistry.h"
+#include "scene/SceneTypes.h"
+#include "utils/types/Types.h"
 
 #include <vulkan/vulkan.h>
 
@@ -25,7 +26,9 @@ namespace swish {
 static constexpr uint32_t PP_MAX_FRAMES = 2;
 
 // Push constants shared by post-process shaders.
-// Layout must match the push_constant block in composite.frag exactly.
+// Layout must match the push_constant block in composite.frag exactly (13 floats = 52 B); the host struct is padded to
+// 64 B so the recorded push range is a 16-byte multiple (MoltenVK rule). The shader block is unchanged: the 12 trailing
+// bytes are never read.
 struct PostProcessParams {
     float threshold;        // bloom threshold (default 1.0)
     float bloom_intensity;  // bloom blend strength (default 0.3)
@@ -42,7 +45,13 @@ struct PostProcessParams {
     float saturation  = 1.0f;
     float temperature = 0.0f;
     float tint        = 0.0f;
+    // Host-only tail padding: 52 B -> 64 B (16-byte multiple). Not part of the shader's push block.
+    float _pad3 = 0.0f;
+    float _pad4 = 0.0f;
+    float _pad5 = 0.0f;
 };
+static_assert(sizeof(PostProcessParams) == 64 && sizeof(PostProcessParams) % 16 == 0,
+              "PostProcessParams: push-constant block must be 64 B and a 16-byte multiple (MoltenVK)");
 
 // SSAO push block (matches shaders/ssao.frag). 2×mat4 + 4 floats = 144 B, a
 // multiple of 16 (MoltenVK-safe). projection avoids a per-sample matrix inverse.
@@ -54,6 +63,8 @@ struct SsaoParams {
     float intensity;
     float _pad0 = 0.0f;
 };
+static_assert(sizeof(SsaoParams) == 144 && sizeof(SsaoParams) % 16 == 0,
+              "SsaoParams: push-constant block must be 144 B and a 16-byte multiple (MoltenVK)");
 
 // SSR push block (matches shaders/ssr.frag). 3×mat4 + 8 floats = 224 B (16-aligned).
 struct SsrParams {
@@ -69,12 +80,16 @@ struct SsrParams {
     float _pad1          = 0.0f;
     float _pad2          = 0.0f;
 };
+static_assert(sizeof(SsrParams) == 224 && sizeof(SsrParams) % 16 == 0,
+              "SsrParams: push-constant block must be 224 B and a 16-byte multiple (MoltenVK)");
 
 // God-rays push block (matches shaders/godrays.frag). 2×vec4 = 32 B (16-aligned).
 struct GodRaysParams {
     Vec4 sunUV;  // xy = screen-space sun position, z = visibility [0,1], w = pad
     Vec4 tune;   // x = density, y = decay, z = weight, w = intensity
 };
+static_assert(sizeof(GodRaysParams) == 32 && sizeof(GodRaysParams) % 16 == 0,
+              "GodRaysParams: push-constant block must be 32 B and a 16-byte multiple (MoltenVK)");
 
 class PostProcessManager {
 public:
@@ -82,10 +97,18 @@ public:
     ~PostProcessManager() = default;
 
     void init(VkDevice device, VkPhysicalDevice physicalDevice, VkCommandPool commandPool, VkQueue graphicsQueue,
-              VmaAllocator allocator, VkExtent2D extent, VkFormat swapchainFormat,
+              VmaAllocator allocator, VkPipelineCache pipelineCache, VkExtent2D extent, VkFormat swapchainFormat,
               const std::vector<VkImageView>& swapchainImageViews);
     void cleanup();
     void recreate(VkExtent2D extent, VkFormat swapchainFormat, const std::vector<VkImageView>& swapchainImageViews);
+
+    // ── Named-image access (ImageRegistry) ────────────────────────
+    // The images this manager owns, by `Img` name. `view` is VK_NULL_HANDLE for images without a view (Img::Lum)
+    // and for names owned by other passes (Img::Velocity).
+    VkImage     image(Img id, uint32_t frameIndex) const;
+    VkImageView view(Img id, uint32_t frameIndex) const;
+    // Publish every owned image into `reg`. Call after init() and after every recreate(): the handles change.
+    void register_images(ImageRegistry& reg) const;
 
     // ── G-Buffer + Lighting render pass getters ────────────────────
     VkRenderPass  get_gbuffer_render_pass() const { return m_gbufferRenderPass; }
@@ -93,6 +116,11 @@ public:
     VkImage       get_gbuffer_albedo_image(uint32_t frameIndex) const { return m_gbAlbedoImages[frameIndex].handle(); }
     VkImage       get_gbuffer_normal_image(uint32_t frameIndex) const { return m_gbNormalImages[frameIndex].handle(); }
     VkImage get_gbuffer_material_image(uint32_t frameIndex) const { return m_gbMaterialImages[frameIndex].handle(); }
+    // Clearcoat + flake MRT (always-on — see tasks/todo.md "Clearcoat + flake car
+    // paint"). RG = octahedral-encoded flake-perturbed world normal, B = clearcoat
+    // lobe strength, A = flake presence mask. Written by gbuffer.frag, read by
+    // lighting.frag (set 1, binding 4).
+    VkImage get_gbuffer_clearcoat_image(uint32_t frameIndex) const { return m_gbClearcoatImages[frameIndex].handle(); }
 
     VkRenderPass  get_lighting_render_pass() const { return m_lightingRenderPass; }
     VkFramebuffer get_lighting_framebuffer(uint32_t frameIndex) const { return m_lightingFramebuffers[frameIndex]; }
@@ -156,7 +184,7 @@ public:
     const void* get_lum_readback_mapped(uint32_t frameIndex) const { return m_lumReadback[frameIndex].mapped(); }
 
     // ── Descriptor set getters ───────────────────────────────────
-    VkDescriptorSet get_bloom_extract_set() const { return m_bloomExtractSet; }
+    VkDescriptorSet get_bloom_extract_set(uint32_t frameIndex) const { return m_bloomExtractSets[frameIndex]; }
     VkDescriptorSet get_bloom_blur_h_set() const { return m_bloomBlurHSet; }
     VkDescriptorSet get_bloom_blur_v_set() const { return m_bloomBlurVSet; }
     VkDescriptorSet get_ao_set(uint32_t frameIndex) const { return m_aoSets[frameIndex]; }
@@ -203,6 +231,7 @@ public:
 
 private:
     VkDevice         m_device         = VK_NULL_HANDLE;
+    VkPipelineCache  m_pipelineCache  = VK_NULL_HANDLE;  // not owned (Device); fed to pipeline::create_graphics
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
     VmaAllocator     m_allocator      = nullptr;
     VkCommandPool    m_commandPool    = VK_NULL_HANDLE;
@@ -219,13 +248,16 @@ private:
     float      m_renderScale   = kRenderScale;  // live SSAA factor (see set_render_scale)
 
     // ── G-Buffer (per frame-in-flight) ─────────────────────────────
-    VkRenderPass                             m_gbufferRenderPass = VK_NULL_HANDLE;
-    std::array<GpuImage, PP_MAX_FRAMES>      m_gbAlbedoImages{};
-    std::array<VkImageView, PP_MAX_FRAMES>   m_gbAlbedoViews{};
-    std::array<GpuImage, PP_MAX_FRAMES>      m_gbNormalImages{};
-    std::array<VkImageView, PP_MAX_FRAMES>   m_gbNormalViews{};
-    std::array<GpuImage, PP_MAX_FRAMES>      m_gbMaterialImages{};
-    std::array<VkImageView, PP_MAX_FRAMES>   m_gbMaterialViews{};
+    VkRenderPass                           m_gbufferRenderPass = VK_NULL_HANDLE;
+    std::array<GpuImage, PP_MAX_FRAMES>    m_gbAlbedoImages{};
+    std::array<VkImageView, PP_MAX_FRAMES> m_gbAlbedoViews{};
+    std::array<GpuImage, PP_MAX_FRAMES>    m_gbNormalImages{};
+    std::array<VkImageView, PP_MAX_FRAMES> m_gbNormalViews{};
+    std::array<GpuImage, PP_MAX_FRAMES>    m_gbMaterialImages{};
+    std::array<VkImageView, PP_MAX_FRAMES> m_gbMaterialViews{};
+    // Clearcoat + flake (always-on, 4th G-buffer MRT — see get_gbuffer_clearcoat_image).
+    std::array<GpuImage, PP_MAX_FRAMES>      m_gbClearcoatImages{};
+    std::array<VkImageView, PP_MAX_FRAMES>   m_gbClearcoatViews{};
     std::array<VkFramebuffer, PP_MAX_FRAMES> m_gbufferFramebuffers{};
 
     // ── Deferred lighting ────────────────────────────────────────
@@ -328,19 +360,19 @@ private:
     VkPipeline m_aoBlurPipeline       = VK_NULL_HANDLE;  // bilateral AO blur
     VkPipeline m_ssrPipeline          = VK_NULL_HANDLE;  // screen-space reflections
     VkPipeline m_godraysPipeline      = VK_NULL_HANDLE;  // god-rays (screen-space light shafts)
-    // SSAO/SSR read a mat4×2 + params push block (144 B) that doesn't fit the shared
-    // 32-B postprocess layout, so they need their own layouts.
+    // SSAO (mat4×2 + params, 144 B) and SSR (mat4×3 + params, 224 B) push blocks don't fit the
+    // shared 32-B postprocess layout, so they need their own layouts.
     VkPipelineLayout m_ssaoLayout = VK_NULL_HANDLE;
-    // SSR layout: set 0 = G-buffer (lightingTexLayout), set 1 = HDR (singleTexLayout) + 144-B push.
+    // SSR layout: set 0 = G-buffer (lightingTexLayout), set 1 = HDR (singleTexLayout) + 224-B push (SsrParams).
     VkPipelineLayout m_ssrLayout = VK_NULL_HANDLE;
     // God-rays layout: set 0 = G-buffer (lightingTexLayout), set 1 = HDR (singleTexLayout) + 32-B push.
     VkPipelineLayout m_godraysLayout = VK_NULL_HANDLE;
 
     // ── Descriptor pool + sets ───────────────────────────────────
-    VkDescriptorPool                           m_descriptorPool  = VK_NULL_HANDLE;
-    VkDescriptorSet                            m_bloomExtractSet = VK_NULL_HANDLE;
-    VkDescriptorSet                            m_bloomBlurHSet   = VK_NULL_HANDLE;
-    VkDescriptorSet                            m_bloomBlurVSet   = VK_NULL_HANDLE;
+    VkDescriptorPool                           m_descriptorPool = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, PP_MAX_FRAMES> m_bloomExtractSets{};  // per-frame: extract samples that frame's lit HDR
+    VkDescriptorSet                            m_bloomBlurHSet = VK_NULL_HANDLE;
+    VkDescriptorSet                            m_bloomBlurVSet = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, PP_MAX_FRAMES> m_aoSets{};  // per-frame: samples that frame's depth
     VkDescriptorSet                            m_aoBlurSet = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, PP_MAX_FRAMES> m_ssrHdrSets{};      // per-frame: SSR samples that frame's lit HDR
@@ -352,7 +384,10 @@ private:
     void createImages();
     void createFramebuffers(const std::vector<VkImageView>& swapchainImageViews);
     void createSampler();
-    void createDescriptors();
+    void createDescriptors();  // = layouts + pool + sets, in that order
+    void createDescriptorLayouts();
+    void createDescriptorPool();
+    void createDescriptorSets();
     void createPipelines();
     void primeAOTexture();
 
@@ -360,8 +395,6 @@ private:
     void destroyFramebuffers();
     void destroyPipelines();
     void destroyDescriptors();
-
-    VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
 
     // Scale a swapchain extent by kRenderScale for SSAA, clamping the factor
     // down if width/height would exceed the device's maxImageDimension2D.

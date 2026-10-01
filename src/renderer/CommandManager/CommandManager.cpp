@@ -1,6 +1,6 @@
 #include "CommandManager.h"
 
-#include "../../utils/VulkanCheck.h"
+#include "utils/vulkan/Check.h"
 
 // Implemented `CommandManager` to spin up command pools matching graphics queue family
 // and gracefully allocate discrete main command buffers.

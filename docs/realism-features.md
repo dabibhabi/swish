@@ -1,4 +1,17 @@
+---
+verified: 2026-09-29
+against: c843ebe + uncommitted refactor   # git rev-parse --short HEAD; file references updated for the Renderer split
+owner: docs-scribe
+covers: [src/renderer/**, shaders/**]
+---
+
 # GPU Realism Features
+
+> **File map (pass registry, 2026-09-29):** the frame is the ordered list in [`src/renderer/Passes/PassList.def`](../src/renderer/Passes/PassList.def);
+> `Renderer_Record.cpp` (`recordCommandBuffer`) only brackets `PassRegistry::record_all`, `Renderer_Frame.cpp` holds `drawFrame`.
+> Passes: `GeometryProducer/` (shadow atlas, G-buffer, `compute_cascades`), `Passes/{LightingPass,SsaoPasses,SsrPass,GodRaysPass,HdrFinalizePass,BloomPasses,CompositePass,DebugOverlayPass}.cpp`;
+> `Renderer_State.cpp` (setters, debug-param apply), `WeatherController/` (weather preset, IBL rebake); GPU objects of the
+> fullscreen passes stay in `PostProcessManager/`. See [`src/renderer/README.md`](../src/renderer/README.md). Shared GLSL is in `shaders/common/`.
 
 The `debug-ui` branch layered a suite of physically-motivated GPU effects on top of
 the base deferred pipeline documented in [render-pipeline.md](render-pipeline.md):
@@ -16,7 +29,7 @@ Release vs debug gating varies per feature:
 
 | Ships in release | Debug-only (off by default) | Hybrid |
 |---|---|---|
-| SSAO · CSM · IBL · SSAA · puddles · spray (wetness-gated) | auto-exposure · DoF · TAA + motion blur | god-rays (release, un-gated, with live sliders) · SSR (release on wet road; debug gate elsewhere) |
+| CSM · IBL · SSAA · puddles · spray (wetness-gated) | SSAO · auto-exposure · DoF · TAA + motion blur | god-rays (release, un-gated, with live sliders) · SSR (release on wet road; debug gate elsewhere) |
 
 The gating strategy is described in [debug-ui.md](debug-ui.md#release-safety); this doc covers the
 graphics. Note that "wetness-gated" features are byte-identical on a dry road, which is what release
@@ -38,7 +51,7 @@ graph LR
   CSM["Shadow atlas<br/>(3 cascades, depth-only)"] --> GB[G-buffer]
   GB --> LIT["Deferred lighting<br/>→ lit HDR (CSM + IBL sampled here)"]
   LIT --> SSAO["SSAO ½-res + blur<br/>hdr *= ao"]
-  LIT --> SSR["SSR march (debug)<br/>hdr += reflection"]
+  LIT --> SSR["SSR march<br/>hdr += reflection"]
   LIT --> GR["God-rays ½-res (release)<br/>radial blur → hdr += shafts"]
   GR --> DOF["DoF gather (debug)<br/>CoC from depth → copy back to hdr"]
   DOF --> FWD["Forward rain / spray / glass / windshield"]
@@ -64,8 +77,8 @@ each section below and in the CHANGELOG entries.
 ## SSAO — screen-space ambient occlusion
 
 **Files:** [shaders/ssao.frag](../shaders/ssao.frag), [shaders/ao_blur.frag](../shaders/ao_blur.frag),
-[src/renderer/Renderer/Renderer.cpp](../src/renderer/Renderer/Renderer.cpp) (`recordSsaoPasses`),
-[src/renderer/PostProcessManager/PostProcessManager.cpp](../src/renderer/PostProcessManager/PostProcessManager.cpp)
+[src/renderer/Passes/SsaoPasses.cpp](../src/renderer/Passes/SsaoPasses.cpp) (`Ssao` + `AoBlur` passes),
+[src/renderer/PostProcessManager/PostProcessManager_Images.cpp](../src/renderer/PostProcessManager/PostProcessManager_Images.cpp) (AO images, `primeAOTexture`)
 
 **What it does.** Darkens contact points and crevices — cabin seams, footwells, the
 dashboard-windshield gap — that direct + ambient lighting alone leaves flat. It is a
@@ -112,7 +125,7 @@ descriptor set is **per-frame** (`m_aoSets[PP_MAX_FRAMES]`), each sampling its o
 frame's depth in `DEPTH_STENCIL_READ_ONLY_OPTIMAL` — a single shared set pointed at
 frame 0 caused cross-frame ghosting.
 
-**Barriers.** `recordSsaoPasses` runs right after lighting (depth is still
+**Barriers.** The `Ssao` pass (`SsaoPasses.cpp`) runs right after lighting (depth is still
 `DEPTH_STENCIL_READ_ONLY`): SSAO → barrier `COLOR_ATTACHMENT → SHADER_READ` → box blur →
 barrier `→ SHADER_READ` for composite, mirroring the bloom chain.
 
@@ -121,7 +134,7 @@ barrier `→ SHADER_READ` for composite, mirroring the bloom chain.
 ## CSM — cascaded shadow maps (3 cascades)
 
 **Files:** [shaders/lighting.frag](../shaders/lighting.frag) (cascade select + PCF),
-[src/renderer/Renderer/Renderer.cpp](../src/renderer/Renderer/Renderer.cpp) (`computeCascades`, `recordShadowPass`),
+[src/renderer/GeometryProducer/GeometryProducer.cpp](../src/renderer/GeometryProducer/GeometryProducer.cpp) (`compute_cascades`, `record_shadow`),
 [src/renderer/DepthOnlyPipeline/DepthOnlyPipeline.cpp](../src/renderer/DepthOnlyPipeline/DepthOnlyPipeline.cpp),
 [src/scene/SceneTypes.h](../src/scene/SceneTypes.h) (`CameraUBO` tail, `NUM_CASCADES`)
 
@@ -140,7 +153,7 @@ Each cascade renders into its horizontal slice `[c·2048, 0, 2048, 2048]` via a 
 existing single-image / single-`sampler2D` plumbing and avoids per-layer image views
 and array-view MoltenVK complexity.
 
-**Split scheme.** `computeCascades` uses the practical split scheme (Zhang et al.),
+**Split scheme.** `compute_cascades` uses the practical split scheme (Zhang et al.),
 blending logarithmic and uniform splits by $\lambda$ (`csmLambda`, default `0.7`):
 
 $$d_i = \lambda\, n\Big(\tfrac{f}{n}\Big)^{i/N} + (1-\lambda)\Big(n + (f-n)\tfrac{i}{N}\Big),\qquad n=\text{near},\ f=\text{shadow far}$$
@@ -191,36 +204,35 @@ frustum culling, texel-grid snapping for less shimmer, or fewer/lower-res cascad
 
 ```mermaid
 graph LR
-  CC["computeCascades<br/>splits + sphere fit"] --> UBO["CameraUBO<br/>cascadeViewProj[3] + splits"]
-  CC --> SP["recordShadowPass<br/>3× viewport-scoped draws → atlas"]
+  CC["compute_cascades<br/>splits + sphere fit"] --> UBO["CameraUBO<br/>cascadeViewProj[3] + splits"]
+  CC --> SP["record_shadow<br/>3× viewport-scoped draws → atlas"]
   UBO --> LF["lighting.frag<br/>pick cascade → atlas UV → 3×3 PCF"]
   SP --> LF
 ```
 
 ---
 
-## Split-sum IBL — prefiltered cubemap baked from the procedural sky
+## Split-sum IBL — prefiltered cubemap from HDRI (procedural fallback)
 
 **Files:** [src/renderer/IBLManager/IBLManager.cpp](../src/renderer/IBLManager/IBLManager.cpp),
-[shaders/ibl_sky.frag](../shaders/ibl_sky.frag) · [ibl_irradiance.frag](../shaders/ibl_irradiance.frag) ·
-[ibl_prefilter.frag](../shaders/ibl_prefilter.frag) · [ibl_brdf.frag](../shaders/ibl_brdf.frag),
-[shaders/lighting.frag](../shaders/lighting.frag) (samples set 3)
+[shaders/ibl_equirect.frag](../shaders/ibl_equirect.frag) · [ibl_sky.frag](../shaders/ibl_sky.frag) ·
+[ibl_irradiance.frag](../shaders/ibl_irradiance.frag) · [ibl_prefilter.frag](../shaders/ibl_prefilter.frag) ·
+[ibl_brdf.frag](../shaders/ibl_brdf.frag), [shaders/lighting.frag](../shaders/lighting.frag) (samples set 3)
 
 > **Diagram:** [`docs/diagrams/ibl-split-sum.excalidraw`](diagrams/ibl-split-sum.excalidraw).
 
-**What it does.** Proper **image-based lighting** from a real prefiltered cubemap — but the
-environment is **baked from the procedural sky** (not a photo HDRI), so reflections stay
-consistent with the sky the scene is lit under. Diffuse ambient tracks the weather and reads
-directionally (grey overcast vs blue clear); specular reflection is roughness-aware and
-energy-conserving (glossy paint gets a crisp sky, rough asphalt a soft one), so the matte
-cabin no longer looks frosted. A photo `.hdr` can slot into the same cubemap hooks later.
+**What it does.** Proper **image-based lighting** from a real prefiltered cubemap. Preferred env
+source is a Radiance `.hdr` equirect (`assets/Sky/derelict_airfield_01_2k.hdr`): loaded once,
+projected to an env cube, then convolved. If the HDRI is missing, the bake falls back to the
+procedural sky (`ibl_sky.frag`) and re-bakes when weather changes. Specular is roughness-aware
+and energy-conserving (glossy paint / wet asphalt get a crisp env, rough asphalt a soft one).
+Background sky pixels and aerial haze sample the same prefiltered cube (mip 0) so the visible
+sky matches reflections on the car and road.
 
-**The bake (`IBLManager`).** A one-time GPU precompute (the sky is static per weather),
-re-run when the weather changes: procedural sky → **env cube** (128², 6 faces) → **diffuse
-irradiance cube** (32², cosine convolution) → **GGX-prefiltered specular cube** (128², 5
-roughness mips) → **BRDF LUT** (256², baked once — sky-independent). Faces render into per-face
-2D views from a CPU-supplied basis (`dir = normalize(F + s·R + t·U)`); sky params are pushed as
-constants so the bake needs no camera UBO (it runs at init before the camera exists).
+**The bake (`IBLManager`).** GPU precompute: **HDRI equirect → env cube** (256², 6 faces) — or
+procedural sky → env cube — then **diffuse irradiance** (32²) → **GGX-prefiltered specular**
+(256², 5 roughness mips) → **BRDF LUT** (256², once). HDRI path is static (no weather rebake).
+Faces use CPU basis `dir = normalize(F + s·R + t·U)`.
 
 **The split-sum approximation.** The reflectance integral over the environment is split
 into two independent, precomputable factors:
@@ -262,8 +274,9 @@ also reflects the irradiance cube instead of a fixed tint.
 **Descriptor sets + gating.** The IBL cubemaps + LUT are bound at **set 3** in *both* builds
 (a genuine lighting upgrade in release too); the debug scene-params UBO moves to **set 4** when
 `SWISH_DEBUG_UI` is on (a pipeline layout can't leave set 3 empty). `SP_IBL_DIFFUSE` /
-`SP_IBL_SPECULAR` still resolve to `sp.iblParams.xy` (set-4 UBO) in debug and literal `1.0` in
-release, so IBL strength stays live-tunable in `make debug`. The cubemaps are re-baked on a
+`SP_IBL_SPECULAR` still resolve to `sp.iblParams.xy` (set-4 UBO) in debug and to literals in
+release (`1.30` diffuse, `1.0` specular, equal to the `iblDiffuse` / `iblSpecular` defaults in
+`src/debug/Tunables.def`), so IBL strength stays live-tunable in `make debug`. The cubemaps are re-baked on a
 weather change (dirty-checked). See [debug-ui.md](debug-ui.md#scene-params-ubo).
 
 ---
@@ -271,8 +284,8 @@ weather change (dirty-checked). See [debug-ui.md](debug-ui.md#scene-params-ubo).
 ## SSR — screen-space reflections
 
 **Files:** [shaders/ssr.frag](../shaders/ssr.frag), [shaders/composite.frag](../shaders/composite.frag),
-[src/renderer/Renderer/Renderer.cpp](../src/renderer/Renderer/Renderer.cpp) (`recordSsrPass`),
-[src/renderer/PostProcessManager/PostProcessManager.cpp](../src/renderer/PostProcessManager/PostProcessManager.cpp) (`SsrParams`)
+[src/renderer/Passes/SsrPass.cpp](../src/renderer/Passes/SsrPass.cpp) (`SsrPass`, a `FullscreenPass<SsrParams>`),
+[src/renderer/PostProcessManager/PostProcessManager.h](../src/renderer/PostProcessManager/PostProcessManager.h) (`SsrParams`)
 
 > **Diagram:** [`docs/diagrams/ssr-raymarch.excalidraw`](diagrams/ssr-raymarch.excalidraw).
 
@@ -311,7 +324,7 @@ is added, so the split-sum sky IBL already in the HDR is the graceful fallback.
    don't pop at the screen border. The hit mask lives in the output alpha; RGB is already
    pre-weighted, so composite just does `hdr += texture(ssrTex).rgb`.
 
-**Barriers + ordering.** `recordSsrPass` runs right after lighting (HDR = the lit
+**Barriers + ordering.** The `Ssr` pass runs right after lighting (HDR = the lit
 deferred scene; depth still `DEPTH_STENCIL_READ_ONLY`). It barriers the lit HDR
 `COLOR_ATTACHMENT → SHADER_READ` so the march can sample it, marches into the SSR image,
 then restores HDR `→ COLOR_ATTACHMENT` for the forward rain/glass passes and transitions
@@ -324,13 +337,19 @@ graph LR
   S --> C["composite: hdr += ssr"]
 ```
 
-**Debug-gated.** Unlike CSM/IBL, SSR's look is a judgment call and it's artifact-prone,
-so `recordSsrPass` is `#ifdef SWISH_DEBUG_UI` only. `primeAOTexture` also primes the SSR
-image **black**, so release's always-present composite add is a no-op → release output is
-unchanged. Fully tunable: enable / intensity / maxDist / thickness / stride.
+**Release gating.** `Ssr` is a plain `PASS` (recorded in release too, tuned by `FrameCtx::tune`, i.e. the shipped
+defaults); `ssr.frag` gates the release contribution to wet or pooled surfaces, so a dry scene adds nothing and the SSR
+image stays primed **black** (`primeAOTexture`). Fully tunable in `make debug`: enable / intensity / maxDist / thickness / stride.
 
-**MoltenVK note.** `SsrParams` is a 144-B push (`proj`, `invProj` mat4s + 4 floats + 3
-pads, 16-aligned). The pass reuses the deferred-lighting texture layout for set 0 (depth +
+**Puddle coverage (2026-09-29).** SSR uses the *same* puddle coverage as the lit pass (`0.501`, one registry entry
+`puddleCoverage` in [`src/debug/Tunables.def`](../src/debug/Tunables.def), pushed into `SsrParams::puddleCoverage` in both
+builds; `!puddlesEnabled` zeroes it). Before, release forced it to 0 so SSR never reflected in the pools the lit pass drew.
+The C++ side has one constant, `swish::road::kPuddleCoverage` ([`RoadParams.h`](../src/scene/RoadScene/RoadParams.h)), which
+physics (`WetGrip.h`) uses; tests pin registry default == constant and `lighting.frag`'s release literal == registry. The
+visible effect is subtle (at wetness 0.3: ~300 px/frame, at most 6/255) because SSR only reflects on-screen geometry.
+
+**MoltenVK note.** `SsrParams` is a 224-B push (`proj`, `invProj`, `invView` mat4s + 8 floats,
+16-aligned, `static_assert`ed). The pass reuses the deferred-lighting texture layout for set 0 (depth +
 material) and a single-texture layout for set 1 (the lit HDR), with **per-frame** HDR
 descriptor sets so each frame samples its own HDR image.
 
@@ -338,8 +357,9 @@ descriptor sets so each frame samples its own HDR image.
 
 ## SSAA — internal supersampling
 
-**Files:** [src/renderer/PostProcessManager/PostProcessManager.cpp](../src/renderer/PostProcessManager/PostProcessManager.cpp) (`scaleExtent`),
-[src/renderer/Renderer/Renderer.cpp](../src/renderer/Renderer/Renderer.cpp)
+**Files:** [src/renderer/PostProcessManager/PostProcessManager.cpp](../src/renderer/PostProcessManager/PostProcessManager.cpp) (`scaleExtent`, split topic files `PostProcessManager_*.cpp`),
+[src/renderer/Renderer/Renderer.cpp](../src/renderer/Renderer/Renderer.cpp) (`recreateSwapchain`),
+[src/renderer/Renderer/Renderer_Frame.cpp](../src/renderer/Renderer/Renderer_Frame.cpp) (`drawFrame`)
 
 **What it does.** Renders the entire **offscreen** chain (G-buffer, HDR color/depth,
 lighting, bloom, AO, SSR, and the forward rain/glass/windshield passes) at a higher
@@ -370,9 +390,9 @@ diagram in the CHANGELOG's SSAA-rescale entry.
 
 ## Auto-exposure — eye / camera adaptation
 
-**Files:** [src/renderer/Renderer/Renderer.cpp](../src/renderer/Renderer/Renderer.cpp)
-(`recordLuminancePyramid`, `updateAutoExposure`),
-[src/renderer/PostProcessManager/PostProcessManager.cpp](../src/renderer/PostProcessManager/PostProcessManager.cpp)
+**Files:** [src/renderer/Passes/HdrFinalizePass.cpp](../src/renderer/Passes/HdrFinalizePass.cpp)
+(`record_luminance_pyramid`; the pass also owns the adapted-luminance state and publishes `FrameState::exposure`),
+[src/renderer/PostProcessManager/PostProcessManager_Images.cpp](../src/renderer/PostProcessManager/PostProcessManager_Images.cpp)
 (luminance image + readback buffers)
 
 > **Diagram:** [`docs/diagrams/auto-exposure-loop.excalidraw`](diagrams/auto-exposure-loop.excalidraw).
@@ -389,7 +409,7 @@ copied to a **per-frame host buffer** (`vkCmdCopyImageToBuffer`). Because it rep
 pre-bloom barrier, HDR cycles `COLOR_ATTACHMENT → TRANSFER_SRC → SHADER_READ` around it.
 
 **The one-frame-old feedback loop.** The CPU reads that buffer at the **next** frame's
-start (`updateAutoExposure`), so the value is 1–2 frames stale — but adaptation is slow, so
+start (`HdrFinalizePass::beginFrame`), so the value is 1–2 frames stale — but adaptation is slow, so
 there's **no GPU→CPU stall**. This prev-frame readback is the key trick:
 
 ```mermaid
@@ -438,8 +458,8 @@ bright sky and headlights. The tunable `exposure`, `brightness/contrast/saturati
 ## God-rays — volumetric light shafts
 
 **Files:** [shaders/godrays.frag](../shaders/godrays.frag),
-[src/renderer/Renderer/Renderer.cpp](../src/renderer/Renderer/Renderer.cpp) (`recordGodRaysPass`),
-[src/renderer/PostProcessManager/PostProcessManager.cpp](../src/renderer/PostProcessManager/PostProcessManager.cpp)
+[src/renderer/Passes/GodRaysPass.cpp](../src/renderer/Passes/GodRaysPass.cpp) (`GodRays` pass),
+[src/renderer/PostProcessManager/PostProcessManager_Images.cpp](../src/renderer/PostProcessManager/PostProcessManager_Images.cpp) (images), [`_Descriptors.cpp`](../src/renderer/PostProcessManager/PostProcessManager_Descriptors.cpp) (layout, sets)
 
 **What it does.** Sun-anchored crepuscular rays — bright shafts fanning from the sun, broken
 by the silhouettes of the car, signs and road. A cheap screen-space approximation (Mitchell
@@ -464,7 +484,7 @@ $$\text{accum} = \Bigl(\sum_{i=1}^{N}\text{sky}\bigl(uv - i\tfrac{\text{density}
 restored to `COLOR_ATTACHMENT` for the forward passes; the god-rays image ends in
 `SHADER_READ` for the composite add.
 
-**Release-safety.** Unlike SSR/SSAO (debug-only), `recordGodRaysPass` is **un-gated** — it
+**Release-safety.** Unlike SSAO (debug-only) and SSR (wet-gated in the shader), the `GodRays` pass is **un-gated** — it
 runs in both builds. In debug the tunables come from `DebugParams`; in release from a
 default-constructed `DebugParams{}` (the struct is Vulkan/ImGui-free and included
 unconditionally in `Renderer.h`), so the debug defaults *are* the shipped literals
@@ -489,8 +509,9 @@ the prefiltered-sky IBL specular resolves as a coherent puddle mirror:
 $$\text{puddle}=\operatorname{smoothstep}(1-c,\,1-c+0.12,\,\text{noise}(xz))\cdot\operatorname{smoothstep}(0.05,0.5,\text{wet})\cdot\text{road},\qquad \text{wetLocal}=\max(\text{wet}\cdot\text{wettable},\ \text{puddle})$$
 
 Evaluated in **world space** (from reconstructed position) so pools stay put as the camera moves.
-`SP_PUDDLE_COVERAGE` is `wetParams.z` (set-4 UBO) in debug, literal `0.0` in release — so a release
-build has no puddles and is byte-identical.
+`SP_PUDDLE_COVERAGE` is `wetParams.z` (set-4 UBO) in debug and the literal `0.501` in release (the `puddleCoverage`
+registry default; a test pins them equal), so release shows the same pools as the default debug look. SSR reads the
+same value (see the SSR section).
 
 ## Road spray — GPU compute particles
 

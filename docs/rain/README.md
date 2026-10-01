@@ -24,7 +24,7 @@ graph LR
     BAR --> BLOOM["Bloom"] --> COMP["Composite (ACES)"]
 ```
 
-`RainSystem`'s wetness/intensity feed the windshield UBO each frame, so the drops only appear once the scene is wet. Ordering and the snapshot live in [`Renderer::recordCommandBuffer`](../../src/renderer/Renderer/Renderer.cpp).
+`RainSystem`'s wetness/intensity feed the windshield UBO each frame, so the drops only appear once the scene is wet. Ordering is the pass list [`PassList.def`](../../src/renderer/Passes/PassList.def) (`Rain`, `SprayDraw`, `Glass`, `WindshieldRain`); the snapshot is taken inside the `WindshieldRain` pass.
 
 ---
 
@@ -65,7 +65,7 @@ where $\mathbf F=\texttt{gl\_FragCoord}$, $\mathbf S$ = framebuffer size, $s_r$ 
 
 The windshield pass renders **into** the HDR image (it sits in the forward chain). A fragment shader may not sample the same image it is writing — that is a feedback loop and undefined in Vulkan. So, after the glass pass, the HDR colour is copied into a dedicated sampled image (`refrSrc`, one per frame-in-flight) which the shader reads. The HDR image gained `VK_IMAGE_USAGE_TRANSFER_SRC_BIT` for this.
 
-`ResourceManager::insertImageBarrier` only knows the COLOR/DEPTH/SHADER layouts, so the transfer transitions are issued explicitly:
+The transfer transitions (`COLOR_ATTACHMENT`/`SHADER_READ` to and from `TRANSFER_SRC`/`TRANSFER_DST`) are pairs of the `swish::vkx::image_barrier` table ([`Barrier.h`](../../src/utils/vulkan/Barrier.h)); the sketch below shows the sequence:
 
 ```cpp
 // HDR (color attachment) → transfer source
@@ -215,7 +215,7 @@ no per-frame descriptor churn. With explicit transfer barriers around the copy.
 
 **Wiper blade** — a rotating line-segment SDF in screen space (the cockpit view is fixed; the mesh
 UVs aren't a clean $[0,1]^2$ so screen space is reliable). Blade angle $\theta = \sin(\phi)\,\theta_{\max}$
-($\theta_{\max}\approx 66°$), `V` toggles it (edge-detected in [`App.cpp`](../../src/core/App/App.cpp)):
+($\theta_{\max}\approx 66°$), `V` toggles it (edge-detected via the key table in [`AppInput.cpp`](../../src/core/App/AppInput.cpp)):
 
 ```glsl
 float wiperClear(vec2 uv, float angle, float aspect) {
@@ -278,7 +278,7 @@ The same flow drives both the wetness advection (`m_waterFlow`, CPU) and the pro
 `R` — cycle rain intensity (off → light → heavy) · `V` — toggle the wiper.
 
 ## Files
-`shaders/windshield_rain.{vert,frag}` · `shaders/windshield_wetness.frag` (wetness map) · [`WindshieldRainPass/`](../../src/renderer/WindshieldRainPass/) · [`PostProcessManager.cpp`](../../src/renderer/PostProcessManager/PostProcessManager.cpp) (HDR `TRANSFER_SRC`) · [`Renderer.cpp`](../../src/renderer/Renderer/Renderer.cpp) (snapshot + ordering) · [`ModelManager.cpp`](../../src/scene/ModelManager/ModelManager.cpp) (tagging) · [`App.cpp`](../../src/core/App/App.cpp) (input).
+`shaders/windshield_rain.{vert,frag}` · `shaders/windshield_wetness.frag` (wetness map) · [`WindshieldRainPass/`](../../src/renderer/WindshieldRainPass/) · [`PostProcessManager.cpp`](../../src/renderer/PostProcessManager/PostProcessManager.cpp) (HDR `TRANSFER_SRC`) · [`Renderer_Record.cpp`](../../src/renderer/Renderer/Renderer_Record.cpp) (snapshot + ordering) · [`ModelManager.cpp`](../../src/scene/ModelManager/ModelManager.cpp) (tagging) · [`AppInput.cpp`](../../src/core/App/AppInput.cpp) (input).
 
 ## Verification
 Build green (`cmake -B build && cmake --build build`); validation layers clean (snapshot copy, transfer barriers, binding-1 sampler exercised every frame); loader logs `windshield: 1`. Visually confirmed in-cockpit: small refractive beads (not blobs), no cabin/side-glass rain, wiper sweeps a clear streak — [`docs/images/windshield-rain-fixed.png`](../images/windshield-rain-fixed.png).
@@ -297,4 +297,4 @@ Build green (`cmake -B build && cmake --build build`); validation layers clean (
 - **Codrops — "Rain & Water Effect Experiments"** — the drop-mask/refraction intuition. <https://tympanus.net/codrops/2015/11/04/rain-water-effect-experiments/>
 - **Radiant — "How to render rain on glass"** — water-map + background-refraction two-pipeline pattern. <https://radiant-shaders.com/learn/rain-on-glass>
 
-See also the focused notes in this folder: [codebase-map](codebase-map.md) · [technique-refraction](technique-refraction.md) · [technique-wiper](technique-wiper.md) · [implementation-plan](implementation-plan.md).
+See also the focused notes in this folder: [codebase-map](../../archive/docs/rain/codebase-map.md) · [technique-refraction](../../archive/docs/rain/technique-refraction.md) · [technique-wiper](../../archive/docs/rain/technique-wiper.md) · [implementation-plan](../../archive/docs/rain/implementation-plan.md).

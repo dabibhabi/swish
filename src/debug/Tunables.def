@@ -1,0 +1,66 @@
+// Tunables.def -- single-source registry of live tunables (X-macro, no include guard).
+//
+// HOW TO ADD A TUNABLE (converted groups: ssr, reflection, and the wet material pair + puddles; every
+// other group is still hand-written in DebugParams.h / DebugParamsIO.cpp / DebugUI.cpp):
+//   1. Add ONE line below, inside the right group (keep a group's lines together; the
+//      order here is the ImGui slider order, the save order and the printf-dump order).
+//   2. That is all for: the DebugParams field + default, TOML save, TOML load, the ImGui
+//      control, the "name=value" dump line, and the push-constant field copy.
+//   3. If the value goes to a push block, name the SsrParams-style member with PUSH(member)
+//      and make sure the C++ struct + GLSL block have it (PostProcessManager.h / shader).
+//      Use NOPUSH when it is not copied by a generated push copy: either it never reaches the
+//      GPU, or it is packed by hand elsewhere (the reflection / wet entries below go to the
+//      set-4 scene-params UBO in SceneParamsUniform.cpp::update, and release ignores them:
+//      lighting.frag's `#else` SP_* literals are the release values). Derived logic (e.g.
+//      ssrEnabled zeroing intensity) stays hand-written next to the generated copy in
+//      renderer/Passes/SsrPass.cpp (SsrPass::describe).
+//      DO NOT change the TUNE_B/TUNE_F arity: renderer/Passes/SsrPass.cpp includes this file with its own
+//      definitions of both macros.
+//   4. Release default differs from the debug default? Put the release value in the last
+//      slot instead of NOREL (e.g. `0.5f`). Release builds (SWISH_DEBUG_UI=OFF) then default
+//      the DebugParams field to it; the debug default is the `def` slot. Leave NOREL when
+//      they match (the byte-identical-release rule). Keep hand-written GLSL release macros
+//      in sync: tests/test_debug_params_io.cpp diffs them against this table.
+//   5. Keep `lo <= def <= hi` (tested). Existing TOML keys must never be renamed.
+//
+// Line formats (consumers define these before #include, this file #undefs them after):
+//   TUNE_B(name, group, key, def, label, rel)
+//   TUNE_F(name, group, key, def, lo, hi, label, sliderFmt, dumpPrecision, push, rel)
+// Consumers: DebugParams.h (fields), Tunables.h (descriptor table -> IO / UI / dump),
+//            renderer/Passes/SsrPass.cpp SsrPass::describe (push packing; NOPUSH rows expand to a
+//            no-op `(void) d.x;`).
+
+#define NOREL std::nullopt
+
+// ── SSR (screen-space reflections) ─ ImGui header "SSR", TOML table [ssr] ──
+TUNE_B(ssrEnabled, "ssr", "enabled", true, "Enabled##ssr", NOREL)
+TUNE_F(ssrIntensity, "ssr", "intensity", 0.714f, 0.0f, 2.0f, "Intensity##ssr", "%.3f", 3, PUSH(intensity), NOREL)
+TUNE_F(ssrMaxDist, "ssr", "max_dist", 36018.0f, 10000.0f, 500000.0f, "Max dist (WU)", "%.0f", 1, PUSH(maxDist), NOREL)
+TUNE_F(ssrThickness, "ssr", "thickness", 1835.0f, 200.0f, 20000.0f, "Thickness (WU)", "%.0f", 1, PUSH(thickness), NOREL)
+TUNE_F(ssrStride, "ssr", "stride", 8063.0f, 200.0f, 10000.0f, "Stride (WU)", "%.0f", 1, PUSH(stride), NOREL)
+
+// ── Reflections / IBL ─ ImGui header "Reflections / IBL", TOML table [reflection] ──
+// Debug builds pack these into SceneParamsUBO.iblParams.xy / fogParams.z (set 4); the release
+// literals are lighting.frag SP_IBL_DIFFUSE / SP_IBL_SPECULAR / SP_ENV_GLOSS_EXP (== these defaults).
+TUNE_F(iblDiffuse, "reflection", "ibl_diffuse", 1.30f, 0.0f, 3.0f, "IBL diffuse", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(iblSpecular, "reflection", "ibl_specular", 1.0f, 0.0f, 3.0f, "IBL specular", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(envGlossExp, "reflection", "env_gloss_exp", 3.0f, 0.5f, 8.0f, "Env gloss exp (legacy)", "%.3f", 3, NOPUSH, NOREL)
+
+// ── Wet surface material ─ ImGui header "Wet / Rain" (the two rows between "Rain intensity" and
+// "Streak length"), TOML table [wet] (shared with the hand-written rain / puddle / spray keys).
+// SceneParamsUBO.wetParams.xy; release literals SP_WET_POROSITY / SP_WET_ROUGHNESS (== defaults).
+// Puddles (owner decision C2, 2026-09-29): puddleCoverage is the ONE source for the lit pass and SSR.
+// lighting.frag: debug packs it into SceneParamsUBO.wetParams.z (0 when puddles are disabled), release uses the
+// SP_PUDDLE_COVERAGE literal (== this default, pinned by tests/test_debug_params_io.cpp). SSR: PUSH copy into
+// SsrParams::puddleCoverage in BOTH builds (release uses this default too), zeroed by !puddlesEnabled in
+// SsrPass::describe (renderer/Passes/SsrPass.cpp), so SSR reflects in exactly the pools the lit pass turns to mirrors.
+TUNE_F(wetPorosity, "wet", "porosity", 0.631f, 0.0f, 1.0f, "Wet porosity", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(wetRoughness, "wet", "roughness", 1.0f, 0.0f, 1.0f, "Wet roughness", "%.3f", 3, NOPUSH, NOREL)
+TUNE_B(puddlesEnabled, "wet", "puddles_enabled", true, "Puddles##puddle", NOREL)
+TUNE_F(puddleCoverage, "wet", "puddle_coverage", 0.501f, 0.0f, 1.0f, "Puddle coverage", "%.3f", 3, PUSH(puddleCoverage), NOREL)
+
+#undef NOREL
+#undef TUNE_B
+#undef TUNE_F
+#undef PUSH
+#undef NOPUSH

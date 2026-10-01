@@ -18,7 +18,7 @@ Implement **Wheel Phase B** as specified in [docs/wheels/README.md](../docs/whee
   the existing crown formula in `RoadGeometry.cpp`).
 - Per-corner spring targets → semi-implicit Euler `suspension_step` at a **fixed internal
   substep** h = 1/240 s. Stability bound: h < (2/ω_n)(sqrt(1+ζ²) − ζ), derived in
-  `docs/wheels/research/03-implementation-plan.md` §2.3.
+  `archive/docs/wheels/research/03-implementation-plan.md` §2.3.
 - Defaults near f_n ≈ 1.4 Hz, ζ ≈ 0.45.
 - Visual body heave/pitch/roll + per-wheel vertical travel composed **only into draw
   matrices** — never write `m_position` or `m_rotation` (must not fight the Y snap or ribbon

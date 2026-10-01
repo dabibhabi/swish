@@ -45,7 +45,7 @@ $$
 ## 2. The code — exp and log with their singularities handled
 
 ```cpp
-// examples/chrono/src/chrono/core/ChQuaternion.h:1009-1027
+// archive/local/examples/chrono/src/chrono/core/ChQuaternion.h:1009-1027
 inline void ChQuaternion<Real>::SetFromRotVec(const ChVector3<Real>& angle_axis) {
     Real theta_squared = angle_axis.Length2();
     // For non-zero rotation:
@@ -77,7 +77,7 @@ $\sin x / x$-shaped kernel.
 The log side has a second, subtler numerics decision:
 
 ```cpp
-// examples/chrono/src/chrono/core/ChQuaternion.h:1035-1037
+// archive/local/examples/chrono/src/chrono/core/ChQuaternion.h:1035-1037
 if (sin_squared > 1e-30) {
     Real sin_theta = std::sqrt(sin_squared);
     Real k = 2 * std::atan2(sin_theta, m_data[0]) / sin_theta;
@@ -102,7 +102,7 @@ quaternion, always. Nothing ever drifts off the sphere, so nothing ever needs re
 **The code** — increment and its exact inverse:
 
 ```cpp
-// examples/chrono/src/chrono/physics/ChBody.cpp:152-158
+// archive/local/examples/chrono/src/chrono/physics/ChBody.cpp:152-158
 // ADVANCE ROTATION: R_new = DR_a * R_old
 // (using quaternions, local or abs:  q_new = Dq_a * q_old =  q_old * Dq_l  )
 ChQuaternion<> q_old(x.segment(off_x + 3, 4));
@@ -112,7 +112,7 @@ ChQuaternion<> q_new = q_old * rel_q;
 ```
 
 ```cpp
-// examples/chrono/src/chrono/physics/ChBody.cpp:172-177
+// archive/local/examples/chrono/src/chrono/physics/ChBody.cpp:172-177
 // ROTATION (quaternions): Dq_loc = q_old^-1 * q_new,
 //  because   q_new = Dq_abs * q_old   = q_old * Dq_loc
 ChQuaternion<> rel_q = q_old.GetConjugate() * q_new;

@@ -1,8 +1,10 @@
 #pragma once
 
-#include "../../scene/SceneTypes.h"
-#include "../../utils/Types.h"
-#include "../GpuResource/GpuResource.h"
+#include "renderer/GpuResource/GpuResource.h"
+#include "renderer/Passes/IRenderPass.h"
+#include "renderer/RendererConfig.h"
+#include "scene/SceneTypes.h"
+#include "utils/types/Types.h"
 
 #include <vulkan/vulkan.h>
 
@@ -38,53 +40,50 @@ struct WindshieldRainUBO {
 //     not glowing geometry). Gated by the sampled wetness map and confined to
 //     the forward-facing windshield pane.
 //
-// Per frame the Renderer must:
-//   1. update(...)                — advance time/wiper, write UBO + wet params
-//   2. record_wetness_update(...) — step the wetness map (after glass)
-//   3. record_scene_snapshot(...) — blit HDR → refraction source
-//   4. record_draws(...)          — draw the windshield with refractive drops
+// Registry pass. update() advances time / wiper and writes the UBO + wet params; record() (after glass, before
+// TAA / HdrFinalize) steps the wetness map, snapshots the HDR scene into the refraction source, then draws the
+// windshield with refractive drops. Nothing is recorded unless there are windshield draws and car geometry.
 // ══════════════════════════════════════════════════════════════════════
-class WindshieldRainPass {
+class WindshieldRainPass final : public IRenderPass {
 public:
-    WindshieldRainPass()  = default;
-    ~WindshieldRainPass() = default;
+    WindshieldRainPass()           = default;
+    ~WindshieldRainPass() override = default;
 
-    void init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
-              VkDescriptorSetLayout cameraSetLayout);
+    const char* name() const override { return "WindshieldRain"; }
+    void        init(const PassInitCtx& ctx) override;
+    void        onResize(const PassInitCtx& ctx) override;
+    // Screen-space flow direction from the car heading, speed factor (car speed / kMaxSpeed), wetness and rain
+    // intensity from FrameState (published by the rain pass), wiper toggle.
+    void update(const FrameUpdate& u) override;
+    void record(const FrameCtx& ctx) override;
+    void cleanup(VkDevice device) override;
+
+private:
+    void create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
+                VkDescriptorSetLayout cameraSetLayout);
+    void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
 
     // Update per-frame state.
     //   screenFlowDir — car forward dir projected to screen XY (normalized).
     //   speedFactor   — car speed / kMaxSpeed, clamped to [0,1].
-    //   wetness       — from RainSystem::get_wetness().
-    //   intensity     — from RainSystem::get_intensity().
-    //   wiperEnabled  — V-key toggle; runs the continuous wiper sweep.
-    void update(uint32_t frameIndex, float deltaTime, Vec2 screenFlowDir, float speedFactor, float wetness,
-                float intensity, bool wiperEnabled);
+    //   wetness / intensity — the rain system's current values; wiperEnabled — V-key toggle (continuous wiper sweep).
+    void step(uint32_t frameIndex, float deltaTime, Vec2 screenFlowDir, float speedFactor, float wetness,
+              float intensity, bool wiperEnabled);
 
-    // Step the persistent wetness map (fullscreen pass): rain + advection +
-    // wiper + evaporation. Call AFTER the glass pass, BEFORE the snapshot/draw.
+    // Step the persistent wetness map (fullscreen pass): rain + advection + wiper + evaporation. After the glass
+    // pass, before the snapshot / draw.
     void record_wetness_update(VkCommandBuffer cmd);
 
-    // Snapshot the HDR scene into the per-frame refraction-source image so the
-    // fragment shader can refract it. Records layout transitions + a copy into
-    // the command buffer. Call while hdrImage is COLOR_ATTACHMENT_OPTIMAL
-    // (restored to it on return).
+    // Snapshot the HDR scene into the per-frame refraction-source image so the fragment shader can refract it.
+    // Records layout transitions + a copy. Call while hdrImage is COLOR_ATTACHMENT_OPTIMAL (restored on return).
     void record_scene_snapshot(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, VkExtent2D extent);
 
-    // Draw windshield draw calls using the shared car VBO/IBO.
-    // Camera set 0 must already be bound on m_pipeLayout before this call.
+    // Draw windshield draw calls using the shared car VBO/IBO. Camera set 0 must already be bound on m_pipeLayout.
     void record_draws(VkCommandBuffer cmd, uint32_t frameIndex, VkBuffer carVBO, VkBuffer carIBO,
                       const std::vector<DrawCall>& windshieldDCs) const;
 
-    void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
-
-    void cleanup(VkDevice device);
-
-    VkPipelineLayout get_pipeline_layout() const { return m_pipeLayout; }
-
-private:
     void createRenderPass(VkDevice device, VkFormat depthFormat);
     void createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                             const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews);
@@ -97,8 +96,8 @@ private:
     void clearWetnessImages(VkDevice device);  // one-time zero of both maps
     void createDescriptors(VkDevice device);
     void writeDescriptors(VkDevice device);
-    void createPipeline(VkDevice device, VkDescriptorSetLayout cameraSetLayout);
-    void createWetnessPipeline(VkDevice device);
+    void createPipeline(VkDevice device, VkPipelineCache cache, VkDescriptorSetLayout cameraSetLayout);
+    void createWetnessPipeline(VkDevice device, VkPipelineCache cache);
 
     VkRenderPass                                    m_renderPass = VK_NULL_HANDLE;
     std::array<VkFramebuffer, MAX_FRAMES_IN_FLIGHT> m_framebuffers{};

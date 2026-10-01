@@ -25,9 +25,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Source-registry self-test (create_object / prune_sources anchors)
-        # Fast, build-free guard: fails if the add_executable(swish) anchor that
-        # the scaffolding/prune scripts depend on ever moves or is restructured.
+      - name: Source-glob self-test
+        # Fast, build-free guard: fails if the CONFIGURE_DEPENDS source/shader globs
+        # are removed or a hand-listed .cpp creeps back into CMakeLists.txt.
         run: bash scripts/test_source_registry.sh
 
       - name: Install build tools + GLFW + GLM
@@ -63,3 +63,60 @@ jobs:
 
       - name: Run ctest
         run: ctest --test-dir build --output-on-failure
+
+  # Full engine compile (no GPU needed; nothing is run). Linux Vulkan only for now;
+  # there is deliberately no macOS job yet. -Werror applies to first-party swish
+  # sources only (SWISH_WERROR); third-party headers are SYSTEM includes.
+  build-swish:
+    name: Build swish (${{ matrix.name }}) + ctest
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: release
+            build_type: Release
+            debug_ui: "OFF"
+            dir: build
+          - name: debug-ui
+            build_type: RelWithDebInfo
+            debug_ui: "ON"
+            dir: build-debug
+    env:
+      CC: clang
+      CXX: clang++
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools + GLFW + GLM + clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build build-essential git clang \
+            libglfw3-dev libglm-dev
+
+      - name: Install Vulkan SDK (headers, loader, glslc)
+        run: |
+          CODENAME="$(lsb_release -cs)"
+          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
+            | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc >/dev/null
+          sudo wget -qO "/etc/apt/sources.list.d/lunarg-vulkan-${CODENAME}.list" \
+            "https://packages.lunarg.com/vulkan/lunarg-vulkan-${CODENAME}.list"
+          sudo apt-get update
+          sudo apt-get install -y vulkan-sdk
+
+      - name: Configure
+        run: |
+          cmake -S . -B ${{ matrix.dir }} -G Ninja \
+            -DSWISH_BACKEND=LINUX_VULKAN \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DSWISH_DEBUG_UI=${{ matrix.debug_ui }} \
+            -DSWISH_WERROR=ON
+
+      - name: Build swish (all targets)
+        run: cmake --build ${{ matrix.dir }}
+
+      - name: Run ctest
+        run: ctest --test-dir ${{ matrix.dir }} --output-on-failure

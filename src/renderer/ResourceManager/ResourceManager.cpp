@@ -1,16 +1,15 @@
 #include "ResourceManager.h"
 
-#include "../../utils/VulkanCheck.h"
+#include "utils/vulkan/Check.h"
 
 #include <stdexcept>
 
-// Implemented static memory allocation functions for buffers and images,
-// memory type finders mapping to hardware limits, and simple one-time copies.
+// One-time layout transitions / copies and format pickers (see ResourceManager.h).
 
-namespace swish {
+namespace swish::resource {
 
-void ResourceManager::transitionImageLayout(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkImage image,
-                                            VkImageLayout oldLayout, VkImageLayout newLayout) {
+void transitionImageLayout(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkImage image,
+                           VkImageLayout oldLayout, VkImageLayout newLayout) {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -69,59 +68,8 @@ void ResourceManager::transitionImageLayout(VkDevice device, VkCommandPool comma
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
-void ResourceManager::insertImageBarrier(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout,
-                                         VkImageLayout newLayout, VkImageAspectFlags aspect) {
-    VkImageMemoryBarrier barrier{};
-    barrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout                       = oldLayout;
-    barrier.newLayout                       = newLayout;
-    barrier.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image                           = image;
-    barrier.subresourceRange.aspectMask     = aspect;
-    barrier.subresourceRange.baseMipLevel   = 0;
-    barrier.subresourceRange.levelCount     = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount     = 1;
-
-    VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-    VkPipelineStageFlags dstStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-
-    // Source access/stage based on old layout
-    if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
-        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        srcStage              = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    } else if (oldLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
-        barrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        srcStage              = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-    } else if (oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        srcStage              = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
-        barrier.srcAccessMask = 0;
-        srcStage              = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-    }
-
-    // Destination access/stage based on new layout
-    if (newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        dstStage              = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    } else if (newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
-        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        dstStage              = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    } else if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
-        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        dstStage              = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    } else if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL) {
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        dstStage              = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    }
-
-    vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-}
-
-void ResourceManager::copyBufferToImage(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer buffer,
-                                        VkImage image, uint32_t width, uint32_t height) {
+void copyBufferToImage(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer buffer, VkImage image,
+                       uint32_t width, uint32_t height) {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -161,8 +109,8 @@ void ResourceManager::copyBufferToImage(VkDevice device, VkCommandPool commandPo
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
-VkFormat ResourceManager::findSupportedFormat(VkPhysicalDevice physicalDevice, const std::vector<VkFormat>& candidates,
-                                              VkImageTiling tiling, VkFormatFeatureFlags features) {
+VkFormat findSupportedFormat(VkPhysicalDevice physicalDevice, const std::vector<VkFormat>& candidates,
+                             VkImageTiling tiling, VkFormatFeatureFlags features) {
     for (VkFormat format : candidates) {
         VkFormatProperties props;
         vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
@@ -177,10 +125,10 @@ VkFormat ResourceManager::findSupportedFormat(VkPhysicalDevice physicalDevice, c
     throw std::runtime_error("failed to find supported format!");
 }
 
-VkFormat ResourceManager::findDepthFormat(VkPhysicalDevice physicalDevice) {
+VkFormat findDepthFormat(VkPhysicalDevice physicalDevice) {
     return findSupportedFormat(physicalDevice,
                                {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
                                VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 
-}  // namespace swish
+}  // namespace swish::resource

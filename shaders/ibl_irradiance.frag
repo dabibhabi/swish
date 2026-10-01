@@ -17,7 +17,7 @@ layout(push_constant) uniform P {
     vec4 faceF;  // xyz = face forward/centre basis
 } pc;
 
-const float PI = 3.14159265359;
+#include "math.glsl"
 
 void main() {
     vec2 st = fragUV * 2.0 - 1.0;

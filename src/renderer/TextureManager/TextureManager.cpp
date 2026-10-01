@@ -1,7 +1,7 @@
 #include "TextureManager.h"
 
-#include "../../utils/VulkanCheck.h"
-#include "../ResourceManager/ResourceManager.h"
+#include "renderer/ResourceManager/ResourceManager.h"
+#include "utils/vulkan/Check.h"
 
 #include <stb_image.h>
 
@@ -17,7 +17,6 @@ namespace swish {
 
 TextureManager::TextureManager(const RendererServices& services)
     : m_device(services.device),
-      m_physicalDevice(services.physicalDevice),
       m_commandPool(services.commandPool),
       m_graphicsQueue(services.graphicsQueue),
       m_allocator(services.allocator) {
@@ -76,7 +75,11 @@ bool TextureManager::is_linear_data(const std::string& name) {
 
 void TextureManager::register_from_pixels(const std::string& name, const std::vector<uint8_t>& pixels, uint32_t width,
                                           uint32_t height) {
-    upload_texture(name, pixels, width, height, VK_FORMAT_R8G8B8A8_SRGB);
+    // Match load_directory: albedo = sRGB, normal/roughness/metallic/ao = linear UNORM.
+    // (Previously everything went through sRGB — car ORM/normal maps were gamma-warped
+    // and sampled too glossy, which showed up as faceted IBL on the steering wheel.)
+    VkFormat fmt = is_linear_data(name) ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8G8B8A8_SRGB;
+    upload_texture(name, pixels, width, height, fmt);
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -131,15 +134,13 @@ void TextureManager::upload_texture(const std::string& name, const std::vector<u
                                       VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
     // Transitions + copy
-    ResourceManager::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue, tex.image.handle(),
-                                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    resource::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue, tex.image.handle(),
+                                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    ResourceManager::copyBufferToImage(m_device, m_commandPool, m_graphicsQueue, staging.handle(), tex.image.handle(),
-                                       w, h);
+    resource::copyBufferToImage(m_device, m_commandPool, m_graphicsQueue, staging.handle(), tex.image.handle(), w, h);
 
-    ResourceManager::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue, tex.image.handle(),
-                                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    resource::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue, tex.image.handle(),
+                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     // Image view
     VkImageViewCreateInfo viewInfo{};

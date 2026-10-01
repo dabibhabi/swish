@@ -16,8 +16,8 @@
 
 #ifdef SWISH_DEBUG_UI
 
-#include "../utils/Types.h"  // Mat4
 #include "DebugParams.h"
+#include "utils/types/Types.h"  // Mat4
 
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>

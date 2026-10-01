@@ -33,6 +33,7 @@
 
 # Build
 build/
+build-debug/
 cmake-build-*/
 
 # Dear ImGui writes its window-layout state here (debug UI only)
@@ -43,33 +44,67 @@ imgui.ini
 .idea/
 *.swp
 
-
-cars/*
-
 # macOS
 .DS_Store
 
-# Linux
-.vscode/
-.idea/
-*.swp
-
-# Windows
-*.swp
-
-.cache/
-/examples
-
-
-zip_files/
+# Python bytecode
+__pycache__/
 *.pyc
 
-*.claude
+# Third-party / build trees
+/examples
+.cache/
 tomlplusplus-*/
 build-xcode/
-# Local-only Claude/agent notes (code-audit pack, not part of the shipped repo)
-claude_docs/
 uv.lock
 
-# Local-only scratch reply (not part of the shipped repo)
+# --- local-only archive: reference code, raw downloads, old builds (archive/README.md lists it) ---
+/archive/local/
+
+# --- local-only source assets: large files must never go to GitHub ---
+/blender_builder/
+/new_assets/
+/durango/
+/car_internals/
+cars/*
+/assets/cars/
+zip_files/
+# cached OSM/SUMO input for tools/lie_corridor.py (reproducible; needs network + netconvert)
+/data/osm/
+
+# --- runtime assets too large for git (procedural sky is the fallback for missing HDRIs) ---
+/assets/Sky/
+/assets/Charger/
+/assets/blend/ncpd_charger.glb
+# NOT ignored on purpose (required to run, small): assets/corridor/lie_corridor.bin, config/lie_corridor.toml
+# assets/swish_demo.gif (README hero) stays tracked.
+
+# --- per-user tuning presets (kept out of build/ so `make clean` cannot wipe them) ---
+/config/presets/
+
+# --- AI tooling: per-machine ---
+# Arch and Mac .claude dirs differ on purpose, so .claude stays local-only.
+*.claude
+/.mcp.json
+.conductor/
+.dist/
+
+# Local-only Claude/agent notes and scratch (not part of the shipped repo)
+claude_docs/
 response.md
+/review_*/
+
+# --- local scratch + generated files (added by deep-clean 2026-09-29) ---
+# scratch/: anything you want on disk but never in git (nothing tracked may link into it)
+/scratch/
+# Metal / Xcode GPU captures (docs/notes/metal_debugging.md, MoltenVK auto-capture)
+*.gputrace
+# compiled shaders written outside build/ (scripts/glslc_test.sh now uses a temp dir)
+*.spv
+# python venvs / clangd db
+.venv/
+/compile_commands.json
+
+# local-only: Obsidian vault settings and reference PDFs (untracked 2026-09-29 by owner request)
+/.obsidian/
+/References/

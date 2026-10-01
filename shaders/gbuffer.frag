@@ -17,17 +17,26 @@ layout(push_constant) uniform PushConstants {
     mat4 model;
     vec4 color;
     vec4 material;   // x = real per-material metalness [0,1] (dielectric = 0)
+    // Clearcoat + flake (car paint BRDF — see tasks/todo.md "Clearcoat + flake car
+    // paint" and lighting.frag). x = clearcoat lobe strength [0,1], y = flake
+    // density [0,1] (probability a world-space flake cell sparkles), z = flake cell
+    // scale (world units), w = flake normal-jitter strength [0,1]. z/w are global
+    // debug tunables broadcast into every draw (see SceneGeometry::record_draws),
+    // not authored per-material.
+    vec4 paint;
 } push;
 
-// ── G-Buffer MRT outputs (3 color attachments) ──────────────────
-layout(location = 0) out vec4 outAlbedo;    // RGB = base color, A = 1
-layout(location = 1) out vec4 outNormal;    // RGB = encoded world normal, A = 1
-layout(location = 2) out vec4 outMaterial;  // R = metallic, G = roughness, B = wettable, A = road tag
+// ── G-Buffer MRT outputs (4 color attachments) ──────────────────
+layout(location = 0) out vec4 outAlbedo;         // RGB = base color, A = 1
+layout(location = 1) out vec4 outNormal;         // RGB = encoded world normal, A = 1
+layout(location = 2) out vec4 outMaterial;       // R = metallic, G = roughness, B = wettable, A = road tag
+// R,G = octahedral-encoded flake-perturbed world normal (== N when inactive),
+// B = clearcoat lobe strength, A = flake presence mask (0/1). Always-on MRT
+// (not SWISH_DEBUG_UI-gated) — see lighting.frag for the BRDF that consumes it.
+layout(location = 3) out vec4 outClearcoatFlake;
 
 // ── Procedural noise for surface variation ────────────────────────
-float hash(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-}
+#include "hash.glsl"
 
 float noise(vec2 p) {
     vec2 i = floor(p);
@@ -51,6 +60,17 @@ float fbm(vec2 p) {
     return val;
 }
 
+// 3D hash (flake-cell lookup) — independent of the 2D UV hash above so flake
+// sparkle is keyed to WORLD position, not texture space (stays put as the
+// camera moves; matches the road-puddle pattern in lighting.frag).
+float hash3(vec3 p) {
+    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+}
+
+// Octahedral normal encoding (packs the flake normal into 2 UNORM8 channels).
+#define SWISH_OCT_ENCODE
+#include "oct.glsl"
+
 void main() {
     // ── Alpha test (billboard transparency) ───────────────────────
     vec4 albedoSample = texture(albedoTex, fragUV);
@@ -65,7 +85,7 @@ void main() {
     float wash = clamp(push.color.a - 1.0, 0.0, 1.0);
     albedo     = mix(albedo, vec3(0.55), wash);  // tasteful LIGHT GRAY target (not white)
     vec3 normalMap  = texture(normalTex, fragUV).rgb * 2.0 - 1.0;
-    float roughness = texture(roughnessTex, fragUV).r;
+    float roughness = texture(roughnessTex, fragUV).r;  // greyscale; car ORM G expanded at load
 
     // ── Surface variation (procedural weathering) ─────────────────
     float wear  = fbm(fragUV * 0.08);
@@ -96,4 +116,30 @@ void main() {
     // lighting.frag/ssr.frag. Was a hardcoded 1.0; no release consumer read it.
     // Previously R was hardcoded 0.04, conflating F0 with metalness.
     outMaterial = vec4(push.material.x, roughness, push.material.y, push.material.w);
+
+    // ── Clearcoat + flake (stochastic, procedural — no baked texture) ──────
+    // Flake sparkle is generated per WORLD-SPACE cell (not per pixel/UV), so it
+    // reads as discrete metal-flake glints that track the paint surface as the
+    // camera moves rather than a uniform grain. A cell either sparkles (its
+    // normal is perturbed by a per-cell random offset) or doesn't — the flake
+    // lobe in lighting.frag then only lights up where the perturbed normal
+    // happens to catch the sun, giving the glint (not a static bright patch).
+    float clearcoatStrength = push.paint.x;  // per-material (or its debug override)
+    float flakeDensity      = push.paint.y;
+    float flakeScale        = max(push.paint.z, 1.0);
+    float flakeJitter       = push.paint.w;
+
+    vec3  flakeNormal = N;
+    float flakeMask   = 0.0;
+    if (flakeDensity > 0.0) {
+        vec3  cell     = floor(fragWorldPos / flakeScale);
+        float presence = hash3(cell);
+        if (presence < flakeDensity) {
+            vec3 rnd = vec3(hash3(cell + 17.23), hash3(cell + 91.71), hash3(cell + 53.13)) * 2.0 - 1.0;
+            flakeNormal = normalize(N + rnd * flakeJitter);
+            flakeMask   = 1.0;
+        }
+    }
+
+    outClearcoatFlake = vec4(octEncode(flakeNormal), clearcoatStrength, flakeMask);
 }

@@ -1,6 +1,6 @@
 #include "SyncObjects.h"
 
-#include "../../utils/VulkanCheck.h"
+#include "utils/vulkan/Check.h"
 
 #include <cassert>
 

@@ -1,7 +1,9 @@
 #pragma once
 
-#include "../../utils/Types.h"
-#include "../GpuResource/GpuResource.h"
+#include "renderer/GpuResource/GpuResource.h"
+#include "renderer/Passes/IRenderPass.h"
+#include "renderer/RendererConfig.h"
+#include "utils/types/Types.h"
 
 #include <vulkan/vulkan.h>
 
@@ -50,46 +52,48 @@ struct SprayParams {
 // buffer (modelled on RainSystem). Emission is gated by wetness × speed, so it only
 // appears on a wet road at speed and is invisible in the dry (release) scene.
 // ══════════════════════════════════════════════════════════════════════
-class SpraySystem {
+class SpraySystem final : public IRenderPass {
 public:
-    SpraySystem()  = default;
-    ~SpraySystem() = default;
+    SpraySystem()           = default;
+    ~SpraySystem() override = default;
 
-    void init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
-              VkDescriptorSetLayout cameraSetLayout);
+    // This registry entry is the COMPUTE half ("SpraySim", recorded before the rain streaks). The draw half is a
+    // second entry ("SprayDraw", after rain) that finds this object at init and calls record_draws().
+    const char* name() const override { return "SpraySim"; }
+    void        init(const PassInitCtx& ctx) override;
+    void        onResize(const PassInitCtx& ctx) override;
+    // Upload this frame's sim UBO + cache the record-time activity flag. The spawn centre is the rear axle (1.5 m
+    // behind the car origin along its heading); emission is gated by FrameState::wetness x speed.
+    void update(const FrameUpdate& u) override;
+    // Advance the particles. Recorded OUTSIDE a render pass; inserts the compute-write -> vertex-read buffer barrier.
+    void record(const FrameCtx& ctx) override { record_compute(ctx.cmd, ctx.frameIndex); }
+    void cleanup(VkDevice device) override;
 
-    // Upload this frame's sim UBO + cache the record-time activity flag. spawnCentre
-    // is the rear-axle world position (WU); carVelocity is WU/s; wetness is [0,1].
-    void update(uint32_t frameIndex, float deltaTime, Vec3 spawnCentre, Vec3 carVelocity, float wetness,
-                const SprayParams& params);
-
-    // Advance the particles. MUST be recorded OUTSIDE a render pass. Inserts the
-    // compute-write → vertex-read buffer barrier so the draw sees the new positions.
-    void record_compute(VkCommandBuffer cmd, uint32_t frameIndex) const;
-
-    // Draw the additive billboards (own render pass). Set 0 (camera) must already be
-    // bound by the caller, exactly like RainSystem::record_draws.
-    void record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const;
-
-    void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
-
-    void cleanup(VkDevice device);
-
+    // Draw the additive billboards (own render pass). Set 0 (camera) must already be bound by the caller, exactly
+    // like RainSystem's draw. Used by the SprayDraw entry.
+    void             record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const;
     VkPipelineLayout get_pipeline_layout() const { return m_drawPipeLayout; }
 
 private:
+    void create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
+                VkDescriptorSetLayout cameraSetLayout);
+    void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
+    void step(uint32_t frameIndex, float deltaTime, Vec3 spawnCentre, Vec3 carVelocity, float wetness,
+              const SprayParams& params);
+    void record_compute(VkCommandBuffer cmd, uint32_t frameIndex) const;
+
     void createParticleBuffer(const RendererServices& s);
     void createSimUBOs(const RendererServices& s);
     void createComputeDescriptors(VkDevice device);
-    void createComputePipeline(VkDevice device);
+    void createComputePipeline(VkDevice device, VkPipelineCache cache);
     void createRenderPass(VkDevice device);
     void createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                             const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews);
     void destroyFramebuffers(VkDevice device);
     void createDrawDescriptors(VkDevice device);
-    void createDrawPipeline(VkDevice device, VkDescriptorSetLayout cameraSetLayout);
+    void createDrawPipeline(VkDevice device, VkPipelineCache cache, VkDescriptorSetLayout cameraSetLayout);
 
     // ── Particle SSBO (single, shared, continuously simulated in place) ──
     GpuBuffer m_particleBuffer;

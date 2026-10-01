@@ -1,38 +1,50 @@
 #include "DofPass.h"
 
+#include "renderer/RendererConfig.h"
+
 #ifdef SWISH_DEBUG_UI
 
-#include "../../utils/VulkanCheck.h"
-#include "../../utils/VulkanInit.h"
-#include "../Pipeline/Pipeline.h"
-#include "../Renderer/RendererServices.h"
-#include "../ResourceManager/ResourceManager.h"
+#include "debug/DebugParams.h"
+#include "renderer/Pipeline/Pipeline.h"
+#include "renderer/Renderer/RendererServices.h"
+#include "scene/Camera/Camera.h"
+#include "utils/vulkan/Barrier.h"
+#include "utils/vulkan/Check.h"
+#include "utils/vulkan/Descriptors.h"
+#include "utils/vulkan/ImageView.h"
+#include "utils/vulkan/Init.h"
+#include "utils/vulkan/PushConstants.h"
+#include "utils/vulkan/RenderPass.h"
+#include "utils/vulkan/Samplers.h"
 
 #include <array>
+#include <glm/glm.hpp>
+#include <memory>
 
 namespace swish {
 
-namespace {
-// Explicit color-image barrier with the given stages/access (insertImageBarrier
-// doesn't cover the TRANSFER layouts the copy-back needs).
-void barrier(VkCommandBuffer cmd, VkImage img, VkImageLayout oldL, VkImageLayout newL, VkAccessFlags srcA,
-             VkAccessFlags dstA, VkPipelineStageFlags srcS, VkPipelineStageFlags dstS) {
-    VkImageMemoryBarrier b{};
-    b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    b.oldLayout           = oldL;
-    b.newLayout           = newL;
-    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.image               = img;
-    b.srcAccessMask       = srcA;
-    b.dstAccessMask       = dstA;
-    b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdPipelineBarrier(cmd, srcS, dstS, 0, 0, nullptr, 0, nullptr, 1, &b);
+void DofPass::init(const PassInitCtx& ctx) {
+    create(ctx.services, ctx.images.views(Img::Hdr), ctx.images.views(Img::HdrDepth), ctx.renderExtent);
 }
-}  // namespace
 
-void DofPass::init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                   const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent) {
+void DofPass::onResize(const PassInitCtx& ctx) {
+    recreate(ctx.images.views(Img::Hdr), ctx.images.views(Img::HdrDepth), ctx.renderExtent, ctx.services.device);
+}
+
+void DofPass::record(const FrameCtx& c) {
+    if (!c.tune.dofEnabled || !c.camera)
+        return;
+    DofParams dp;
+    dp.enabled         = true;
+    dp.focusDist       = c.tune.dofFocusDist;
+    dp.focusRange      = c.tune.dofFocusRange;
+    dp.maxCoC          = c.tune.dofMaxCoC;
+    const Mat4 invProj = glm::inverse(c.camera->get_projection_matrix());
+    resolve(c.cmd, c.frameIndex, c.images.image(Img::Hdr, c.frameIndex), dp, invProj);
+}
+
+void DofPass::create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                     const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent) {
     m_allocator     = s.allocator;
     m_device        = s.device;
     m_commandPool   = s.commandPool;
@@ -43,34 +55,27 @@ void DofPass::init(const RendererServices& s, const std::array<VkImageView, MAX_
     createImages(s);
     createFramebuffers(s.device);
 
-    VkSamplerCreateInfo si{};
-    si.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    si.magFilter    = VK_FILTER_LINEAR;
-    si.minFilter    = VK_FILTER_LINEAR;
-    si.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    si.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    VK_CHECK(vkCreateSampler(s.device, &si, nullptr, &m_sampler));
+    m_sampler = vkx::make_sampler(s.device);  // linear, clamp-to-edge
 
     createDescriptors(s.device, hdrViews, depthViews);
-    createPipeline(s.device);
+    createPipeline(s.device, s.pipelineCache);
 }
 
-void DofPass::record(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, const DofParams& params,
-                     const Mat4& invProj) {
+void DofPass::resolve(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, const DofParams& params,
+                      const Mat4& invProj) {
     if (!params.enabled)
         return;
 
     const uint32_t writeIdx = frameIndex;
 
     // HDR (this frame's lit+forward result) → readable as the DOF input.
-    ResourceManager::insertImageBarrier(cmd, hdrImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vkx::image_barrier<VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL>(
+        cmd, hdrImage, VK_IMAGE_ASPECT_COLOR_BIT);
 
     // Resolve into dof[writeIdx].
     {
         VkClearValue clear{};
-        auto         bi      = vk::makeRenderPassBeginInfo();
+        auto         bi      = vkx::makeRenderPassBeginInfo();
         bi.renderPass        = m_renderPass;
         bi.framebuffer       = m_framebuffers[writeIdx];
         bi.renderArea.extent = m_extent;
@@ -97,12 +102,12 @@ void DofPass::record(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage,
     }
 
     // Copy the resolved output back into HDR so bloom/composite read it unchanged.
-    barrier(cmd, m_images[writeIdx].handle(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-    barrier(cmd, hdrImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT);
+    // COLOR_ATTACHMENT -> TRANSFER_SRC: COLOR_OUTPUT/COLOR_WRITE -> TRANSFER/TRANSFER_READ (identical to the
+    // previous explicit masks).
+    vkx::image_barrier<VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL>(
+        cmd, m_images[writeIdx].handle(), VK_IMAGE_ASPECT_COLOR_BIT);
+    vkx::image_barrier<VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL>(
+        cmd, hdrImage, VK_IMAGE_ASPECT_COLOR_BIT);
 
     VkImageCopy region{};
     region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
@@ -113,12 +118,12 @@ void DofPass::record(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage,
 
     // Restore HDR to COLOR_ATTACHMENT (as the god-rays pass left it) so the existing
     // downstream barrier/bloom logic is unchanged; leave the scratch readable.
-    barrier(cmd, hdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-    barrier(cmd, m_images[writeIdx].handle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    vkx::image_barrier<VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL>(
+        cmd, hdrImage, VK_IMAGE_ASPECT_COLOR_BIT);
+    // TRANSFER_SRC -> SHADER_READ: TRANSFER/TRANSFER_READ -> FRAGMENT/SHADER_READ (identical to the previous
+    // explicit masks).
+    vkx::image_barrier<VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL>(
+        cmd, m_images[writeIdx].handle(), VK_IMAGE_ASPECT_COLOR_BIT);
 }
 
 void DofPass::recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
@@ -165,40 +170,14 @@ void DofPass::createImages(const RendererServices& s) {
         m_images[i] = gpu::deviceLocalImage(
             s.allocator, m_extent.width, m_extent.height, m_format, VK_IMAGE_TILING_OPTIMAL,
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-        VkImageViewCreateInfo vi{};
-        vi.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        vi.image            = m_images[i].handle();
-        vi.viewType         = VK_IMAGE_VIEW_TYPE_2D;
-        vi.format           = m_format;
-        vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        VK_CHECK(vkCreateImageView(s.device, &vi, nullptr, &m_views[i]));
+        m_views[i] = vkx::make_image_view2d(s.device, m_images[i].handle(), m_format);
     }
 }
 
 void DofPass::createRenderPass(VkDevice device) {
-    VkAttachmentDescription att{};
-    att.format         = m_format;
-    att.samples        = VK_SAMPLE_COUNT_1_BIT;
-    att.loadOp         = VK_ATTACHMENT_LOAD_OP_DONT_CARE;  // every pixel is written
-    att.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-    att.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    att.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-    att.finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference ref{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-    VkSubpassDescription  subpass{};
-    subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments    = &ref;
-
-    VkRenderPassCreateInfo rp{};
-    rp.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    rp.attachmentCount = 1;
-    rp.pAttachments    = &att;
-    rp.subpassCount    = 1;
-    rp.pSubpasses      = &subpass;
-    VK_CHECK(vkCreateRenderPass(device, &rp, nullptr, &m_renderPass));
+    vkx::ColorPassDesc d;
+    d.color      = {.format = m_format};  // DONT_CARE load: every pixel is written
+    m_renderPass = vkx::make_color_pass(device, d);
 }
 
 void DofPass::createFramebuffers(VkDevice device) {
@@ -231,35 +210,10 @@ void DofPass::destroyImagesAndFramebuffers(VkDevice device) {
 
 void DofPass::createDescriptors(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                                 const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews) {
-    VkDescriptorSetLayoutBinding bindings[2]{};
-    for (uint32_t b = 0; b < 2; b++) {
-        bindings[b].binding         = b;
-        bindings[b].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        bindings[b].descriptorCount = 1;
-        bindings[b].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
-    }
-    VkDescriptorSetLayoutCreateInfo li{};
-    li.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    li.bindingCount = 2;
-    li.pBindings    = bindings;
-    VK_CHECK(vkCreateDescriptorSetLayout(device, &li, nullptr, &m_setLayout));
-
-    VkDescriptorPoolSize       poolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * MAX_FRAMES_IN_FLIGHT};
-    VkDescriptorPoolCreateInfo pi{};
-    pi.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pi.poolSizeCount = 1;
-    pi.pPoolSizes    = &poolSize;
-    pi.maxSets       = MAX_FRAMES_IN_FLIGHT;
-    VK_CHECK(vkCreateDescriptorPool(device, &pi, nullptr, &m_pool));
-
-    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
-    layouts.fill(m_setLayout);
-    VkDescriptorSetAllocateInfo ai{};
-    ai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    ai.descriptorPool     = m_pool;
-    ai.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-    ai.pSetLayouts        = layouts.data();
-    VK_CHECK(vkAllocateDescriptorSets(device, &ai, m_sets.data()));
+    m_setLayout = vkx::make_sampler_layout(device, 2);
+    m_pool =
+        vkx::make_pool(device, {.maxSets = MAX_FRAMES_IN_FLIGHT, .combinedImageSamplers = 2 * MAX_FRAMES_IN_FLIGHT});
+    vkx::allocate_sets(device, m_pool, m_setLayout, m_sets);
 
     writeDescriptors(device, hdrViews, depthViews);
 }
@@ -288,9 +242,9 @@ void DofPass::writeDescriptors(VkDevice device, const std::array<VkImageView, MA
     }
 }
 
-void DofPass::createPipeline(VkDevice device) {
-    VkPushConstantRange pc{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push)};
-    m_pipeLayout = Pipeline::createLayout(device, {m_setLayout}, {pc});
+void DofPass::createPipeline(VkDevice device, VkPipelineCache cache) {
+    const VkPushConstantRange pc = vkx::push_range<Push>(VK_SHADER_STAGE_FRAGMENT_BIT);
+    m_pipeLayout                 = pipeline::create_layout(device, {m_setLayout}, {pc});
 
     PipelineConfig cfg{};
     cfg.vertShaderPath   = std::string(SHADER_DIR) + "fullscreen.vert.spv";
@@ -300,7 +254,11 @@ void DofPass::createPipeline(VkDevice device) {
     cfg.enableDepthTest  = false;
     cfg.enableDepthWrite = false;
     cfg.pipelineLayout   = m_pipeLayout;
-    m_pipeline           = Pipeline::create(device, cfg, m_renderPass, m_extent);
+    m_pipeline           = pipeline::create_graphics(device, cache, cfg, m_renderPass, m_extent);
+}
+
+std::unique_ptr<IRenderPass> make_dof_pass() {
+    return std::make_unique<DofPass>();
 }
 
 }  // namespace swish
