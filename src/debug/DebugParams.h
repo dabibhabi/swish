@@ -165,6 +165,29 @@ struct DebugParams {
     float spraySize     = 450.0f;  // billboard base size (WU ≈ 0.45 m); grows ~2.6× over life
     float sprayOpacity  = 0.16f;   // additive strength
 
+    // ── Per-wheel spray (debug-only; OFF = the legacy single rear-axle emitter, i.e. today's look) ──
+    // App builds four wheel emitters (WheelSpray.h) from the car and hands them to SpraySystem::set_emitters
+    // while this is on; release never reads it. TOML table [wheel_spray].
+    bool perWheelSpray = false;
+
+    // ── Wet lens model (debug-only CPU model, no renderer upload yet; LensWetness.h) ──
+    // Defaults == LensWetnessParams{}. TOML table [lens_wet].
+    float lensWetRate         = 0.35f;  // 1/s coverage gain at rain = 1
+    float lensClearSpeedStart = 8.0f;   // m/s: airflow starts clearing
+    float lensClearSpeedFull  = 25.0f;  // m/s: airflow clears at full rate
+    float lensClearRate       = 3.0f;   // 1/s clearing at full airflow
+    float lensDrainRate       = 0.02f;  // 1/s slow gravity drain
+
+    // ── Slip visuals thresholds (debug-only; SlipVisuals.h, defaults == SlipVisualParams{}) ──
+    // Angles are in degrees here (radians in the struct). TOML table [slip].
+    float slipSkidRatio     = 0.20f;  // |slip ratio| above which a wheel skids
+    float slipSkidAngleDeg  = 8.0f;   // |slip angle| above which a wheel skids
+    float slipRatioStart    = 0.08f;  // spray-boost ramp start (boost 1)
+    float slipRatioFull     = 0.30f;  // spray-boost ramp end (boost = slipSprayBoostMax)
+    float slipAngleStartDeg = 4.0f;
+    float slipAngleFullDeg  = 12.0f;
+    float slipSprayBoostMax = 3.0f;
+
     // ── Car (paint override for tuning) ───────────────────────────────
     float     carMetalness = 0.0f;
     glm::vec3 carPaint{1.0f, 1.0f, 1.0f};
@@ -290,6 +313,21 @@ struct DebugParams {
     char  drvStatus[96]       = "";    // last export / replay message
     float drvFfbTorqueNm      = 0.0f;  // front-axle self-aligning torque target (no device output)
     float drvFfbNormalized    = 0.0f;  // torque / FfbParams::max_torque_nm in [-1,1]
+    // Per-wheel slip readout (0 FL, 1 FR, 2 BL, 3 BR; CarEntity::get_wheel_slip_visuals) and per-lens wet readout
+    // (0 Headlight_L, 1 Headlight_R, 2 TailLight_L, 3 TailLight_R; LensWetnessModel). Pushed by App, not persisted.
+    struct TelemetryWheel {
+        float slipRatio  = 0.0f;
+        float slipAngle  = 0.0f;  // rad
+        float sprayBoost = 1.0f;
+        bool  skid       = false;
+    };
+    struct TelemetryLens {
+        float coverage = 0.0f;
+        float dropSize = 0.0f;
+        float streak   = 0.0f;
+    };
+    TelemetryWheel telemetryWheel[4];
+    TelemetryLens  telemetryLens[4];
 
     // ── UI state (not a scene parameter, but lives with the rest) ─────
     bool editMode  = false;  // true = cursor free to drive the panel; false = drive-mode (panel ignores mouse)

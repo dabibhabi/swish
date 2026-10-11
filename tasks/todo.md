@@ -295,3 +295,14 @@ Track lead: driving-tools. Pipeline: vehicle-dynamics-engineer → (parallel) te
 - [x] S4 Debug panel (record/replay/gamepad/FFB readout), gated, identity default off
 - [x] S5 Tests green (release + debug), 33/33 .spv, goldens untouched, `make check`
 - [x] S6 Changelog entry + docs + `tasks/stub-report.md`
+## Stub: car rain interactions (2026-10-10, branch `stub/car-rain`)
+
+Track brief: `.worktrees/agent-runs/car-rain.md`. Stub = real interfaces + minimal honest impl + GPU-free Catch2 tests; debug-only, release byte-identical (33/33 `.spv`, goldens untouched).
+- [x] S1 Per-wheel spray emitter pure fn (`WheelSpray.h`) + SpraySystem accepts ≤4 emitters (debug-only path; release = today's single origin) — rain-weather-engineer
+- [x] S2 Lens wetness model (`LensWetness.h`, keyed by lens node name; accumulate / airflow clear / drain; upload-ready struct) — rain-weather-engineer
+- [x] S3 Phase C slip/lockup visual hooks (`SlipVisuals.h`: slip ratio/angle per wheel → spray boost, `skid` flag) — vehicle-dynamics-engineer
+- [x] S4 Debug wiring (DebugParams/Tunables, Telemetry readout, SWISH_DEBUG_UI gated, identity defaults) — debug-ui-engineer
+- [x] S5 Tests per slice (monotonic in rain, cleared at speed, zero dry, slip thresholds)
+- [x] S6 Verify: `make test`, `make test-debug`, 33/33 `.spv`, `make check`, 0 warnings, screenshots rain 0 & 1.0 — build-verify-engineer. **Note: release 233/233, debug 256/256, 33/33 `.spv` unchanged; screenshots at rain 0 & 1.0 NOT done (still open); `make check` to be run by owner after the changelog index refresh.**
+- [x] S7 Docs: changelog `docs/changelog/2026-10.md` + index, docs/rain, docs/wheels — docs-scribe (index refresh `python3 scripts/changelog_index.py` pending, owner runs it)
+- [ ] S8 `tasks/stub-report.md`

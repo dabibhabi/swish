@@ -8,11 +8,12 @@ All notable changes to Swish are documented here.
 
 Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest month first.
 
-### 2026-10 (3 entries)
+### 2026-10 (4 entries)
 
 - 2026-10-10 — [Car lights S1–S3: headlight / tail / brake spot lights (debug-only)](docs/changelog/2026-10.md#2026-10-10--car-lights-s1s3-headlight--tail--brake-spot-lights-debug-only)
 - 2026-10-10 — [Stub 6-DOF rigid-body chassis on four spring-damper wheel contacts (debug-only, bicycle stays default)](docs/changelog/2026-10.md#2026-10-10--stub-6-dof-rigid-body-chassis-on-four-spring-damper-wheel-contacts-debug-only-bicycle-stays-default)
 - 2026-10-10 — [Driving realism tools (input seam, telemetry/replay, physics bench)](docs/changelog/2026-10.md#2026-10-10--driving-realism-tools-input-seam-telemetryreplay-physics-bench)
+- 2026-10-10 — [Car rain interactions stub: per-wheel spray, wet-lens model, slip visual hooks (debug-only)](docs/changelog/2026-10.md#2026-10-10--car-rain-interactions-stub-per-wheel-spray-wet-lens-model-slip-visual-hooks-debug-only)
 
 ### 2026-09 (7 entries)
 

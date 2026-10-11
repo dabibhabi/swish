@@ -6,6 +6,7 @@
 #include "debug/TelemetryRecorder.h"
 #endif
 #include "renderer/Renderer/Renderer.h"
+#include "renderer/SpraySystem/WheelSpray.h"
 #include "renderer/TextureManager/TextureManager.h"
 #include "scene/Camera/Camera.h"
 #include "scene/Entity/CarEntity.h"
@@ -135,7 +136,7 @@ void App::update_car(float dt, bool debug_edit) {
 
     step_car_simulation(dt, debug_edit);
 #ifdef SWISH_DEBUG_UI
-    sync_car_with_debug_panel(debug_edit);
+    sync_car_with_debug_panel(dt, debug_edit);
 #endif
     push_car_to_renderer();
 }
@@ -191,7 +192,7 @@ void App::step_car_simulation(float dt, bool debug_edit) {
 // Steering-wheel gizmo: feed the current wheel pivot to the debug UI, and
 // in edit mode pose the wheel from the gizmo/override angle (the sim is
 // frozen then). The draw calls pushed afterwards re-generate with the new angle.
-void App::sync_car_with_debug_panel(bool debug_edit) {
+void App::sync_car_with_debug_panel(float dt, bool debug_edit) {
     DebugParams& dp    = m_renderer->debug_params();
     dp.steerPivotWorld = m_car->get_steering_wheel_pivot_world();
     dp.steerMaxDeg     = CarEntity::steer_max();
@@ -217,6 +218,76 @@ void App::sync_car_with_debug_panel(bool debug_edit) {
     m_car->set_wheel_tuning(dp.wheelSpinEnabled, dp.wheelSteerEnabled, dp.wheelSpinMul);
     // Physics model (stub): unchecked = bicycle (default / identity). set_physics_model is idempotent.
     m_car->set_physics_model(dp.rigidBodyChassis ? PhysicsModel::RigidBody : PhysicsModel::Bicycle);
+
+    sync_wheel_fx_with_debug_panel(dt);
+}
+
+// Wheel Phase C / wet-lens debug wiring. Everything here is debug-only; with perWheelSpray off (default) the
+// SpraySystem is never touched (legacy single rear-axle emitter), and the lens model only feeds the Telemetry panel.
+void App::sync_wheel_fx_with_debug_panel(float dt) {
+    DebugParams& dp = m_renderer->debug_params();
+
+    // Slip visuals under the panel's thresholds (degrees -> radians for the struct).
+    SlipVisualParams sp;
+    sp.skidSlipRatio          = dp.slipSkidRatio;
+    sp.skidSlipAngle          = dp.slipSkidAngleDeg * SlipVisualParams::kDegToRad;
+    sp.ratioStart             = dp.slipRatioStart;
+    sp.ratioFull              = dp.slipRatioFull;
+    sp.angleStart             = dp.slipAngleStartDeg * SlipVisualParams::kDegToRad;
+    sp.angleFull              = dp.slipAngleFullDeg * SlipVisualParams::kDegToRad;
+    sp.sprayBoostMax          = dp.slipSprayBoostMax;
+    const CarSlipVisuals slip = m_car->get_wheel_slip_visuals(sp);
+    for (std::size_t i = 0; i < 4; ++i) {
+        const WheelSlipVisual& w = slip.wheel[i];
+        dp.telemetryWheel[i]     = {w.slipRatio, w.slipAngle, w.sprayBoost, w.skid};
+    }
+
+    // Per-wheel spray: four emitters from the wheels' contact points; off = hand the system back to the legacy origin
+    // once (only on the on -> off edge), never per frame.
+    if (dp.perWheelSpray) {
+        const float wetness = m_renderer->get_wetness();
+        const float cover   = dp.puddlesEnabled ? dp.puddleCoverage : 0.0f;
+        const Vec3  vel     = m_car->get_forward() * m_car->get_speed();  // WU/s; lateral slide not modelled yet
+        std::array<SprayEmitter, kMaxWheelEmitters> emitters{};
+        uint32_t                                    count = 0;
+        for (int c = 0; c < 4; ++c) {
+            // compute_wheel_spray takes one standing-water scalar, so evaluate each wheel on its own puddle sample.
+            std::array<WheelSprayInput, kMaxWheelEmitters> one{};
+            one[0].pos                      = m_car->get_wheel_contact_world(c);
+            one[0].vel                      = vel;
+            one[0].slipSprayMul             = slip.wheel[static_cast<std::size_t>(c)].sprayBoost;
+            const float            standing = puddle_amount(one[0].pos.x, one[0].pos.z, cover);
+            const WheelSprayResult r        = compute_wheel_spray(one, wetness, standing);
+            if (r.count > 0)
+                emitters[count++] = r.emitters[0];
+        }
+        m_renderer->set_spray_emitters(emitters.data(), count);
+        m_wheel_spray_active = true;
+    } else if (m_wheel_spray_active) {
+        m_renderer->set_spray_emitters(nullptr, 0);
+        m_wheel_spray_active = false;
+    }
+
+    // Lamp-lens wetness: stepped from the applied rain intensity and the car's speed; panel rows only.
+    static constexpr const char* kLensNames[4] = {"Headlight_L_Lens", "Headlight_R_Lens", "TailLight_L_Lens",
+                                                  "TailLight_R_Lens"};
+    if (!m_lens_wetness_ready) {
+        for (const char* n : kLensNames)
+            m_lens_wetness.add_lens(n);
+        m_lens_wetness_ready = true;
+    }
+    LensWetnessParams lp = m_lens_wetness.params();
+    lp.wetRate           = dp.lensWetRate;
+    lp.clearSpeedStart   = dp.lensClearSpeedStart;
+    lp.clearSpeedFull    = dp.lensClearSpeedFull;
+    lp.clearRate         = dp.lensClearRate;
+    lp.drainRate         = dp.lensDrainRate;
+    m_lens_wetness.set_params(lp);
+    m_lens_wetness.step(dt, dp.rainIntensity, std::fabs(m_car->get_speed_mps()));
+    for (std::size_t i = 0; i < 4; ++i) {
+        const LensWetnessState s = m_lens_wetness.get(kLensNames[i]);
+        dp.telemetryLens[i]      = {s.coverage, s.dropSize, s.streak};
+    }
 }
 #endif
 

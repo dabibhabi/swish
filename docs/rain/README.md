@@ -288,6 +288,21 @@ Build green (`cmake -B build && cmake --build build`); validation layers clean (
 - **No mip blur** — the snapshot is single-level (`textureLod(..., 0)`); `screenAndRefr.z` is reserved for a wetness-driven blur LOD once the snapshot generates mips.
 - **Uniform rain accumulation** — the wetness map wets the whole windshield evenly; per-drop impact splashes or runner streaks (Tatarchuk's per-cell water mass) would add more structure to the map itself (the procedural drops already supply the fine detail).
 
+## Car rain interactions (stub, debug-only, 2026-10-10)
+
+Interfaces for car/rain coupling, behind `SWISH_DEBUG_UI` and off by default (release output unchanged). Details: [changelog 2026-10-10](../changelog/2026-10.md).
+
+| Piece | File | Status |
+|-------|------|--------|
+| Per-wheel spray | [WheelSpray.h](../../src/renderer/SpraySystem/WheelSpray.h) → `SpraySystem::set_emitters` | Up to 4 emitters; rate $= g\,w\,(k+(1-k)s)\,m$, zero when dry or stationary. Toggle `perWheelSpray`; off = legacy single rear-axle origin. One wheel spawns per frame (round-robin). |
+| Lens wetness | [LensWetness.h](../../src/renderer/WindshieldRainPass/LensWetness.h) | CPU model per lens node name: $c' = \text{rain}\,k_{wet}(1-c) - (a\,k_{clear}+k_{drain})\,c$, steady state $c^*=\frac{\text{rain}\,k_{wet}}{\text{rain}\,k_{wet}+a\,k_{clear}+k_{drain}}$ (about 0.95 parked, 0.10 at speed in rain 1.0). Drives Telemetry rows only. |
+
+**Not done:** screenshots at rain 0 and 1.0; `LensWetnessGpu` upload to the lighting/emissive path.
+
+**Full-version TODOs**
+- Spray: real contact patch and tangential throw off the tyre; per-wheel puddle depth; front bow-wave vs rear rooster-tail; hydroplaning high-volume cone; per-emitter cone/size in `spray_sim.comp` (changes release `.spv` hashes, so golden update plus changelog).
+- Lenses: per-lens exposure to airflow (headlights clear faster than tail lights); stochastic bead merging and lifetime; lamp heat drying; windshield/spray splash wetting rear lenses; renderer upload.
+
 ## References
 - **Tatarchuk, "Artist-Directable Real-Time Rain Rendering in City Environments," SIGGRAPH 2006** — per-cell water mass → dynamic normal map → scene refraction + Fresnel. <https://advances.realtimerendering.com/s2006/Tatarchuk-Rain.pdf>
 - **Rousseau et al., "Realistic Real-Time Rain Rendering"** — refraction via a precomputed wide-angle mask. <https://classes.cs.uchicago.edu/archive/2022/fall/23700-1/papers/gpu-rain.pdf>

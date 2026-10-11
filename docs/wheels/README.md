@@ -161,6 +161,19 @@ judge extremes, revert any temp forces, keep `make test` green (52/52 today).
     untouched dry-physics tests.
   - Window-only screenshots at both rain extremes; `make test` green.
 
+#### Phase C visual hooks — stub shipped 2026-10-10 (debug-only)
+
+[SlipVisuals.h](../../src/scene/Entity/SlipVisuals.h) and `CarEntity::get_wheel_slip_visuals()` ([CarEntity.h](../../src/scene/Entity/CarEntity.h)) give the final interface; the estimates are placeholders. Per wheel (0 FL, 1 FR, 2 BL, 3 BR): `slipRatio`, `slipAngle`, `sprayBoost` (1 to 3, smoothstep) and `skid` (|ratio| > 0.20 or |angle| > 8°), plus an aggregate. Read-only from existing state, never fed to physics; identity below 2 m/s or when not slipping. Consumed by per-wheel spray ([rain](../rain/README.md)) and the Telemetry panel; thresholds are `slip*` in `DebugParams` (TOML `[slip]`).
+
+| Hook | Stub | Full version |
+|------|------|--------------|
+| Slip angle | per-axle bicycle model, shared by both wheels | per-wheel: load transfer, yaw-rate contact velocity, per-wheel Ackermann |
+| Slip ratio | force-utilisation proxy $0.25\,F_x/(\mu F_z)$ | $\kappa=(\omega r_{eff}-v_x)/\max(|v_x|,\epsilon)$ from the `visual_omega_step` wheel-speed state |
+| Spray boost | slip only | also droplet velocity and film depth (`WetGrip.h` `filmOverTread`) |
+| Skid | boolean | intensity (mark opacity) plus per-wheel hysteresis |
+
+Tests: [test_slip_visuals.cpp](../../tests/test_slip_visuals.cpp). Screenshots at rain 0 and 1.0 are not done.
+
 ## Decision log
 
 | # | Decision | Options | Expert recommendation | Status |

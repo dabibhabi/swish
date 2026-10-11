@@ -4,6 +4,7 @@
 #include "CarPhysics.h"  // GearState (Wave 2 step 3b torque-curve/gearbox)
 #include "Entity.h"
 #include "RigidChassis.h"     // PhysicsModel + the 6-DOF chassis (debug-only alternative to the bicycle)
+#include "SlipVisuals.h"
 #include "WheelKinematics.h"  // CornerSpring (Phase-B suspension state)
 #include "utils/input/InputFrame.h"
 #include "utils/units/Units.h"
@@ -109,6 +110,31 @@ public:
     float get_engine_rpm() const {
         return engine_rpm(m_forward_speed / kWorldUnitsPerMeter, m_gear_state.gear, GearboxParams{},
                           rear_wheel_radius());
+    }
+
+    // Phase-C slip/skid/spray-boost summary (SlipVisuals.h), evaluated from the
+    // CURRENT state on demand; const, touches no physics state.
+    // TODO(stub): see SlipVisuals.h for what the full version needs.
+    CarSlipVisuals get_wheel_slip_visuals(const SlipVisualParams& sp = SlipVisualParams{}) const {
+        SlipInputs in;
+        in.vx    = m_forward_speed / kWorldUnitsPerMeter;
+        in.vl    = m_lateral_velocity;
+        in.r     = m_yaw_rate;
+        in.delta = glm::radians(std::clamp(m_steering_angle, -kMaxSteer, kMaxSteer));
+        in.fx    = m_long_force;
+        in.mu    = m_effective_mu;
+        return compute_slip_visuals(in, CarParams{}, TireParams{}, sp);
+    }
+
+    // World-space tyre contact point of wheel c (0 FL · 1 FR · 2 BL · 3 BR), WU: the loader-recovered pivot centre
+    // dropped by the rolling radius. Falls back to the car origin until wheel frames are loaded. Const, read-only
+    // (debug per-wheel spray feed; nothing in the sim or draw path calls it).
+    Vec3 get_wheel_contact_world(int c) const {
+        if (!m_wheels_valid || c < 0 || c > 3)
+            return get_position();
+        Vec3 p = Vec3((get_model_matrix() * m_wheel_frames[static_cast<std::size_t>(c)].frame)[3]);
+        p.y -= m_wheel_frames[static_cast<std::size_t>(c)].radius * kWorldUnitsPerMeter;
+        return p;
     }
 
     // ── Road-wheel articulation (kinematic spin + steer) ──────────────

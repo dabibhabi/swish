@@ -451,6 +451,59 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
                     stateColor = ImVec4(0.30f, 0.85f, 0.40f, 1.0f);  // green
                 }
                 ImGui::TextColored(stateColor, "%s", state);
+
+                // Per-wheel slip (SlipVisuals.h; ratio is a force-utilisation proxy, angle is per-axle for now).
+                ImGui::Separator();
+                static constexpr const char* kWheelLabels[4] = {"FL", "FR", "BL", "BR"};
+                if (ImGui::BeginTable("##wheelslip", 5, ImGuiTableFlags_SizingStretchProp)) {
+                    ImGui::TableSetupColumn("Wheel");
+                    ImGui::TableSetupColumn("Slip ratio");
+                    ImGui::TableSetupColumn("Slip angle");
+                    ImGui::TableSetupColumn("Spray x");
+                    ImGui::TableSetupColumn("Skid");
+                    ImGui::TableHeadersRow();
+                    for (int i = 0; i < 4; ++i) {
+                        const DebugParams::TelemetryWheel& w = p.telemetryWheel[i];
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(kWheelLabels[i]);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%+.3f", static_cast<double>(w.slipRatio));
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%+.1f deg", static_cast<double>(glm::degrees(w.slipAngle)));
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%.2f", static_cast<double>(w.sprayBoost));
+                        ImGui::TableNextColumn();
+                        if (w.skid)
+                            ImGui::TextColored(ImVec4(0.95f, 0.15f, 0.15f, 1.0f), "SKID");
+                        else
+                            ImGui::TextDisabled("-");
+                    }
+                    ImGui::EndTable();
+                }
+
+                // Lamp-lens wetness (LensWetness.h; CPU model only, not uploaded to the renderer yet).
+                static constexpr const char* kLensLabels[4] = {"Headlight L", "Headlight R", "Tail L", "Tail R"};
+                if (ImGui::BeginTable("##lenswet", 4, ImGuiTableFlags_SizingStretchProp)) {
+                    ImGui::TableSetupColumn("Lens");
+                    ImGui::TableSetupColumn("Coverage");
+                    ImGui::TableSetupColumn("Drop size");
+                    ImGui::TableSetupColumn("Streak");
+                    ImGui::TableHeadersRow();
+                    for (int i = 0; i < 4; ++i) {
+                        const DebugParams::TelemetryLens& l = p.telemetryLens[i];
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(kLensLabels[i]);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%.3f", static_cast<double>(l.coverage));
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%.3f", static_cast<double>(l.dropSize));
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%.3f", static_cast<double>(l.streak));
+                    }
+                    ImGui::EndTable();
+                }
             }
         }
 
@@ -745,6 +798,24 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::SliderFloat("Spray lifetime (s)", &p.sprayLifetime, 0.2f, 4.0f);
             ImGui::SliderFloat("Spray size (WU)", &p.spraySize, 100.0f, 3000.0f, "%.0f");
             ImGui::SliderFloat("Spray opacity", &p.sprayOpacity, 0.0f, 1.0f);
+            ImGui::Checkbox("Per-wheel spray (4 emitters)##wheelspray", &p.perWheelSpray);
+            ImGui::TextDisabled("off = legacy single rear-axle emitter (shipped look)");
+            ImGui::Separator();
+            ImGui::TextDisabled("Lamp-lens wetness (CPU model; readout in Telemetry)");
+            ImGui::SliderFloat("Wet rate (1/s)##lens", &p.lensWetRate, 0.0f, 2.0f);
+            ImGui::SliderFloat("Clear speed start (m/s)##lens", &p.lensClearSpeedStart, 0.0f, 40.0f, "%.1f");
+            ImGui::SliderFloat("Clear speed full (m/s)##lens", &p.lensClearSpeedFull, 1.0f, 60.0f, "%.1f");
+            ImGui::SliderFloat("Clear rate (1/s)##lens", &p.lensClearRate, 0.0f, 10.0f);
+            ImGui::SliderFloat("Drain rate (1/s)##lens", &p.lensDrainRate, 0.0f, 1.0f, "%.3f");
+            ImGui::Separator();
+            ImGui::TextDisabled("Slip / skid thresholds (spray boost + skid flag)");
+            ImGui::SliderFloat("Skid slip ratio##slip", &p.slipSkidRatio, 0.0f, 1.0f);
+            ImGui::SliderFloat("Skid slip angle (deg)##slip", &p.slipSkidAngleDeg, 0.0f, 45.0f, "%.1f");
+            ImGui::SliderFloat("Boost ratio start##slip", &p.slipRatioStart, 0.0f, 1.0f);
+            ImGui::SliderFloat("Boost ratio full##slip", &p.slipRatioFull, 0.0f, 1.0f);
+            ImGui::SliderFloat("Boost angle start (deg)##slip", &p.slipAngleStartDeg, 0.0f, 45.0f, "%.1f");
+            ImGui::SliderFloat("Boost angle full (deg)##slip", &p.slipAngleFullDeg, 0.0f, 45.0f, "%.1f");
+            ImGui::SliderFloat("Spray boost max##slip", &p.slipSprayBoostMax, 1.0f, 8.0f);
         }
 
         // ── Car Lights (headlights / tail / brake; tasks/todo.md "Car lights") ──

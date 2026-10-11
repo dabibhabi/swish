@@ -15,7 +15,10 @@ add_executable(swish_tests
     test_road_scene.cpp
     test_pbr.cpp
     test_car_physics.cpp
+    test_slip_visuals.cpp
     test_rain.cpp
+    test_wheel_spray.cpp
+    test_lens_wetness.cpp
     test_corridor.cpp
     test_golden_mesh.cpp
     test_golden_car.cpp
