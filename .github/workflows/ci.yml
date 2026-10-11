@@ -1,10 +1,11 @@
 name: CI
 
 # Regression gate for the Swish P0 remediation work and beyond.
-# Builds the GPU-free test binary (swish_tests) and compiles all shaders,
-# then runs the Catch2 suite via ctest. No GPU is required: swish_tests only
-# links Camera/RoadScene/FileIO + GLM/GLFW/Catch2, and shader compilation is
-# a static glslc -> SPIR-V step.
+# Builds both GPU-free test binaries (swish_tests, swish_utils_tests) with clang
+# Release and compiles all shaders, then runs the Catch2 suite via ctest. No GPU
+# is required: swish_tests links swish_scene_core + GLM/GLFW/Catch2, and shader
+# compilation is a static glslc -> SPIR-V step. A repo-hygiene job runs
+# `make check` (hard) and `make format-check` (report-only).
 
 on:
   push:
@@ -20,6 +21,11 @@ jobs:
   build-and-test:
     name: Build tests + shaders, run ctest
     runs-on: ubuntu-latest
+    env:
+      # clang Release: the golden mesh hashes are bound to Clang + optimisation
+      # (tests/test_golden_mesh.cpp skips the hash comparison elsewhere).
+      CC: clang
+      CXX: clang++
 
     steps:
       - name: Checkout
@@ -34,7 +40,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build build-essential git \
+            cmake ninja-build build-essential git clang \
             libglfw3-dev libglm-dev
 
       - name: Install Vulkan SDK (headers, loader, glslc)
@@ -53,16 +59,41 @@ jobs:
           glslc --version || true
 
       - name: Configure (Linux Vulkan backend)
-        run: cmake -B build -G Ninja -DSWISH_BACKEND=LINUX_VULKAN
+        run: |
+          cmake -B build -G Ninja -DSWISH_BACKEND=LINUX_VULKAN \
+            -DCMAKE_BUILD_TYPE=Release -DSWISH_WERROR=ON
 
       - name: Build shaders
         run: cmake --build build --target shaders
 
-      - name: Build tests
-        run: cmake --build build --target swish_tests
+      - name: Build tests (swish_tests + swish_utils_tests)
+        run: cmake --build build --target swish_tests swish_utils_tests
 
       - name: Run ctest
         run: ctest --test-dir build --output-on-failure
+
+  # Repo hygiene: `make check` is the hard gate (changelog index, stray root files, ignored-but-tracked,
+  # source globs). Its size/format sub-checks are report-only. `make format-check` runs as a separate
+  # REPORT-ONLY step (continue-on-error): ~20 first-party files predate .clang-format and are not yet
+  # formatted, so a hard gate would fail every run. Promote it once the tree is formatted.
+  hygiene:
+    name: Repo hygiene (make check, format-check)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-format
+
+      - name: make check
+        run: make check
+
+      - name: make format-check (report-only)
+        continue-on-error: true
+        run: make format-check
 
   # Full engine compile (no GPU needed; nothing is run). Linux Vulkan only for now;
   # there is deliberately no macOS job yet. -Werror applies to first-party swish
