@@ -68,7 +68,7 @@ static_assert(kGearCount == 7, "gear_for_speed (`i < 6`, `return 6`) and gearbox
 [[nodiscard]] constexpr bool upshift_lands_above_downshift(const GearboxParams& gearbox) noexcept {
     if(!ratios_positive(gearbox)) return false;
     for( sz_t i = 0; i+1 < gearbox.ratios.size(); i++)
-        if(!gearbox.upshiftRpm * gearbox.ratios[i+1] / gearbox.ratios[i] > gearbox.downshiftRpm) return false;
+        if(!(gearbox.upshiftRpm * gearbox.ratios[i+1] / gearbox.ratios[i] > gearbox.downshiftRpm)) return false;
     return true;
 
 }
