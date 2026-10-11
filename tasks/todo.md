@@ -8,6 +8,44 @@
 > shipped: `git log` and [`CHANGELOG.md`](../CHANGELOG.md). Current user goal:
 > [`docs/user-goals/CURRENT.md`](../docs/user-goals/CURRENT.md).
 
+## Car lights: headlights, tail/brake lights, rain on the lenses (started 2026-10-10)
+
+Branch `feature/car-lights` (worktree `.worktrees/car-lights`, off `debug-ui`). Asset: `assets/blend/porsche_rigged.blend`
+→ `porsche_rigged.glb` (Blender rig with named nodes; real scale, wheelbase 2.259 m). Test with
+`SWISH_CAR=<abs path>/assets/blend/porsche_rigged.glb make debug`.
+
+### Feature: car lights
+- **Player sees:** at night or in rain the Porsche's headlights throw two warm beams down the road; red tail
+  lights glow at the back and brighten when braking; in rain the beams show a wet halo and the lenses bead with water.
+- **Done when:** debug build shows headlight pools on the asphalt and red brake glow behind the car (window-only
+  screenshots, rain 0 and 1.0, day and night); toggles off = today's image exactly; release 33/33 `.spv` hashes and
+  goldens unchanged; fps within 2% of before with lights on.
+- **Builds:** debug-only first (`#ifdef SWISH_DEBUG_UI`); release enable is a separate, later step.
+- **Default:** `car_lights.enabled = false` → identical output to today.
+- **Cost:** ≤ 8 extra spot lights in the existing set-0 lights UBO (debug layout only); one extra loop in `lighting.frag`.
+- **Touches:** car asset (`ModelManager` loader), `scene/Entity/CarLights.h` (new), `CarEntity`, `SceneTypes.h`
+  (`LightsUBO`), `shaders/common/lights.glsl`, `shaders/lighting.frag`, `CameraUniforms`, `Renderer`, `App`,
+  `debug/Tunables.def` + one `draw_tunable_group` line.
+- **Owner:** `car-asset-engineer` (loader) → `lighting-materials-engineer` (spots) → `rain-weather-engineer` (lenses).
+- **Out of scope (v1):** headlight shadows, volumetric beams, turn signals / fog lamps (still in the bumper mesh),
+  per-light emissive materials (the 20-slot car material table has 1 free slot), the original `porsche.glb`
+  (no light nodes; gets no car lights).
+- **Math:** spot cone $c = \mathrm{smoothstep}(\cos\theta_o, \cos\theta_i, -\hat L\cdot\hat d)$; distance falloff = the point
+  lights' windowed bounded inverse-square, $att = \mathrm{win}(d/R)\,\frac{d_{ref}^2}{d_{ref}^2+d^2}$, $d_{ref}=0.15R$;
+  radiance $= C\,I\,att\,c$; wet halo $= C\,I\,att^2\,c\,w\,k_{halo}$ (same $k_{halo}$ as street lamps).
+
+- [x] S0 Asset: named light nodes (`Headlight_L/R`, `TailLight_L/R`, `BrakeLight_L/R`, `RearLightBar` + `_Lens`,
+      `_Housing`, `_Emitter`, `_Lamp` children), root scale fixed to real size (2026-10-10, Blender)
+- [x] S1 (2026-10-10) Loader + CPU logic: `ModelManager::load_car` reads light anchors by exact node name into car space;
+      `CarLights.h` turns anchors + car model matrix + state into world spot lights; Catch2 test (GPU-free)
+- [x] S2 (2026-10-10) GPU: `SpotLightData` array in `LightsUBO` + `lights.glsl`, spot loop in `lighting.frag`, all `#ifdef SWISH_DEBUG_UI`
+- [x] S3 (2026-10-10) Wiring + tunables: `car_lights` group in `Tunables.def`; brake lamps follow `m_brake`; App pushes spots each frame
+- [ ] S4 Verify (night chase screenshots, tests, 33/33 .spv done 2026-10-10; rain 0/1.0 pair + fps numbers open): debug + release builds, `make test` / `make test-debug`, 33/33 `.spv`, screenshots night/day × rain 0/1.0
+- [ ] S5 Lens glow: headlight / tail / brake lens submeshes tagged by node name and lit emissive when on
+- [ ] S6 Rain on the lenses: wet-lens beading + streak on `*_Lens` submeshes (reuse windshield-rain height field idea)
+- [ ] S7 Changelog + `docs/car_system.md` + `docs/car-asset-pipeline.md` (light node convention)
+- [ ] Review: what shipped, what did not, lessons
+
 ## Typed C++ system refactor + tutorial (started 2026-10-01)
 
 Mirrors the approved plan (`~/.claude/plans/im-figuring-out-with-sunny-unicorn.md`). Each tutorial chapter

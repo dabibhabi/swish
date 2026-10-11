@@ -103,6 +103,9 @@ public:
     Camera* get_camera() const;
 
     void set_scene_lights(const std::vector<LightDesc>& lights);
+    // Car spot lights for this frame (CarEntity::get_spot_lights). Debug builds
+    // upload them; release keeps today's lights UBO (tasks/todo.md "Car lights").
+    void set_car_spot_lights(const std::vector<SpotLightDesc>& spots);
 
     void set_rain_intensity(float intensity);
     // RainSystem's INTEGRATED wetness [0,1] (asymmetric wet/dry ramp — NOT

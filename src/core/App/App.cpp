@@ -210,6 +210,27 @@ void App::push_car_to_renderer() {
     // call sees the matrices as of BEFORE that call (last frame's pose), pairing
     // index-for-index with the draws just pushed.
     m_renderer->update_dynamic_prev_draw_models(m_car->get_prev_draw_models());
+
+    // Car lights (tasks/todo.md "Car lights"): world spot lights for this frame's pose.
+    // Panel off (the default) uploads none, so the image is today's.
+    {
+        const DebugParams&         dp = m_renderer->debug_params();
+        std::vector<SpotLightDesc> spots;
+        if (dp.carLightsEnabled) {
+            CarLightParams params;
+            params.headIntensity  = dp.carHeadIntensity;
+            params.headRangeM     = dp.carHeadRangeM;
+            params.headInnerDeg   = std::min(dp.carHeadInnerDeg, dp.carHeadOuterDeg);
+            params.headOuterDeg   = dp.carHeadOuterDeg;
+            params.tailIntensity  = dp.carTailIntensity;
+            params.brakeIntensity = dp.carBrakeIntensity;
+            params.tailRangeM     = dp.carTailRangeM;
+            const CarLightState state{dp.carHeadlightsOn, dp.carTailLightsOn,
+                                      dp.carBrakeForce ? 1.f : m_car->get_brake()};
+            spots = m_car->get_spot_lights(state, params);
+        }
+        m_renderer->set_car_spot_lights(spots);
+    }
 #endif
 
     // Pass car velocity to renderer so rain streaks lean forward at speed.

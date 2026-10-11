@@ -531,6 +531,45 @@ void main() {
         lit_color += (kD_pt * albedo / PI + spec_pt) * NdotL_pt * radiance;
     }
 
+#ifdef SWISH_DEBUG_UI
+    // ── Car spot lights (headlights / tail / brake; tasks/todo.md "Car lights") ──
+    // Same windowed bounded inverse-square falloff and PBR terms as the point lights,
+    // times a smoothstep cone. The wet halo is the street lamps' (att² · wetLocal ·
+    // kHalo), masked by the cone, so beams bloom on a wet road. Debug-only until the
+    // feature is turned on for release; zero lights (the default) adds nothing.
+    for (uint i = 0u; i < lights.numSpotLights.x; ++i) {
+        vec3  sPos   = lights.spotLights[i].positionRange.xyz;
+        float sRange = lights.spotLights[i].positionRange.w;
+        vec3  sDir   = lights.spotLights[i].directionCosOuter.xyz;
+        float cosOut = lights.spotLights[i].directionCosOuter.w;
+        float cosIn  = lights.spotLights[i].params.x;
+        vec3  sCol   = lights.spotLights[i].colorIntensity.rgb;
+        float sInt   = lights.spotLights[i].colorIntensity.a;
+
+        vec3  toLight = sPos - fragWorldPos;
+        float dist    = length(toLight);
+        vec3  L_s     = toLight / max(dist, 0.001);
+
+        float cone = smoothstep(cosOut, cosIn, dot(-L_s, sDir));
+        float dRef = 0.15 * sRange;
+        float win  = clamp(1.0 - pow(dist / sRange, 4.0), 0.0, 1.0);
+        win        = win * win;
+        float att  = win * (dRef * dRef) / (dRef * dRef + dist * dist) * cone;
+        if (att < 0.0005) continue;
+
+        vec3  H_s     = normalize(V + L_s);
+        float NdotL_s = max(dot(N, L_s), 0.0);
+        float HdotV_s = max(dot(H_s, V), 0.0);
+        vec3  spec_s  = ggxSpecular(max(dot(N, H_s), 0.0), NdotV, NdotL_s, HdotV_s, roughness, F0);
+        vec3  F_s     = F0 + (1.0 - F0) * pow(1.0 - HdotV_s, 5.0);
+        vec3  kD_s    = (vec3(1.0) - F_s) * (1.0 - metallic);
+
+        const float kSpotHalo = 0.12;  // == the street lamps' kHaloStrength
+        lit_color += sCol * sInt * att * att * wetLocal * kSpotHalo;
+        lit_color += (kD_s * albedo / PI + spec_s) * NdotL_s * sCol * sInt * att;
+    }
+#endif
+
     // ── Wet grazing Fresnel surge (P0 #9) ─────────────────────────────
     // At grazing view angles a wet surface reflects the environment with F→1 —
     // the surge that makes a wet night road mirror the sky and lamps. Reflect the

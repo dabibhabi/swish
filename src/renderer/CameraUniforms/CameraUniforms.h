@@ -30,6 +30,11 @@ public:
         m_lightsDirty = true;
     }
 
+    // Car spot lights (headlights / tail / brake), replaced every frame by the App.
+    // Uploaded into LightsUBO::spotLights in debug builds only (release layout is
+    // unchanged; see SceneTypes.h). Empty = no spot lights.
+    void set_spot_lights(const std::vector<SpotLightDesc>& spots) { m_spots = spots; }
+
     // Patches camPos.w in the already-mapped camera UBO for this frame.
     // Call after update() — does not disturb xyz.
     void set_wetness(uint32_t frameIndex, float wetness);
@@ -66,8 +71,9 @@ private:
     std::vector<GpuBuffer> m_cameraBuffers;
     std::vector<GpuBuffer> m_lightsBuffers;
 
-    std::vector<LightDesc> m_lights;
-    bool                   m_lightsDirty = false;
+    std::vector<LightDesc>     m_lights;
+    bool                       m_lightsDirty = false;
+    std::vector<SpotLightDesc> m_spots;
 
     // Weather (overcast default — matches the original hardcoded sun). Renderer
     // swaps these via set_weather() when the clear-day preset is toggled.

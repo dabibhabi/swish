@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CarLights.h"   // CarLightAnchor / car_spot_lights (car lights)
 #include "CarPhysics.h"  // GearState (Wave 2 step 3b torque-curve/gearbox)
 #include "Entity.h"
 #include "WheelKinematics.h"  // CornerSpring (Phase-B suspension state)
@@ -124,6 +125,19 @@ public:
         return Vec3(std::cos(yaw), 0.f, -std::sin(yaw));
     }
 
+    // ── Car lights (tasks/todo.md "Car lights") ──────────────────────
+    // Lamp anchors in car space, read by ModelManager::load_car from the GLB's
+    // `<Anchor>_Lamp` nodes (CarLights.h). Empty for assets without them (the
+    // original porsche.glb), which then get no car lights.
+    void set_light_anchors(std::vector<CarLightAnchor> anchors) { m_light_anchors = std::move(anchors); }
+    const std::vector<CarLightAnchor>& get_light_anchors() const { return m_light_anchors; }
+    // This frame's brake-pedal input [0,1] (drives the brake lamps).
+    float get_brake() const { return m_brake; }
+    // World-space spot lights for the current pose; empty when everything is off.
+    std::vector<SpotLightDesc> get_spot_lights(const CarLightState& state, const CarLightParams& params) const {
+        return car_spot_lights(m_light_anchors, get_model_matrix(), state, params);
+    }
+
     std::vector<DrawCall> get_draw_calls() const override;
 
 #ifdef SWISH_DEBUG_UI
@@ -195,6 +209,8 @@ private:
     // recent get_draw_calls() call — what get_prev_draw_models() returns.
     mutable std::vector<Mat4> m_lastExposedPrevModels;
 #endif
+
+    std::vector<CarLightAnchor> m_light_anchors;  // car-space lamps (see set_light_anchors)
 
     // Per-frame longitudinal controls, set by handle_input(), applied in update().
     float m_throttle = 0.f;    // [0,1]
