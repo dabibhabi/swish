@@ -74,6 +74,11 @@ TUNE_F(carHeadOuterDeg, "car_lights", "head_outer_deg", 28.0f, 2.0f, 60.0f, "Bea
 TUNE_F(carTailIntensity, "car_lights", "tail_intensity", 1.5f, 0.0f, 20.0f, "Tail intensity", "%.2f", 2, NOPUSH, NOREL)
 TUNE_F(carBrakeIntensity, "car_lights", "brake_intensity", 6.0f, 0.0f, 50.0f, "Brake intensity", "%.2f", 2, NOPUSH, NOREL)
 TUNE_F(carTailRangeM, "car_lights", "tail_range_m", 6.0f, 1.0f, 30.0f, "Tail range (m)", "%.1f", 1, NOPUSH, NOREL)
+// ── Physics model (stub) ─ ImGui header "Physics", TOML table [car] ──
+// Debug-only: App::apply_debug_params maps it to CarEntity::set_physics_model (false = bicycle, the
+// shipped model; true = 6-DOF rigid-body chassis stub). NOPUSH: never reaches the GPU. Release has no
+// UI and never calls set_physics_model, so the bicycle model always runs (byte-identical).
+TUNE_B(rigidBodyChassis, "car", "rigid_body_chassis", false, "Physics model: rigid body (stub)", NOREL)
 
 #undef NOREL
 #undef TUNE_B

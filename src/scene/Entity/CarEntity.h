@@ -3,6 +3,7 @@
 #include "CarLights.h"   // CarLightAnchor / car_spot_lights (car lights)
 #include "CarPhysics.h"  // GearState (Wave 2 step 3b torque-curve/gearbox)
 #include "Entity.h"
+#include "RigidChassis.h"     // PhysicsModel + the 6-DOF chassis (debug-only alternative to the bicycle)
 #include "WheelKinematics.h"  // CornerSpring (Phase-B suspension state)
 #include "utils/units/Units.h"
 
@@ -119,6 +120,15 @@ public:
         m_wheel_spin_mul = spin_mul;
     }
 
+#ifdef SWISH_DEBUG_UI
+    // Physics-model selector (stub; the debug-UI "Physics model" toggle binds to these).
+    // Bicycle (default) is the shipped model; RigidBody drives the entity pose, including pitch/roll
+    // and heave, from a 6-DOF body on four spring-damper wheel contacts (RigidChassis.h).
+    // Switching either way hands the speed / yaw state over so the car does not jump.
+    void         set_physics_model(PhysicsModel model);
+    PhysicsModel get_physics_model() const { return m_physics_model; }
+#endif
+
     // World-space unit vector pointing toward the car's nose (+X at yaw=0).
     Vec3 get_forward() const {
         float yaw = glm::radians(m_rotation.y);
@@ -211,6 +221,18 @@ private:
 #endif
 
     std::vector<CarLightAnchor> m_light_anchors;  // car-space lamps (see set_light_anchors)
+#ifdef SWISH_DEBUG_UI
+    // ── Rigid-body chassis (stub; RigidChassis.h) ─────────────────────
+    // Only live while m_physics_model == RigidBody. The body is authoritative for pose: each step it
+    // follows any external shift of m_position (origin rebase, teleport) via m_rigid_last_pos, integrates,
+    // then writes position (WU), Euler rotation (deg) and the telemetry scalars back to the entity.
+    PhysicsModel m_physics_model = PhysicsModel::Bicycle;
+    RigidChassis m_rigid;
+    bool         m_rigid_ready = false;  // body seeded from the entity pose
+    Vec3         m_rigid_last_pos{0.f};  // m_position as this model last wrote it (WU)
+    void         init_rigid_body();
+    void         update_rigid_body(float dt);
+#endif
 
     // Per-frame longitudinal controls, set by handle_input(), applied in update().
     float m_throttle = 0.f;    // [0,1]

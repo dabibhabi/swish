@@ -238,6 +238,29 @@ Key properties, none of them clamped or scripted:
   cross-corner target shift. Wheels spin, steer, travel, and change alignment;
   body Y is snapped to the road each frame in `App.cpp` (`update_car`).
 
+## Rigid-body chassis (stub, 2026-10-10, debug-only)
+
+An alternative to the planar bicycle model, selected by the debug-UI "Physics model: rigid body (stub)" checkbox
+(`DebugParams::rigidBodyChassis`, `[car] rigid_body_chassis`, default off = bicycle). Compiled only under
+`SWISH_DEBUG_UI`; the release build always runs the bicycle model.
+
+| Piece | Where |
+|-------|-------|
+| 6-DOF integrator (semi-implicit Euler, angular momentum carried so the gyroscopic term is exact) | [src/utils/physics/RigidBody.h](../src/utils/physics/RigidBody.h) |
+| Four spring-damper contacts at the loader's wheel hubs, tire force at the patch, friction circle shared with `Tire.h` | [src/scene/Entity/RigidChassis.h](../src/scene/Entity/RigidChassis.h) |
+| Mode switch, seeding from the bicycle state, write-back to `m_position` / `m_rotation` | `CarEntity::set_physics_model`, `init_rigid_body`, `update_rigid_body` |
+
+Static sag per wheel is $s = mg/4k$; `make_chassis_params` adds a preload $F_\text{static}/k$ so the design ride height
+is the equilibrium. In rigid mode `App::update_car` skips the road Y snap (the body owns heave). Wheel visuals
+(`update_wheel_visuals`) still run as a draw-matrix-only layer on top of the body pose.
+
+**What the full version must do** (each is a `TODO(stub)` in the code): query road height at every contact patch
+(`RoadGeometry::road_surface_y`, slope and crown) instead of one flat plane; add unsprung mass per wheel (wheel hop) and
+bump stops; fold in anti-roll bars and aero downforce / pitch moment; give each wheel a spin DOF with slip ratio and a
+real tire curve (Pacejka / Fiala) with camber thrust and aligning torque; shift the patch by $r\sin(\text{roll})$;
+replace the box inertia with measured mass-point inertia; add a standstill stick model; and move to impulse-based
+non-smooth contact ([docs/lessons-from-chrono/](lessons-from-chrono/)).
+
 ## Car Physics — State Diagram (input state machine; constants are historical)
 
 ```mermaid

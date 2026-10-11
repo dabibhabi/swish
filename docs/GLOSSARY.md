@@ -61,6 +61,7 @@ Skim the section you need — every entry is one line.
 | **SPIR-V / `.spv`** | Compiled shader bytecode Vulkan consumes (output of `glslc`). |
 | **glslc** | The GLSL→SPIR-V compiler (from the Vulkan SDK). |
 | **FoV** | Field of View. |
+| **Rigid-body chassis (stub)** | Debug-only 6-DOF car model (`RigidChassis.h` on `utils/physics/RigidBody.h`): four spring-damper wheel contacts, pitch/roll/heave as state; sag per wheel $= mg/4k$. Alternative to the bicycle model; see `docs/car_system.md`. |
 | **VMA** | [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) — AMD's allocator library. Swish sub-allocates every GPU buffer/image from a few big device blocks through one `VmaAllocator`, instead of one `vkAllocateMemory` per resource. See [GPU memory](#gpu-memory-vma--raii). |
 | **RAII** | *Resource Acquisition Is Initialization* — the C++ idiom where an object releases its resource in its destructor. Here `GpuBuffer`/`GpuImage` free their VMA sub-allocation automatically, so there are no manual `vkDestroy*`/`vkFreeMemory` pairs. |
 

@@ -21,6 +21,7 @@ add_executable(swish_tests
     test_golden_car.cpp
     test_road_params.cpp
     test_car_lights.cpp
+    test_rigid_chassis.cpp
 
     ${CMAKE_SOURCE_DIR}/src/scene/Camera/Camera.cpp
     ${ROAD_SCENE_SOURCES}

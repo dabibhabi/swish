@@ -88,7 +88,7 @@ void expect_persisted_equal(const DebugParams& a, const DebugParams& b) {
     CHECK(a.steerQuat.z == b.steerQuat.z); CHECK(a.steerQuat.w == b.steerQuat.w);
     EQF(shadowBias); EQF(shadowFloor); EQF(shadowLightSize); EQF(shadowHalfExtent); EQF(shadowDepthRange);
     EQF(depthBiasConst); EQF(depthBiasSlope); EQF(csmShadowFar); EQF(csmLambda);
-    EQF(rainIntensity); EQF(wetPorosity); EQF(wetRoughness); EQF(streakLen); EQF(puddlesEnabled);
+    EQF(rainIntensity); EQF(wetPorosity); EQF(wetRoughness); EQF(streakLen); EQF(puddlesEnabled); EQF(rigidBodyChassis);
     EQF(puddleCoverage); EQF(sprayEnabled); EQF(sprayDensity); EQF(sprayLifetime); EQF(spraySize);
     EQF(sprayOpacity);
     EQF(carOverride); EQF(carMetalness); EQV3(carPaint); EQF(carRoughnessMul);
@@ -129,7 +129,7 @@ DebugParams modified() {
     p.shadowBias = f(); p.shadowFloor = f(); p.shadowLightSize = f(); p.shadowHalfExtent = f();
     p.shadowDepthRange = f(); p.depthBiasConst = f(); p.depthBiasSlope = f(); p.csmShadowFar = f(); p.csmLambda = f();
     p.rainIntensity = f(); p.wetPorosity = f(); p.wetRoughness = f(); p.streakLen = f();
-    p.puddlesEnabled = !p.puddlesEnabled; p.puddleCoverage = f(); p.sprayEnabled = !p.sprayEnabled;
+    p.puddlesEnabled = !p.puddlesEnabled; p.rigidBodyChassis = !p.rigidBodyChassis; p.puddleCoverage = f(); p.sprayEnabled = !p.sprayEnabled;
     p.sprayDensity = f(); p.sprayLifetime = f(); p.spraySize = f(); p.sprayOpacity = f();
     p.carOverride = !p.carOverride; p.carMetalness = f(); p.carPaint = {f(), f(), f()}; p.carRoughnessMul = f();
     p.ssaaScale = f(); p.taaEnabled = !p.taaEnabled; p.taaHistoryBlend = f();
@@ -258,6 +258,8 @@ TEST_CASE("Tunables: registry defaults equal the shipped literals (release-neutr
     // Puddles (owner decision C2, 2026-09-29): now registry entries; same values as the old struct defaults.
     CHECK(d.puddlesEnabled == true);
     CHECK(d.puddleCoverage == 0.501f);
+    // Physics model stub: default is the bicycle model (identity).
+    CHECK(d.rigidBodyChassis == false);
     // Single C++ source of truth: the registry default IS the scene road constant WetGrip.h physics reads.
     CHECK(d.puddleCoverage == swish::road::kPuddleCoverage);
     // No `.release =` override on any current entry: release default == debug default.
@@ -270,12 +272,12 @@ TEST_CASE("Tunables: registry defaults equal the shipped literals (release-neutr
 
 TEST_CASE("Tunables: descriptor table is consistent", "[tunables]") {
     const DebugParams d{};
-    REQUIRE(tunables::all().size() == 23);  // ssr 5 + reflection 3 + wet 4 (porosity, roughness, puddles x2) + car_lights 11
+    REQUIRE(tunables::all().size() == 24);  // every TUNE_B / TUNE_F row in Tunables.def (groups: ssr, reflection, wet, car_lights, car)
     for (const auto& t : tunables::all()) {
         INFO(t.name);
         CHECK(t.in_range(t.def));
         const std::string g = t.group;
-        CHECK((g == "ssr" || g == "reflection" || g == "wet" || g == "car_lights"));
+        CHECK((g == "ssr" || g == "reflection" || g == "wet" || g == "car_lights" || g == "car"));
         if (t.kind == tunables::Kind::Float)
             CHECK(t.get_float(d) == t.def);  // struct default generated from the same line
         else
@@ -318,6 +320,28 @@ TEST_CASE("Tunables: registry-driven round trip for every descriptor", "[tunable
             CHECK(t.get_float(dst) == t.get_float(src));
     }
     CHECK(dst.ssrEnabled != DebugParams{}.ssrEnabled);  // non-vacuous
+}
+
+TEST_CASE("Tunables: rigid-body chassis toggle persists under [car] and defaults to bicycle", "[tunables][debugio]") {
+    PresetFile  pf("swish_test_rigid_body");
+    DebugParams src;
+    src.rigidBodyChassis = true;
+    REQUIRE(debugio::save(src, pf.name));
+    {
+        std::ifstream      in(debugio::presets_dir() + pf.name + ".toml");
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        const auto tbl = toml::parse(ss.str());
+        CHECK(tbl["car"]["rigid_body_chassis"].value<bool>() == true);
+    }
+    DebugParams dst;
+    REQUIRE(debugio::load(dst, pf.name));
+    CHECK(dst.rigidBodyChassis == true);
+    // A preset written before this key existed (no [car] table) leaves the bicycle default untouched.
+    pf.write_raw("[ssr]\nenabled = false\n");
+    DebugParams old;
+    REQUIRE(debugio::load(old, pf.name));
+    CHECK(old.rigidBodyChassis == false);
 }
 
 TEST_CASE("Tunables: saved file keeps the [ssr] table and TOML key names", "[tunables][debugio]") {
@@ -457,8 +481,8 @@ TEST_CASE("Tunables: visit dispatches Bool to tag::flag and Float to tag::real (
             }
         });
     }
-    CHECK(flags == 6);  // ssrEnabled, puddlesEnabled + 4 car_lights toggles
-    CHECK(reals == 17);  // 10 + 7 car_lights sliders
+    CHECK(flags == 7);  // TUNE_B rows
+    CHECK(reals == 17);  // TUNE_F rows
     // The visitor sees the live field: writing through it changes DebugParams (what load/widget rely on).
     const auto& ssr = tunables::all()[1];  // ssrIntensity
     tunables::visit(ssr, p, [](auto, auto& v) { v = std::remove_reference_t<decltype(v)>(1.25f); });

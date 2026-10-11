@@ -46,6 +46,12 @@ void CarEntity::handle_input(GLFWwindow* window, float dt) {
 }
 
 void CarEntity::update(float dt) {
+#ifdef SWISH_DEBUG_UI
+    if (m_physics_model == PhysicsModel::RigidBody) {
+        update_rigid_body(dt);
+        return;
+    }
+#endif
     // ── Longitudinal force balance (SI), P0 #5 + Wave 2 3b + Phase 1 ──
     // m·v̇ = F_drive − ½ρC_dAv² − C_rr·mg, with F_drive = engine_torque(rpm)
     // fed through the PDK-style auto gearbox (CarPhysics.h, gear_drive_force),
@@ -274,6 +280,153 @@ void CarEntity::update(float dt) {
     // Clamp X to road bounds
     m_position.x = std::clamp(m_position.x, m_min_x, m_max_x);
 }
+
+#ifdef SWISH_DEBUG_UI
+// ── Rigid-body chassis (stub) ─────────────────────────────────────────
+// Alternative to the bicycle model above; see RigidChassis.h for the design note and TODO(stub) list.
+void CarEntity::set_physics_model(PhysicsModel model) {
+    if (model == m_physics_model)
+        return;
+    m_physics_model = model;
+    m_rigid_ready   = false;  // re-seed from the entity pose on the next RigidBody step
+    if (model == PhysicsModel::Bicycle) {
+        m_rotation.x = 0.f;  // the bicycle model owns yaw only; drop pitch/roll left by the body
+        m_rotation.z = 0.f;
+    }
+}
+
+void CarEntity::init_rigid_body() {
+    // Hubs from the loader's wheel frames (mesh space, m); before the loader finishes, a plausible box.
+    std::array<vec3, 4>  hub;
+    std::array<float, 4> radius;
+    if (m_wheels_valid) {
+        for (int c = 0; c < 4; c++) {
+            hub[c]    = vec3(m_wheel_frames[c].frame[3]);
+            radius[c] = m_wheel_frames[c].radius;
+        }
+    } else {
+        const float halfWb = 0.5f * kWheelbase / kWorldUnitsPerMeter;
+        const float halfTr = 0.8f;  // TODO(stub): track from CarParams once it has one
+        radius.fill(kFallbackRearRadiusM);
+        hub = {vec3(halfWb, kFallbackRearRadiusM, -halfTr), vec3(halfWb, kFallbackRearRadiusM, halfTr),
+               vec3(-halfWb, kFallbackRearRadiusM, -halfTr), vec3(-halfWb, kFallbackRearRadiusM, halfTr)};
+    }
+    const CarParams        carParams;
+    const TireParams       tireParams;
+    const SuspensionParams susp;
+    m_rigid.set_params(make_chassis_params(hub, radius, carParams, tireParams, susp));
+
+    // Seed from the entity pose + the bicycle's speed state (R = Ry(yaw) Rx(pitch) Rz(roll), Entity.cpp).
+    const quat                q  = glm::angleAxis(glm::radians(m_rotation.y), vec3(0.f, 1.f, 0.f)) *
+                                   glm::angleAxis(glm::radians(m_rotation.x), vec3(1.f, 0.f, 0.f)) *
+                                   glm::angleAxis(glm::radians(m_rotation.z), vec3(0.f, 0.f, 1.f));
+    const mat3                r  = glm::mat3_cast(q);
+    const vec3                fw = r * vec3(1.f, 0.f, 0.f);
+    const vec3                rt = r * vec3(0.f, 0.f, 1.f);
+    util::physics::RigidBody& b  = m_rigid.body();
+    b.set_orientation(q);
+    b.set_position(m_position / kWorldUnitsPerMeter + r * m_rigid.params().cog_mesh_m);
+    b.set_linear_velocity(fw * (m_forward_speed / kWorldUnitsPerMeter) + rt * m_lateral_velocity);
+    b.set_angular_velocity(vec3(0.f, -m_yaw_rate, 0.f));  // yaw rate is right-positive; +Y rotation is left
+    b.clear_accumulators();
+    m_rigid_last_pos = m_position;
+    m_rigid_ready    = true;
+}
+
+void CarEntity::update_rigid_body(float dt) {
+    if (!m_rigid_ready)
+        init_rigid_body();
+    util::physics::RigidBody& b = m_rigid.body();
+
+    // The entity may have been moved under us (corridor origin rebase, teleport): follow it.
+    const Vec3 shift = m_position - m_rigid_last_pos;
+    if (shift != Vec3(0.f))
+        b.set_position(b.position() + shift / kWorldUnitsPerMeter);
+
+    const vec3 up(0.f, 1.f, 0.f);
+    vec3       fwd   = b.rotation() * vec3(1.f, 0.f, 0.f);
+    fwd.y            = 0.f;
+    fwd              = glm::length(fwd) > 1e-4f ? glm::normalize(fwd) : vec3(1.f, 0.f, 0.f);
+    const vec3  v    = b.linear_velocity();
+    const float vFwd = glm::dot(v, fwd);
+    const vec3  vHoriz(v.x, 0.f, v.z);
+    const float vBody = glm::length(vHoriz);
+
+    // Wet-road grip: same model as the bicycle path (see update()).
+    const float wetness = std::clamp(m_wetness, 0.0f, 1.0f);
+    const float film    = film_over_tread(m_position.x, m_position.z, wetness);
+    m_effective_mu      = effective_mu(wetness, vBody, film, m_wet_grip);
+    m_plane_frac        = hydroplane_fraction(vBody, film, m_wet_grip);
+
+    // Longitudinal request: the existing force model gives per-axle TIRE forces (aero excluded) along the
+    // heading; the chassis clamps them per wheel by the friction circle. Aero acts at the CoG.
+    CarParams params;
+    params.tireMu = m_effective_mu;
+    const TireParams       tire;
+    const GearboxParams    gearbox;
+    const DrivetrainParams drivetrain;
+    const float            rWheelRear = rear_wheel_radius();
+
+    ChassisInput in;
+    in.mu           = m_effective_mu;
+    in.steer_rad    = glm::radians(std::clamp(m_steering_angle, -kMaxSteer, kMaxSteer));
+    in.body_force_n = -0.5f * params.airDensity * params.dragCoeff * params.frontalArea * vBody * vHoriz;
+    if (m_reverse) {
+        // Bounded low-speed creep, like the bicycle path: constant push until the reverse cap.
+        const float push =
+            vFwd > -kMaxReverseSpeed / kWorldUnitsPerMeter ? -params.mass * kReverseAccel / kWorldUnitsPerMeter : 0.f;
+        in.fx_front_n = 0.5f * push;
+        in.fx_rear_n  = 0.5f * push;
+    } else {
+        m_gear_state = gearbox_shift_step(m_gear_state, vFwd, gearbox, rWheelRear, dt);
+        AxleLongitudinal split{};
+        longitudinal_accel(vFwd, m_throttle, m_brake, m_gear_state.gear, params, tire, gearbox, rWheelRear, drivetrain,
+                           AxleLateral{}, &split);
+        // Brake / rolling resistance flip sign with v: ramp them out below 0.5 m/s so the standstill does
+        // not chatter (TODO(stub): proper static-friction / stick model).
+        const float ramp = m_throttle > 0.f ? 1.f : std::min(1.f, std::fabs(vFwd) / 0.5f);
+        in.fx_front_n    = split.front * ramp;
+        in.fx_rear_n     = split.rear * ramp;
+    }
+
+    // TODO(stub): road height query per wheel; flat plane at the road surface under the entity for now.
+    m_rigid.advance(dt, in, RoadGeometry::road_surface_y(m_position.x) / kWorldUnitsPerMeter);
+
+    // ── Write back: pose (WU + Euler degrees) and the scalars the rest of the game reads ──
+    const mat3 rn = b.rotation();
+    const vec3 e  = util::physics::euler_yxz_from_rotation(rn);  // (pitch, yaw, roll) rad
+    m_rotation    = Vec3(glm::degrees(e.x), glm::degrees(e.y), glm::degrees(e.z));
+    m_position    = (b.position() - rn * m_rigid.params().cog_mesh_m) * kWorldUnitsPerMeter;
+
+    // Road X bounds: clamp the entity and drag the body with it (outward velocity removed).
+    const float clampedX = std::clamp(m_position.x, m_min_x, m_max_x);
+    if (clampedX != m_position.x) {
+        b.set_position(b.position() + vec3((clampedX - m_position.x) / kWorldUnitsPerMeter, 0.f, 0.f));
+        vec3 vel = b.linear_velocity();
+        vel.x    = 0.f;
+        b.set_linear_velocity(vel);
+        m_position.x = clampedX;
+    }
+    m_rigid_last_pos = m_position;
+
+    vec3 fwdN          = rn * vec3(1.f, 0.f, 0.f);
+    fwdN.y             = 0.f;
+    fwdN               = glm::length(fwdN) > 1e-4f ? glm::normalize(fwdN) : vec3(1.f, 0.f, 0.f);
+    const vec3 vN      = b.linear_velocity();
+    m_forward_speed    = glm::dot(vN, fwdN) * kWorldUnitsPerMeter;
+    m_lateral_velocity = glm::dot(vN, glm::cross(fwdN, up));
+    m_yaw_rate         = -b.angular_velocity().y;
+    if (!std::isfinite(m_forward_speed))
+        m_forward_speed = 0.f;
+
+    // Wheel spin (kinematic rolling), same as the bicycle path.
+    if (m_wheels_valid && m_wheel_spin_on) {
+        const float vRoll = (m_forward_speed / kWorldUnitsPerMeter) * m_wheel_spin_mul;
+        for (int c = 0; c < 4; c++)
+            m_wheel_spin[c] = wheel_spin_step(m_wheel_spin[c], vRoll, m_wheel_frames[c].radius, dt);
+    }
+}
+#endif  // SWISH_DEBUG_UI
 
 // ── Phase-B quarter-car suspension (kinematic travel only) ────────────
 // archive/docs/wheels/phase-b-spec.md. LATE update: App.cpp calls this after
