@@ -8,8 +8,9 @@ All notable changes to Swish are documented here.
 
 Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest month first.
 
-### 2026-10 (13 entries)
+### 2026-10 (14 entries)
 
+- 2026-10-11 — [Merged everything into `debug-ui`: upstream fixes, Ch01 work, rigged Porsche asset](docs/changelog/2026-10.md#2026-10-11--merged-everything-into-debug-ui-upstream-fixes-ch01-work-rigged-porsche-asset)
 - 2026-10-11 — [Replaced `#define private public` in the golden car test with a friend test accessor](docs/changelog/2026-10.md#2026-10-11--replaced-define-private-public-in-the-golden-car-test-with-a-friend-test-accessor)
 - 2026-10-11 — [P0.3 Build: scene_core / utils targets, shared warnings, CI hygiene](docs/changelog/2026-10.md#2026-10-11--p03-build-scene_core--utils-targets-shared-warnings-ci-hygiene)
 - 2026-10-11 — [P0.5 doc drift: Units.h test path, golden README, rule 9, `rel`/`NOREL`, symbol refs, utils plan restored](docs/changelog/2026-10.md#2026-10-11--p05-doc-drift-unitsh-test-path-golden-readme-rule-9-relnorel-symbol-refs-utils-plan-restored)

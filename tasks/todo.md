@@ -8,6 +8,34 @@
 > shipped: `git log` and [`CHANGELOG.md`](../CHANGELOG.md). Current user goal:
 > [`docs/user-goals/CURRENT.md`](../docs/user-goals/CURRENT.md).
 
+## What's next (updated 2026-10-11, after merging everything into `debug-ui`)
+
+`debug-ui` now holds: car lights S0–S3, the four debug-only stubs (rigid body, car rain, render tools, driving
+tools), refactor M0 (P0.3–P0.5), the committed Ch01 / Hellcat work, upstream `origin/debug-ui` (swapchain sRGB +
+FIFO vsync, run_mac.sh, 2026-07-25 reviews) and `assets/blend/porsche_rigged.{blend,glb}`. Gate at merge: release
+309/309, debug 333/333, `.spv` 33/33, 0 warnings, `make check` OK (CHANGELOG 2026-10-11). In priority order:
+
+1. **Look at what was merged (nothing has been seen running yet).** `make debug` with
+   `SWISH_CAR=assets/blend/porsche_rigged.glb`: car lights at rain 0 / 1.0 + fps (car-lights S4); Physics
+   "rigid body" toggle; per-wheel spray; Render tools panel (GPU profiler on MoltenVK, F12 capture, hot-reload of
+   `composite.frag`); Driving tools panel (record/replay, gamepad). Window-only screenshots, per CLAUDE.md.
+2. **Check the upstream swapchain change on the Mac.** Present mode is now always FIFO (fps capped at the display
+   refresh) and 8-bit sRGB is preferred over 16-bit extended-sRGB: confirm the image matches and re-baseline any fps
+   numbers; fix `docs/DESIGN_PATTERNS.md`'s "present mode is hard-coded Mac behaviour" claim.
+3. **Make the rigged Porsche a first-class car.** Loader path for the Swish node convention (`Wheel_*`, `Caliper_*`,
+   `SteeringWheel`, `Needle_*`, `Wiper_*`) so wheels spin/steer (today: "WHEEL RECOVERY FAILED", rigid wheels),
+   needles follow rpm/speed and the wipers follow `wiperAngle`. Then decide whether it replaces `porsche.glb`.
+4. **Finish car lights:** S5 lens glow (emissive on `*_Lens` / `_Emitter` submeshes), S6 rain on the lenses (feed the
+   car-rain `LensWetnessModel` into a lens shading path), S7 docs; optional: split turn signals / fog lamps in Blender.
+5. **Typed-C++ M1:** owner review of the committed Ch01 work, then Ch02–Ch04. Note `InputFrame` (driving tools)
+   already covers part of Ch07; reconcile before starting Ch07.
+6. **Stub → real, by value:** braking distance 36.6 m vs 31.5 m target (bench); true multi-emitter spray (needs
+   `spray_sim.comp`, a deliberate release `.spv` change); rigid-body `TODO(stub)`s; hot-reload for the other pipelines.
+7. **Release decisions (owner):** car lights to release; TAA vs SSAA default.
+8. **Housekeeping:** format the 27 files that differ from `.clang-format`, then make format-check a hard CI gate;
+   stale counts in `DESIGN_PATTERNS.md`; check `docs/utils-component-design.md` against `src/utils/`; decide whether to
+   keep or delete `origin/debug-ui-2026-10` now that `origin/debug-ui` is current.
+
 ## Car lights: headlights, tail/brake lights, rain on the lenses (started 2026-10-10)
 
 Branch `feature/car-lights` (worktree `.worktrees/car-lights`, off `debug-ui`). Asset: `assets/blend/porsche_rigged.blend`
@@ -84,10 +112,10 @@ anything visible, changelog. Commit/merge only when the owner asks. **Arch GCC g
 - [x] P0.3 Build: `swish_scene_core` static lib, `swish_utils` INTERFACE, warnings on tests/`toml_baker`, CI builds both test targets (clang Release) + `make check` + format-check, compiler guard on golden mesh test — done 2026-10-11 (uncommitted; format-check is report-only in CI)
 - [x] P0.4 Test seam: replace `#define private public` in `test_golden_car.cpp` (done 2026-10-11: `friend struct CarEntityTestAccess`, defined only in the test; goldens untouched)
 - [x] P0.5 Doc drift fixes (Units.h test path, golden README contradiction, CODING_RULES rule 9, `rel`/`NOREL`, DESIGN_PATTERNS line ref, restore `docs/utils-component-design.md`) — done 2026-10-11, docs only
-- [x] P0.6 (2026-10-01, branch `docs/typed-cpp-tutorial`; chapters 01-12 written, owner review pending) Tutorial scaffold: `docs/tutorials/typed-cpp/00-index.md` + `docs/README.md` row
+- [x] P0.6 (2026-10-01, branch `docs/typed-cpp-tutorial`; chapters 01-12 written, owner review pending (one precedence bug in `upshift_lands_above_downshift` fixed at merge, `68140d8`)) Tutorial scaffold: `docs/tutorials/typed-cpp/00-index.md` + `docs/README.md` row
 
 ### M1 — foundations, core, car (owner implements)
-- [ ] Ch01 `static_assert` / constexpr validators (GearboxParams, MAX_FRAMES_IN_FLIGHT)
+- [~] Ch01 `static_assert` / constexpr validators (GearboxParams, MAX_FRAMES_IN_FLIGHT) — work-in-progress committed `d5d3b78` on request (2026-10-11), owner review pending
 - [ ] Ch02 type_traits / `if constexpr` / concepts (`utils/meta/Concepts.h`)
 - [ ] Ch03 Strong types: `Quantity<Tag>`, `Gear`, `Corner` + `PerCorner<T>`, `Direction` (car golden bit-identical)
 - [ ] Ch04 `swish::fsm` engine (`src/utils/fsm/Fsm.h`), test-first, constexpr table validation
@@ -231,9 +259,9 @@ structure; fix every inbound link. Nothing deleted.
 | # | Item | Notes |
 |---|------|-------|
 | 1 | Endless-road **Layer 5 polish** | exit signage, network lights, junction UX, haze/far-plane tuning |
-| 2 | Wheel **Phase C** | slip/lockup visuals + rain-mu tie-in; verify rain at 0 and 1.0; effort S-M |
+| 2 | Wheel **Phase C** | stub hooks merged 2026-10-11 (`SlipVisuals.h`); slip/lockup visuals + rain-mu tie-in; verify rain at 0 and 1.0; effort S-M |
 | 3 | Phase 3 corridor **3b / 3c** | 3b: real interchange ramps + service-road connections, then delete unwired `generate_interchange` / `generate_service_roads` / `generate_chunk`; 3c: exit-number signage + HOV markings from OSM tags |
-| 4 | **Per-wheel spray emitters** | needs a `CarEntity` wheel-matrix accessor, `App.cpp` wiring, `Renderer` setter, 4 spawn points in `SpraySimUBO` |
+| 4 | **Per-wheel spray emitters** | debug stub merged 2026-10-11 (`WheelSpray.h`, round-robin on the single sim); real version needs a `CarEntity` wheel-matrix accessor, `App.cpp` wiring, `Renderer` setter, 4 spawn points in `SpraySimUBO` |
 | 5 | **TAA as release default** vs SSAA | user decision pending; TAA and `VelocityPass` are debug-gated today |
 | 6 | Reflection / ambient energy rebalance; Fresnel-bounded sheen (E2) | stops bright panels stacking past AgX's shoulder; also cures over-exposed far road |
 | 7 | Height fog (D1) + sun-tinted airlight (D2); froxel volumetrics (C4) | C4 wants clustered light culling (C6) first |
