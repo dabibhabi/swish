@@ -33,6 +33,7 @@ add_executable(swish_utils_tests
     test_renderer_ShaderHotReload.cpp
     test_renderer_TimestampMath.cpp
     test_renderer_CapturePath.cpp
+    test_renderer_RendererConfig.cpp
 
     ${CMAKE_SOURCE_DIR}/src/utils/io/File.cpp
     # renderer/Passes: the registry + image registry are Vulkan-handle bookkeeping only (no Vulkan calls)

@@ -26,26 +26,39 @@ enum MaterialId : uint32_t {
     MAT_SIGN_6   = 14,
     MAT_SIGN_7   = 15,
     // ── Car material slots (loaded from GLB, one per glTF material) ──
-    MAT_CAR_0  = 16,
-    MAT_CAR_1  = 17,
-    MAT_CAR_2  = 18,
-    MAT_CAR_3  = 19,
-    MAT_CAR_4  = 20,
-    MAT_CAR_5  = 21,
-    MAT_CAR_6  = 22,
-    MAT_CAR_7  = 23,
-    MAT_CAR_8  = 24,
-    MAT_CAR_9  = 25,
-    MAT_CAR_10 = 26,
-    MAT_CAR_11 = 27,
-    MAT_CAR_12 = 28,
-    MAT_CAR_13 = 29,
-    MAT_CAR_14 = 30,
-    MAT_CAR_15 = 31,
-    MAT_CAR_16 = 32,
-    MAT_CAR_17 = 33,
-    MAT_CAR_18 = 34,
-    MAT_CAR_19 = 35,
+    MAT_CAR_0    = 16,
+    MAT_CAR_1    = 17,
+    MAT_CAR_2    = 18,
+    MAT_CAR_3    = 19,
+    MAT_CAR_4    = 20,
+    MAT_CAR_5    = 21,
+    MAT_CAR_6    = 22,
+    MAT_CAR_7    = 23,
+    MAT_CAR_8    = 24,
+    MAT_CAR_9    = 25,
+    MAT_CAR_10   = 26,
+    MAT_CAR_11   = 27,
+    MAT_CAR_12   = 28,
+    MAT_CAR_13   = 29,
+    MAT_CAR_14   = 30,
+    MAT_CAR_15   = 31,
+    MAT_CAR_16   = 32,
+    MAT_CAR_17   = 33,
+    MAT_CAR_18   = 34,
+    MAT_CAR_19   = 35,
+    MAT_CAR_20   = 36,
+    MAT_CAR_21   = 37,
+    MAT_CAR_22   = 38,
+    MAT_CAR_23   = 39,
+    MAT_CAR_24   = 40,
+    MAT_CAR_25   = 41,
+    MAT_CAR_26   = 42,
+    MAT_CAR_27   = 43,
+    MAT_CAR_28   = 44,
+    MAT_CAR_29   = 45,
+    MAT_CAR_30   = 46,
+    MAT_CAR_31   = 47,
+    MAT_CAR_LAST = MAT_CAR_31,  // car slots are contiguous MAT_CAR_0..MAT_CAR_LAST
     MAT_COUNT
 };
 
@@ -105,10 +118,10 @@ inline constexpr float kDefaultClearcoatStrength = 0.35f;
 inline constexpr float kDefaultFlakeDensity      = 0.0f;
 
 inline float default_clearcoat_strength(MaterialId mat) {
-    return (mat >= MAT_CAR_0 && mat <= MAT_CAR_19) ? kDefaultClearcoatStrength : 0.0f;
+    return (mat >= MAT_CAR_0 && mat <= MAT_CAR_LAST) ? kDefaultClearcoatStrength : 0.0f;
 }
 inline float default_flake_density(MaterialId mat) {
-    return (mat >= MAT_CAR_0 && mat <= MAT_CAR_19) ? kDefaultFlakeDensity : 0.0f;
+    return (mat >= MAT_CAR_0 && mat <= MAT_CAR_LAST) ? kDefaultFlakeDensity : 0.0f;
 }
 
 // Global clearcoat/flake multipliers applied on top of the per-material defaults
