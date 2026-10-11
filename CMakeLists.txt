@@ -189,9 +189,61 @@ endforeach()
 
 add_custom_target(shaders DEPENDS ${SHADER_SPV_FILES})
 
+# --- Shared warning set ---
+# One definition of the first-party warning flags, linked by swish, swish_scene_core, the test targets and
+# toml_baker. Third-party headers are SYSTEM includes, so -Werror only ever fires on first-party code.
+# SWISH_WERROR is opt-in (CI turns it on).
+option(SWISH_WERROR "Treat warnings as errors in first-party swish sources" OFF)
+add_library(swish_warnings INTERFACE)
+target_compile_options(swish_warnings INTERFACE
+    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic -Wno-unused-parameter>
+)
+if(SWISH_WERROR)
+    target_compile_options(swish_warnings INTERFACE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Werror>)
+endif()
+
+# --- swish_utils: header-only utils (src/utils/**) as a target: include root + GLM + clip-Z convention ---
+# Vulkan clip space uses [0,1] depth, not OpenGL's [-1,1]. This makes glm::perspective emit [0,1] clip-Z so the
+# depth buffer and the shader depth->world reconstruction (lighting.frag / ssao.frag) agree.
+add_library(swish_utils INTERFACE)
+target_include_directories(swish_utils INTERFACE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(swish_utils INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE)
+target_link_libraries(swish_utils INTERFACE glm::glm)
+
+# --- swish_scene_core: the GPU-free scene sources the test binaries link ---
+# RoadScene is split into topic files (MeshBuilder, Surfaces, Furniture, Ramps); glob the directory so a new
+# topic file needs no edit here. CorridorDriver.cpp is deliberately NOT here: it pulls in Renderer (Vulkan) and
+# CarEntity (GLFW input), which the test harness has no business linking. The parts under test (alignment
+# queries, drivable-bounds math) live in CorridorAlignment.cpp / CorridorBounds.cpp. CarEntity.cpp is the real
+# CarEntity::update() for the golden-trajectory test; it needs only glfwGetKey (handle_input, never called by
+# the tests). The main `swish` executable still compiles every src/ file itself (it is not linked against this).
+file(GLOB SWISH_ROAD_SCENE_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/scene/RoadScene/*.cpp)
+list(SORT SWISH_ROAD_SCENE_SOURCES)
+add_library(swish_scene_core STATIC
+    ${CMAKE_SOURCE_DIR}/src/scene/Camera/Camera.cpp
+    ${SWISH_ROAD_SCENE_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorAlignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorBounds.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/RoadGeometry/RoadGeometry.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/Entity/CarEntity.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/Entity/Entity.cpp
+)
+target_include_directories(swish_scene_core SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/include)   # vendored stb_image.h
+target_link_libraries(swish_scene_core
+    PUBLIC  swish_utils glfw          # Camera.cpp polls input via glfwGetKey()
+    PRIVATE swish_warnings
+)
+target_compile_definitions(swish_scene_core PRIVATE
+    CONFIG_DIR="${CMAKE_BINARY_DIR}/config/"   # RoadScene() default ctor loads road.bin
+)
+target_compile_definitions(swish_scene_core PUBLIC
+    $<$<STREQUAL:${SWISH_BACKEND},APPLE_METAL>:SWISH_BACKEND_APPLE>
+    $<$<STREQUAL:${SWISH_BACKEND},LINUX_VULKAN>:SWISH_BACKEND_LINUX>
+)
+
 # --- Config baker (TOML → binary) ---
 add_executable(toml_baker tools/toml_baker.cpp)
-target_link_libraries(toml_baker PRIVATE tomlplusplus::tomlplusplus)
+target_link_libraries(toml_baker PRIVATE tomlplusplus::tomlplusplus swish_warnings)
 target_compile_features(toml_baker PRIVATE cxx_std_23)
 # Include root: same "scene/...", "utils/..." paths as the game (it shares RoadConfig.h and Units.h).
 target_include_directories(toml_baker PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -226,25 +278,16 @@ add_dependencies(swish shaders bake_configs)
 # (e.g. "utils/units/Units.h", "renderer/Renderer/Renderer.h"); only same-directory
 # includes are bare ("Renderer.h"). No "../" in any #include.
 target_include_directories(swish PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/shaders/common            # bindings.glsl, #included by renderer/Bindings.h
 )
 
 target_compile_definitions(swish PRIVATE
-    # Vulkan clip space uses [0,1] depth, not OpenGL's [-1,1]. This makes
-    # glm::perspective emit [0,1] clip-Z so the depth buffer and the shader
-    # depth->world reconstruction (lighting.frag / ssao.frag) agree.
-    GLM_FORCE_DEPTH_ZERO_TO_ONE
     SHADER_DIR="${SHADER_OUTPUT_DIR}/"
     TEXTURE_DIR="${CMAKE_SOURCE_DIR}/textures/"
     ASSET_DIR="${CMAKE_SOURCE_DIR}/assets/"
     CONFIG_DIR="${CONFIG_DIR}/"
     $<$<STREQUAL:${SWISH_BACKEND},APPLE_METAL>:SWISH_BACKEND_APPLE>
     $<$<STREQUAL:${SWISH_BACKEND},LINUX_VULKAN>:SWISH_BACKEND_LINUX>
-)
-
-target_compile_options(swish PRIVATE
-    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic -Wno-unused-parameter>
 )
 
 # Third-party headers are marked SYSTEM so -Wall/-Wextra/-Wpedantic and -Werror only ever fire on
@@ -256,15 +299,10 @@ target_include_directories(swish SYSTEM PRIVATE
     ${CMAKE_SOURCE_DIR}/include                   # vendored stb_image.h
 )
 
-# Opt-in (CI turns it on): treat warnings in first-party swish sources as errors.
-option(SWISH_WERROR "Treat warnings as errors in first-party swish sources" OFF)
-if(SWISH_WERROR)
-    target_compile_options(swish PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Werror>)
-endif()
-
 target_link_libraries(swish PRIVATE
+    swish_utils
+    swish_warnings
     glfw
-    glm::glm
     Vulkan::Vulkan
     tinygltf
 )

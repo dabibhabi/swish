@@ -50,12 +50,11 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/src/renderer/ShaderHotReload/Sha
     PROPERTIES COMPILE_DEFINITIONS SWISH_DEBUG_UI)
 
 target_include_directories(swish_utils_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/shaders/common   # renderer/Bindings.h includes bindings.glsl
 )
 
-target_link_libraries(swish_utils_tests PRIVATE Catch2::Catch2WithMain glm::glm)
+target_link_libraries(swish_utils_tests PRIVATE Catch2::Catch2WithMain swish_utils swish_warnings)
 
 # utils/vulkan/*.h include <vulkan/vulkan.h> but the tests call no Vulkan function: headers only.
 if(TARGET Vulkan::Headers)
@@ -63,14 +62,6 @@ if(TARGET Vulkan::Headers)
 else()
     target_include_directories(swish_utils_tests PRIVATE ${Vulkan_INCLUDE_DIRS})
 endif()
-
-target_compile_definitions(swish_utils_tests PRIVATE
-    GLM_FORCE_DEPTH_ZERO_TO_ONE   # match the runtime clip-Z convention (Frustum test)
-)
-
-target_compile_options(swish_utils_tests PRIVATE
-    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic -Wno-unused-parameter>
-)
 
 if(ENABLE_SANITIZERS)
     target_compile_options(swish_utils_tests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
