@@ -21,6 +21,12 @@ public:
     const char* name() const override { return "HdrFinalize"; }
     void        init(const PassInitCtx&) override {}
     void        cleanup(VkDevice) override {}
+    void        declare(PassDeclaration& d) const override {
+        d.read({Img::Hdr});
+#ifdef SWISH_DEBUG_UI
+        d.write({Img::Lum});  // luminance pyramid (auto-exposure); release only barriers the HDR
+#endif
+    }
 
 #ifdef SWISH_DEBUG_UI
     // Read the previous frame's average luminance (its 1x1 mip was copied to this frame slot's host buffer), adapt,

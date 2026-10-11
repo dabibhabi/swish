@@ -20,6 +20,10 @@ namespace {
 class SsrPass final : public FullscreenPass<SsrParams> {
 public:
     const char* name() const override { return "Ssr"; }
+    void        declare(PassDeclaration& d) const override {
+        d.read({Img::GbAlbedo, Img::GbNormal, Img::GbMaterial, Img::GbClearcoat, Img::HdrDepth, Img::Hdr})
+            .write({Img::Ssr});
+    }
 
 protected:
     void describe(const FrameCtx& c, FullscreenDraw& dr, SsrParams& sp) const override {

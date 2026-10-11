@@ -26,6 +26,10 @@ struct DebugParams;
 class GeometryProducer final : public IRenderPass {
 public:
     const char* name() const override { return "Geometry"; }
+    // Scene draws into the G-buffer MRTs + scene depth (the shadow atlas is not an `Img`).
+    void declare(PassDeclaration& d) const override {
+        d.write({Img::GbAlbedo, Img::GbNormal, Img::GbMaterial, Img::GbClearcoat, Img::HdrDepth});
+    }
     void        init(const PassInitCtx& ctx) override;  // depth-only + G-buffer pipelines
     void        record(const FrameCtx& ctx) override;   // shadow atlas, G-buffer, lighting barriers
     void        cleanup(VkDevice device) override;      // pipelines (scene buffers: destroy_scene / destroy_dynamic)

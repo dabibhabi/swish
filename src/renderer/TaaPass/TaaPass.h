@@ -46,6 +46,10 @@ public:
     ~TaaPass() override = default;
 
     const char* name() const override { return "Taa"; }
+    // Resolves into the HDR image (history ping-pong is private); samples depth + velocity.
+    void declare(PassDeclaration& d) const override {
+        d.read({Img::Hdr, Img::HdrDepth, Img::Velocity}).write({Img::Hdr});
+    }
 
     // HDR, depth and the per-object velocity buffer (Img::Velocity, VelocityPass) come from the image registry;
     // velocity is sampled as an extra input taa.frag uses in place of its depth-only motion estimate wherever valid

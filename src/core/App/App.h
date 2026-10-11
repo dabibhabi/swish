@@ -124,6 +124,7 @@ private:
     void on_cycle_weather();
 #ifdef SWISH_DEBUG_UI
     void on_toggle_debug_edit();
+    void on_capture_frame();  // F12: dump the frame to build-debug/captures/ (Shift also dumps the HDR scene colour)
     // The one writer of edit mode: frees/captures the cursor and freezes the sim.
     void set_debug_edit_mode(bool edit);
     // The panel's "Edit mode" checkbox / Reset write DebugParams::editMode directly;

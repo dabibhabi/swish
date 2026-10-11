@@ -22,6 +22,9 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
 
+#include <functional>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace swish {
@@ -44,6 +47,24 @@ struct DebugUIInitInfo {
     uint32_t                 minImageCount;
 };
 
+// "Render tools" panel feed (GPU profiler, frame capture, shader hot-reload, pass-declaration warnings). Borrowed,
+// read-only views owned by the Renderer, plus two action callbacks. Any null pointer / empty callback just hides that
+// part of the section. Set once after init (the pointed-to objects live as long as the Renderer).
+struct GpuProfileSnapshot;
+struct CaptureStatus;
+class ShaderHotReload;
+struct NamedDeclaration;
+
+struct RenderToolsView {
+    const GpuProfileSnapshot*            gpu          = nullptr;
+    const CaptureStatus*                 capture      = nullptr;
+    const ShaderHotReload*               hotReload    = nullptr;
+    const std::vector<NamedDeclaration>* decls        = nullptr;  // number of passes checked
+    const std::vector<std::string>*      declWarnings = nullptr;
+    std::function<void(bool hdr)>        requestCapture;
+    std::function<void(bool enabled)>    setHotReloadEnabled;
+};
+
 class DebugUI {
 public:
     DebugUI()  = default;
@@ -54,6 +75,8 @@ public:
 
     // Create ImGui context + GLFW/Vulkan backends + our own pool/pass/FBs.
     void init(const DebugUIInitInfo& info);
+
+    void set_render_tools(RenderToolsView v) { m_tools = std::move(v); }
 
     // ImGui NewFrame → build the panel (mutates `p`) → ImGui::Render. The camera
     // view/proj drive the ImGuizmo sun-orientation handle. Call once per frame
@@ -82,6 +105,7 @@ private:
     std::vector<VkFramebuffer> m_framebuffers;
     VkExtent2D                 m_extent = {};
     bool                       m_init   = false;
+    RenderToolsView            m_tools;
 };
 
 }  // namespace swish

@@ -19,6 +19,10 @@ namespace {
 class GodRaysPass final : public FullscreenPass<GodRaysParams> {
 public:
     const char* name() const override { return "GodRays"; }
+    void        declare(PassDeclaration& d) const override {
+        // set 0 = the G-buffer set (depth is what the shader samples), set 1 = lit HDR.
+        d.read({Img::HdrDepth, Img::Hdr}).write({Img::Godrays});
+    }
 
 protected:
     void describe(const FrameCtx& c, FullscreenDraw& d, GodRaysParams& gp) const override {

@@ -20,6 +20,7 @@
 //  - Release output must not change: debug-only passes are listed with PASS_DEBUG and compile to nothing otherwise.
 
 #include "renderer/Passes/ImageRegistry.h"
+#include "renderer/Passes/PassDeclaration.h"
 #include "utils/types/Types.h"
 
 #include <vulkan/vulkan.h>
@@ -123,6 +124,10 @@ public:
     // Record commands. May do nothing (disabled / nothing to draw); when it does record, the images it touches must be
     // left in the layouts the NEXT pass in the list expects (documented in the pass and in docs/render-pipeline.md).
     virtual void record(const FrameCtx& ctx) = 0;
+
+    // Declare the named images this pass reads / writes (PassDeclaration.h). Optional and purely informational: it
+    // never changes recording. The default declares nothing. Checked by PassDeclarationValidator in debug builds.
+    virtual void declare(PassDeclaration& d) const { (void)d; }
 
     // Destroy GPU objects (device is idle). Called in reverse list order.
     virtual void cleanup(VkDevice device) = 0;

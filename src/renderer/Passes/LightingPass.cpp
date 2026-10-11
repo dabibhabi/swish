@@ -23,6 +23,10 @@ class LightingPass final : public IRenderPass {
 public:
     const char* name() const override { return "Lighting"; }
 
+    void declare(PassDeclaration& d) const override {
+        d.read({Img::GbAlbedo, Img::GbNormal, Img::GbMaterial, Img::GbClearcoat, Img::HdrDepth}).write({Img::Hdr});
+    }
+
     void init(const PassInitCtx& ctx) override {
         const PostProcessManager& pp = *ctx.res.pp;
         // Named-field init (order-independent): the debug build appends an extra scene-params set layout, so

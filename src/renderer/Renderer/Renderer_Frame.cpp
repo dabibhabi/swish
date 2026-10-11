@@ -40,6 +40,15 @@ void Renderer::drawFrame(float deltaTime) {
         }
         return;
     }
+
+    // S5 shader hot-reload: rate-limited mtime poll; a changed shader is recompiled and its pipeline hook runs here,
+    // between frames (the hook waits for the device), before any command buffer for this frame is recorded.
+    m_shaderReload.poll();
+
+    // S2/S3: this slot's fence was just waited, so its previous frame (N-2) is finished: read its GPU timestamps
+    // (no wait, skipped if not ready) and finish a pending frame capture that was recorded in this slot.
+    m_gpuProfiler.collect(m_currentFrame, deltaTime);
+    m_frameCapture.collect(m_currentFrame);
 #endif
 
     // Each frame phase is a named lambda — the state machine reads as

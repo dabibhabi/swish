@@ -50,6 +50,8 @@ public:
     ~WindshieldRainPass() override = default;
 
     const char* name() const override { return "WindshieldRain"; }
+    // Snapshots the HDR (refraction source) then draws the droplets over it, depth read-only.
+    void declare(PassDeclaration& d) const override { d.read({Img::Hdr, Img::HdrDepth}).write({Img::Hdr}); }
     void        init(const PassInitCtx& ctx) override;
     void        onResize(const PassInitCtx& ctx) override;
     // Screen-space flow direction from the car heading, speed factor (car speed / kMaxSpeed), wetness and rain

@@ -9,20 +9,33 @@ namespace swish {
 // Pipelines — fullscreen quads with no vertex input
 // ══════════════════════════════════════════════════════════════════════
 
-void PostProcessManager::createPipelines() {
-    auto makeFullscreenPipeline = [&](const std::string& fragShader, VkRenderPass rp, VkPipelineLayout layout,
-                                      VkExtent2D ext) -> VkPipeline {
-        PipelineConfig cfg{};
-        cfg.vertShaderPath   = std::string(SHADER_DIR) + "/fullscreen.vert.spv";
-        cfg.fragShaderPath   = std::string(SHADER_DIR) + "/" + fragShader + ".spv";
-        cfg.noVertexInput    = true;
-        cfg.enableDepthTest  = false;
-        cfg.enableDepthWrite = false;
-        cfg.cullMode         = VK_CULL_MODE_NONE;
-        cfg.pipelineLayout   = layout;
-        return pipeline::create_graphics(m_device, m_pipelineCache, cfg, rp, ext);
-    };
+VkPipeline PostProcessManager::makeFullscreenPipeline(const std::string& fragShader, VkRenderPass rp,
+                                                      VkPipelineLayout layout, VkExtent2D ext) const {
+    PipelineConfig cfg{};
+    cfg.vertShaderPath   = std::string(SHADER_DIR) + "/fullscreen.vert.spv";
+    cfg.fragShaderPath   = std::string(SHADER_DIR) + "/" + fragShader + ".spv";
+    cfg.noVertexInput    = true;
+    cfg.enableDepthTest  = false;
+    cfg.enableDepthWrite = false;
+    cfg.cullMode         = VK_CULL_MODE_NONE;
+    cfg.pipelineLayout   = layout;
+    return pipeline::create_graphics(m_device, m_pipelineCache, cfg, rp, ext);
+}
 
+#ifdef SWISH_DEBUG_UI
+// Shader hot-reload (S5): build the new composite pipeline from the freshly written .spv first (a throw leaves the old
+// pipeline untouched), then wait for the GPU and swap. Called between frames by ShaderHotReload.
+void PostProcessManager::rebuild_composite_pipeline() {
+    const VkPipeline fresh =
+        makeFullscreenPipeline("composite.frag", m_compositeRenderPass, m_compositeLayout, m_swapExtent);
+    vkDeviceWaitIdle(m_device);
+    if (m_compositePipeline != VK_NULL_HANDLE)
+        vkDestroyPipeline(m_device, m_compositePipeline, nullptr);
+    m_compositePipeline = fresh;
+}
+#endif
+
+void PostProcessManager::createPipelines() {
     m_bloomExtractPipeline =
         makeFullscreenPipeline("bloom_extract.frag", m_bloomRenderPass, m_postProcessLayout, m_bloomExtent);
     m_bloomBlurPipeline =

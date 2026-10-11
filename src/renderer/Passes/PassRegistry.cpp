@@ -44,6 +44,17 @@ void PassRegistry::update(const FrameUpdate& u) {
 }
 
 void PassRegistry::record_all(const FrameCtx& ctx) const {
+#ifdef SWISH_DEBUG_UI
+    if (m_observer) {
+        m_observer->on_record_begin(ctx.cmd, ctx.frameIndex);
+        std::size_t i = 0;
+        for (const Entry& e : m_entries) {
+            e.pass->record(ctx);
+            m_observer->on_pass_recorded(ctx.cmd, ctx.frameIndex, i++);
+        }
+        return;
+    }
+#endif
     for (const Entry& e : m_entries)
         e.pass->record(ctx);
 }

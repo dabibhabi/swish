@@ -48,6 +48,8 @@ public:
     ~RainSystem() override = default;
 
     const char* name() const override { return "Rain"; }
+    // Forward draw onto the lit HDR, scene depth read-only (ForwardPass.h).
+    void declare(PassDeclaration& d) const override { d.read({Img::Hdr, Img::HdrDepth}).write({Img::Hdr}); }
     // HDR color + depth views come from the image registry; depth is used for depth testing against scene geometry
     // so rain does not appear inside the car cabin.
     void init(const PassInitCtx& ctx) override;

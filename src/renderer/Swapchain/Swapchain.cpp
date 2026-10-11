@@ -31,6 +31,12 @@ void Swapchain::init(Device& device, VkSurfaceKHR surface, uint32_t width, uint3
     createInfo.imageExtent      = extent;
     createInfo.imageArrayLayers = 1;
     createInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+#ifdef SWISH_DEBUG_UI
+    // Frame capture (FrameCapture) copies the presented image out; debug builds only, release usage is unchanged.
+    m_transferSrc = (swapChainSupport.capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+    if (m_transferSrc)
+        createInfo.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+#endif
 
     QueueFamilyIndices indices              = device.findQueueFamilies(device.getPhysicalDevice(), surface);
     uint32_t           queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presentFamily.value()};

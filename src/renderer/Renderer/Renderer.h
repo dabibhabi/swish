@@ -11,6 +11,10 @@
 #ifdef SWISH_DEBUG_UI
 #include "debug/DebugUI.h"
 #include "debug/SceneParamsUniform.h"
+#include "renderer/FrameCapture/FrameCapture.h"  // S3: frame dump (debug)
+#include "renderer/GpuProfiler/GpuProfiler.h"    // S2: GPU timestamp profiler (debug)
+#include "renderer/Passes/PassDeclarationValidator.h"  // S4: pass resource declarations + validator (debug)
+#include "renderer/ShaderHotReload/ShaderHotReload.h"  // S5: shader hot-reload (debug)
 #endif
 // vulkan headers
 #include <vulkan/vulkan.h>
@@ -125,6 +129,20 @@ public:
     void set_debug_edit_mode(bool edit);
 
     DebugParams& debug_params() { return m_debugParams; }
+
+    // S4/S5 status for the debug UI (plain data, read-only). Hot-reload: status(), log(), enabled(); toggle with
+    // set_shader_hot_reload_enabled. Declarations: what each pass reads/writes (list order) + the validator's warnings
+    // computed once after init_all.
+    const ShaderHotReload&               shader_hot_reload() const { return m_shaderReload; }
+    void                                 set_shader_hot_reload_enabled(bool e) { m_shaderReload.set_enabled(e); }
+    const std::vector<NamedDeclaration>& pass_declarations() const { return m_passDecls; }
+    const std::vector<std::string>&      pass_declaration_warnings() const { return m_declWarnings; }
+
+    // S2: per-pass GPU timings (plain data; snapshot().supported == false when timestamps are unavailable).
+    const GpuProfileSnapshot& gpu_profile() const { return m_gpuProfiler.snapshot(); }
+    // S3: request a frame dump (F12). hdr also writes the float scene colour as .pfm. Status/last path for the UI.
+    void                  request_capture(bool hdr) { m_frameCapture.request(hdr); }
+    const CaptureStatus&  capture_status() const { return m_frameCapture.status(); }
 #endif
 
     void update_glass_draw_calls(const std::vector<DrawCall>& glassDCs);
@@ -182,6 +200,13 @@ private:
     DebugParams m_debugParams;
 
     SceneParamsUniform m_sceneParams;
+
+    ShaderHotReload               m_shaderReload;  // S5: polled each frame; the Composite hook is registered in init
+    std::vector<NamedDeclaration> m_passDecls;     // S4
+    std::vector<std::string>      m_declWarnings;  // S4
+
+    GpuProfiler  m_gpuProfiler;   // S2: registered as the PassRegistry observer in init
+    FrameCapture m_frameCapture;  // S3: record after record_all, collect after the slot's fence wait
 
 #endif
 

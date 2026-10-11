@@ -11,6 +11,9 @@
 #include "renderer/IBLManager/IBLManager.h"
 #include "renderer/MaterialDescriptors/MaterialDescriptors.h"
 #include "renderer/Passes/PassRegistry.h"
+#ifdef SWISH_DEBUG_UI
+#include "renderer/Passes/PassRebuild.h"
+#endif
 #include "renderer/Pipeline/Device/Device.h"
 #include "renderer/PostProcessManager/PostProcessManager.h"
 #include "renderer/RendererConfig.h"
@@ -21,6 +24,7 @@
 #include "utils/types/Types.h"
 
 #include <array>
+#include <cstdio>
 
 namespace swish {
 
@@ -95,6 +99,33 @@ void Renderer::init(Window& window) {
     m_passes = make_pass_registry(&m_geometry);
     init_passes(false);
 
+#ifdef SWISH_DEBUG_UI
+    // S4: validate the passes' declared image reads/writes once (list order, read-before-write) and keep the result
+    // for the debug UI. Informational only: never changes the pass order or recording.
+    m_passDecls    = collect_pass_declarations(&m_geometry);
+    m_declWarnings = validate_pass_declarations(m_passDecls);
+    for (const std::string& w : m_declWarnings)
+        std::fprintf(stderr, "[PassDeclaration] WARNING: %s\n", w.c_str());
+    // S5: shader hot-reload hooks. Only Composite rebuilds live today; other shaders log TODO(stub) on change.
+    m_shaderReload.register_rebuild("composite", [this] { rebuild_composite_pass(*m_postProcess); });
+    // S2/S3: GPU timestamp profiler (observes record_all) and frame capture (staging buffers via VMA).
+    m_gpuProfiler.init(services(), m_device->getQueueFamilies().graphicsFamily.value(), m_passes);
+    m_passes.set_observer(&m_gpuProfiler);
+    m_frameCapture.init(m_device->getAllocator());
+    // S6: feed the "Render tools" debug panel (borrowed read-only views + two actions).
+    {
+        RenderToolsView rt;
+        rt.gpu                 = &m_gpuProfiler.snapshot();
+        rt.capture             = &m_frameCapture.status();
+        rt.hotReload           = &m_shaderReload;
+        rt.decls               = &m_passDecls;
+        rt.declWarnings        = &m_declWarnings;
+        rt.requestCapture      = [this](bool hdr) { m_frameCapture.request(hdr); };
+        rt.setHotReloadEnabled = [this](bool e) { m_shaderReload.set_enabled(e); };
+        m_debugUI.set_render_tools(std::move(rt));
+    }
+#endif
+
     // Initial weather HDRI bake (default partly cloudy). Falls back to procedural
     // sky via WeatherController::maybe_rebake_ibl if the HDRI file is missing.
     m_weather.set_preset(WeatherPreset::PartlyCloudy);
@@ -106,6 +137,9 @@ void Renderer::cleanup() {
 #ifdef SWISH_DEBUG_UI
     m_debugUI.cleanup();                           // ImGui shutdown before device/instance teardown
     m_sceneParams.cleanup(m_device->getDevice());  // set 4 UBO + pool + layout
+    m_passes.set_observer(nullptr);
+    m_gpuProfiler.cleanup();   // query pool
+    m_frameCapture.cleanup();  // staging buffers: before the VMA allocator goes away
 #endif
 
     m_camera.reset();
