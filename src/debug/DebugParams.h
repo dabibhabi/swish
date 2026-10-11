@@ -1,7 +1,8 @@
 #pragma once
 
 #include "scene/SceneTypes.h"   // MaterialOverride, MAT_COUNT, MaterialId
-#include "utils/types/Types.h"  // swish::Vec3 / Vec4 (glm aliases)
+#include "utils/input/GamepadMapping.h"  // GamepadConfig defaults (pure header)
+#include "utils/types/Types.h"           // swish::Vec3 / Vec4 (glm aliases)
 
 #include <glm/glm.hpp>
 #include <optional>
@@ -263,6 +264,32 @@ struct DebugParams {
     int   telemetryGear     = 0;      // CarEntity::get_gear(), 0 = 1st ... 6 = 7th
     float telemetryRpm      = 0.0f;   // CarEntity::get_engine_rpm()
     float telemetryMu       = 1.05f;  // CarEntity::get_effective_mu(); matches CarParams::tireMu dry default
+
+    // ── Driving tools (record / replay / gamepad / FFB readout) ──────
+    // Debug-only and transient (NOT in Tunables.def / TOML presets: the registry is for converted
+    // scene-look groups and is size-pinned by tests). Identity defaults: keyboard source, nothing
+    // recording or replaying, so an untouched panel leaves the drive path exactly as before.
+    // The UI writes the control block; App (AppDrivingTools.cpp) consumes the *Requested pulses and
+    // writes the readout block once per frame. Deadzone/expo defaults are GamepadConfig's own.
+    int   drvInputSource = 0;  // 0 = Keyboard (CarEntity::handle_input), 1 = Gamepad
+    float drvDeadzone    = GamepadConfig{}.steer_deadzone;
+    float drvExpo        = GamepadConfig{}.steer_expo;
+    bool  drvRecord      = false;  // rising edge starts a fresh clip
+    bool  drvReplay      = false;  // rising edge replays the ring's recorded inputs
+    bool  drvExportRequested = false;  // one-shot: App writes build-debug/telemetry/*.csv, then clears
+    // Readouts (written by App).
+    bool  drvGamepadConnected = false;
+    char  drvGamepadName[64]  = "";
+    float drvAxisSteer        = 0.0f;  // [-1,1] driver command (gamepad: mapped frame; else the car's applied value)
+    float drvAxisThrottle     = 0.0f;  // [0,1]
+    float drvAxisBrake        = 0.0f;  // [0,1]
+    int   drvRingSize         = 0;
+    int   drvRingCapacity     = 0;
+    int   drvReplayPos        = 0;
+    int   drvReplaySize       = 0;
+    char  drvStatus[96]       = "";    // last export / replay message
+    float drvFfbTorqueNm      = 0.0f;  // front-axle self-aligning torque target (no device output)
+    float drvFfbNormalized    = 0.0f;  // torque / FfbParams::max_torque_nm in [-1,1]
 
     // ── UI state (not a scene parameter, but lives with the rest) ─────
     bool editMode  = false;  // true = cursor free to drive the panel; false = drive-mode (panel ignores mouse)

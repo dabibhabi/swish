@@ -20,6 +20,10 @@ add_executable(swish_tests
     test_golden_mesh.cpp
     test_golden_car.cpp
     test_road_params.cpp
+    test_input.cpp
+    test_bench.cpp
+    test_telemetry.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/telemetry/TelemetryRing.cpp
 
     ${CMAKE_SOURCE_DIR}/src/scene/Camera/Camera.cpp
     ${ROAD_SCENE_SOURCES}

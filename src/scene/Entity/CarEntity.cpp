@@ -14,32 +14,58 @@
 namespace swish {
 
 void CarEntity::handle_input(GLFWwindow* window, float dt) {
-    // Throttle / brake (arrow keys so WASD camera remains independent).
-    // Set intent here; the longitudinal force model is integrated in update().
+    // Keyboard -> InputFrame (arrow keys so WASD camera remains independent), then the
+    // shared apply path. UP wins over DOWN; LEFT wins over RIGHT (unchanged precedence).
+    InputFrame f;
+    f.steer_mode = SteerMode::Rate;
+    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+        f.throttle = 1.f;
+    else if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+        f.brake = 1.f;
+    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
+        f.steer = -1.f;
+    else if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+        f.steer = 1.f;
+    apply_input_frame(f, dt);
+}
+
+void CarEntity::apply_input_frame(const InputFrame& f, float dt) {
+    // Longitudinal intent; the force model is integrated in update(). Throttle wins over
+    // brake (keyboard precedence). TODO(stub): analog trail-braking (throttle + brake together).
     m_throttle = 0.f;
     m_brake    = 0.f;
     m_reverse  = false;
-    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
-        m_throttle = 1.f;
-    } else if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+    if (f.throttle > 0.f) {
+        m_throttle = std::clamp(f.throttle, 0.f, 1.f);
+    } else if (f.brake > 0.f) {
         if (m_forward_speed > kSpeedDeadZone)
-            m_brake = 1.f;  // braking while moving forward
+            m_brake = std::clamp(f.brake, 0.f, 1.f);  // braking while moving forward
         else
             m_reverse = true;  // creep backward once ~stopped
     }
 
-    // Steering
-    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
-        m_steering_angle -= kSteerRate * dt;
-    } else if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
-        m_steering_angle += kSteerRate * dt;
+    if (f.steer_mode == SteerMode::Rate) {
+        if (f.steer < 0.f) {
+            m_steering_angle -= kSteerRate * dt;
+        } else if (f.steer > 0.f) {
+            m_steering_angle += kSteerRate * dt;
+        } else {
+            // Return to center
+            float ret = kSteerReturn * dt;
+            if (std::abs(m_steering_angle) <= ret)
+                m_steering_angle = 0.f;
+            else
+                m_steering_angle -= std::copysign(ret, m_steering_angle);
+        }
     } else {
-        // Return to center
-        float ret = kSteerReturn * dt;
-        if (std::abs(m_steering_angle) <= ret)
-            m_steering_angle = 0.f;
+        // Analog: approach the commanded angle at kSteerRate without overshoot.
+        const float target = std::clamp(f.steer, -1.f, 1.f) * kMaxSteer;
+        const float step   = kSteerRate * dt;
+        const float diff   = target - m_steering_angle;
+        if (std::abs(diff) <= step)
+            m_steering_angle = target;
         else
-            m_steering_angle -= std::copysign(ret, m_steering_angle);
+            m_steering_angle += std::copysign(step, diff);
     }
 
     m_steering_angle = std::clamp(m_steering_angle, -kMaxSteer, kMaxSteer);

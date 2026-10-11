@@ -452,6 +452,50 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             }
         }
 
+        // ── Driving tools (input source, record / replay / CSV, FFB readout) ──
+        // Pure view/controls over the drv* fields in DebugParams; App (AppDrivingTools.cpp) acts on
+        // them and writes the readouts. Defaults (Keyboard, nothing recording) change no behaviour.
+        if (ImGui::CollapsingHeader("Driving tools")) {
+            ImGui::SeparatorText("Input");
+            ImGui::RadioButton("Keyboard", &p.drvInputSource, 0);
+            ImGui::SameLine();
+            ImGui::RadioButton("Gamepad", &p.drvInputSource, 1);
+            if (p.drvGamepadConnected)
+                ImGui::TextColored(ImVec4(0.30f, 0.85f, 0.40f, 1.0f), "Gamepad: %s", p.drvGamepadName);
+            else
+                ImGui::TextDisabled("Gamepad: none detected");
+            ImGui::SliderFloat("Steer deadzone", &p.drvDeadzone, 0.0f, 0.5f, "%.3f");
+            ImGui::SliderFloat("Steer expo", &p.drvExpo, 0.0f, 1.0f, "%.3f");
+            ImGui::ProgressBar(0.5f + 0.5f * p.drvAxisSteer, ImVec2(-1.0f, 0.0f), "steer");
+            ImGui::ProgressBar(p.drvAxisThrottle, ImVec2(-1.0f, 0.0f), "throttle");
+            ImGui::ProgressBar(p.drvAxisBrake, ImVec2(-1.0f, 0.0f), "brake");
+            ImGui::Text("steer %+.3f  throttle %.3f  brake %.3f", p.drvAxisSteer, p.drvAxisThrottle, p.drvAxisBrake);
+
+            ImGui::SeparatorText("Telemetry recorder");
+            ImGui::Checkbox("Record (new clip on enable)", &p.drvRecord);
+            ImGui::Checkbox("Replay recorded inputs", &p.drvReplay);
+            const float ringFrac =
+                p.drvRingCapacity > 0 ? static_cast<float>(p.drvRingSize) / static_cast<float>(p.drvRingCapacity) : 0.f;
+            char ringLabel[48];
+            std::snprintf(ringLabel, sizeof(ringLabel), "ring %d / %d", p.drvRingSize, p.drvRingCapacity);
+            ImGui::ProgressBar(ringFrac, ImVec2(-1.0f, 0.0f), ringLabel);
+            if (p.drvReplay && p.drvReplaySize > 0) {
+                char replayLabel[48];
+                std::snprintf(replayLabel, sizeof(replayLabel), "replay %d / %d", p.drvReplayPos, p.drvReplaySize);
+                ImGui::ProgressBar(static_cast<float>(p.drvReplayPos) / static_cast<float>(p.drvReplaySize),
+                                   ImVec2(-1.0f, 0.0f), replayLabel);
+            }
+            if (ImGui::Button("Export CSV"))
+                p.drvExportRequested = true;
+            if (p.drvStatus[0])
+                ImGui::TextDisabled("%s", p.drvStatus);
+
+            ImGui::SeparatorText("Force feedback (readout only)");
+            ImGui::Text("SAT target: %+.2f N*m  (normalized %+.3f)", p.drvFfbTorqueNm, p.drvFfbNormalized);
+            ImGui::ProgressBar(0.5f + 0.5f * p.drvFfbNormalized, ImVec2(-1.0f, 0.0f), "");
+            ImGui::TextDisabled("No device output: the target is computed, not sent.");
+        }
+
         // ── Preset buttons row ────────────────────────────────────────
         if (ImGui::Button("Reset"))
             presetReset(p);

@@ -3,6 +3,7 @@
 #include "CarPhysics.h"  // GearState (Wave 2 step 3b torque-curve/gearbox)
 #include "Entity.h"
 #include "WheelKinematics.h"  // CornerSpring (Phase-B suspension state)
+#include "utils/input/InputFrame.h"
 #include "utils/units/Units.h"
 
 #include <array>
@@ -18,6 +19,11 @@ class CarEntity : public ModelEntity {
 public:
     // Process keyboard input each frame before calling update().
     void handle_input(GLFWwindow* window, float dt);
+
+    // Device-agnostic input seam (keyboard, gamepad, replay, bench). handle_input() builds a
+    // SteerMode::Rate frame from the arrow keys and calls this, so the keyboard path is
+    // bit-identical to before. Sets throttle/brake/reverse intent and moves the steering angle.
+    void apply_input_frame(const InputFrame& frame, float dt);
 
     // Advance physics: drag → steering yaw rate → position integration.
     void update(float dt) override;
@@ -77,6 +83,17 @@ public:
     // side-effect-free, header-only inline: compiles into both debug and
     // release, but only the (debug-only) panel ever calls them, so release
     // behavior is unaffected either way.
+
+    // Driver-intent / wheel readouts for telemetry + replay (read-only).
+    float get_throttle() const { return m_throttle; }
+    float get_brake() const { return m_brake; }
+    bool  get_reverse() const { return m_reverse; }
+    float get_lateral_velocity() const { return m_lateral_velocity; }  // m/s, body rightward
+    float get_yaw_rate() const { return m_yaw_rate; }                  // rad/s, right-positive
+    // Wheel spin angle in [0, 2pi), corner order 0 FL, 1 FR, 2 BL, 3 BR (c in [0,4)).
+    float get_wheel_spin(int c) const { return m_wheel_spin[static_cast<size_t>(c)]; }
+    // Phase-B quarter-car state for a corner (x_m travel in m, v_mps), same corner order.
+    const CornerSpring& get_corner_suspension(int c) const { return m_corner_susp[static_cast<size_t>(c)]; }
 
     // Current gear, 0-indexed (0 = 1st ... 6 = 7th) — GearState has no other
     // public accessor.
