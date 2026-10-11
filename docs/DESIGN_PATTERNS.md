@@ -58,22 +58,22 @@ every ambiguous one. Counts are definitions, so nested and `.cpp`-local types co
 ### Stay as they are (do not "fix")
 
 - **GPU/std140/std430 mirrors stay `struct`** (~25): `CameraUBO`, `LightsUBO`, `PointLightData`, `PushConstantData`
-  ([SceneTypes.h:61,127,132,287](../src/scene/SceneTypes.h)), `RainUBO`, `SpraySimUBO`, `WindshieldRainUBO`,
+  ([SceneTypes.h](../src/scene/SceneTypes.h)), `RainUBO`, `SpraySimUBO`, `WindshieldRainUBO`,
   `SceneParamsUBO`, every `Push` (Velocity, Taa, Dof, IBL x3, Wetness, Depth, Lighting), `SprayParticle`, `Vertex`, and the
   push-block param structs `SsrParams`, `SsaoParams`, `PostProcessParams`, `GodRaysParams`. Layout is the contract; adding
   a ctor or private field breaks aggregate init and std140 asserts.
 - **On-disk layouts stay `struct`:** `CorridorHeader/Station/Landmark`, `RoadConfig` (shared with the Python baker).
-- **RAII handle templates stay `class`:** `GpuBuffer`, `GpuImage` ([GpuResource.h:18,68](../src/renderer/GpuResource/GpuResource.h)),
-  `DeviceHandle` ([DeviceHandle.h:62](../src/utils/vulkan/DeviceHandle.h)).
+- **RAII handle templates stay `class`:** `GpuBuffer`, `GpuImage` ([GpuResource.h](../src/renderer/GpuResource/GpuResource.h)),
+  `DeviceHandle` ([DeviceHandle.h](../src/utils/vulkan/DeviceHandle.h)).
 - **Small tag/row/config types stay `struct`:** `Barrier.h` `BarrierMasks`, `SubresourceSpan`, `Row`; `DeviceRef`;
-  `DebugLabelFns`; `KeyEdge`, `KeyBinding` ([App.h:34,41](../src/core/App/App.h)); `RoadScene::Element`;
+  `DebugLabelFns`; `KeyEdge`, `KeyBinding` ([App.h](../src/core/App/App.h)); `RoadScene::Element`;
   `QueueFamilyIndices`; the `*Params` and `Config` structs.
-- **X-macro generated:** `DebugParams` ([DebugParams.h:38](../src/debug/DebugParams.h)) gets fields from
-  [Tunables.def](../src/debug/Tunables.def); `Tunable` ([Tunables.h:20](../src/debug/Tunables.h)) is a constexpr table row.
+- **X-macro generated:** `DebugParams` ([DebugParams.h](../src/debug/DebugParams.h)) gets fields from
+  [Tunables.def](../src/debug/Tunables.def); `Tunable` ([Tunables.h](../src/debug/Tunables.h)) is a constexpr table row.
   Both are plain data: `struct`.
-- **`RendererServices`** ([RendererServices.h:9](../src/renderer/Renderer/RendererServices.h)) holds Vulkan handles but
+- **`RendererServices`** ([RendererServices.h](../src/renderer/Renderer/RendererServices.h)) holds Vulkan handles but
   owns none of them (non-owning bag): `struct` is right, and it is the service locator, not a singleton.
-- **`Texture`** ([TextureManager.h:18](../src/renderer/TextureManager/TextureManager.h)) holds a `GpuImage` and a raw
+- **`Texture`** ([TextureManager.h](../src/renderer/TextureManager/TextureManager.h)) holds a `GpuImage` and a raw
   `VkImageView`: `struct` is right *only because* `TextureManager` owns destruction order. Keep it that way.
 
 <details><summary>(b) and (c) items with file:line</summary>
@@ -81,8 +81,8 @@ every ambiguous one. Counts are definitions, so nested and `.cpp`-local types co
 | Kind | Item | Reason | Action |
 |------|------|--------|--------|
 | (b) | `ScopedRenderPass` | RAII begin/end with deleted copy = an invariant | **done**: replaced by `vkx::RenderScope` ([RenderScope.h](../src/utils/vulkan/RenderScope.h)); `RendererDetail.h` deleted |
-| (b?) | [CorridorAsset.h:143](../src/scene/Corridor/CorridorAsset.h) local `Closer` | function-local RAII for `FILE*` | **kept**: `unique_ptr<FILE, decltype(&fclose)>` trips GCC `-Wignored-attributes` under `-Werror`, and a local deleter functor would be the same thing renamed |
-| (b?) | [TextureManager.h:18](../src/renderer/TextureManager/TextureManager.h) `Texture` | holds handles, but owned by a class | keep, see above |
+| (b?) | [CorridorAsset.h](../src/scene/Corridor/CorridorAsset.h) local `Closer` | function-local RAII for `FILE*` | **kept**: `unique_ptr<FILE, decltype(&fclose)>` trips GCC `-Wignored-attributes` under `-Werror`, and a local deleter functor would be the same thing renamed |
+| (b?) | [TextureManager.h](../src/renderer/TextureManager/TextureManager.h) `Texture` | holds handles, but owned by a class | keep, see above |
 | (c) | [ResourceManager.h](../src/renderer/ResourceManager/ResourceManager.h) `ResourceManager` | all-`static`, no state | **done**: `namespace swish::resource` free functions (folder and file names kept) |
 | (c) | [Pipeline.h](../src/renderer/Pipeline/Pipeline.h) `Pipeline` | all-`static`; hidden process-wide cache global | **done**: `namespace swish::pipeline` (`create_graphics` / `create_compute` / `create_layout`); the `VkPipelineCache` is owned by `Device`, carried in `RendererServices::pipelineCache` and passed in explicitly; `Pipeline::set_cache` and the static are gone |
 | (c) | [CorridorScene.h](../src/scene/Corridor/CorridorScene.h) `CorridorScene` | one `static build()` | **done**: free function `build_corridor_segments` |
@@ -95,7 +95,7 @@ Re-audit after R3 (2026-09-29): the pass registry types are correctly split (`IR
 `PassInitCtx`, `FullscreenDraw`, `SamplerInput` = `struct`). No new mismatch found.
 
 Checked and fine as `class`: `Entity`/`ModelEntity`, `Camera`, `Treadmill`, all managers, all passes, `RoadScene`,
-`CarEntity`, `DebugUI`. `Renderer` (197-line body, 61 methods) is the largest and correctly a `class`.
+`CarEntity`, `DebugUI`. `Renderer` is the largest and correctly a `class`.
 </details>
 
 ---
@@ -127,7 +127,7 @@ Checked and fine as `class`: `Entity`/`ModelEntity`, `Camera`, `Treadmill`, all 
 |-----------|-------|---------|---------|
 | **Tunable value kind** (`flag_t`/`real_t`, later `vec3_t`) | [Tunables.h](../src/debug/Tunables.h) `visit`, [DebugParamsIO.cpp](../src/debug/DebugParamsIO.cpp) save/load, [DebugUI.cpp](../src/debug/DebugUI.cpp) widget/dump | 4 `if (t.kind == Bool)` ladders became overload sets; a new kind adds overloads, not branches. Hand-written groups can later join the registry | **done** (debug-only, no release change) |
 | **Image aspect** (`color`/`depth`) | [Barrier.h](../src/utils/vulkan/Barrier.h); `ASPECT_COLOR_BIT` dominates, depth is rare | drops the raw aspect argument; lets `image_barrier<DEPTH_L, DEPTHRO>` `static_assert` a depth layout is never paired with `color` | **not done**: R3 kept eager barriers, so there is no tracker to hang it on; revisit if a 2nd depth user appears |
-| **Length space** (`metres`/`wu`/`feet`) | [Units.h:31-34](../src/utils/units/Units.h), [CarEntity.h:35,91,228](../src/scene/Entity/CarEntity.h), [Treadmill.h:44](../src/scene/Treadmill/Treadmill.h) | owner-chosen (decision U4) *only* strong-type site: the "x1000 twice" boundary | **later**; must keep the single multiply (Units.h "Precision" note) |
+| **Length space** (`metres`/`wu`/`feet`) | [Units.h](../src/utils/units/Units.h) (`kWuPerMetre`, `m()`, `ft()`: plain `float` helpers today, no `metres`/`wu`/`feet` types yet), [CarEntity.h](../src/scene/Entity/CarEntity.h) (`kWorldUnitsPerMeter`) | owner-chosen (decision U4) *only* strong-type site: the "x1000 twice" boundary | **later**; must keep the single multiply (Units.h "Precision" note) |
 | **Debug vs release params** | was the `const DebugParams d{}` idiom in 3 places | one `params()` accessor instead of 3 `#ifdef` pairs | **done with R3**: `Renderer::tune()` feeds `FrameCtx::tune` once; an accessor, not a tag |
 | **MeshBuilder primitives** | [MeshBuilder.cpp](../src/scene/RoadScene/MeshBuilder.cpp) | the quads differ in corners, not in emission | **not a tag; done** as plain `push_quad` / `add_quad` with a 3-value `QuadWinding` enum (section 5); output byte-identical (8 hand-written blocks replaced) |
 
@@ -170,19 +170,19 @@ Risk: low; `visit` lives in `Tunables.h`, which is only consumed by debug-UI cod
 
 - **Existing:** [PipelineConfig](../src/renderer/Pipeline/Pipeline.h) plus `pipeline::create_graphics`,
   `create_layout`, `create_compute` (free functions since 2026-09-29; **done**). It is a **config aggregate with defaults + a
-  factory**, which is the right C++20 shape; keep it. Per-pass `Config` structs exist in [DeferredLightingPipeline.h:11](../src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.h),
-  [DepthOnlyPipeline.h:39](../src/renderer/DepthOnlyPipeline/DepthOnlyPipeline.h), [ScenePipeline.h:9](../src/renderer/ScenePipeline/ScenePipeline.h).
-- **Existing:** `MeshBuilder` ([MeshBuilder.h:13](../src/scene/RoadScene/MeshBuilder.h), 404-line `.cpp`) is a real builder for
+  factory**, which is the right C++20 shape; keep it. Per-pass `Config` structs exist in [DeferredLightingPipeline.h](../src/renderer/DeferredLightingPipeline/DeferredLightingPipeline.h),
+  [DepthOnlyPipeline.h](../src/renderer/DepthOnlyPipeline/DepthOnlyPipeline.h), [ScenePipeline.h](../src/renderer/ScenePipeline/ScenePipeline.h).
+- **Existing:** `MeshBuilder` ([MeshBuilder.h](../src/scene/RoadScene/MeshBuilder.h)) is a real builder for
   vertex/index emission. Fine; tighten access (section 1) and share the quad core (section 5).
 - **Opportunities**
 
 | Where | Today | Proposed | Priority |
 |-------|-------|----------|----------|
-| Single-colour render pass (**done**: `RenderPass.h`, 15 sites) | 13 `vkCreateRenderPass` in ~8 files ([GlassPass.cpp:89](../src/renderer/GlassPass/GlassPass.cpp), [TaaPass.cpp:190](../src/renderer/TaaPass/TaaPass.cpp), [RainSystem.cpp:198](../src/renderer/RainSystem/RainSystem.cpp), [VelocityPass.cpp:119](../src/renderer/VelocityPass/VelocityPass.cpp), [SpraySystem.cpp:284](../src/renderer/SpraySystem/SpraySystem.cpp), [IBLManager.cpp:137](../src/renderer/IBLManager/IBLManager.cpp), 3 in `PostProcessManager_Passes.cpp`) | `vkx::AttachmentDesc` aggregate + `vkx::make_color_pass(dev, {...})`; **skip if R2 (dynamic rendering) removes `VkRenderPass`**: then this becomes a `RenderingInfo` builder | with R2/R3 |
+| Single-colour render pass (**done**: `RenderPass.h`, 15 sites) | 13 `vkCreateRenderPass` in ~8 files ([GlassPass.cpp](../src/renderer/GlassPass/GlassPass.cpp), [TaaPass.cpp](../src/renderer/TaaPass/TaaPass.cpp), [RainSystem.cpp](../src/renderer/RainSystem/RainSystem.cpp), [VelocityPass.cpp](../src/renderer/VelocityPass/VelocityPass.cpp), [SpraySystem.cpp](../src/renderer/SpraySystem/SpraySystem.cpp), [IBLManager.cpp](../src/renderer/IBLManager/IBLManager.cpp), 3 in `PostProcessManager_Passes.cpp`) | `vkx::AttachmentDesc` aggregate + `vkx::make_color_pass(dev, {...})`; **skip if R2 (dynamic rendering) removes `VkRenderPass`**: then this becomes a `RenderingInfo` builder | with R2/R3 |
 | Descriptor set layout (**done**: `Descriptors.h`) | 15 `vkCreateDescriptorSetLayout`, 17 allocate, 17 update | `vkx::DescriptorLayout::samplers(dev, n, stage)` factory + `PoolSizer` (plan doc 3.4) | with R3 |
 | Sampler (**done**: `Samplers.h`) | 9 `vkCreateSampler` in 6 files (no compare option: MoltenVK) | `vkx::SamplerDesc` aggregate + `make_sampler` | with R3 |
-| Image / buffer create-info over VMA | already covered by `gpu::deviceLocalBuffer / hostVisibleBuffer / deviceLocalImage` ([GpuResource.h:117,130,143](../src/renderer/GpuResource/GpuResource.h)) | **don't add a builder**; add parameters to those factories when a 2nd user needs them | don't |
-| Road elements / scene | `RoadScene::Element` table + `layout_gen` adapter ([RoadScene.h:237-246](../src/scene/RoadScene/RoadScene.h)) | already a registry; no builder | don't |
+| Image / buffer create-info over VMA | already covered by `gpu::deviceLocalBuffer / hostVisibleBuffer / deviceLocalImage` ([GpuResource.h](../src/renderer/GpuResource/GpuResource.h)) | **don't add a builder**; add parameters to those factories when a 2nd user needs them | don't |
+| Road elements / scene | `RoadScene::Element` table + `layout_gen` adapter ([RoadScene.h](../src/scene/RoadScene/RoadScene.h)) | already a registry; no builder | don't |
 
 Sketch (aggregate + factory; C++20 designated initialisers, no fluent chain; as built in [`utils/vulkan/RenderPass.h`](../src/utils/vulkan/RenderPass.h), which takes a `VkDevice` and returns a raw `VkRenderPass`):
 
@@ -204,16 +204,16 @@ Verify: `.spv` unchanged (no shader edit), validation run with sync validation, 
 ### 3.2 Factory / factory function
 
 - **Rule:** a **factory function** (`make_*`, returns a value or `unique_ptr`) beats a factory *class*. No `IFooFactory`.
-- **Existing (keep):** `vkx::make*Info` ([Init.h:23-50](../src/utils/vulkan/Init.h), 5 helpers), `vkx::make_shader_module`
-  ([ShaderModule.h:37](../src/utils/vulkan/ShaderModule.h)), `gpu::*` buffer/image factories, `ModelManager::load_car`
-  ([ModelManager.h:28](../src/scene/ModelManager/ModelManager.h), `.cpp:212`, returns `unique_ptr<CarEntity>`).
+- **Existing (keep):** `vkx::make*Info` ([Init.h](../src/utils/vulkan/Init.h), 5 helpers), `vkx::make_shader_module`
+  ([ShaderModule.h](../src/utils/vulkan/ShaderModule.h)), `gpu::*` buffer/image factories, `ModelManager::load_car`
+  ([ModelManager.h](../src/scene/ModelManager/ModelManager.h), defined in [ModelManager.cpp](../src/scene/ModelManager/ModelManager.cpp), returns `unique_ptr<CarEntity>`).
 - **Opportunities**
 
 | Where | Proposal | Priority |
 |-------|----------|----------|
 | **Pass creation** (~12 `unique_ptr` managers, each with hand-written create/cleanup/recreate) | **done** (R3): factory functions `make_*_pass()` listed in order in [`PassList.def`](../src/renderer/Passes/PassList.def); no `REGISTER_PASS` static registrars (the list order *is* the frame order) | done |
 | **Weather presets** | still an enum + switch: [WeatherPreset.h](../src/scene/WeatherPreset.h) and `look_for` in [WeatherController.cpp](../src/renderer/WeatherController/WeatherController.cpp) (moved out of `Renderer_State.cpp` by R3). Owner chose data files: `WeatherLook load_weather_look(std::string_view name)` reading `config/weather/*.toml`; enum becomes an index into the loaded list | later (after R3; touches `App`, `Renderer`, `AppInput`) |
-| **Car creation** | `load_car(path)` is one ~370-line function ([ModelManager.cpp:212-584](../src/scene/ModelManager/ModelManager.cpp)); split into `load_gltf` -> `CarAsset` (pure data) -> `make_car(CarAsset, CarParams)`. Enables a test without a `Renderer` | later; `tests/test_golden_car.cpp` is the safety net |
+| **Car creation** | `load_car(path)` is one very long function ([ModelManager.cpp](../src/scene/ModelManager/ModelManager.cpp)); split into `load_gltf` -> `CarAsset` (pure data) -> `make_car(CarAsset, CarParams)`. Enables a test without a `Renderer` | later; `tests/test_golden_car.cpp` is the safety net |
 | **Texture / material** | `TextureManager::register_*` already acts as a named factory; leave | don't |
 | **Manager creation in `Renderer`** | keep two-phase `init/cleanup`; a `make_renderer_services()` gains nothing over `Renderer::services()` | don't |
 
@@ -238,8 +238,8 @@ service: `Renderer` owns the built pass list.
 ### 3.3 Abstract factory
 
 - **Only real candidate:** per-backend swapchain policy (APPLE_METAL vs LINUX_VULKAN). Today `chooseSwapSurfaceFormat` /
-  `chooseSwapPresentMode` are hard-coded Mac behaviour ([Swapchain.cpp:106,122](../src/renderer/Swapchain/Swapchain.cpp));
-  CMake already defines `SWISH_BACKEND_APPLE` / `SWISH_BACKEND_LINUX` ([CMakeLists.txt:243-244](../CMakeLists.txt)).
+  `chooseSwapPresentMode` are hard-coded Mac behaviour (`Swapchain::chooseSwapSurfaceFormat` / `chooseSwapPresentMode` in [Swapchain.cpp](../src/renderer/Swapchain/Swapchain.cpp));
+  CMake already defines `SWISH_BACKEND_APPLE` / `SWISH_BACKEND_LINUX` (compile definitions keyed on `SWISH_BACKEND` in [CMakeLists.txt](../CMakeLists.txt)).
 - **It is not a family of products**, just two data tables. So: **no abstract factory**. Use the
   `SwapchainPolicy` constexpr table from `archive/local/review_2026-09-29/docs/arch-plan-linux-code-and-phases.md` (section 1),
   chosen with `#if defined(SWISH_BACKEND_APPLE)`, with a pure picker that unit tests can feed fake `VkSurfaceFormatKHR`
@@ -254,8 +254,8 @@ service: `Renderer` owns the built pass list.
 - **Prototype: don't.** Nothing clones configured objects. Copying an aggregate (`PipelineConfig c = base; c.cullMode = ...;`)
   already gives "clone and tweak" for free.
 - **Object pool: mostly don't.** Spray is a fixed GPU ring: `kSprayMaxParticles = 4096` respawned in compute
-  ([SpraySystem.h:18](../src/renderer/SpraySystem/SpraySystem.h)); no CPU pool needed. Per-frame descriptor sets are
-  `MAX_FRAMES_IN_FLIGHT` (2) arrays allocated once ([RendererConfig.h:13](../src/renderer/RendererConfig.h)); `PoolSizer` (3.1)
+  ([SpraySystem.h](../src/renderer/SpraySystem/SpraySystem.h)); no CPU pool needed. Per-frame descriptor sets are
+  `MAX_FRAMES_IN_FLIGHT` (2) arrays allocated once ([RendererConfig.h](../src/renderer/RendererConfig.h)); `PoolSizer` (3.1)
   is the useful helper, not a pool. A **pool helps later** for traffic cars (spawn/despawn at treadmill speed): a
   fixed-capacity slot array of `CarEntity`-lite structs with a free-list, added with the traffic work, not before.
 
@@ -267,11 +267,11 @@ service: `Renderer` owns the built pass list.
 |---------|-------|--------|---------|
 | **Facade** | `Renderer` ([Renderer.h](../src/renderer/Renderer/Renderer.h)); `PostProcessManager` ([.h](../src/renderer/PostProcessManager/PostProcessManager.h)) | exists; PPM still wide | **done:** R1 split PPM into 5 files, R3 shrank `Renderer` to lifecycle + the pass loop. **Not done:** PPM as a thin image owner (each fullscreen pass owning its GPU objects) |
 | **Composite / Registry** | `PassRegistry` (3.2, **done**); `Tunables.def` X-macro; `RoadScene::Element` tables ([RoadScene.h](../src/scene/RoadScene/RoadScene.h)); `App::m_key_bindings` ([App.h](../src/core/App/App.h)) | all 4 exist | do not build a scene-graph Composite |
-| **Adapter** | `vkx` over raw Vulkan; `layout_gen` ([RoadScene.h:243](../src/scene/RoadScene/RoadScene.h)); **input**: `glfwGetKey` polled in Camera (7), CarEntity (4), CameraController, Treadmill | vkx exists; input missing | B4/S8: `InputState` snapshot built once in `core/` from GLFW, passed to scene; scene drops GLFW |
+| **Adapter** | `vkx` over raw Vulkan; `RoadScene::layout_gen` ([RoadScene.h](../src/scene/RoadScene/RoadScene.h)); **input**: `glfwGetKey` polled in Camera (7), CarEntity (4), CameraController, Treadmill | vkx exists; input missing | B4/S8: `InputState` snapshot built once in `core/` from GLFW, passed to scene; scene drops GLFW |
 | **Bridge** | backend pieces (swapchain policy, platform paths) | not needed | **don't**: one `#if` table (3.3) beats an abstraction with one implementation each |
 | **Decorator** | `ScopedLabel` ([DebugLabel.h](../src/utils/vulkan/DebugLabel.h), release no-op stub) | exists, **unused** | **not done:** `PassRunner` (label around every `record()`) waits for the label function pointers to be loaded in `VulkanContext` |
-| **Flyweight** | shared `MeshData` + per-draw `DrawCall` already; corridor tiles instanced via `CorridorInstance` ([SceneTypes.h:179](../src/scene/SceneTypes.h)) | exists implicitly | later: roadside props (lamps, signs) as one mesh + instance list; do it under the road-prop work |
-| **Proxy** | lazy IBL rebake `maybeRebakeIBL` ([Renderer.h:257](../src/renderer/Renderer/Renderer.h)), `IBLManager::set_hdri` | ad-hoc dirty flags | don't wrap; a `Dirty<T>` helper only if a 2nd lazy resource appears |
+| **Flyweight** | shared `MeshData` + per-draw `DrawCall` already; corridor tiles instanced via `CorridorInstance` ([SceneTypes.h](../src/scene/SceneTypes.h)) | exists implicitly | later: roadside props (lamps, signs) as one mesh + instance list; do it under the road-prop work |
+| **Proxy** | lazy IBL rebake `WeatherController::maybe_rebake_ibl` ([WeatherController.h](../src/renderer/WeatherController/WeatherController.h); moved out of `Renderer`), `IBLManager::set_hdri` | ad-hoc dirty flags | don't wrap; a `Dirty<T>` helper only if a 2nd lazy resource appears |
 | **RAII handle** | `DeviceHandle` + 9 aliases ([DeviceHandle.h](../src/utils/vulkan/DeviceHandle.h)), used only by shader modules | partial | **not done:** the R3 builders return raw handles (behaviour-identical refactor); wrapping them is the next RAII step |
 
 <details><summary>Sketches (Adapter, Decorator, RAII)</summary>

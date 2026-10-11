@@ -34,6 +34,7 @@ Everything you need to understand, extend, and contribute to Swish.
 | [DIRECTORY.md](DIRECTORY.md) | The annotated directory layout (top level, the five `src/` layers, `shaders/`, `tests/`, `tools/`, `scripts/`, `docs/`) and a "where do I put X" table. Visual version: [diagrams/directory-layout.excalidraw](diagrams/directory-layout.excalidraw) |
 | [KEEPING_IT_CLEAN.md](KEEPING_IT_CLEAN.md) | Ongoing rules that keep the tree tidy: `make check` / `make format-check`, the pre-commit hook, size limits, root-file allowlist, golden-test rules |
 | [CLEANUP_2026-09-29.md](CLEANUP_2026-09-29.md) | What the deep clean removed, moved, unified and verified, plus behaviour changes, a correction about warning flags, the same-day follow-ups (pass registry, dynamic rendering, validation clean) and items still waiting on the owner |
+| [utils-component-design.md](utils-component-design.md) | The 2026-09-29 plan behind the topic-organised `src/utils/` (inventory, conventions, `Units.h` design, move table); historical rationale, restored from the local archive |
 | [DESIGN_PATTERNS.md](DESIGN_PATTERNS.md) | class vs struct audit (applied), factory / builder / registry / tag-dispatch decisions with **done** / not-done status, DRY hotspots, rules for new code |
 | [changelog/](changelog/) | Monthly changelog files `YYYY-MM.md`; `CHANGELOG.md` at the root is a generated index (`python3 scripts/changelog_index.py`) |
 

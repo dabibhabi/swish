@@ -85,7 +85,7 @@ anything visible, changelog. Commit/merge only when the owner asks. **Arch GCC g
 - [x] P0.4 Test seam: replace `#define private public` in `test_golden_car.cpp` (done 2026-10-11: `friend struct CarEntityTestAccess`, defined only in the test; goldens untouched)
 - [x] P0.3 Build: `swish_scene_core` static lib, `swish_utils` INTERFACE, warnings on tests/`toml_baker`, CI builds both test targets (clang Release) + `make check` + format-check, compiler guard on golden mesh test — done 2026-10-11 (uncommitted; format-check is report-only in CI)
 - [ ] P0.4 Test seam: replace `#define private public` in `test_golden_car.cpp`
-- [ ] P0.5 Doc drift fixes (Units.h test path, golden README contradiction, CODING_RULES rule 9, `rel`/`NOREL`, DESIGN_PATTERNS line ref, restore `docs/utils-component-design.md`)
+- [x] P0.5 Doc drift fixes (Units.h test path, golden README contradiction, CODING_RULES rule 9, `rel`/`NOREL`, DESIGN_PATTERNS line ref, restore `docs/utils-component-design.md`) — done 2026-10-11, docs only
 - [x] P0.6 (2026-10-01, branch `docs/typed-cpp-tutorial`; chapters 01-12 written, owner review pending) Tutorial scaffold: `docs/tutorials/typed-cpp/00-index.md` + `docs/README.md` row
 
 ### M1 — foundations, core, car (owner implements)

@@ -12,9 +12,16 @@ a test fails when the output drifts, which for a refactor means an unintended ch
 ## Toolchain-bound
 
 All goldens depend on the compiler, libm and (for `.spv`) the shader compiler that produced them.
-Mesh and trajectory goldens were generated with Apple clang on arm64 and pass in both Release and
-RelWithDebInfo. A different compiler or stdlib may need regeneration; treat a failure as
-"investigate first", not "just regenerate".
+Mesh and trajectory goldens were generated with Apple clang on arm64.
+
+- **Mesh hashes (`road_mesh.txt`):** the `generate()` hashes are bit-exact to **Release + Clang** codegen. They pass in
+  Release and RelWithDebInfo but fail at `-O0` Debug, with `-ffp-contract=off`, and under GCC (FMA contraction). Counts,
+  bounds and the chunk/interchange hashes still pass in those configurations.
+- **Trajectory (`car_trajectory.csv`):** compared with a 1e-3 abs + 1e-3 rel tolerance (gear exact), so benign libm ulp
+  differences pass; a real physics change fails.
+- **`.spv` hashes:** bound to the SDK `glslc` (see below).
+
+Treat a failure as "investigate first", not "just regenerate".
 
 ## Regenerate (only after deliberately changing behaviour; review the diff)
 

@@ -155,7 +155,7 @@ before retuning constants. See [`tasks/lessons.md`](../tasks/lessons.md).
 
 A separate, deliberate change, never folded into the build work.
 
-- [ ] Switch `PASS_DEBUG` to `PASS` and/or set the release default (`releaseValue` in `Tunables.def`, `SP_*` in the shader)
+- [ ] Switch `PASS_DEBUG` to `PASS` and/or set the release default (the `rel` slot in `Tunables.def`: replace `NOREL` with the release value, `SP_*` in the shader)
 - [ ] Screenshots of release **before and after**, same spot
 - [ ] If `.spv` hashes or goldens move: re-record them (`SWISH_UPDATE_GOLDENS=1`) **only now**, and say so in the changelog
 - [ ] Release fps cost stated

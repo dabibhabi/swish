@@ -25,7 +25,7 @@ the docs that name the touched contract. **Never regenerate a golden to make a r
 **A. Group already converted to the registry** (`ssr` 5, `reflection` 3, `wet` 4: porosity, roughness, puddles enabled, puddle coverage; 12 tunables):
 
 1. [`src/debug/Tunables.def`](../src/debug/Tunables.def): add **one line** (`TUNE_F(name, "group", "key", def, lo, hi,
-   label, fmt, dumpPrecision, PUSH(member) | NOPUSH, NOREL | releaseValue)`). That generates the `DebugParams` field
+   label, fmt, dumpPrecision, PUSH(member) | NOPUSH, rel)`, where `rel` is `NOREL` or the release value). That generates the `DebugParams` field
    and default, the TOML save/load, the slider, the dump line, and (for `PUSH`) the push-constant copy in
    [`SsrPass.cpp`](../src/renderer/Passes/SsrPass.cpp) (`SsrPass::describe`). Read the header
    comment of the file first: it is the authoritative recipe.

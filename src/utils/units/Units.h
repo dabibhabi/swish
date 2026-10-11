@@ -14,7 +14,7 @@
 // Example   : constexpr float lane = swish::util::units::ft(13.0f);  // 3962.4 WU
 //             const float v_mps = wu_per_s / swish::util::units::kWuPerMetre;
 // See also  : scene/RoadScene/RoadParams.h, docs/GLOSSARY.md (WU)
-// Test      : tests/test_units.cpp (+ the static_asserts below)
+// Test      : tests/utils/test_units_Units.cpp (+ the static_asserts below)
 
 #include <numbers>
 
