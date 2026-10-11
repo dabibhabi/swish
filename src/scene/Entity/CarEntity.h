@@ -184,8 +184,6 @@ public:
     // original porsche.glb), which then get no car lights.
     void set_light_anchors(std::vector<CarLightAnchor> anchors) { m_light_anchors = std::move(anchors); }
     const std::vector<CarLightAnchor>& get_light_anchors() const { return m_light_anchors; }
-    // This frame's brake-pedal input [0,1] (drives the brake lamps).
-    float get_brake() const { return m_brake; }
     // World-space spot lights for the current pose; empty when everything is off.
     std::vector<SpotLightDesc> get_spot_lights(const CarLightState& state, const CarLightParams& params) const {
         return car_spot_lights(m_light_anchors, get_model_matrix(), state, params);
