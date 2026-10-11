@@ -59,6 +59,12 @@ TUNE_F(wetRoughness, "wet", "roughness", 1.0f, 0.0f, 1.0f, "Wet roughness", "%.3
 TUNE_B(puddlesEnabled, "wet", "puddles_enabled", true, "Puddles##puddle", NOREL)
 TUNE_F(puddleCoverage, "wet", "puddle_coverage", 0.501f, 0.0f, 1.0f, "Puddle coverage", "%.3f", 3, PUSH(puddleCoverage), NOREL)
 
+// ── Physics model (stub) ─ ImGui header "Physics", TOML table [car] ──
+// Debug-only: App::apply_debug_params maps it to CarEntity::set_physics_model (false = bicycle, the
+// shipped model; true = 6-DOF rigid-body chassis stub). NOPUSH: never reaches the GPU. Release has no
+// UI and never calls set_physics_model, so the bicycle model always runs (byte-identical).
+TUNE_B(rigidBodyChassis, "car", "rigid_body_chassis", false, "Physics model: rigid body (stub)", NOREL)
+
 #undef NOREL
 #undef TUNE_B
 #undef TUNE_F

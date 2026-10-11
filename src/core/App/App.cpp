@@ -154,9 +154,17 @@ void App::step_car_simulation(float dt, bool debug_edit) {
     // On the Phase 3a corridor that query is a flat height
     // (RoadGeometry::set_flat_surface) rather than the crown formula,
     // because world X is not a lateral offset on a curving alignment.
-    Vec3 pos = m_car->get_position();
-    pos.y    = RoadGeometry::road_surface_y(pos.x);
-    m_car->set_position(pos);
+#ifdef SWISH_DEBUG_UI
+    // The rigid-body chassis owns the car's height (heave); the bicycle model needs the snap.
+    const bool car_owns_height = m_car->get_physics_model() == PhysicsModel::RigidBody;
+#else
+    constexpr bool car_owns_height = false;
+#endif
+    if (!car_owns_height) {
+        Vec3 pos = m_car->get_position();
+        pos.y    = RoadGeometry::road_surface_y(pos.x);
+        m_car->set_position(pos);
+    }
 
     // Finite real corridor: origin rebase, visible-segment window,
     // corridor-space lateral clamp, terminus stops. Replaced the
@@ -197,6 +205,8 @@ void App::sync_car_with_debug_panel(bool debug_edit) {
                                          : glm::quat(1.f, 0.f, 0.f, 0.f));
     // Road-wheel tuning (panel defaults = the shipped behavior).
     m_car->set_wheel_tuning(dp.wheelSpinEnabled, dp.wheelSteerEnabled, dp.wheelSpinMul);
+    // Physics model (stub): unchecked = bicycle (default / identity). set_physics_model is idempotent.
+    m_car->set_physics_model(dp.rigidBodyChassis ? PhysicsModel::RigidBody : PhysicsModel::Bicycle);
 }
 #endif
 

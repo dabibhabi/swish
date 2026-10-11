@@ -36,6 +36,7 @@ Generic helpers with no subsystem state, organised **by topic**. One folder per 
 | `container/` | `VectorOps.h` | `affine(vec, k, bias)`, `filled(n, v)` for `std::vector<float>`. |
 | `meta/` | `EnumCycle.h` | `CountedEnum` concept, `enum_count<E>()`, `next_enum(e)`. |
 | | `Tags.h` | Tag dispatch: empty `swish::tag::flag_t` / `real_t` (objects `tag::flag`, `tag::real`) that pick an overload at compile time; `is_tag_v`. First user: `debug/Tunables.h` `visit`. |
+| `physics/` | `RigidBody.h` | Generic 6-DOF rigid body (SI units): force/torque accumulators, semi-implicit Euler with angular momentum carried; `euler_yxz_from_rotation`. Stub chassis user: `scene/Entity/RigidChassis.h`. |
 | `io/` | `File.h` / `File.cpp` | `read_binary(path)`: whole-file read, throws on failure. |
 | | `StbImage.cpp` | The single translation unit that compiles `stb_image`. |
 | `vulkan/` | `Check.h` | `VK_CHECK(expr)` + `vkResultString()`. |

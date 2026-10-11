@@ -10,6 +10,7 @@ add_executable(swish_utils_tests
     test_math_Noise.cpp
     test_math_Hash.cpp
     test_math_Sequences.cpp
+    test_physics_RigidBody.cpp
     test_geometry_Frustum.cpp
     test_geometry_Polyline.cpp
     test_color_Color.cpp

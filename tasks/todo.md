@@ -8,6 +8,28 @@
 > shipped: `git log` and [`CHANGELOG.md`](../CHANGELOG.md). Current user goal:
 > [`docs/user-goals/CURRENT.md`](../docs/user-goals/CURRENT.md).
 
+## Stub: 6-DOF rigid-body chassis (started 2026-10-10)
+
+### Feature: rigid-body chassis (stub)
+- **Player sees:** nothing by default; in `make debug` a "Physics model" toggle drives the car pose (incl. pitch/roll) from a 6-DOF body on four spring-damper wheel contacts.
+- **Done when:** new Catch2 tests green (free fall, static sag = mg/4k, L conservation, damped energy monotone, bicycle golden unchanged); `make test` + `make test-debug` green; 33/33 `.spv`; `make check` OK.
+- **Builds:** debug-only; default = bicycle (identity), release byte-identical.
+- **Owner:** vehicle-dynamics-engineer (lead), debug-ui-engineer, build-verify-engineer, docs-scribe.
+- **Out of scope:** road-height raycasts, anti-roll bars, aero, replacing the bicycle model.
+
+- [x] Slice 1: `utils/physics/RigidBody` (GLM-only state + symplectic Euler) + `tests/utils/` tests
+- [x] Slice 2: four wheel contacts (spring-damper normal + Tire.h friction circle at patch) + tests
+- [x] Slice 3: CarEntity wiring (debug-gated, bicycle default) + golden unchanged (rigid-mode runtime path not yet exercised; no test target defines SWISH_DEBUG_UI)
+- [x] Slice 4: `Tunables.def` `rigidBodyChassis` bool (`[car] rigid_body_chassis`, default false = bicycle) + "Physics" UI header + App wiring + preset round-trip test
+- [x] Slice 5: verify (both configs, 33/33 .spv, make check, warnings) — release 230/230, debug 254/254, 33/33 .spv, 0 first-party warnings (-Werror debug-UI build); GUI toggle not driven (launch needs approval)
+- [x] Slice 6: changelog (`docs/changelog/2026-10.md`) + docs + `tasks/stub-report.md` (2026-10-10; changelog index not yet regenerated, stray root files not yet deleted)
+
+### Review (2026-10-10)
+- Built: `utils/physics/RigidBody.h`, `scene/Entity/RigidChassis.h`, debug-gated `CarEntity` wiring, `[car] rigid_body_chassis` toggle; 12 new test cases. Release 230/230, debug 254/254, 33/33 `.spv`, `-Werror` debug-UI build clean.
+- Not verified: the GUI toggle was never driven (no visual check); App Y-snap is skipped in rigid mode.
+- Owner to do: delete stray root files (`build-debug-td.log`, `build-werror-tmp.cfg`, `build-werror-tmp.log`, `build-werror-tmp/`, `rb-testdebug.log`), run `python3 scripts/changelog_index.py`, then `make check`.
+- Details, stubbed-vs-real list, open questions and risks: [`stub-report.md`](stub-report.md).
+
 ## Typed C++ system refactor + tutorial (started 2026-10-01)
 
 Mirrors the approved plan (`~/.claude/plans/im-figuring-out-with-sunny-unicorn.md`). Each tutorial chapter

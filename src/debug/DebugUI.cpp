@@ -335,6 +335,7 @@ void printValues(const DebugParams& p) {
     std::printf("depthBiasConst=%.3f depthBiasSlope=%.3f\n", p.depthBiasConst, p.depthBiasSlope);
     std::printf("rainIntensity=%.3f streakLen=%.1f\n", p.rainIntensity, p.streakLen);
     dump_tunable_group(p, "wet");
+    dump_tunable_group(p, "car");
     std::printf("carOverride=%d carMetalness=%.3f carPaint={%.3f,%.3f,%.3f} carRoughnessMul=%.3f\n",
                 p.carOverride ? 1 : 0, p.carMetalness, p.carPaint.x, p.carPaint.y, p.carPaint.z, p.carRoughnessMul);
     std::printf("ssaaScale=%.3f\n", p.ssaaScale);
@@ -592,6 +593,11 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::Checkbox("Steer with input##wheels", &p.wheelSteerEnabled);
             ImGui::SliderFloat("Spin multiplier", &p.wheelSpinMul, 0.0f, 10.0f);
             ImGui::TextDisabled("defaults = shipped look (on / on / 1.0)");
+        }
+
+        // ── Physics model (stub) ──────────────────────────────────────
+        if (ImGui::CollapsingHeader("Physics")) {
+            draw_tunable_group(p, "car");  // Physics model: rigid body (stub); unchecked = bicycle (Tunables.def)
         }
 
         // ── Fog ───────────────────────────────────────────────────────

@@ -258,6 +258,8 @@ working; new saves always go to the new directory.
   from the file keeps its current in-app value**. Old presets stay forward-compatible as new
   fields are added — a preset written before `iblSpecular` existed simply leaves it at its
   default.
+- `[car] rigid_body_chassis` (default `false`) is the "Physics model: rigid body (stub)" checkbox under the "Physics"
+  header; unchecked = the shipped bicycle model. See [car_system.md](car_system.md).
 - Transient UI state (`editMode`, `showPanel`, `ssaaApplyRequested`) is never written.
 - toml++ (v3.4.0) was already vendored for the `toml_baker` tool; the debug UI links it into
   `swish` only under `SWISH_DEBUG_UI`.
