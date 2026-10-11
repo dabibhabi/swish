@@ -22,6 +22,10 @@ void Renderer::set_scene_lights(const std::vector<LightDesc>& lights) {
     m_cameraUniforms->set_lights(lights);
 }
 
+void Renderer::set_car_spot_lights(const std::vector<SpotLightDesc>& spots) {
+    m_cameraUniforms->set_spot_lights(spots);
+}
+
 void Renderer::set_rain_intensity(float intensity) {
     m_rainIntensity = intensity;
 }

@@ -8,6 +8,7 @@
 #include "renderer/Renderer/Renderer.h"
 #include "renderer/TextureManager/TextureManager.h"
 #include "renderer/Vertex.h"
+#include "scene/Entity/CarLights.h"
 #include "scene/SceneTypes.h"
 #include "stb_image.h"
 
@@ -570,6 +571,23 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     }
     std::cout << std::endl;
 
+    // Car lights (tasks/todo.md "Car lights"): the rig's `<Anchor>_Lamp` nodes, by exact
+    // name (CarLights.h). Same frame as the vertices above: RootNode-relative, the
+    // (x,y,z) -> (z,y,-x) swap into car space, then grounded. The lamp node's local -Z
+    // is the beam. Assets without these nodes get no car lights.
+    std::vector<CarLightAnchor> light_anchors;
+    for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
+        const auto kind = car_light_kind_from_node(gltf.nodes[ni].name);
+        if (!kind || !node_visited[ni])
+            continue;
+        const glm::mat4 M = ref_inverse * node_world[ni];
+        const glm::vec3 p(M[3]);
+        const glm::vec3 d = -glm::normalize(glm::vec3(M[2]));
+        light_anchors.push_back({*kind, glm::vec3(p.z, p.y - bb_min.y, -p.x), glm::vec3(d.z, d.y, -d.x)});
+    }
+    if (!light_anchors.empty())
+        std::cout << "ModelManager::load_car: " << light_anchors.size() << " car light anchors" << std::endl;
+
     auto car = std::make_unique<CarEntity>();
     car->set_mesh_data(std::move(mesh));
     for (const auto& sm : submeshes)
@@ -578,6 +596,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         car->add_glass_submesh(sm);
     if (wheels_ok)
         car->set_wheel_frames(wheel_frames);
+    car->set_light_anchors(std::move(light_anchors));
 
     return car;
 }

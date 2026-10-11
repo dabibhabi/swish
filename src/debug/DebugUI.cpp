@@ -335,6 +335,7 @@ void printValues(const DebugParams& p) {
     std::printf("depthBiasConst=%.3f depthBiasSlope=%.3f\n", p.depthBiasConst, p.depthBiasSlope);
     std::printf("rainIntensity=%.3f streakLen=%.1f\n", p.rainIntensity, p.streakLen);
     dump_tunable_group(p, "wet");
+    dump_tunable_group(p, "car_lights");
     std::printf("carOverride=%d carMetalness=%.3f carPaint={%.3f,%.3f,%.3f} carRoughnessMul=%.3f\n",
                 p.carOverride ? 1 : 0, p.carMetalness, p.carPaint.x, p.carPaint.y, p.carPaint.z, p.carRoughnessMul);
     std::printf("ssaaScale=%.3f\n", p.ssaaScale);
@@ -694,6 +695,12 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::SliderFloat("Spray lifetime (s)", &p.sprayLifetime, 0.2f, 4.0f);
             ImGui::SliderFloat("Spray size (WU)", &p.spraySize, 100.0f, 3000.0f, "%.0f");
             ImGui::SliderFloat("Spray opacity", &p.sprayOpacity, 0.0f, 1.0f);
+        }
+
+        // ── Car Lights (headlights / tail / brake; tasks/todo.md "Car lights") ──
+        if (ImGui::CollapsingHeader("Car Lights")) {
+            draw_tunable_group(p, "car_lights");  // generated from Tunables.def
+            ImGui::TextDisabled("needs a car GLB with *_Lamp nodes (SWISH_CAR=.../porsche_rigged.glb)");
         }
 
         // ── Materials (per-submesh / per-material-slot editor) ────────

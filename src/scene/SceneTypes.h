@@ -129,9 +129,27 @@ struct PointLightData {
     Vec4 colorIntensity;  // rgb = color, a = intensity multiplier
 };
 
+#ifdef SWISH_DEBUG_UI
+// ── Car spot lights (headlights / tail / brake; tasks/todo.md "Car lights") ──
+// Debug-only for now: the release LightsUBO layout (and the release lighting.frag)
+// is unchanged until the feature is turned on for release as its own step.
+static constexpr uint32_t MAX_SPOT_LIGHTS = 8;
+
+struct SpotLightData {
+    Vec4 positionRange;      // xyz = world position (WU), w = range (WU)
+    Vec4 directionCosOuter;  // xyz = unit beam direction, w = cos(outer half-angle)
+    Vec4 colorIntensity;     // rgb = color, a = intensity multiplier
+    Vec4 params;             // x = cos(inner half-angle), yzw = 0
+};
+#endif
+
 struct LightsUBO {
     PointLightData pointLights[MAX_POINT_LIGHTS];
     glm::uvec4     numPointLights;  // x = count, yzw = 0
+#ifdef SWISH_DEBUG_UI
+    SpotLightData spotLights[MAX_SPOT_LIGHTS];
+    glm::uvec4    numSpotLights;  // x = count, yzw = 0
+#endif
 };
 
 struct LightDesc {
@@ -139,6 +157,19 @@ struct LightDesc {
     Vec3  color;
     float intensity;
     float radius;
+};
+
+// A world-space spot light (car headlights / tail / brake lamps). Built each frame
+// by CarLights.h::car_spot_lights from the car's light anchors; uploaded by
+// CameraUniforms into LightsUBO::spotLights (debug builds).
+struct SpotLightDesc {
+    Vec3  position;   // WU
+    Vec3  direction;  // unit beam direction
+    Vec3  color;
+    float intensity;
+    float range;     // WU; the windowed falloff reaches 0 here
+    float cosInner;  // full intensity inside this half-angle
+    float cosOuter;  // zero outside this half-angle
 };
 
 // ── Ribbon ────────────────────────────────────────────────────────────

@@ -270,12 +270,12 @@ TEST_CASE("Tunables: registry defaults equal the shipped literals (release-neutr
 
 TEST_CASE("Tunables: descriptor table is consistent", "[tunables]") {
     const DebugParams d{};
-    REQUIRE(tunables::all().size() == 12);  // ssr 5 + reflection 3 + wet 4 (porosity, roughness, puddles x2)
+    REQUIRE(tunables::all().size() == 23);  // ssr 5 + reflection 3 + wet 4 (porosity, roughness, puddles x2) + car_lights 11
     for (const auto& t : tunables::all()) {
         INFO(t.name);
         CHECK(t.in_range(t.def));
         const std::string g = t.group;
-        CHECK((g == "ssr" || g == "reflection" || g == "wet"));
+        CHECK((g == "ssr" || g == "reflection" || g == "wet" || g == "car_lights"));
         if (t.kind == tunables::Kind::Float)
             CHECK(t.get_float(d) == t.def);  // struct default generated from the same line
         else
@@ -457,8 +457,8 @@ TEST_CASE("Tunables: visit dispatches Bool to tag::flag and Float to tag::real (
             }
         });
     }
-    CHECK(flags == 2);  // ssrEnabled, puddlesEnabled
-    CHECK(reals == 10);
+    CHECK(flags == 6);  // ssrEnabled, puddlesEnabled + 4 car_lights toggles
+    CHECK(reals == 17);  // 10 + 7 car_lights sliders
     // The visitor sees the live field: writing through it changes DebugParams (what load/widget rely on).
     const auto& ssr = tunables::all()[1];  // ssrIntensity
     tunables::visit(ssr, p, [](auto, auto& v) { v = std::remove_reference_t<decltype(v)>(1.25f); });

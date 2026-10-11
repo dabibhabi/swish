@@ -59,6 +59,22 @@ TUNE_F(wetRoughness, "wet", "roughness", 1.0f, 0.0f, 1.0f, "Wet roughness", "%.3
 TUNE_B(puddlesEnabled, "wet", "puddles_enabled", true, "Puddles##puddle", NOREL)
 TUNE_F(puddleCoverage, "wet", "puddle_coverage", 0.501f, 0.0f, 1.0f, "Puddle coverage", "%.3f", 3, PUSH(puddleCoverage), NOREL)
 
+// ── Car lights ─ ImGui header "Car Lights", TOML table [car_lights] (tasks/todo.md "Car lights") ──
+// CPU-only (NOPUSH): App::push_car_to_renderer builds CarLightParams/CarLightState from these and
+// uploads world spot lights via Renderer::set_car_spot_lights. Debug-only feature; enabled = false
+// reproduces today's image. Only assets with `<Anchor>_Lamp` nodes (porsche_rigged.glb) have lamps.
+TUNE_B(carLightsEnabled, "car_lights", "enabled", false, "Car lights##cl", NOREL)
+TUNE_B(carHeadlightsOn, "car_lights", "headlights_on", true, "Headlights##cl", NOREL)
+TUNE_B(carTailLightsOn, "car_lights", "tail_lights_on", true, "Tail lights##cl", NOREL)
+TUNE_B(carBrakeForce, "car_lights", "brake_force", false, "Hold brake lights##cl", NOREL)
+TUNE_F(carHeadIntensity, "car_lights", "head_intensity", 30.0f, 0.0f, 200.0f, "Headlight intensity", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carHeadRangeM, "car_lights", "head_range_m", 60.0f, 5.0f, 150.0f, "Headlight range (m)", "%.0f", 1, NOPUSH, NOREL)
+TUNE_F(carHeadInnerDeg, "car_lights", "head_inner_deg", 12.0f, 1.0f, 45.0f, "Beam inner (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carHeadOuterDeg, "car_lights", "head_outer_deg", 28.0f, 2.0f, 60.0f, "Beam outer (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carTailIntensity, "car_lights", "tail_intensity", 1.5f, 0.0f, 20.0f, "Tail intensity", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(carBrakeIntensity, "car_lights", "brake_intensity", 6.0f, 0.0f, 50.0f, "Brake intensity", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(carTailRangeM, "car_lights", "tail_range_m", 6.0f, 1.0f, 30.0f, "Tail range (m)", "%.1f", 1, NOPUSH, NOREL)
+
 #undef NOREL
 #undef TUNE_B
 #undef TUNE_F
