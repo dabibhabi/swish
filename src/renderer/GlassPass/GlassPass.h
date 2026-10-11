@@ -34,6 +34,8 @@ public:
     ~GlassPass() override = default;
 
     const char* name() const override { return "Glass"; }
+    // Forward draw onto the lit HDR, scene depth read-only (ForwardPass.h).
+    void declare(PassDeclaration& d) const override { d.read({Img::Hdr, Img::HdrDepth}).write({Img::Hdr}); }
     void        init(const PassInitCtx& ctx) override;
     void        onResize(const PassInitCtx& ctx) override;
     // Draws the glass submeshes of the car (shared VBO/IBO) onto HDR; nothing without glass draws or car geometry.

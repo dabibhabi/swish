@@ -15,6 +15,17 @@
 
 namespace swish {
 
+#ifdef SWISH_DEBUG_UI
+// Debug-only recording observer (GpuProfiler is the user): told when record_all starts and after each pass has
+// recorded (possibly nothing). Called between passes, so never inside a render pass. Compiled out of release.
+class IPassObserver {
+public:
+    virtual ~IPassObserver()                                                                       = default;
+    virtual void on_record_begin(VkCommandBuffer cmd, uint32_t frameIndex)                         = 0;
+    virtual void on_pass_recorded(VkCommandBuffer cmd, uint32_t frameIndex, std::size_t passIndex) = 0;
+};
+#endif
+
 class PassRegistry {
 public:
     // Append a pass the registry owns. Throws std::logic_error on a duplicate name.
@@ -42,6 +53,11 @@ public:
     std::size_t                   size() const { return m_entries.size(); }
     std::vector<std::string_view> names() const;
 
+#ifdef SWISH_DEBUG_UI
+    // Non-owning; null (the default) means record_all behaves exactly as in release.
+    void set_observer(IPassObserver* observer) { m_observer = observer; }
+#endif
+
 private:
     struct Entry {
         std::unique_ptr<IRenderPass> owned;  // null for borrowed passes
@@ -50,6 +66,9 @@ private:
     void check_unique(const IRenderPass& pass) const;
 
     std::vector<Entry> m_entries;
+#ifdef SWISH_DEBUG_UI
+    IPassObserver* m_observer = nullptr;
+#endif
 };
 
 // Builds the default registry from PassList.def. `geometry` is the producer entry (R4): the Renderer-owned object

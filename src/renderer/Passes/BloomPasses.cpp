@@ -20,6 +20,7 @@ void to_shader_read(const FrameCtx& c, Img img) {
 class BloomExtractPass final : public FullscreenPass<PostProcessParams> {
 public:
     const char* name() const override { return "BloomExtract"; }
+    void        declare(PassDeclaration& d) const override { d.read({Img::Hdr}).write({Img::BloomExtract}); }
 
 protected:
     void describe(const FrameCtx& c, FullscreenDraw& d, PostProcessParams& pp) const override {
@@ -48,6 +49,12 @@ class BloomBlurPass final : public FullscreenPass<PostProcessParams> {
 public:
     explicit BloomBlurPass(bool horizontal) : m_horizontal(horizontal) {}
     const char* name() const override { return m_horizontal ? "BloomBlurH" : "BloomBlurV"; }
+    void        declare(PassDeclaration& d) const override {
+        if (m_horizontal)
+            d.read({Img::BloomExtract}).write({Img::BloomBlurH});
+        else
+            d.read({Img::BloomBlurH}).write({Img::BloomBlurV});
+    }
 
 protected:
     void describe(const FrameCtx& c, FullscreenDraw& d, PostProcessParams& pp) const override {

@@ -229,6 +229,12 @@ public:
     void  set_render_scale(float s) { m_renderScale = s; }
     float get_render_scale() const { return m_renderScale; }
 
+#ifdef SWISH_DEBUG_UI
+    // Shader hot-reload: recreate the composite pipeline from the current composite.frag.spv (vkDeviceWaitIdle-safe;
+    // throws on a bad .spv and then keeps the old pipeline).
+    void rebuild_composite_pipeline();
+#endif
+
 private:
     VkDevice         m_device         = VK_NULL_HANDLE;
     VkPipelineCache  m_pipelineCache  = VK_NULL_HANDLE;  // not owned (Device); fed to pipeline::create_graphics
@@ -389,7 +395,10 @@ private:
     void createDescriptorPool();
     void createDescriptorSets();
     void createPipelines();
-    void primeAOTexture();
+    // Fullscreen-triangle pipeline (fullscreen.vert + `fragShader`.spv, no depth, no vertex input).
+    VkPipeline makeFullscreenPipeline(const std::string& fragShader, VkRenderPass rp, VkPipelineLayout layout,
+                                      VkExtent2D ext) const;
+    void       primeAOTexture();
 
     void destroyImages();
     void destroyFramebuffers();

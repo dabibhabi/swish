@@ -49,6 +49,7 @@ public:
     ~VelocityPass() override = default;
 
     const char* name() const override { return "Velocity"; }
+    void        declare(PassDeclaration& d) const override { d.read({Img::HdrDepth}).write({Img::Velocity}); }
     // Creates the velocity target and registers it as Img::Velocity (TaaPass samples it).
     void init(const PassInitCtx& ctx) override;
     void onResize(const PassInitCtx& ctx) override;

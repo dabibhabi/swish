@@ -29,12 +29,25 @@ add_executable(swish_utils_tests
     test_vulkan_ImageView.cpp
     test_renderer_Bindings.cpp
     test_renderer_PassRegistry.cpp
+    test_renderer_PassDeclaration.cpp
+    test_renderer_ShaderHotReload.cpp
+    test_renderer_TimestampMath.cpp
+    test_renderer_CapturePath.cpp
 
     ${CMAKE_SOURCE_DIR}/src/utils/io/File.cpp
     # renderer/Passes: the registry + image registry are Vulkan-handle bookkeeping only (no Vulkan calls)
     ${CMAKE_SOURCE_DIR}/src/renderer/Passes/PassRegistry.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/Passes/ImageRegistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/Passes/PassDeclarationValidator.cpp
+    # Shader hot-reload (S5): pure parts + injectable edges; PipelineRebuild is a std::function registry.
+    ${CMAKE_SOURCE_DIR}/src/renderer/PipelineRebuild/PipelineRebuild.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/ShaderHotReload/ShaderHotReload.cpp
 )
+
+# ShaderHotReload.cpp is an empty TU unless SWISH_DEBUG_UI is defined (release binary unchanged). Define it for that
+# one source only: its header has no #ifdef, so this does not change any type seen by the other test sources.
+set_source_files_properties(${CMAKE_SOURCE_DIR}/src/renderer/ShaderHotReload/ShaderHotReload.cpp
+    PROPERTIES COMPILE_DEFINITIONS SWISH_DEBUG_UI)
 
 target_include_directories(swish_utils_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src

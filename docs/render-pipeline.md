@@ -349,3 +349,18 @@ Present:
 - **Wait semaphore:** `renderFinished[imageIndex]`
 
 See [`docs/diagrams/vulkan-sync.excalidraw`](diagrams/vulkan-sync.excalidraw) for the timing diagram.
+
+---
+
+## Debug render tools (stubs, 2026-10-10)
+
+Four tools, all compiled only under `SWISH_DEBUG_UI` (release is unchanged), shown in the debug panel's **Render tools**
+header. Each is a working stub with `TODO(stub)` markers in its header. Not yet run on a GPU: unit tests and builds only.
+Entry: [changelog 2026-10-10](changelog/2026-10.md).
+
+| Tool | Code | How it works today | What the full version must do |
+|------|------|--------------------|-------------------------------|
+| GPU profiler | [`GpuProfiler/`](../src/renderer/GpuProfiler/GpuProfiler.h), [`TimestampMath.h`](../src/renderer/GpuProfiler/TimestampMath.h) | $N+1$ boundary timestamps per frame around the `PassRegistry` passes (`IPassObserver`); ring of `MAX_FRAMES_IN_FLIGHT` slices; read back right after the slot's fence wait, so latency is 2 frames; $\text{ms} = \Delta\,p_{\text{ns}}\,10^{-6}$ with $\Delta$ masked to `timestampValidBits`; off when valid bits are 0 | nested labels for multi-workload passes (G-buffer vs shadow atlas), GPU-vs-CPU bottleneck flag, rolling min/max/p95 graph, pipeline-statistics queries, validate the MoltenVK counter against a CPU clock |
+| Frame capture | [`FrameCapture/`](../src/renderer/FrameCapture/FrameCapture.h), [`CapturePath.h`](../src/renderer/FrameCapture/CapturePath.h) | F12 (Shift adds HDR) or the panel button; copies the swapchain image (and `Img::Hdr`) to a staging buffer after `record_all`, writes `.ppm` (+ `.pfm`) 2 frames later to `build-debug/captures/` (or `$SWISH_CAPTURE_DIR`) | PNG (deflate encoder) and a tone-mapped HDR preview, worker-thread file write, burst/timed capture, capture before the debug overlay, any `Img` (G-buffer, AO), frozen-camera regression re-capture |
+| Shader hot-reload | [`ShaderHotReload/`](../src/renderer/ShaderHotReload/ShaderHotReload.h), [`PipelineRebuild/`](../src/renderer/PipelineRebuild/PipelineRebuild.h), [`Passes/PassRebuild.h`](../src/renderer/Passes/PassRebuild.h) | polls `shaders/` mtimes every 0.5 s, recompiles with the CMake glslc command line into the build dir, runs the hook for that shader stem; only `composite` has a hook, other shaders need a restart; a `common/*.glsl` change rebuilds everything | dependency tracking (glslc depfiles) so only dependent shaders recompile, off-thread compile, watch added/deleted files, a rebuild hook for every pass that owns a pipeline |
+| Pass declarations | [`PassDeclaration.h`](../src/renderer/Passes/PassDeclaration.h), [`PassDeclarationValidator.h`](../src/renderer/Passes/PassDeclarationValidator.h) | `IRenderPass::declare` lists the `Img`s read and written; the validator warns on a read before any earlier write in `PassList.def` order (`Ao`, `AoBlur`, `Lum` allowlisted). Informational: barriers stay eager and the list order stays the only truth | per-subresource and layout-aware declarations, history (previous-frame) reads, write-after-write / dead-write warnings, a registry iteration accessor; only then automatic barrier placement |

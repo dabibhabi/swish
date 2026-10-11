@@ -283,7 +283,12 @@ if(SWISH_DEBUG_UI)
     list(SORT SWISH_DEBUG_SOURCES)
     target_sources(swish PRIVATE ${SWISH_DEBUG_SOURCES})
     target_link_libraries(swish PRIVATE imgui tomlplusplus::tomlplusplus)
-    target_compile_definitions(swish PRIVATE SWISH_DEBUG_UI)
+    target_compile_definitions(swish PRIVATE SWISH_DEBUG_UI
+        # Shader hot-reload (renderer/ShaderHotReload): where the GLSL sources live and the glslc CMake found
+        # (the runtime looks at $VULKAN_SDK/bin first, like find_program above).
+        SWISH_SHADER_SRC_DIR="${SHADER_DIR}"
+        SWISH_GLSLC_PATH="${GLSLC}"
+    )
     message(STATUS "swish: Dear ImGui debug UI ENABLED (make debug -> build-debug/)")
 endif()
 

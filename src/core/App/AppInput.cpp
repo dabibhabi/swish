@@ -71,6 +71,7 @@ void App::init_key_bindings() {
         {GLFW_KEY_G, {}, &App::on_cycle_weather},               // HDRI weather presets
 #ifdef SWISH_DEBUG_UI
         {GLFW_KEY_GRAVE_ACCENT, {}, &App::on_toggle_debug_edit},  // backtick: edit vs drive
+        {GLFW_KEY_F12, {}, &App::on_capture_frame},               // frame capture (Shift: + HDR .pfm)
 #endif
     };
 }
@@ -112,6 +113,13 @@ void App::on_cycle_weather() {
 // freeze the sim; press again to return to driving.
 void App::on_toggle_debug_edit() {
     set_debug_edit_mode(!m_debug_edit_mode);
+}
+
+void App::on_capture_frame() {
+    GLFWwindow* w = m_window->getHandle();
+    const bool  hdr =
+        glfwGetKey(w, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(w, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+    m_renderer->request_capture(hdr);
 }
 
 void App::set_debug_edit_mode(bool edit) {

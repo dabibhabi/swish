@@ -306,3 +306,15 @@ Track brief: `.worktrees/agent-runs/car-rain.md`. Stub = real interfaces + minim
 - [x] S6 Verify: `make test`, `make test-debug`, 33/33 `.spv`, `make check`, 0 warnings, screenshots rain 0 & 1.0 — build-verify-engineer. **Note: release 233/233, debug 256/256, 33/33 `.spv` unchanged; screenshots at rain 0 & 1.0 NOT done (still open); `make check` to be run by owner after the changelog index refresh.**
 - [x] S7 Docs: changelog `docs/changelog/2026-10.md` + index, docs/rain, docs/wheels — docs-scribe (index refresh `python3 scripts/changelog_index.py` pending, owner runs it)
 - [ ] S8 `tasks/stub-report.md`
+## Stub: Vulkan render tools (started 2026-10-10, track `render-tools`)
+
+All debug-only (`SWISH_DEBUG_UI`), identity default off; release `.spv` 33/33, goldens untouched. Brief: `agent-runs/render-tools.md`.
+
+- [x] S1 GPU-free logic + tests: timestamp ring/latency math + smoothing (`TimestampMath.h`), capture path naming + PPM/PFM/half encoders (`CapturePath.h`), pass-declaration validator
+- [x] S2 GPU timestamp profiler: query pool sized to pass list, write around each pass, N-2 readback, graceful degrade (MoltenVK); `GpuProfiler` snapshot accessor done, debug-UI table + total is S6. Not yet run on a GPU (build + unit tests only)
+- [x] S3 Frame capture helper: LDR swapchain dump (+ optional HDR PFM) to `build-debug/captures/`, staging copy after fence, F12 key (Shift = + HDR); `FrameCapture` status accessor done, UI button is S6. Not yet run on a GPU (build + unit tests only)
+- [x] S4 `IRenderPass` resource declarations (reads/writes by `Img`) + debug validator (read-before-write warn); pass order unchanged
+- [x] S5 Shader hot-reload: mtime poller, glslc recompile (same cmd as CMake), `PipelineRebuild` hook wired for Composite, rest logged TODO
+- [x] S6 Debug UI wiring (profiler table, capture button, hot-reload status): "Render tools" section in `DebugUI.cpp` fed by `RenderToolsView` (set from `Renderer::init`); also shows pass-declaration warnings. Not visually checked in a running window
+- [x] S7 Verify: `make test` 261/261, `make test-debug` 284/284, 33/33 spv (manual hash comparison), `make check` OK (format findings pre-existing, report-only). Warning count is as reported by the build owner, not re-checked while writing the docs
+- [x] S8 Docs + changelog (`docs/changelog/2026-10.md`) + `tasks/stub-report.md`. Still to do: `python3 scripts/changelog_index.py` (index in `CHANGELOG.md`), then `make check`

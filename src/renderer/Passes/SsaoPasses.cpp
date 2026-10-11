@@ -22,6 +22,7 @@ namespace {
 class SsaoPass final : public FullscreenPass<SsaoParams> {
 public:
     const char* name() const override { return "Ssao"; }
+    void        declare(PassDeclaration& d) const override { d.read({Img::HdrDepth}).write({Img::Ao}); }
 
 protected:
     void describe(const FrameCtx& c, FullscreenDraw& d, SsaoParams& sp) const override {
@@ -51,6 +52,7 @@ protected:
 class AoBlurPass final : public FullscreenPass<NoPush> {
 public:
     const char* name() const override { return "AoBlur"; }
+    void        declare(PassDeclaration& d) const override { d.read({Img::Ao}).write({Img::AoBlur}); }
 
 protected:
     void describe(const FrameCtx& c, FullscreenDraw& d, NoPush&) const override {

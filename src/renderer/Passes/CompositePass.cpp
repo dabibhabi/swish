@@ -2,6 +2,7 @@
 // list kCompositeInputs (PassInputs.h); the descriptor set is written by PostProcessManager from that list.
 #include "debug/DebugParams.h"
 #include "renderer/Passes/FullscreenPass.h"
+#include "renderer/Passes/PassRebuild.h"
 #include "renderer/PostProcessManager/PostProcessManager.h"
 
 #include <memory>
@@ -13,6 +14,14 @@ namespace {
 class CompositePass final : public FullscreenPass<PostProcessParams> {
 public:
     const char* name() const override { return "Composite"; }
+#ifdef SWISH_DEBUG_UI
+    // Shader hot-reload (S5): the pipeline is owned by PostProcessManager, which waits for the device and swaps it.
+    static void rebuild(PostProcessManager& pm) { pm.rebuild_composite_pipeline(); }
+#endif
+    void declare(PassDeclaration& d) const override {
+        // The kCompositeInputs list (PassInputs.h); the swapchain image it writes is not an `Img`.
+        d.read({Img::Hdr, Img::AoBlur, Img::BloomBlurV, Img::Ssr, Img::Godrays});
+    }
 
 protected:
     void describe(const FrameCtx& c, FullscreenDraw& d, PostProcessParams& pp) const override {
@@ -54,5 +63,11 @@ protected:
 std::unique_ptr<IRenderPass> make_composite_pass() {
     return std::make_unique<CompositePass>();
 }
+
+#ifdef SWISH_DEBUG_UI
+void rebuild_composite_pass(PostProcessManager& pm) {
+    CompositePass::rebuild(pm);
+}
+#endif
 
 }  // namespace swish

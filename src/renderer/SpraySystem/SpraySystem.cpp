@@ -432,6 +432,8 @@ namespace {
 class SprayDrawPass final : public IRenderPass {
 public:
     const char* name() const override { return "SprayDraw"; }
+    // Additive billboards onto the lit HDR, scene depth read-only. (SpraySim only touches its particle SSBO.)
+    void declare(PassDeclaration& d) const override { d.read({Img::Hdr, Img::HdrDepth}).write({Img::Hdr}); }
     void        init(const PassInitCtx& ctx) override { m_sim = ctx.passes.find<SpraySystem>(); }
     void        record(const FrameCtx& c) override {
         // Bind camera set (set 0) via the spray pipeline layout; record_draws binds its own set 1 (particle SSBO)

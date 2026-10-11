@@ -5,6 +5,10 @@
 
 #include "DebugParamsIO.h"
 #include "Tunables.h"
+#include "renderer/FrameCapture/FrameCapture.h"
+#include "renderer/GpuProfiler/GpuProfiler.h"
+#include "renderer/Passes/PassDeclarationValidator.h"
+#include "renderer/ShaderHotReload/ShaderHotReload.h"
 #include "scene/Entity/CarPhysics.h"  // WetGripParams — hydroplaning thresholds for the Telemetry panel
 #include "utils/meta/Tags.h"
 #include "utils/units/Units.h"
@@ -341,6 +345,114 @@ void printValues(const DebugParams& p) {
                 p.carOverride ? 1 : 0, p.carMetalness, p.carPaint.x, p.carPaint.y, p.carPaint.z, p.carRoughnessMul);
     std::printf("ssaaScale=%.3f\n", p.ssaaScale);
     std::fflush(stdout);
+}
+
+// "Render tools" section: GPU pass timings, frame capture, shader hot-reload, pass-declaration warnings.
+// Display + two action callbacks only; owns no state.
+void draw_render_tools(const RenderToolsView& t) {
+    if (t.gpu) {
+        ImGui::SeparatorText("GPU profiler");
+        const GpuProfileSnapshot& s = *t.gpu;
+        if (!s.supported) {
+            ImGui::TextDisabled("GPU timestamps unsupported on this device/queue");
+        } else if (s.frames == 0) {
+            ImGui::TextDisabled("waiting for the first read-back...");
+        } else {
+            if (ImGui::BeginTable("gpuPasses", 3,
+                                  ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
+                                      ImGuiTableFlags_SizingStretchProp)) {
+                ImGui::TableSetupColumn("Pass");
+                ImGui::TableSetupColumn("smoothed ms");
+                ImGui::TableSetupColumn("last ms");
+                ImGui::TableHeadersRow();
+                for (size_t i = 0; i < s.names.size() && i < s.smoothedMs.size() && i < s.ms.size(); ++i) {
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(s.names[i].c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%.3f", s.smoothedMs[i]);
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%.3f", s.ms[i]);
+                }
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted("Total");
+                ImGui::TableNextColumn();
+                ImGui::Text("%.3f", s.smoothedTotalMs);
+                ImGui::TableNextColumn();
+                ImGui::Text("%.3f", s.totalMs);
+                ImGui::EndTable();
+            }
+        }
+    }
+
+    if (t.capture || t.requestCapture) {
+        ImGui::SeparatorText("Frame capture");
+        const bool busy = t.capture && (t.capture->state == CaptureStatus::State::Requested ||
+                                        t.capture->state == CaptureStatus::State::InFlight);
+        ImGui::BeginDisabled(busy || !t.requestCapture);
+        if (ImGui::Button("Capture LDR (F12)") && t.requestCapture)
+            t.requestCapture(false);
+        ImGui::SameLine();
+        if (ImGui::Button("Capture HDR (Shift+F12)") && t.requestCapture)
+            t.requestCapture(true);
+        ImGui::EndDisabled();
+        if (t.capture) {
+            const char* state = "idle";
+            switch (t.capture->state) {
+                case CaptureStatus::State::Idle:
+                    state = "idle";
+                    break;
+                case CaptureStatus::State::Requested:
+                    state = "requested";
+                    break;
+                case CaptureStatus::State::InFlight:
+                    state = "in flight";
+                    break;
+                case CaptureStatus::State::Saved:
+                    state = "saved";
+                    break;
+                case CaptureStatus::State::Failed:
+                    state = "FAILED";
+                    break;
+            }
+            ImGui::Text("State: %s (%u saved)", state, t.capture->savedCount);
+            if (!t.capture->message.empty())
+                ImGui::TextWrapped("%s", t.capture->message.c_str());
+            if (!t.capture->lastPath.empty())
+                ImGui::TextWrapped("Last LDR: %s", t.capture->lastPath.c_str());
+            if (!t.capture->lastHdrPath.empty())
+                ImGui::TextWrapped("Last HDR: %s", t.capture->lastHdrPath.c_str());
+        }
+    }
+
+    if (t.hotReload) {
+        ImGui::SeparatorText("Shader hot-reload");
+        bool enabled = t.hotReload->enabled();
+        if (ImGui::Checkbox("Enabled##hotreload", &enabled) && t.setHotReloadEnabled)
+            t.setHotReloadEnabled(enabled);
+        const ShaderHotReload::Status& st = t.hotReload->status();
+        ImGui::Text("Reloads: %u  failures: %u  rebuilds: %u  need restart: %u", st.reloads, st.compileFailures,
+                    st.rebuilds, st.unhooked);
+        if (!st.lastMessage.empty()) {
+            if (st.lastOk)
+                ImGui::TextWrapped("%s", st.lastMessage.c_str());
+            else
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s", st.lastMessage.c_str());
+        }
+    }
+
+    if (t.declWarnings) {
+        ImGui::SeparatorText("Pass declarations");
+        if (t.decls)
+            ImGui::TextDisabled("%zu passes checked", t.decls->size());
+        if (t.declWarnings->empty()) {
+            ImGui::TextDisabled("no warnings");
+        } else {
+            for (const std::string& w : *t.declWarnings)
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "%s", w.c_str());
+        }
+    }
 }
 
 }  // namespace
@@ -881,6 +993,10 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
                 p.ssaaApplyRequested = true;
             }
         }
+
+        // ── Render tools (GPU profiler / capture / hot-reload / pass declarations) ──
+        if (ImGui::CollapsingHeader("Render tools"))
+            draw_render_tools(m_tools);
 
         ImGui::End();
     }

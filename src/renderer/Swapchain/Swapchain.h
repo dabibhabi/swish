@@ -40,8 +40,16 @@ public:
     VkExtent2D                      getExtent() const;
     const std::vector<VkImageView>& getImageViews() const;
     uint32_t                        getImageCount() const;
+#ifdef SWISH_DEBUG_UI
+    // Frame capture: the raw presentable images, and whether they were created with TRANSFER_SRC usage.
+    const std::vector<VkImage>& getImages() const { return m_images; }
+    bool                        supportsTransferSrc() const { return m_transferSrc; }
+#endif
 
 private:
+#ifdef SWISH_DEBUG_UI
+    bool m_transferSrc = false;
+#endif
     VkSwapchainKHR           m_swapchain   = VK_NULL_HANDLE;
     VkFormat                 m_imageFormat = VK_FORMAT_UNDEFINED;
     VkExtent2D               m_extent      = {0, 0};
