@@ -4,6 +4,7 @@
 #include "scene/CameraMode.h"
 #include "scene/Corridor/CorridorDriver.h"  // real LIE corridor (owned by App)
 #include "scene/WeatherPreset.h"
+#include "utils/input/InputFrame.h"
 
 #include <memory>
 #include <vector>
@@ -19,6 +20,11 @@ class SceneManager;
 class ModelManager;
 class Camera;
 class CarEntity;
+#ifdef SWISH_DEBUG_UI
+class GlfwGamepadSource;
+class TelemetryRecorder;
+struct DebugParams;
+#endif
 
 class App {
 public:
@@ -86,6 +92,15 @@ private:
     // Debug edit-mode (backtick `): frees the cursor for the ImGui panel and
     // freezes the sim so you can tune a static frame.
     bool m_debug_edit_mode = false;
+
+    // Driving tools (AppDrivingTools.cpp): lazily created on first use; with the panel at its
+    // defaults (keyboard, no record/replay) neither is touched and handle_input() drives the car.
+    std::unique_ptr<GlfwGamepadSource> m_gamepad;
+    std::unique_ptr<TelemetryRecorder> m_recorder;
+    bool                               m_prev_record = false;
+    bool                               m_prev_replay = false;
+    bool                               m_drv_stepped = false;  // step_driving_tools drove the car this frame
+    InputFrame                         m_drv_frame{};          // ...with this command
 #endif
 
     // Key table (Esc, C, R, V, G, and backtick under SWISH_DEBUG_UI), polled in order.
@@ -114,6 +129,11 @@ private:
     void push_car_to_renderer();
 #ifdef SWISH_DEBUG_UI
     void sync_car_with_debug_panel(bool debug_edit);
+    // Driving tools. step_driving_tools returns true when it drove the car this frame (gamepad
+    // source, recording or replaying); false means "use CarEntity::handle_input as before".
+    bool step_driving_tools(float dt);
+    void sync_driving_tools_panel(DebugParams& dp);
+    void ensure_driving_tools();
 #endif
 
     // Key-table actions (see init_key_bindings)

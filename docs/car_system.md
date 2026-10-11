@@ -260,6 +260,22 @@ bump stops; fold in anti-roll bars and aero downforce / pitch moment; give each 
 real tire curve (Pacejka / Fiala) with camber thrust and aligning torque; shift the patch by $r\sin(\text{roll})$;
 replace the box inertia with measured mass-point inertia; add a standstill stick model; and move to impulse-based
 non-smooth contact ([docs/lessons-from-chrono/](lessons-from-chrono/)).
+## Driving tools (2026-10-10, stub)
+
+Input, record/replay and bench tooling around `CarEntity`; physics is unchanged. Full write-up:
+[`docs/changelog/2026-10.md`](changelog/2026-10.md).
+
+| Module | Role |
+|--------|------|
+| [`utils/input/InputFrame.h`](../src/utils/input/InputFrame.h) | `InputFrame{steer, throttle, brake, steer_mode}`, `IInputSource`. `SteerMode::Rate` = keyboard (sign only), `Target` = analog target angle |
+| `CarEntity::apply_input_frame(f, dt)` | The single input entry point; `handle_input` builds a `Rate` frame and calls it |
+| [`utils/input/GamepadMapping.h`](../src/utils/input/GamepadMapping.h), [`core/Input/GlfwGamepadSource.h`](../src/core/Input/GlfwGamepadSource.h) | Pure deadzone + expo + trigger mapping; GLFW feeder |
+| [`utils/telemetry/TelemetryRing.h`](../src/utils/telemetry/TelemetryRing.h), [`ReplayDriver.h`](../src/utils/telemetry/ReplayDriver.h) | Fixed ring (3600 samples), CSV round-trip to `build-debug/telemetry/`, input replay |
+| [`debug/TelemetryRecorder.h`](../src/debug/TelemetryRecorder.h), [`core/App/AppDrivingTools.cpp`](../src/core/App/AppDrivingTools.cpp) | Debug-only recorder and App wiring (`SWISH_DEBUG_UI`); keyboard + idle recorder leaves `handle_input` untouched |
+| [`scene/Entity/ForceFeedback.h`](../src/scene/Entity/ForceFeedback.h) | Self-aligning torque target + `IForceFeedbackSink`; readout only, no device output |
+| [`tests/bench/Bench.h`](../tests/bench/Bench.h) | `[bench]` harness: 0-100, 100-0, top speed, skidpad vs 992 Turbo S targets (printed, not gated) |
+
+Open items are marked `TODO(stub)` in those headers (full FFB model, replay start-pose/wetness restore, `InputFrame` to be absorbed by Ch07).
 
 ## Car Physics — State Diagram (input state machine; constants are historical)
 

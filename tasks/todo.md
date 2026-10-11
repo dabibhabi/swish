@@ -286,3 +286,12 @@ SSR, SSAO, CSM, auto-exposure, DoF (`src/renderer/DofPass/`), god-rays, puddles 
 (debug-gated), FOV kick + shake (F1), `Smoothing.h` (F3), wet-asphalt BRDF (C1), clearcoat + flake,
 per-object velocity buffer, Wheel Phase B, ADR `docs/adr/0001-*` (the "ADR candidate" box). The C++ standard
 is now 20. Re-check any other older box before treating it as open.
+
+## Stub: driving realism tools
+Track lead: driving-tools. Pipeline: vehicle-dynamics-engineer → (parallel) telemetry/replay + bench → debug-ui-engineer → build-verify-engineer → docs-scribe.
+- [x] S1 Input seam: `InputFrame` (`src/utils/input/`), `CarEntity::apply_input_frame`, keyboard source, gamepad source (deadzone+curve), FFB stub (SAT target); additive to Ch07
+- [x] S2 Telemetry ring buffer + CSV export/import + replay driver (debug-only)
+- [x] S3 Physics bench harness `[bench]` (0-100, 100-0, skidpad, top speed) vs 911 Turbo reference
+- [x] S4 Debug panel (record/replay/gamepad/FFB readout), gated, identity default off
+- [x] S5 Tests green (release + debug), 33/33 .spv, goldens untouched, `make check`
+- [x] S6 Changelog entry + docs + `tasks/stub-report.md`

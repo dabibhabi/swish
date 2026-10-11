@@ -1,6 +1,10 @@
 #include "App.h"
 
 #include "core/Window/Window.h"
+#ifdef SWISH_DEBUG_UI
+#include "core/Input/GlfwGamepadSource.h"
+#include "debug/TelemetryRecorder.h"
+#endif
 #include "renderer/Renderer/Renderer.h"
 #include "renderer/TextureManager/TextureManager.h"
 #include "scene/Camera/Camera.h"
@@ -146,8 +150,13 @@ void App::step_car_simulation(float dt, bool debug_edit) {
     m_car->set_wetness(m_renderer->get_wetness());
 
     if (!debug_edit) {
-        m_car->handle_input(m_window->getHandle(), dt);
-        m_car->update(dt);
+#ifdef SWISH_DEBUG_UI
+        if (!step_driving_tools(dt))  // gamepad / record / replay; false = the unchanged keyboard path
+#endif
+        {
+            m_car->handle_input(m_window->getHandle(), dt);
+            m_car->update(dt);
+        }
     }
 
     // Snap Y to the road surface so wheels sit on it as the car steers.
@@ -186,6 +195,7 @@ void App::sync_car_with_debug_panel(bool debug_edit) {
     DebugParams& dp    = m_renderer->debug_params();
     dp.steerPivotWorld = m_car->get_steering_wheel_pivot_world();
     dp.steerMaxDeg     = CarEntity::steer_max();
+    sync_driving_tools_panel(dp);
 
     // Telemetry readout (issue 5). Pure push of live car state into the
     // Telemetry panel — read-only, debug-only. The cockpit gauge cluster
