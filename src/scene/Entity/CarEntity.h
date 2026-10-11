@@ -209,7 +209,9 @@ public:
     std::vector<DrawCall> get_windshield_draw_calls() const;
 
 private:
-    float     m_forward_speed  = 0.f;                       // world units / second, positive = forward
+    friend struct CarEntityTestAccess;  // defined in tests/test_golden_car.cpp only; no code in the app
+
+    float     m_forward_speed  = 0.f;                     // world units / second, positive = forward
     float     m_steering_angle = 0.f;                       // degrees, negative = left, positive = right
     float     m_rain_intensity = 0.f;                       // [0,1] — drives the interior cabin wash tint
     glm::quat m_steer_axis_correction{1.f, 0.f, 0.f, 0.f};  // debug spin-axis fix (identity = none)
