@@ -83,7 +83,7 @@ anything visible, changelog. Commit/merge only when the owner asks. **Arch GCC g
 - [x] P0.2 (2026-10-01, Apple+debug green; Arch GCC gate deferred by owner until the Arch reconciliation) C++23 bump alone (`CMakeLists.txt:4`, `toml_baker`); all hashes/goldens unchanged, 0 warnings on 3 compilers
 - [ ] P0.3 Build: `swish_scene_core` static lib, `swish_utils` INTERFACE, warnings on tests/`toml_baker`, CI builds both test targets (clang Release) + `make check` + format-check, compiler guard on golden mesh test
 - [ ] P0.4 Test seam: replace `#define private public` in `test_golden_car.cpp`
-- [ ] P0.5 Doc drift fixes (Units.h test path, golden README contradiction, CODING_RULES rule 9, `rel`/`NOREL`, DESIGN_PATTERNS line ref, restore `docs/utils-component-design.md`)
+- [x] P0.5 Doc drift fixes (Units.h test path, golden README contradiction, CODING_RULES rule 9, `rel`/`NOREL`, DESIGN_PATTERNS line ref, restore `docs/utils-component-design.md`) — done 2026-10-11, docs only
 - [x] P0.6 (2026-10-01, branch `docs/typed-cpp-tutorial`; chapters 01-12 written, owner review pending) Tutorial scaffold: `docs/tutorials/typed-cpp/00-index.md` + `docs/README.md` row
 
 ### M1 — foundations, core, car (owner implements)

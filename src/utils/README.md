@@ -45,8 +45,7 @@ Generic helpers with no subsystem state, organised **by topic**. One folder per 
 | `debug/` | `TomlGlm.h` | `vec3_to_toml`, `read_vec3`; the whole file is inside `#ifdef SWISH_DEBUG_UI`. |
 
 Not utils on purpose: `MAX_FRAMES_IN_FLIGHT` lives in `renderer/RendererConfig.h`; `RainPhysics.h` and the glTF matrix
-helpers stay with their domain (rationale: `archive/local/review_2026-09-29/docs/utils-component-design.md`, rows 26 and 27; that folder is
-local-only and gitignored, so it may not exist on your machine). Repo-wide rules: [docs/KEEPING_IT_CLEAN.md](../../docs/KEEPING_IT_CLEAN.md).
+helpers stay with their domain (rationale: [docs/utils-component-design.md](../../docs/utils-component-design.md), move-table rows 26 and 27). Repo-wide rules: [docs/KEEPING_IT_CLEAN.md](../../docs/KEEPING_IT_CLEAN.md).
 
 ## Examples
 
