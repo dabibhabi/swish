@@ -301,7 +301,137 @@ Chapter-specific checks:
 
 <details><summary>Solution</summary>
 
-_Written after you finish the exercise (or ask for it)._
+Compare with your own version only after you have tried it. The gearbox and `prev_frame` code below was compiled
+with `clang++ -std=c++23 -Wall -Wextra -Wpedantic` against the chapter's tests and `static_assert`s. The
+`TaaPass` and `WindshieldRainPass` edits are shown as diffs and have not been built.
+
+### 8.1 Gearbox validators (`src/scene/Entity/Powertrain.h`, after `GearboxParams`)
+
+```cpp
+inline constexpr std::size_t kGearCount = std::tuple_size_v<decltype(GearboxParams::ratios)>;
+static_assert(kGearCount == 7,
+              "gear_for_speed (`i < 6`, `return 6`) and gearbox_shift_step (`state.gear < 6`) hard-code top gear 6: "
+              "update them together with the ratio count");
+
+[[nodiscard]] constexpr bool ratios_positive(const GearboxParams& g) noexcept {
+    if (!(g.finalDrive > 0.f))
+        return false;
+    for (const float r : g.ratios)
+        if (!(r > 0.f))
+            return false;
+    return true;
+}
+
+[[nodiscard]] constexpr bool ratios_strictly_descending(const GearboxParams& g) noexcept {
+    for (std::size_t i = 1; i < g.ratios.size(); ++i)
+        if (!(g.ratios[i] < g.ratios[i - 1]))
+            return false;
+    return true;
+}
+
+[[nodiscard]] constexpr bool shift_band_ordered(const GearboxParams& g) noexcept { return g.upshiftRpm > g.downshiftRpm; }
+[[nodiscard]] constexpr bool dwell_non_negative(const GearboxParams& g) noexcept { return g.shiftDwell >= 0.f; }
+
+[[nodiscard]] constexpr bool upshift_lands_above_downshift(const GearboxParams& g) noexcept {
+    if (!ratios_positive(g))
+        return false;
+    for (std::size_t i = 0; i + 1 < g.ratios.size(); ++i)
+        if (!(g.upshiftRpm * g.ratios[i + 1] / g.ratios[i] > g.downshiftRpm))
+            return false;
+    return true;
+}
+
+[[nodiscard]] constexpr bool downshift_lands_below_upshift(const GearboxParams& g) noexcept {
+    if (!ratios_positive(g))
+        return false;
+    for (std::size_t i = 0; i + 1 < g.ratios.size(); ++i)
+        if (!(g.downshiftRpm * g.ratios[i] / g.ratios[i + 1] < g.upshiftRpm))
+            return false;
+    return true;
+}
+
+[[nodiscard]] constexpr bool gearbox_params_valid(const GearboxParams& g) noexcept {
+    return ratios_positive(g) && ratios_strictly_descending(g) && shift_band_ordered(g) && dwell_non_negative(g) &&
+           upshift_lands_above_downshift(g) && downshift_lands_below_upshift(g);
+}
+
+static_assert(ratios_positive(GearboxParams{}), "gear ratios and finalDrive must be > 0");
+static_assert(ratios_strictly_descending(GearboxParams{}), "gear ratios must strictly decrease from 1st to 7th");
+static_assert(shift_band_ordered(GearboxParams{}), "upshiftRpm must be above downshiftRpm");
+static_assert(dwell_non_negative(GearboxParams{}), "shiftDwell must be >= 0");
+static_assert(upshift_lands_above_downshift(GearboxParams{}), "an upshift would land at or below downshiftRpm: the box would hunt");
+static_assert(downshift_lands_below_upshift(GearboxParams{}), "a downshift would land at or above upshiftRpm: the box would hunt");
+```
+
+Why it looks like this:
+
+- **The landing checks start with `ratios_positive`.** A zero ratio would make `r[i+1] / r[i]` a division by zero.
+  That is not a constant expression, so a bad table would produce a confusing compile error instead of a clean
+  `false`. Guarding first keeps every validator total.
+- **Comparisons are written `!(a > b)`** so a NaN fails the check instead of slipping through.
+- **The `kGearCount` assert sits beside its definition** and its message names the three hard-coded sites.
+  Chapter 03 deletes the `6`s and this assert together.
+- **`gearbox_params_valid` is only the conjunction.** The tests and the `static_assert`s call it for the
+  whole-object answer. The per-rule asserts exist so a failing build names the broken rule.
+
+### 8.2 `prev_frame` (`src/renderer/RendererConfig.h`) and the TAA site
+
+```cpp
+template <u32 N = MAX_FRAMES_IN_FLIGHT>
+[[nodiscard]] constexpr u32 prev_frame(u32 frame) noexcept {
+    static_assert(N >= 2, "ring needs at least two slots");
+    return (frame + N - 1) % N;
+}
+```
+
+For `N == 2`: `prev_frame(0) = (0 + 1) % 2 = 1` and `prev_frame(1) = (1 + 1) % 2 = 0`, which are exactly the old
+`(f + 1) % 2` values, so the descriptor writes are unchanged.
+
+```diff
+-            {m_sampler, m_views[(f + 1) % MAX_FRAMES_IN_FLIGHT], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
++            {m_sampler, m_views[prev_frame(f)], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+```
+
+Then change the `taa[1-f]` wording at `TaaPass.cpp:276` (and `:96`, `TaaPass.h:106`) to "previous-frame history".
+
+### 8.3 Wetness ping-pong (`WindshieldRainPass`)
+
+```diff
+-    std::array<GpuImage, 2>    m_wetImages{};  // RAII (VMA)
+-    std::array<VkImageView, 2> m_wetViews{};
++    static constexpr std::size_t kWetPingPong = 2;  // [0] = history/read, [1] = current/write
++    std::array<GpuImage, kWetPingPong>    m_wetImages{};  // RAII (VMA)
++    std::array<VkImageView, kWetPingPong> m_wetViews{};
+```
+
+```diff
+-    for (int i = 0; i < 2; i++) {
++    for (std::size_t i = 0; i < kWetPingPong; i++) {
+```
+
+Apply the second change at the three loops (`WindshieldRainPass.cpp:431, 476, 501`). Because the bound now comes from the
+same constant as the array size, no extra `static_assert` is needed. If the loop body indexes with an `int` API,
+cast at that one point rather than keeping the `int` loop variable.
+
+### 8.4 Optional stretch (pool size)
+
+```cpp
+static constexpr u32 kRainSamplerBindings = 2;  // bindings 1 and 2 of the per-frame set layout
+// ...
+.combinedImageSamplers = kRainSamplerBindings * MAX_FRAMES_IN_FLIGHT + 1,
+```
+
+Here `MAX_FRAMES_IN_FLIGHT` is a real multiplier (one set per frame), so the arithmetic stays correct for any
+value. Do **not** add `static_assert(MAX_FRAMES_IN_FLIGHT == 2)` here or at the TAA site.
+
+### 8.5 Verify
+
+- With the solution in place, `swish_tests "[gearbox]"` and `swish_utils_tests "[renderer]"` should pass.
+- Break-it-on-purpose check: with `downshiftRpm = 5000.f` the build stops at
+  `downshift_lands_below_upshift` / `upshift_lands_above_downshift` with the message above. The scratch compile of
+  `static_assert(gearbox_params_valid(GearboxParams{.downshiftRpm = 5000.f}))` fails as expected.
+- Still to run on the phase branch: the full gate in section 6 (`make test`, goldens, `make check`, the Debug
+  validation run).
 
 </details>
 

@@ -91,18 +91,21 @@ enum class WheelPieceClass : uint8_t { None, Spinning, Caliper };
 //   Explicit rig  — hub_XX (steer pivot) → wheel_XX (spins; tire child inherits)
 //                   and brake_XX (steer-only). hub_out records each node's hub
 //                   ancestor so rig pieces pivot on the hub, not their own origin.
-void classify_wheel_nodes(const tinygltf::Model& model, int node_idx, WheelPieceClass current, int hub, bool rig,
-                          std::vector<WheelPieceClass>& out, std::vector<int>& hub_out) {
+//   Hellcat       — HELCAT_SUSP_XX (origin = hub centre) → wheel_XX / tire_XX (spin,
+//                   siblings) and brake_XX (steer-only), all under the SUSP node.
+// hub_prefix == nullptr selects the Porsche convention.
+void classify_wheel_nodes(const tinygltf::Model& model, int node_idx, WheelPieceClass current, int hub,
+                          const char* hub_prefix, std::vector<WheelPieceClass>& out, std::vector<int>& hub_out) {
     const auto& node = model.nodes[node_idx];
-    if (!rig) {
+    if (!hub_prefix) {
         if (node.name.rfind("Combined3DWheel", 0) == 0)
             current = WheelPieceClass::Spinning;
         else if (node.name.rfind("CombinedCalliperZone", 0) == 0)
             current = WheelPieceClass::Caliper;
     } else {
-        if (node.name.rfind("hub_", 0) == 0)
+        if (node.name.rfind(hub_prefix, 0) == 0)
             hub = node_idx;
-        else if (hub >= 0 && node.name.rfind("wheel_", 0) == 0)
+        else if (hub >= 0 && (node.name.rfind("wheel_", 0) == 0 || node.name.rfind("tire_", 0) == 0))
             current = WheelPieceClass::Spinning;
         else if (hub >= 0 && node.name.rfind("brake_", 0) == 0)
             current = WheelPieceClass::Caliper;
@@ -110,7 +113,7 @@ void classify_wheel_nodes(const tinygltf::Model& model, int node_idx, WheelPiece
     out[node_idx]     = current;
     hub_out[node_idx] = hub;
     for (int child : node.children)
-        classify_wheel_nodes(model, child, current, hub, rig, out, hub_out);
+        classify_wheel_nodes(model, child, current, hub, hub_prefix, out, hub_out);
 }
 
 // Rig-convention wheel frame in RootNode-relative (pre-normalization) space:
@@ -205,6 +208,77 @@ std::string upload_gltf_roughness(const tinygltf::Model& model, int image_idx, c
     return name;
 }
 
+std::vector<uint32_t> gltf_read_indices(const tinygltf::Model& gltf, int accessor) {
+    const size_t          n = gltf.accessors[accessor].count;
+    std::vector<uint32_t> out(n);
+    switch (gltf.accessors[accessor].componentType) {
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT: {
+            const auto* p = gltf_accessor_data<uint32_t>(gltf, accessor);
+            for (size_t i = 0; i < n; i++)
+                out[i] = p[i];
+            break;
+        }
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: {
+            const auto* p = gltf_accessor_data<uint16_t>(gltf, accessor);
+            for (size_t i = 0; i < n; i++)
+                out[i] = p[i];
+            break;
+        }
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE: {
+            const auto* p = gltf_accessor_data<uint8_t>(gltf, accessor);
+            for (size_t i = 0; i < n; i++)
+                out[i] = p[i];
+            break;
+        }
+        default:
+            out.clear();
+            break;
+    }
+    return out;
+}
+
+// Per-vertex tangents from UV derivatives, for primitives that ship no TANGENT
+// attribute (the Hellcat export). Per-triangle accumulate, Gram-Schmidt against the
+// normal, handedness w so that cross(n, t) * w points toward DECREASING v (glTF's
+// normal-map "up": green = +Y, image origin top-left). Primitive-local space.
+std::vector<glm::vec4> generate_tangents(const float* pos, const float* nrm, const float* uv, size_t nv,
+                                         const std::vector<uint32_t>& idx) {
+    std::vector<glm::vec3> tan(nv, glm::vec3(0.f)), bit(nv, glm::vec3(0.f));
+    for (size_t i = 0; i + 2 < idx.size(); i += 3) {
+        const uint32_t a = idx[i], b = idx[i + 1], c = idx[i + 2];
+        if (a >= nv || b >= nv || c >= nv)
+            continue;
+        const glm::vec3 p0(pos[a * 3], pos[a * 3 + 1], pos[a * 3 + 2]);
+        const glm::vec3 e1  = glm::vec3(pos[b * 3], pos[b * 3 + 1], pos[b * 3 + 2]) - p0;
+        const glm::vec3 e2  = glm::vec3(pos[c * 3], pos[c * 3 + 1], pos[c * 3 + 2]) - p0;
+        const float     du1 = uv[b * 2] - uv[a * 2], dv1 = uv[b * 2 + 1] - uv[a * 2 + 1];
+        const float     du2 = uv[c * 2] - uv[a * 2], dv2 = uv[c * 2 + 1] - uv[a * 2 + 1];
+        const float     det = du1 * dv2 - du2 * dv1;
+        if (std::abs(det) < 1e-20f)
+            continue;
+        const float     r  = 1.f / det;
+        const glm::vec3 t  = (e1 * dv2 - e2 * dv1) * r;
+        const glm::vec3 bt = (e2 * du1 - e1 * du2) * r;
+        for (uint32_t v : {a, b, c}) {
+            tan[v] += t;
+            bit[v] += bt;
+        }
+    }
+    std::vector<glm::vec4> out(nv);
+    for (size_t v = 0; v < nv; v++) {
+        const glm::vec3 n(nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]);
+        glm::vec3       t = tan[v] - n * glm::dot(n, tan[v]);
+        if (glm::dot(t, t) < 1e-16f) {  // degenerate UVs: any vector perpendicular to n
+            t = std::abs(n.x) < 0.9f ? glm::cross(n, glm::vec3(1.f, 0.f, 0.f))
+                                     : glm::cross(n, glm::vec3(0.f, 1.f, 0.f));
+        }
+        t             = glm::normalize(t);
+        const float w = glm::dot(glm::cross(n, t), bit[v]) > 0.f ? -1.f : 1.f;
+        out[v]        = glm::vec4(t, w);
+    }
+    return out;
+}
+
 }  // namespace
 
 ModelManager::ModelManager(Renderer& renderer) : m_renderer(&renderer) {}
@@ -222,8 +296,24 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
 
     TextureManager* tex_mgr = m_renderer->get_texture_manager();
 
+    const auto has_node = [&](const char* name) {
+        return std::any_of(gltf.nodes.begin(), gltf.nodes.end(),
+                           [&](const tinygltf::Node& n) { return n.name == name; });
+    };
+    // Explicit-rig convention: a "Chassis" root plus hub_FL/FR/RL/RR. Authored nose
+    // +X, up +Y, right +Z — already car space.
+    const bool chassis_rig =
+        has_node("Chassis") && has_node("hub_FL") && has_node("hub_FR") && has_node("hub_RL") && has_node("hub_RR");
+    // Hellcat convention (assets/Charger/hellcat_car.glb, car-only Blender export):
+    // HELCAT_SUSP_xx empties at the hub centres (rolling stock hangs off them) and a
+    // `steering_wheel` mesh under HELCAT_ASM_SteeringSpin. Same car-space axes.
+    const bool hellcat = !chassis_rig && has_node("HELCAT_SUSP_FL") && has_node("HELCAT_SUSP_FR") &&
+                         has_node("HELCAT_SUSP_RL") && has_node("HELCAT_SUSP_RR") && has_node("steering_wheel") &&
+                         has_node("HELCAT_ASM_SteeringSpin");
+    const bool rig     = chassis_rig || hellcat;
+
     // ── Register PBR textures for each material slot ──────────────────
-    constexpr int kMaxCarMaterials = 20;
+    constexpr int kMaxCarMaterials = MAT_CAR_LAST - MAT_CAR_0 + 1;
     int           num_mats         = std::min(static_cast<int>(gltf.materials.size()), kMaxCarMaterials);
 
     for (int mi = 0; mi < num_mats; mi++) {
@@ -233,8 +323,12 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         int albedo_img = -1;
         if (mat.pbrMetallicRoughness.baseColorTexture.index >= 0)
             albedo_img = gltf.textures[mat.pbrMetallicRoughness.baseColorTexture.index].source;
+        // Hellcat: untextured → white; the glTF baseColorFactor rides on Submesh::color
+        // (gbuffer multiplies albedo × color), so the 200-grey placeholder would dim it.
         if (upload_gltf_image(gltf, albedo_img, slot, *tex_mgr).empty())
-            tex_mgr->register_from_pixels(slot, {200, 200, 200, 255}, 1, 1);
+            tex_mgr->register_from_pixels(
+                slot, hellcat ? std::vector<uint8_t>{255, 255, 255, 255} : std::vector<uint8_t>{200, 200, 200, 255}, 1,
+                1);
 
         int normal_img = -1;
         if (mat.normalTexture.index >= 0)
@@ -261,14 +355,6 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     for (int root : scene.nodes)
         gltf_walk_nodes(gltf, root, glm::mat4(1.f), node_world, node_visited);
 
-    // Explicit-rig convention (assets/Charger/test_car.glb): a "Chassis" root plus
-    // hub_FL/FR/RL/RR. Authored nose +X, up +Y, right +Z — already car space.
-    const auto has_node = [&](const char* name) {
-        return std::any_of(gltf.nodes.begin(), gltf.nodes.end(), [&](const tinygltf::Node& n) { return n.name == name; });
-    };
-    const bool rig = has_node("Chassis") && has_node("hub_FL") && has_node("hub_FR") && has_node("hub_RL") &&
-                     has_node("hub_RR");
-
     // Rig glass is grouped under a "Glass" node rather than flagged BLEND in its
     // materials (they're all OPAQUE), so mark that subtree by ancestry.
     std::vector<bool> node_in_glass(gltf.nodes.size(), false);
@@ -278,16 +364,24 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
             for (int c : gltf.nodes[n].children)
                 mark(c);
         };
-        for (size_t ni = 0; ni < gltf.nodes.size(); ni++)
-            if (gltf.nodes[ni].name == "Glass")
+        // The Hellcat has no "Glass" group node: tag its six panes by node name instead.
+        static constexpr const char* kHellcatGlass[] = {"windshield", "rear_windshield", "window_FL",
+                                                        "window_FR",  "rear_window_L",   "rear_window_R"};
+        for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
+            const std::string& nm = gltf.nodes[ni].name;
+            if (hellcat ? std::any_of(std::begin(kHellcatGlass), std::end(kHellcatGlass),
+                                      [&](const char* g) { return nm == g; })
+                        : nm == "Glass")
                 mark(static_cast<int>(ni));
+        }
     }
 
     // Wheel/caliper membership by ancestry (see classify_wheel_nodes).
     std::vector<WheelPieceClass> node_wheel_class(gltf.nodes.size(), WheelPieceClass::None);
     std::vector<int>             node_hub(gltf.nodes.size(), -1);
     for (int root : scene.nodes)
-        classify_wheel_nodes(gltf, root, WheelPieceClass::None, -1, rig, node_wheel_class, node_hub);
+        classify_wheel_nodes(gltf, root, WheelPieceClass::None, -1, hellcat ? "HELCAT_SUSP_" : (rig ? "hub_" : nullptr),
+                             node_wheel_class, node_hub);
 
     // Everything below is written against the Porsche's authored frame (nose +Z,
     // left +X) and ends with norm_matrix_y90 into car space. A rig asset is
@@ -309,6 +403,26 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     if (steering_wheel_idx >= 0 && node_visited[steering_wheel_idx]) {
         sw_pivot_frame = ref_inverse * node_world[steering_wheel_idx];
         found_sw_pivot = true;
+    }
+    if (hellcat) {
+        // CarEntity turns the wheel about the pivot frame's +Z. The Hellcat's spin axis
+        // is the SteeringSpin node's local +Y in glTF space (Blender local Z after the
+        // exporter's Y-up swap): the column axis, pointing forward-down. Build an
+        // orthonormal frame (Z = axis, X = up × Z, Y = Z × X) at its origin.
+        for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
+            if (gltf.nodes[ni].name != "HELCAT_ASM_SteeringSpin" || !node_visited[ni])
+                continue;
+            const glm::vec3 axis = glm::normalize(glm::vec3(node_world[ni][1]));
+            const glm::vec3 x    = glm::normalize(glm::cross(glm::vec3(0.f, 1.f, 0.f), axis));
+            glm::mat4       F(1.f);
+            F[0]           = glm::vec4(x, 0.f);
+            F[1]           = glm::vec4(glm::cross(axis, x), 0.f);
+            F[2]           = glm::vec4(axis, 0.f);
+            F[3]           = node_world[ni][3];
+            sw_pivot_frame = ref_inverse * F;
+            found_sw_pivot = (steering_wheel_idx >= 0 && node_visited[steering_wheel_idx]);
+            break;
+        }
     }
 
     MeshData             mesh;
@@ -343,12 +457,10 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
                 continue;
 
             const bool rigGlass = rig && node_in_glass[ni];
-            const bool isGlass =
-                rigGlass || (prim.material >= 0 && gltf.materials[prim.material].alphaMode == "BLEND");
-            const bool isWindshield =
-                isGlass && (rig ? node.name == "windshield"
-                                : node.name.find("Window_Geo") != std::string::npos &&
-                                      node.name.find("RED_GLASS") == std::string::npos);
+            const bool isGlass = rigGlass || (prim.material >= 0 && gltf.materials[prim.material].alphaMode == "BLEND");
+            const bool isWindshield = isGlass && (rig ? node.name == "windshield"
+                                                      : node.name.find("Window_Geo") != std::string::npos &&
+                                                            node.name.find("RED_GLASS") == std::string::npos);
 
             std::string lowerName = node.name;
             std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
@@ -374,6 +486,13 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
             const float* tangents =
                 tan_it != prim.attributes.end() ? gltf_accessor_data<float>(gltf, tan_it->second) : nullptr;
 
+            // Hellcat ships no TANGENT: derive them from the UVs (skipped for UV-less meshes).
+            std::vector<glm::vec4> gen_tangents;
+            if (hellcat && !tangents && uvs && normals)
+                gen_tangents =
+                    generate_tangents(positions, normals, uvs, vert_count, gltf_read_indices(gltf, prim.indices));
+            const float gen_w_sign = glm::determinant(glm::mat3(xform)) < 0.f ? -1.f : 1.f;  // mirrors flip handedness
+
             for (size_t vi = 0; vi < vert_count; vi++) {
                 Vertex    v{};
                 glm::vec3 p = {positions[vi * 3 + 0], positions[vi * 3 + 1], positions[vi * 3 + 2]};
@@ -386,6 +505,9 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
                     glm::vec3 t = glm::normalize(
                         glm::mat3(xform) * glm::vec3(tangents[vi * 4 + 0], tangents[vi * 4 + 1], tangents[vi * 4 + 2]));
                     v.tangent = glm::vec4(t, tangents[vi * 4 + 3]);
+                } else if (!gen_tangents.empty()) {
+                    const glm::vec4& g = gen_tangents[vi];
+                    v.tangent          = glm::vec4(glm::normalize(glm::mat3(xform) * glm::vec3(g)), g.w * gen_w_sign);
                 } else {
                     v.tangent = glm::vec4(1.f, 0.f, 0.f, 1.f);
                 }
@@ -452,12 +574,16 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
             if (prim.material >= 0 && prim.material < kMaxCarMaterials) {
                 sm.material = static_cast<MaterialId>(MAT_CAR_0 + prim.material);
 
-                if (rigGlass) {
+                if (rigGlass && !hellcat) {
                     sm.color = Vec4(0.f, 0.f, 0.f, 0.25f);  // Porsche window tint (its BLEND factor)
                 } else if (isGlass) {
                     const auto& bc = gltf.materials[prim.material].pbrMetallicRoughness.baseColorFactor;
                     sm.color = Vec4(static_cast<float>(bc[0]), static_cast<float>(bc[1]), static_cast<float>(bc[2]),
                                     static_cast<float>(bc[3]));
+                } else if (hellcat) {
+                    const auto& bc = gltf.materials[prim.material].pbrMetallicRoughness.baseColorFactor;
+                    sm.color =
+                        Vec4(static_cast<float>(bc[0]), static_cast<float>(bc[1]), static_cast<float>(bc[2]), 1.f);
                 } else {
                     sm.color = Vec4(1.f, 1.f, 1.f, 1.f);
                 }

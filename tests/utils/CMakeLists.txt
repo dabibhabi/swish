@@ -28,6 +28,7 @@ add_executable(swish_utils_tests
     test_vulkan_ImageView.cpp
     test_renderer_Bindings.cpp
     test_renderer_PassRegistry.cpp
+    test_renderer_RendererConfig.cpp
 
     ${CMAKE_SOURCE_DIR}/src/utils/io/File.cpp
     # renderer/Passes: the registry + image registry are Vulkan-handle bookkeeping only (no Vulkan calls)

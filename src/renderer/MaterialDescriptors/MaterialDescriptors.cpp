@@ -51,6 +51,18 @@ constexpr const char* kMaterialNames[MAT_COUNT] = {
     "car_17",       // MAT_CAR_17
     "car_18",       // MAT_CAR_18
     "car_19",       // MAT_CAR_19
+    "car_20",       // MAT_CAR_20
+    "car_21",       // MAT_CAR_21
+    "car_22",       // MAT_CAR_22
+    "car_23",       // MAT_CAR_23
+    "car_24",       // MAT_CAR_24
+    "car_25",       // MAT_CAR_25
+    "car_26",       // MAT_CAR_26
+    "car_27",       // MAT_CAR_27
+    "car_28",       // MAT_CAR_28
+    "car_29",       // MAT_CAR_29
+    "car_30",       // MAT_CAR_30
+    "car_31",       // MAT_CAR_31
 };
 
 constexpr uint32_t    kTexturesPerMaterial            = 3;

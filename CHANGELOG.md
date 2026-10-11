@@ -8,8 +8,9 @@ All notable changes to Swish are documented here.
 
 Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest month first.
 
-### 2026-10 (3 entries)
+### 2026-10 (4 entries)
 
+- 2026-10-03 — [Hellcat car profile: `load_car` now loads and renders `assets/Charger/hellcat_car.glb`](docs/changelog/2026-10.md#2026-10-03--hellcat-car-profile-load_car-now-loads-and-renders-assetschargerhellcat_carglb)
 - 2026-10-01 — [Quick fixes before the typed-C++ refactor: input/edit-mode, weather, resize, GLFW teardown](docs/changelog/2026-10.md#2026-10-01--quick-fixes-before-the-typed-c-refactor-inputedit-mode-weather-resize-glfw-teardown)
 - 2026-10-01 — [C++23: language standard bumped from C++20, nothing else changed](docs/changelog/2026-10.md#2026-10-01--c23-language-standard-bumped-from-c20-nothing-else-changed)
 - 2026-10-01 — [Typed-C++ tutorial: index and M1 chapters 01-12, plus doc drift fixes](docs/changelog/2026-10.md#2026-10-01--typed-c-tutorial-index-and-m1-chapters-01-12-plus-doc-drift-fixes)

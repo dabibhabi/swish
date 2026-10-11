@@ -256,7 +256,7 @@ const char* materialName(int i) {
     const auto u = static_cast<uint32_t>(i);  // MaterialId is uint32_t; avoids -Wsign-compare
     if (u >= MAT_SIGN_0 && u <= MAT_SIGN_7)
         return "sign";
-    if (u >= MAT_CAR_0 && u <= MAT_CAR_19)
+    if (u >= MAT_CAR_0 && u <= MAT_CAR_LAST)
         return "car";
     return "?";
 }
