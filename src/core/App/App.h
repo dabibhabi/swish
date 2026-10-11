@@ -4,6 +4,9 @@
 #include "scene/CameraMode.h"
 #include "scene/Corridor/CorridorDriver.h"  // real LIE corridor (owned by App)
 #include "scene/WeatherPreset.h"
+#ifdef SWISH_DEBUG_UI
+#include "renderer/WindshieldRainPass/LensWetness.h"  // debug-only CPU lamp-lens wetness model
+#endif
 
 #include <memory>
 #include <vector>
@@ -86,6 +89,12 @@ private:
     // Debug edit-mode (backtick `): frees the cursor for the ImGui panel and
     // freezes the sim so you can tune a static frame.
     bool m_debug_edit_mode = false;
+
+    // Debug-only wet-lens model (stepped per frame from rain + car speed; no renderer upload yet) and the
+    // per-wheel-spray latch that lets us clear SpraySystem's emitters exactly once when the toggle goes off.
+    LensWetnessModel m_lens_wetness;
+    bool             m_lens_wetness_ready = false;
+    bool             m_wheel_spray_active = false;
 #endif
 
     // Key table (Esc, C, R, V, G, and backtick under SWISH_DEBUG_UI), polled in order.
@@ -113,7 +122,8 @@ private:
     void step_car_simulation(float dt, bool debug_edit);
     void push_car_to_renderer();
 #ifdef SWISH_DEBUG_UI
-    void sync_car_with_debug_panel(bool debug_edit);
+    void sync_car_with_debug_panel(float dt, bool debug_edit);
+    void sync_wheel_fx_with_debug_panel(float dt);  // slip telemetry, per-wheel spray emitters, lens wetness
 #endif
 
     // Key-table actions (see init_key_bindings)

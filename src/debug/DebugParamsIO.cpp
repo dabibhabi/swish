@@ -36,9 +36,9 @@ void get(const toml::node_view<const toml::node>& node, tag::real_t, float& v) {
     v = node.value_or(v);
 }
 
-// Registry-driven groups (src/debug/Tunables.def: ssr, reflection, wet porosity/roughness/puddles). Same TOML tables/keys and
-// merge semantics as the hand-written groups: absent / wrong-typed keys keep the current value and out-of-range values
-// are applied verbatim (no clamping).
+// Registry-driven groups (src/debug/Tunables.def: ssr, reflection, wet porosity/roughness/puddles). Same TOML
+// tables/keys and merge semantics as the hand-written groups: absent / wrong-typed keys keep the current value and
+// out-of-range values are applied verbatim (no clamping).
 void save_registry(toml::table& tbl, const DebugParams& p) {
     for (const tunables::Tunable& t : tunables::all()) {
         toml::table* g = tbl.get_as<toml::table>(t.group);
@@ -183,6 +183,19 @@ bool save(const DebugParams& p, const std::string& name) {
                               {"flake_roughness", p.flakeRoughness},
                               {"flake_scale", p.flakeScale},
                               {"flake_jitter", p.flakeJitter}}},
+        {"wheel_spray", toml::table{{"per_wheel", p.perWheelSpray}}},
+        {"lens_wet", toml::table{{"wet_rate", p.lensWetRate},
+                                 {"clear_speed_start", p.lensClearSpeedStart},
+                                 {"clear_speed_full", p.lensClearSpeedFull},
+                                 {"clear_rate", p.lensClearRate},
+                                 {"drain_rate", p.lensDrainRate}}},
+        {"slip", toml::table{{"skid_ratio", p.slipSkidRatio},
+                             {"skid_angle_deg", p.slipSkidAngleDeg},
+                             {"ratio_start", p.slipRatioStart},
+                             {"ratio_full", p.slipRatioFull},
+                             {"angle_start_deg", p.slipAngleStartDeg},
+                             {"angle_full_deg", p.slipAngleFullDeg},
+                             {"spray_boost_max", p.slipSprayBoostMax}}},
     };
 
     // Per-material overrides → an array of tables ([[materials]]), enabled slots only.
@@ -289,6 +302,20 @@ bool load(DebugParams& p, const std::string& name) {
     p.flakeScale         = tbl["paint"]["flake_scale"].value_or(p.flakeScale);
     p.flakeJitter        = tbl["paint"]["flake_jitter"].value_or(p.flakeJitter);
 
+    p.perWheelSpray       = tbl["wheel_spray"]["per_wheel"].value_or(p.perWheelSpray);
+    p.lensWetRate         = tbl["lens_wet"]["wet_rate"].value_or(p.lensWetRate);
+    p.lensClearSpeedStart = tbl["lens_wet"]["clear_speed_start"].value_or(p.lensClearSpeedStart);
+    p.lensClearSpeedFull  = tbl["lens_wet"]["clear_speed_full"].value_or(p.lensClearSpeedFull);
+    p.lensClearRate       = tbl["lens_wet"]["clear_rate"].value_or(p.lensClearRate);
+    p.lensDrainRate       = tbl["lens_wet"]["drain_rate"].value_or(p.lensDrainRate);
+    p.slipSkidRatio       = tbl["slip"]["skid_ratio"].value_or(p.slipSkidRatio);
+    p.slipSkidAngleDeg    = tbl["slip"]["skid_angle_deg"].value_or(p.slipSkidAngleDeg);
+    p.slipRatioStart      = tbl["slip"]["ratio_start"].value_or(p.slipRatioStart);
+    p.slipRatioFull       = tbl["slip"]["ratio_full"].value_or(p.slipRatioFull);
+    p.slipAngleStartDeg   = tbl["slip"]["angle_start_deg"].value_or(p.slipAngleStartDeg);
+    p.slipAngleFullDeg    = tbl["slip"]["angle_full_deg"].value_or(p.slipAngleFullDeg);
+    p.slipSprayBoostMax   = tbl["slip"]["spray_boost_max"].value_or(p.slipSprayBoostMax);
+
     load_registry(tbl, p);  // registry groups (Tunables.def)
 
     p.steerAxisEdit = tbl["steering"]["axis_edit"].value_or(p.steerAxisEdit);
@@ -310,13 +337,13 @@ bool load(DebugParams& p, const std::string& name) {
     p.csmShadowFar     = tbl["shadow"]["csm_far"].value_or(p.csmShadowFar);
     p.csmLambda        = tbl["shadow"]["csm_lambda"].value_or(p.csmLambda);
 
-    p.rainIntensity  = tbl["wet"]["rain_intensity"].value_or(p.rainIntensity);
-    p.streakLen      = tbl["wet"]["streak_len"].value_or(p.streakLen);
-    p.sprayEnabled   = tbl["wet"]["spray_enabled"].value_or(p.sprayEnabled);
-    p.sprayDensity   = tbl["wet"]["spray_density"].value_or(p.sprayDensity);
-    p.sprayLifetime  = tbl["wet"]["spray_lifetime"].value_or(p.sprayLifetime);
-    p.spraySize      = tbl["wet"]["spray_size"].value_or(p.spraySize);
-    p.sprayOpacity   = tbl["wet"]["spray_opacity"].value_or(p.sprayOpacity);
+    p.rainIntensity = tbl["wet"]["rain_intensity"].value_or(p.rainIntensity);
+    p.streakLen     = tbl["wet"]["streak_len"].value_or(p.streakLen);
+    p.sprayEnabled  = tbl["wet"]["spray_enabled"].value_or(p.sprayEnabled);
+    p.sprayDensity  = tbl["wet"]["spray_density"].value_or(p.sprayDensity);
+    p.sprayLifetime = tbl["wet"]["spray_lifetime"].value_or(p.sprayLifetime);
+    p.spraySize     = tbl["wet"]["spray_size"].value_or(p.spraySize);
+    p.sprayOpacity  = tbl["wet"]["spray_opacity"].value_or(p.sprayOpacity);
 
     p.carOverride  = tbl["car"]["override"].value_or(p.carOverride);
     p.carMetalness = tbl["car"]["metalness"].value_or(p.carMetalness);

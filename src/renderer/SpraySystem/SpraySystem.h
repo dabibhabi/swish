@@ -3,6 +3,7 @@
 #include "renderer/GpuResource/GpuResource.h"
 #include "renderer/Passes/IRenderPass.h"
 #include "renderer/RendererConfig.h"
+#include "renderer/SpraySystem/WheelSpray.h"
 #include "utils/types/Types.h"
 
 #include <vulkan/vulkan.h>
@@ -74,6 +75,16 @@ public:
     void             record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const;
     VkPipelineLayout get_pipeline_layout() const { return m_drawPipeLayout; }
 
+#ifdef SWISH_DEBUG_UI
+    // DEBUG-ONLY per-wheel emitters (up to kMaxWheelEmitters). count == 0 (the default) = legacy single rear-axle
+    // origin. Persists until changed: call every frame from the debug wiring BEFORE update() runs (or with 0 to
+    // clear). Approach: ROUND-ROBIN, one emitter origin per frame (the shared particle SSBO is integrated exactly
+    // once per frame, so several dispatches would advance every particle N times). Spawn probability is scaled by
+    // `count` to compensate for each wheel's 1/count duty cycle. No shader change: release .spv hashes untouched.
+    // TODO(stub): true simultaneous emitters need spray_sim.comp to read an emitter array (release hash change).
+    void set_emitters(const SprayEmitter* emitters, uint32_t count);
+#endif
+
 private:
     void create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                 const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
@@ -82,6 +93,8 @@ private:
                   const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
     void step(uint32_t frameIndex, float deltaTime, Vec3 spawnCentre, Vec3 carVelocity, float wetness,
               const SprayParams& params);
+    void write_sim_ubo(uint32_t frameIndex, float deltaTime, Vec3 spawnCentre, Vec3 carVelocity, float emit,
+                       float spread, const SprayParams& params);
     void record_compute(VkCommandBuffer cmd, uint32_t frameIndex) const;
 
     void createParticleBuffer(const RendererServices& s);
@@ -124,6 +137,12 @@ private:
     bool  m_active    = false;  // params.enabled && wetness > threshold
     float m_opacity   = 0.12f;
     float m_frameSeed = 0.0f;
+
+#ifdef SWISH_DEBUG_UI
+    std::array<SprayEmitter, kMaxWheelEmitters> m_emitters{};
+    uint32_t                                    m_emitterCount  = 0;
+    uint32_t                                    m_emitterCursor = 0;  // round-robin
+#endif
 };
 
 }  // namespace swish

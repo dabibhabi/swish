@@ -7,6 +7,7 @@
 #include "renderer/MaterialDescriptors/MaterialDescriptors.h"
 #include "renderer/Pipeline/Device/Device.h"
 #include "renderer/PostProcessManager/PostProcessManager.h"
+#include "renderer/SpraySystem/SpraySystem.h"
 #include "renderer/TextureManager/TextureManager.h"
 #include "utils/types/Types.h"
 
@@ -58,6 +59,11 @@ void Renderer::apply_debug_params() {
     m_rainIntensity = m_debugParams.rainIntensity;
     // NOTE: ssaaApplyRequested is consumed at the top of drawFrame (recreate must
     // not run mid-frame), not here — shadow depth-bias is fed in GeometryProducer::record_shadow.
+}
+
+void Renderer::set_spray_emitters(const SprayEmitter* emitters, uint32_t count) {
+    if (SpraySystem* spray = m_passes.find<SpraySystem>())
+        spray->set_emitters(emitters, count);
 }
 #endif
 

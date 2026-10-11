@@ -13,6 +13,7 @@
 #include "utils/vulkan/Init.h"
 #include "utils/vulkan/PushConstants.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -53,8 +54,37 @@ void SpraySystem::update(const FrameUpdate& u) {
     sprayParams.size     = u.tune.spraySize;
     sprayParams.opacity  = u.tune.sprayOpacity;
 #endif
+#ifdef SWISH_DEBUG_UI
+    if (m_emitterCount > 0) {
+        // Round-robin: this frame spawns from one wheel only. TODO(stub): see set_emitters().
+        const SprayEmitter& e = m_emitters[m_emitterCursor % m_emitterCount];
+        m_emitterCursor       = (m_emitterCursor + 1) % m_emitterCount;
+        m_frameSeed           = std::fmod(m_frameSeed + 1.0f, 16777216.0f);
+        const float emit =
+            sprayParams.enabled
+                ? glm::clamp(sprayParams.density * e.emitRate * static_cast<float>(m_emitterCount), 0.0f, 1.0f)
+                : 0.0f;
+        m_active  = sprayParams.enabled && e.emitRate > 0.0f;
+        m_opacity = sprayParams.opacity;
+        // The shader's two-lobe fake is +-0.65*spread: shrink spread to one tyre; cone widens it a little.
+        // TODO(stub): map coneHalfAngle properly once the sim takes per-emitter cones.
+        const float spread = kSpraySpread * 0.25f * (e.coneHalfAngle / 0.35f);
+        write_sim_ubo(u.frameIndex, u.dt, e.pos, e.vel, emit, spread, sprayParams);
+        return;
+    }
+#endif
     step(u.frameIndex, u.dt, spawnCentre, u.carVelocity, u.state.wetness, sprayParams);
 }
+
+#ifdef SWISH_DEBUG_UI
+void SpraySystem::set_emitters(const SprayEmitter* emitters, uint32_t count) {
+    m_emitterCount = emitters ? std::min(count, kMaxWheelEmitters) : 0;
+    for (uint32_t i = 0; i < m_emitterCount; i++)
+        m_emitters[i] = emitters[i];
+    if (m_emitterCount == 0)
+        m_emitterCursor = 0;
+}
+#endif
 
 void SpraySystem::create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                          const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
@@ -85,11 +115,16 @@ void SpraySystem::step(uint32_t frameIndex, float deltaTime, Vec3 spawnCentre, V
     m_active  = params.enabled && wetness > 0.02f && speedFactor > 0.01f;
     m_opacity = params.opacity;
 
+    write_sim_ubo(frameIndex, deltaTime, spawnCentre, carVelocity, emit, kSpraySpread, params);
+}
+
+void SpraySystem::write_sim_ubo(uint32_t frameIndex, float deltaTime, Vec3 spawnCentre, Vec3 carVelocity, float emit,
+                                float spread, const SprayParams& params) {
     SpraySimUBO ubo{};
     ubo.spawnPosDt = Vec4(spawnCentre, deltaTime);
     ubo.carVel     = Vec4(carVelocity, emit);
     ubo.params     = Vec4(params.lifetime, params.size, kSprayGravity, kSprayDrag);
-    ubo.params2    = Vec4(kSpraySpread, m_frameSeed, kSprayUpSpeed, kSprayBackSpeed);
+    ubo.params2    = Vec4(spread, m_frameSeed, kSprayUpSpeed, kSprayBackSpeed);
     std::memcpy(m_simUBOs[frameIndex].mapped(), &ubo, sizeof(ubo));
 }
 

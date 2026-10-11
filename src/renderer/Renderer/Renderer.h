@@ -36,6 +36,7 @@ class PostProcessManager;
 class CameraUniforms;
 class MaterialDescriptors;
 class IBLManager;
+struct SprayEmitter;  // renderer/SpraySystem/WheelSpray.h (debug per-wheel spray)
 
 // The Renderer owns the Vulkan core and the shared subsystems, and drives the frame through the pass registry
 // (renderer/Passes/: the explicit ordered pass list in PassList.def is the command-buffer recording order).
@@ -125,6 +126,9 @@ public:
     void set_debug_edit_mode(bool edit);
 
     DebugParams& debug_params() { return m_debugParams; }
+
+    // Per-wheel spray emitters -> SpraySystem::set_emitters (count 0 / nullptr = legacy single rear-axle origin).
+    void set_spray_emitters(const SprayEmitter* emitters, uint32_t count);
 #endif
 
     void update_glass_draw_calls(const std::vector<DrawCall>& glassDCs);
