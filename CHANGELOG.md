@@ -8,14 +8,20 @@ All notable changes to Swish are documented here.
 
 Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest month first.
 
-### 2026-10 (6 entries)
+### 2026-10 (12 entries)
 
 - 2026-10-11 — [Replaced `#define private public` in the golden car test with a friend test accessor](docs/changelog/2026-10.md#2026-10-11--replaced-define-private-public-in-the-golden-car-test-with-a-friend-test-accessor)
+- 2026-10-11 — [P0.3 Build: scene_core / utils targets, shared warnings, CI hygiene](docs/changelog/2026-10.md#2026-10-11--p03-build-scene_core--utils-targets-shared-warnings-ci-hygiene)
+- 2026-10-11 — [P0.5 doc drift: Units.h test path, golden README, rule 9, `rel`/`NOREL`, symbol refs, utils plan restored](docs/changelog/2026-10.md#2026-10-11--p05-doc-drift-unitsh-test-path-golden-readme-rule-9-relnorel-symbol-refs-utils-plan-restored)
 - 2026-10-10 — [Car lights S1–S3: headlight / tail / brake spot lights (debug-only)](docs/changelog/2026-10.md#2026-10-10--car-lights-s1s3-headlight--tail--brake-spot-lights-debug-only)
 - 2026-10-10 — [Stub 6-DOF rigid-body chassis on four spring-damper wheel contacts (debug-only, bicycle stays default)](docs/changelog/2026-10.md#2026-10-10--stub-6-dof-rigid-body-chassis-on-four-spring-damper-wheel-contacts-debug-only-bicycle-stays-default)
 - 2026-10-10 — [Driving realism tools (input seam, telemetry/replay, physics bench)](docs/changelog/2026-10.md#2026-10-10--driving-realism-tools-input-seam-telemetryreplay-physics-bench)
 - 2026-10-10 — [Car rain interactions stub: per-wheel spray, wet-lens model, slip visual hooks (debug-only)](docs/changelog/2026-10.md#2026-10-10--car-rain-interactions-stub-per-wheel-spray-wet-lens-model-slip-visual-hooks-debug-only)
 - 2026-10-10 — [Stub Vulkan render tools: GPU profiler, frame capture, shader hot-reload, pass declarations](docs/changelog/2026-10.md#2026-10-10--stub-vulkan-render-tools-gpu-profiler-frame-capture-shader-hot-reload-pass-declarations)
+- 2026-10-10 — [Pass resource declarations and shader hot-reload stub](docs/changelog/2026-10.md#2026-10-10--pass-resource-declarations-and-shader-hot-reload-stub)
+- 2026-10-01 — [Quick fixes before the typed-C++ refactor: input/edit-mode, weather, resize, GLFW teardown](docs/changelog/2026-10.md#2026-10-01--quick-fixes-before-the-typed-c-refactor-inputedit-mode-weather-resize-glfw-teardown)
+- 2026-10-01 — [C++23: language standard bumped from C++20, nothing else changed](docs/changelog/2026-10.md#2026-10-01--c23-language-standard-bumped-from-c20-nothing-else-changed)
+- 2026-10-01 — [Typed-C++ tutorial: index and M1 chapters 01-12, plus doc drift fixes](docs/changelog/2026-10.md#2026-10-01--typed-c-tutorial-index-and-m1-chapters-01-12-plus-doc-drift-fixes)
 
 ### 2026-09 (7 entries)
 
