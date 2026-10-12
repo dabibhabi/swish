@@ -182,6 +182,11 @@ void App::load_car() {
         car_path = override_path[0] == '/' ? override_path : std::string(ASSET_DIR) + override_path;
     auto car_entity = m_modelManager->load_car(car_path);
 
+    // A named-rig car (porsche_rigged.glb, the 993 Carrera RS) drives with its own physics profile,
+    // its wheelbase and tyre radius measured from the hub pivots; every other car keeps the 992 default.
+    if (const auto& rig = car_entity->get_rig_geometry(); rig && rig->named_rig)
+        car_entity->apply_profile(car_profiles::rs_993(&*rig));
+
     // Scale converts glTF meters to world units (1m = 1000 WU).
     car_entity->set_scale(Vec3(1000.f, 1000.f, 1000.f));
     m_car = std::move(car_entity);

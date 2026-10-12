@@ -205,6 +205,7 @@ void App::sync_car_with_debug_panel(float dt, bool debug_edit) {
     dp.telemetrySpeedMps = m_car->get_speed_mps();
     dp.telemetryGear     = m_car->get_gear();
     dp.telemetryRpm      = m_car->get_engine_rpm();
+    dp.telemetryRedline  = m_car->get_redline_rpm();
     dp.telemetryMu       = m_car->get_effective_mu();
     if (debug_edit && dp.steerOverride)
         m_car->set_steering_angle(dp.steerAngleDeg);

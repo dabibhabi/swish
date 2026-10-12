@@ -255,6 +255,11 @@ private:
     std::vector<uint32_t> m_indices;
 };
 
+// ── RigPart ───────────────────────────────────────────────────────────
+// Animated cabin parts of the named-rig car (scene/Entity/CarRig.h), tagged
+// by the loader from the exact name of the pivot node they hang under.
+enum class RigPart : uint8_t { None, NeedleRpm, NeedleSpeed, WiperDriver, WiperPassenger };
+
 // ── Submesh ───────────────────────────────────────────────────────────
 // One primitive within a ModelEntity. Like DrawCall but without the model
 // matrix — that is injected at draw-call generation time from the entity's
@@ -283,11 +288,20 @@ struct Submesh {
     // ── Road-wheel articulation ───────────────────────────────────────
     // Corner index into CarEntity's WheelFrame table (0 FL · 1 FR · 2 BL ·
     // 3 BR, −1 = not wheel-related), assigned by the loader from the piece
-    // node's translation. wheel_spins marks tire/rim/disc pieces (rotate
+    // node's translation (named rig: from the ancestor Wheel_XX/Caliper_XX
+    // pivot name). wheel_spins marks tire/rim/disc pieces (rotate
     // with speed); caliper pieces get a corner but wheel_spins = false —
     // they steer with the front uprights and never spin.
     int8_t wheel_corner = -1;
     bool   wheel_spins  = false;
+
+    // ── Named-rig cabin parts (needles, wipers) ───────────────────────
+    // rig_part says which pivot the piece hangs under; rig_pivot_frame is that
+    // pivot normalized like sw_pivot_frame. The sweep axis is a LOCAL axis of
+    // this frame, rig_part_local_axis() in CarRig.h: needles −Z, wipers +Y.
+    // Sweep = rig_pivot_frame * R_axis(angle) * inverse(rig_pivot_frame).
+    RigPart rig_part        = RigPart::None;
+    Mat4    rig_pivot_frame = Mat4(1.f);
 };
 
 // ── WheelFrame ────────────────────────────────────────────────────────

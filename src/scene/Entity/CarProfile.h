@@ -11,19 +11,13 @@
 // Test:       tests/test_car_profiles.cpp ([car][profile])
 
 #include "CarParams.h"
+#include "CarRigGeometry.h"
 #include "Drivetrain.h"
 #include "Powertrain.h"
 
 #include <string_view>
 
 namespace swish {
-
-// Wheel geometry measured from a named-rig GLB by the loader (metres).
-// TODO(merge): S0c owns this in SceneTypes.h; this identical copy lets S0d build on its own.
-struct CarRigGeometry {
-    float wheelbase_m, track_front_m, track_rear_m, tyre_radius_front_m, tyre_radius_rear_m;
-    bool  named_rig;
-};
 
 // Default member values ARE the 992 Turbo S: a default-constructed CarProfile is turbo_s_992(), so
 // CarEntity's member default needs no function call and reproduces the pre-profile behaviour exactly.

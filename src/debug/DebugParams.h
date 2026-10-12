@@ -286,6 +286,7 @@ struct DebugParams {
     float telemetrySpeedMps = 0.0f;   // CarEntity::get_speed() / kWorldUnitsPerMeter (m/s)
     int   telemetryGear     = 0;      // CarEntity::get_gear(), 0 = 1st ... 6 = 7th
     float telemetryRpm      = 0.0f;   // CarEntity::get_engine_rpm()
+    float telemetryRedline  = 7200.0f;  // CarEntity::get_redline_rpm() (active CarProfile's fuel cut)
     float telemetryMu       = 1.05f;  // CarEntity::get_effective_mu(); matches CarParams::tireMu dry default
 
     // ── Driving tools (record / replay / gamepad / FFB readout) ──────

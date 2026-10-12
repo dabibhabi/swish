@@ -512,11 +512,10 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
                 ImGui::Separator();
                 ImGui::Text("Gear: %s", gearLabel(p.telemetryGear));
 
-                // RPM vs the 7200 rpm redline (CarPhysics.h::engine_torque — the
-                // WOT torque curve tapers to EXACTLY 0 there; 7200 is the Turbo S
-                // limit the Phase-1 retarget brought in, down from the GT3's 9000).
-                // Progress bar colored green -> amber -> red as it nears the limiter.
-                constexpr float kRedlineRpm = 7200.0f;
+                // RPM vs the active profile's redline (CarProfile torque curve: WOT torque is EXACTLY 0
+                // there; 7200 for the 992 Turbo S, 6800 for the 993 RS). Progress bar colored
+                // green -> amber -> red as it nears the limiter.
+                const float kRedlineRpm = p.telemetryRedline;
                 const float     rpmFrac     = glm::clamp(p.telemetryRpm / kRedlineRpm, 0.0f, 1.0f);
                 const ImVec4    rpmColor    = rpmFrac > 0.9f   ? ImVec4(0.90f, 0.15f, 0.15f, 1.0f)   // red
                                               : rpmFrac > 0.7f ? ImVec4(0.95f, 0.75f, 0.10f, 1.0f)   // amber

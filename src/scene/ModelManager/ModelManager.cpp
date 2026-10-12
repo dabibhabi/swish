@@ -9,6 +9,7 @@
 #include "renderer/TextureManager/TextureManager.h"
 #include "renderer/Vertex.h"
 #include "scene/Entity/CarLights.h"
+#include "scene/Entity/CarRig.h"
 #include "scene/SceneTypes.h"
 #include "stb_image.h"
 
@@ -26,8 +27,10 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace swish {
@@ -72,17 +75,6 @@ void gltf_walk_nodes(const tinygltf::Model& model, int node_idx, const glm::mat4
     visited[node_idx] = true;
     for (int child : node.children)
         gltf_walk_nodes(model, child, w, world, visited);
-}
-
-glm::mat4 norm_matrix_y90(const glm::mat4& M) {
-    glm::mat4 out(1.f);
-    for (int c = 0; c < 3; c++) {
-        glm::vec3 v(M[c][0], M[c][1], M[c][2]);
-        out[c] = glm::vec4(v.z, v.y, -v.x, 0.f);
-    }
-    glm::vec3 t(M[3][0], M[3][1], M[3][2]);
-    out[3] = glm::vec4(t.z, t.y, -t.x, 1.f);
-    return out;
 }
 
 enum class WheelPieceClass : uint8_t { None, Spinning, Caliper };
@@ -301,14 +293,29 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         return std::any_of(gltf.nodes.begin(), gltf.nodes.end(),
                            [&](const tinygltf::Node& n) { return n.name == name; });
     };
+    // Named-rig convention (assets/blend/porsche_rigged.glb, scene/Entity/CarRig.h):
+    // Wheel_* / Caliper_* / SteeringWheel / Needle_* / Wiper_* pivots by exact name,
+    // authored in the Porsche frame (nose +Z, left +X) with no RootNode, so it rides
+    // the Porsche path's transforms. Tried first; the conventions below are fallbacks.
+    std::vector<std::string_view> node_names;
+    std::vector<int>              node_parent(gltf.nodes.size(), -1);
+    for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
+        node_names.emplace_back(gltf.nodes[ni].name);
+        for (int child : gltf.nodes[ni].children)
+            node_parent[static_cast<size_t>(child)] = static_cast<int>(ni);
+    }
+    const bool                   named_rig = car_rig_detect(node_names);
+    const std::vector<CarRigTag> rig_tags =
+        named_rig ? car_rig_tag_nodes(node_names, node_parent) : std::vector<CarRigTag>(gltf.nodes.size());
+
     // Explicit-rig convention: a "Chassis" root plus hub_FL/FR/RL/RR. Authored nose
     // +X, up +Y, right +Z — already car space.
-    const bool chassis_rig =
-        has_node("Chassis") && has_node("hub_FL") && has_node("hub_FR") && has_node("hub_RL") && has_node("hub_RR");
+    const bool chassis_rig = !named_rig && has_node("Chassis") && has_node("hub_FL") && has_node("hub_FR") &&
+                             has_node("hub_RL") && has_node("hub_RR");
     // Hellcat convention (assets/Charger/hellcat_car.glb, car-only Blender export):
     // HELCAT_SUSP_xx empties at the hub centres (rolling stock hangs off them) and a
     // `steering_wheel` mesh under HELCAT_ASM_SteeringSpin. Same car-space axes.
-    const bool hellcat = !chassis_rig && has_node("HELCAT_SUSP_FL") && has_node("HELCAT_SUSP_FR") &&
+    const bool hellcat = !named_rig && !chassis_rig && has_node("HELCAT_SUSP_FL") && has_node("HELCAT_SUSP_FR") &&
                          has_node("HELCAT_SUSP_RL") && has_node("HELCAT_SUSP_RR") && has_node("steering_wheel") &&
                          has_node("HELCAT_ASM_SteeringSpin");
     const bool rig     = chassis_rig || hellcat;
@@ -404,6 +411,20 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     if (steering_wheel_idx >= 0 && node_visited[steering_wheel_idx]) {
         sw_pivot_frame = ref_inverse * node_world[steering_wheel_idx];
         found_sw_pivot = true;
+    }
+    // Named rig: the frame comes from the SteeringWheel pivot (the mesh is its child), and
+    // the four hub pivots are kept for the wheel frames built after grounding.
+    std::array<int, 4> rig_wheel_pivot{-1, -1, -1, -1};
+    for (size_t ni = 0; named_rig && ni < gltf.nodes.size(); ni++) {
+        const CarRigTag& t = rig_tags[ni];
+        if (t.pivot != static_cast<int>(ni) || !node_visited[ni])
+            continue;
+        if (t.role == CarRigRole::Wheel)
+            rig_wheel_pivot[static_cast<size_t>(t.corner)] = static_cast<int>(ni);
+        if (t.role == CarRigRole::SteeringWheel) {
+            sw_pivot_frame = ref_inverse * node_world[ni];
+            found_sw_pivot = true;
+        }
     }
     if (hellcat) {
         // CarEntity turns the wheel about the pivot frame's +Z. The Hellcat's spin axis
@@ -534,15 +555,31 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
                     break;
             }
 
+            const CarRigTag& rtag = rig_tags[ni];
+
             Submesh sm{};
             sm.indexOffset       = idx_start;
             sm.indexCount        = static_cast<uint32_t>(n_idx);
             sm.is_glass          = isGlass;
             sm.is_windshield     = isWindshield;
             sm.is_interior       = isInterior;
-            sm.is_steering_wheel = !isGlass && found_sw_pivot && (node.name == sw_node_name);
+            sm.is_steering_wheel = !isGlass && found_sw_pivot &&
+                                   (named_rig ? rtag.role == CarRigRole::SteeringWheel : node.name == sw_node_name);
 
-            if (!isGlass && wclass != WheelPieceClass::None) {
+            if (named_rig) {
+                // Corner and role come from the ancestor pivot's name, not the translation.
+                if (!isGlass && (rtag.role == CarRigRole::Wheel || rtag.role == CarRigRole::Caliper)) {
+                    const bool spins = rtag.role == CarRigRole::Wheel;
+                    auto&      acc   = wheel_corners[static_cast<size_t>(rtag.corner)];
+                    (spins ? acc.wheel_pieces : acc.caliper_pieces)++;
+                    sm.wheel_corner = rtag.corner;
+                    sm.wheel_spins  = spins;
+                }
+                if (rtag.role == CarRigRole::Part) {
+                    sm.rig_part        = rtag.part;
+                    sm.rig_pivot_frame = ref_inverse * node_world[rtag.pivot];  // normalized after grounding
+                }
+            } else if (!isGlass && wclass != WheelPieceClass::None) {
                 // Rig pieces pivot on their hub (brakes sit offset from it).
                 const glm::vec3 t = rig && node_hub[ni] >= 0 ? glm::vec3((ref_inverse * node_world[node_hub[ni]])[3])
                                                              : glm::vec3(xform[3]);
@@ -615,7 +652,9 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
 
     mesh.forEachVertex([&](Vertex& v) { v.position.y -= bb_min.y; });
 
-    if (found_sw_pivot) {
+    if (found_sw_pivot && named_rig) {
+        sw_pivot_frame = car_rig_steering_frame(sw_pivot_frame, bb_min.y);  // clockwise on right steer
+    } else if (found_sw_pivot) {
         sw_pivot_frame = norm_matrix_y90(sw_pivot_frame);
         sw_pivot_frame[3].y -= bb_min.y;
 
@@ -630,15 +669,34 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
             sw_pivot_frame[0] = -sw_pivot_frame[0];
             sw_pivot_frame[2] = -sw_pivot_frame[2];
         }
-
+    }
+    if (found_sw_pivot) {
         for (auto& sm : submeshes) {
             if (sm.is_steering_wheel)
                 sm.sw_pivot_frame = sw_pivot_frame;
         }
     }
+    // Named-rig needles / wipers: same normalization as the steering pivot.
+    for (auto* list : {&submeshes, &glassSubmeshes}) {
+        for (auto& sm : *list) {
+            if (sm.rig_part != RigPart::None)
+                sm.rig_pivot_frame = normalize_pivot_frame(sm.rig_pivot_frame, bb_min.y);
+        }
+    }
 
     std::array<WheelFrame, 4> wheel_frames{};
-    for (int c = 0; wheels_ok && c < 4; c++) {
+    for (int c = 0; named_rig && c < 4; c++) {
+        // Named rig: each frame is its Wheel_XX hub pivot (CarRig.h), checked per corner.
+        const int  p  = rig_wheel_pivot[static_cast<size_t>(c)];
+        const auto wf = p < 0 ? std::nullopt
+                              : car_rig_wheel_frame(ref_inverse * node_world[static_cast<size_t>(p)], c,
+                                                    wheel_corners[c].wheel_pieces, bb_min.y);
+        if (wf)
+            wheel_frames[static_cast<size_t>(c)] = *wf;
+        else
+            wheels_ok = false;
+    }
+    for (int c = 0; !named_rig && wheels_ok && c < 4; c++) {
         const auto& acc = wheel_corners[c];
 
         if (!acc.seen || !acc.frame_from_wheel || acc.wheel_pieces < (rig ? 1 : 50) || acc.max_spread > 1e-3f) {
@@ -720,8 +778,15 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         car->add_submesh(sm);
     for (const auto& sm : glassSubmeshes)
         car->add_glass_submesh(sm);
-    if (wheels_ok)
+    if (wheels_ok) {
         car->set_wheel_frames(wheel_frames);
+        car->set_rig_geometry(measure_car_rig_geometry(wheel_frames, named_rig));
+    }
+    if (named_rig && wheels_ok) {
+        const CarRigGeometry& g = *car->get_rig_geometry();
+        std::cout << "ModelManager::load_car: named rig, wheelbase " << g.wheelbase_m << " m, track " << g.track_front_m
+                  << " / " << g.track_rear_m << " m, tyre radius " << g.tyre_radius_front_m << " m" << std::endl;
+    }
     car->set_light_anchors(std::move(light_anchors));
 
     return car;

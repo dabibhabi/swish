@@ -20,6 +20,7 @@ add_executable(swish_tests
     test_golden_car.cpp
     test_road_params.cpp
     test_car_lights.cpp
+    test_car_rig.cpp
     test_rigid_chassis.cpp
     test_input.cpp
     test_bench.cpp
@@ -40,7 +41,12 @@ target_link_libraries(swish_tests PRIVATE
 target_compile_definitions(swish_tests PRIVATE
     CONFIG_DIR="${CMAKE_BINARY_DIR}/config/"
     GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden/"
+    ASSET_DIR="${CMAKE_SOURCE_DIR}/assets/"
 )
+
+# test_car_rig.cpp parses assets/blend/porsche_rigged.glb with tinygltf (header-only; the test TU holds the
+# implementation, since swish_tests does not link ModelManager.cpp). SYSTEM: its warnings are not ours.
+target_include_directories(swish_tests SYSTEM PRIVATE ${tinygltf_SOURCE_DIR})
 
 # Optional AddressSanitizer + UndefinedBehaviorSanitizer
 option(ENABLE_SANITIZERS "Build swish_tests with ASan + UBSan" OFF)
