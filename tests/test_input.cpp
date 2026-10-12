@@ -148,11 +148,11 @@ TEST_CASE("analog steer approaches target at the steer rate", "[input]") {
     CHECK(car.get_steering_angle() == Approx(9.f));  // 90 deg/s * 0.1 s
     for (int i = 0; i < 20; ++i)
         car.apply_input_frame(f, 0.1f);
-    CHECK(car.get_steering_angle() == Approx(0.5f * CarEntity::steer_max()));
+    CHECK(car.get_steering_angle() == Approx(0.5f * car.steer_max()));
     f.steer = 5.f;  // out of range is clamped
     for (int i = 0; i < 20; ++i)
         car.apply_input_frame(f, 0.1f);
-    CHECK(car.get_steering_angle() == Approx(CarEntity::steer_max()));
+    CHECK(car.get_steering_angle() == Approx(car.steer_max()));
 }
 
 TEST_CASE("analog frame throttle/brake/reverse", "[input]") {

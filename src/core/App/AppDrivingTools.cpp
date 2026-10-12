@@ -129,7 +129,7 @@ void App::sync_driving_tools_panel(DebugParams& dp) {
     // Readouts.
     dp.drvGamepadConnected = m_gamepad->connected();
     set_text(dp.drvGamepadName, dp.drvGamepadConnected ? glfwGetGamepadName(0) : "");
-    const float steerNorm = m_car->get_steering_angle() / CarEntity::steer_max();
+    const float steerNorm = m_car->get_steering_angle() / m_car->steer_max();
     if (m_drv_stepped) {
         dp.drvAxisSteer    = m_drv_frame.steer_mode == SteerMode::Target ? m_drv_frame.steer : steerNorm;
         dp.drvAxisThrottle = m_drv_frame.throttle;
@@ -152,13 +152,14 @@ void App::sync_driving_tools_panel(DebugParams& dp) {
     dp.drvReplayPos    = rec.replay_position();
 
     // FFB target (computed only, never sent anywhere): front-axle self-aligning torque.
-    CarParams cp;
+    CarParams cp             = m_car->get_profile().car;
     cp.tireMu                = m_car->get_effective_mu();
-    const float     steerDeg = std::clamp(m_car->get_steering_angle(), -CarEntity::steer_max(), CarEntity::steer_max());
-    const FfbOutput ffb      = self_aligning_torque(m_car->get_speed_mps(), m_car->get_lateral_velocity(),
-                                                    m_car->get_yaw_rate(), glm::radians(steerDeg), cp, TireParams{});
-    dp.drvFfbTorqueNm        = ffb.torque_nm;
-    dp.drvFfbNormalized      = ffb.normalized;
+    const float     steerDeg = std::clamp(m_car->get_steering_angle(), -m_car->steer_max(), m_car->steer_max());
+    const FfbOutput ffb =
+        self_aligning_torque(m_car->get_speed_mps(), m_car->get_lateral_velocity(), m_car->get_yaw_rate(),
+                             glm::radians(steerDeg), cp, m_car->get_profile().tire);
+    dp.drvFfbTorqueNm   = ffb.torque_nm;
+    dp.drvFfbNormalized = ffb.normalized;
 }
 
 }  // namespace swish

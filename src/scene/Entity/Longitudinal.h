@@ -82,10 +82,13 @@ inline float rear_traction_cap_force(const CarParams& p, const TireParams& t) {
 // Drive is split by the AWD PTU; brake and the resistances are split by axle
 // load, because they act on all four corners / through the CG rather than
 // through the driveline.
+//
+// `curve` is the engine's torque table (CarProfile::torque); the default is the
+// 992 Turbo S table every pre-profile caller has always used.
 inline float longitudinal_accel(float v, float throttle, float brake, int gear, const CarParams& p, const TireParams& t,
                                 const GearboxParams& g, float rWheelRear,
                                 const DrivetrainParams& d = DrivetrainParams{}, AxleLateral lat = AxleLateral{},
-                                AxleLongitudinal* split = nullptr) {
+                                AxleLongitudinal* split = nullptr, const TorqueCurve& curve = kTurboS992TorqueCurve) {
     const float vAbs = std::fabs(v);
     const float dir  = (v >= 0.0f) ? 1.0f : -1.0f;
 
@@ -96,7 +99,7 @@ inline float longitudinal_accel(float v, float throttle, float brake, int gear, 
     // result: a part-throttle request cannot exceed grip either, and it is
     // what makes the PTU throttle-responsive (a gentle cruise leaves the
     // clutch open and the car rear-driven; a stab closes it).
-    const float      fDemand = std::clamp(throttle, 0.0f, 1.0f) * gear_drive_force(v, gear, g, p, rWheelRear);
+    const float      fDemand = std::clamp(throttle, 0.0f, 1.0f) * gear_drive_force(v, gear, g, p, rWheelRear, curve);
     const float      lambda  = ptu_lock_fraction(fDemand, p, t, d, lat);
     AxleLongitudinal driveSplit{};
     const float      fDrive = awd_deliverable_force(fDemand, p, t, d, lambda, lat, split ? &driveSplit : nullptr);

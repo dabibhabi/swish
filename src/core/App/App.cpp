@@ -195,7 +195,7 @@ void App::step_car_simulation(float dt, bool debug_edit) {
 void App::sync_car_with_debug_panel(float dt, bool debug_edit) {
     DebugParams& dp    = m_renderer->debug_params();
     dp.steerPivotWorld = m_car->get_steering_wheel_pivot_world();
-    dp.steerMaxDeg     = CarEntity::steer_max();
+    dp.steerMaxDeg     = m_car->steer_max();
     sync_driving_tools_panel(dp);
 
     // Telemetry readout (issue 5). Pure push of live car state into the

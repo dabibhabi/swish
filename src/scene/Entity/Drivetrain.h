@@ -114,8 +114,16 @@ inline float awd_deliverable_force(float fDemand, const CarParams& p, const Tire
 // otherwise-circular dependency (λ → split → a_x → load transfer → rear
 // ceiling → λ) into one shot: "given that the front is only taking its base
 // share right now, by how much is the rear axle over its limit?"
+//
+// RWD (2026-10-12, car profiles): frontShareBase = frontShareMax = 0 describes a
+// car with no front driveline at all, so there is no clutch to close: λ stays 0,
+// awd_deliverable_force then routes everything to the rear with no spill, and the
+// result is exactly the rear-only closed form (rear_traction_cap_force). AWD
+// cars (frontShareMax > 0) never take this branch, so they are bit-identical.
 inline float ptu_lock_fraction(float fDemand, const CarParams& p, const TireParams& t, const DrivetrainParams& d,
                                AxleLateral lat = AxleLateral{}) {
+    if (d.frontShareMax <= 0.0f)
+        return 0.0f;  // RWD: no PTU
     const float    demandR = std::max(fDemand, 0.0f) * (1.0f - d.frontShareBase);
     const float    axOpen  = awd_deliverable_force(fDemand, p, t, d, 0.0f, lat) / p.mass;
     const AxleLoad load    = axle_loads_long(p, t, axOpen);

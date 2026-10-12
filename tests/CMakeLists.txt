@@ -26,6 +26,7 @@ add_executable(swish_tests
     test_telemetry.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/telemetry/TelemetryRing.cpp
     test_powertrain_invariants.cpp
+    test_car_profiles.cpp
 )
 
 # The scene sources under test (Camera, RoadScene, Corridor alignment/bounds, RoadGeometry, CarEntity) live in

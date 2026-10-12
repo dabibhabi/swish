@@ -13,6 +13,18 @@
 
 namespace swish {
 
+void CarEntity::apply_profile(const CarProfile& profile) {
+    m_profile = profile;
+    // WetGripParams::muDry must equal CarParams::tireMu: that identity keeps the dry path exact.
+    m_wet_grip.muDry  = profile.car.tireMu;
+    m_effective_mu    = profile.car.tireMu;
+    m_steering_angle  = std::clamp(m_steering_angle, -profile.steerLockDeg, profile.steerLockDeg);
+    m_gear_state.gear = std::clamp(m_gear_state.gear, 0, profile.gearbox.gearCount - 1);
+#ifdef SWISH_DEBUG_UI
+    m_rigid_ready = false;  // re-seed the 6-DOF body with the new mass/geometry on its next step
+#endif
+}
+
 void CarEntity::handle_input(GLFWwindow* window, float dt) {
     // Keyboard -> InputFrame (arrow keys so WASD camera remains independent), then the
     // shared apply path. UP wins over DOWN; LEFT wins over RIGHT (unchanged precedence).
@@ -59,7 +71,7 @@ void CarEntity::apply_input_frame(const InputFrame& f, float dt) {
         }
     } else {
         // Analog: approach the commanded angle at kSteerRate without overshoot.
-        const float target = std::clamp(f.steer, -1.f, 1.f) * kMaxSteer;
+        const float target = std::clamp(f.steer, -1.f, 1.f) * m_profile.steerLockDeg;
         const float step   = kSteerRate * dt;
         const float diff   = target - m_steering_angle;
         if (std::abs(diff) <= step)
@@ -68,7 +80,7 @@ void CarEntity::apply_input_frame(const InputFrame& f, float dt) {
             m_steering_angle += std::copysign(step, diff);
     }
 
-    m_steering_angle = std::clamp(m_steering_angle, -kMaxSteer, kMaxSteer);
+    m_steering_angle = std::clamp(m_steering_angle, -m_profile.steerLockDeg, m_profile.steerLockDeg);
 }
 
 void CarEntity::update(float dt) {
@@ -88,11 +100,12 @@ void CarEntity::update(float dt) {
     // (992 Turbo S; archive/docs/phase-1-physics-speed-accuracy.md §4.1-4.2).
     // `tire` supplies the a/b/hCg axle geometry the load transfer needs; it's
     // declared here (not just below, §Lateral) so both uses share one instance.
-    const TireParams       tire;
-    const GearboxParams    gearbox;
-    const DrivetrainParams drivetrain;
-    const float            rWheelRear = rear_wheel_radius();
-    float                  v_mps      = m_forward_speed / kWorldUnitsPerMeter;
+    // All of it comes from the active CarProfile (default: 992 Turbo S).
+    const TireParams&       tire       = m_profile.tire;
+    const GearboxParams&    gearbox    = m_profile.gearbox;
+    const DrivetrainParams& drivetrain = m_profile.drivetrain;
+    const float             rWheelRear = rear_wheel_radius();
+    float                   v_mps      = m_forward_speed / kWorldUnitsPerMeter;
 
     // ── Wet-road grip model (Wave 2 step 4) ────────────────────────────
     // m_wetness is RainSystem's INTEGRATED wetness (asymmetric wet/dry ramp,
@@ -118,8 +131,8 @@ void CarEntity::update(float dt) {
     // below provably inert outside a genuine hydroplane (spec decision 2).
     m_plane_frac = hydroplane_fraction(v_body, filmOverTread, m_wet_grip);
 
-    CarParams params;
-    params.tireMu = m_effective_mu;  // feeds longitudinal_accel, dynamic_bicycle_deriv, max_yaw_rate
+    CarParams params = m_profile.car;
+    params.tireMu    = m_effective_mu;  // feeds longitudinal_accel, dynamic_bicycle_deriv, max_yaw_rate
 
     // ── Combined slip: how much circle is cornering already using? ─────
     // Phase 1 §4.2 — F_x² + F_y² ≤ (μ·F_z)². The lateral forces are evaluated
@@ -148,7 +161,8 @@ void CarEntity::update(float dt) {
     // real lateral momentum out of existence mid-slide.
     AxleLateral latUse{};
     if (v_body >= kDynamicBlendSpeed) {
-        const float deltaNow = glm::radians(std::clamp(m_steering_angle, -kMaxSteer, kMaxSteer));
+        const float deltaNow =
+            glm::radians(std::clamp(m_steering_angle, -m_profile.steerLockDeg, m_profile.steerLockDeg));
         latUse = axle_lateral_use(axle_lateral_forces(v_mps, m_lateral_velocity, m_yaw_rate, deltaNow, params, tire,
                                                       m_long_force, m_plane_frac));
     }
@@ -171,7 +185,7 @@ void CarEntity::update(float dt) {
         m_gear_state     = gearbox_shift_step(m_gear_state, v_mps, gearbox, rWheelRear, dt);
         const float prev = v_mps;
         v_mps += longitudinal_accel(v_mps, m_throttle, m_brake, m_gear_state.gear, params, tire, gearbox, rWheelRear,
-                                    drivetrain, latUse, &m_long_force) *
+                                    drivetrain, latUse, &m_long_force, m_profile.torque) *
                  dt;
         // Phase 2: the body-frame transport term v̇x += v_l·r that the model was
         // missing. Zero unless the car is BOTH sideslipping and yawing, and
@@ -236,10 +250,10 @@ void CarEntity::update(float dt) {
     // forces that saturate at μ·Fz, so the car can understeer and slide instead
     // of following a rigid geometric arc. This replaces the old kSteerRefSpeed
     // authority taper (a band-aid for the missing grip limit).
-    const float wheelbase_m = kWheelbase / kWorldUnitsPerMeter;
-    const float delta       = glm::radians(std::clamp(m_steering_angle, -kMaxSteer, kMaxSteer));
-    const float vx          = m_forward_speed / kWorldUnitsPerMeter;  // m/s
-    const float r_kin       = (vx / wheelbase_m) * std::tan(delta);   // kinematic yaw rate (right-pos)
+    const float wheelbase_m = m_profile.car.wheelbase;
+    const float delta = glm::radians(std::clamp(m_steering_angle, -m_profile.steerLockDeg, m_profile.steerLockDeg));
+    const float vx    = m_forward_speed / kWorldUnitsPerMeter;  // m/s
+    const float r_kin = (vx / wheelbase_m) * std::tan(delta);   // kinematic yaw rate (right-pos)
 
     // Same threshold the combined-slip read above uses (CarEntity.h) — one
     // source of truth for "is the dynamic tire model live this frame" — and,
@@ -331,14 +345,14 @@ void CarEntity::init_rigid_body() {
             radius[c] = m_wheel_frames[c].radius;
         }
     } else {
-        const float halfWb = 0.5f * kWheelbase / kWorldUnitsPerMeter;
+        const float halfWb = 0.5f * m_profile.car.wheelbase;
         const float halfTr = 0.8f;  // TODO(stub): track from CarParams once it has one
-        radius.fill(kFallbackRearRadiusM);
-        hub = {vec3(halfWb, kFallbackRearRadiusM, -halfTr), vec3(halfWb, kFallbackRearRadiusM, halfTr),
-               vec3(-halfWb, kFallbackRearRadiusM, -halfTr), vec3(-halfWb, kFallbackRearRadiusM, halfTr)};
+        const float r      = m_profile.wheelRadiusM;
+        radius.fill(r);
+        hub = {vec3(halfWb, r, -halfTr), vec3(halfWb, r, halfTr), vec3(-halfWb, r, -halfTr), vec3(-halfWb, r, halfTr)};
     }
-    const CarParams        carParams;
-    const TireParams       tireParams;
+    const CarParams&       carParams  = m_profile.car;
+    const TireParams&      tireParams = m_profile.tire;
     const SuspensionParams susp;
     m_rigid.set_params(make_chassis_params(hub, radius, carParams, tireParams, susp));
 
@@ -386,16 +400,16 @@ void CarEntity::update_rigid_body(float dt) {
 
     // Longitudinal request: the existing force model gives per-axle TIRE forces (aero excluded) along the
     // heading; the chassis clamps them per wheel by the friction circle. Aero acts at the CoG.
-    CarParams params;
-    params.tireMu = m_effective_mu;
-    const TireParams       tire;
-    const GearboxParams    gearbox;
-    const DrivetrainParams drivetrain;
-    const float            rWheelRear = rear_wheel_radius();
+    CarParams params                   = m_profile.car;
+    params.tireMu                      = m_effective_mu;
+    const TireParams&       tire       = m_profile.tire;
+    const GearboxParams&    gearbox    = m_profile.gearbox;
+    const DrivetrainParams& drivetrain = m_profile.drivetrain;
+    const float             rWheelRear = rear_wheel_radius();
 
     ChassisInput in;
     in.mu           = m_effective_mu;
-    in.steer_rad    = glm::radians(std::clamp(m_steering_angle, -kMaxSteer, kMaxSteer));
+    in.steer_rad    = glm::radians(std::clamp(m_steering_angle, -m_profile.steerLockDeg, m_profile.steerLockDeg));
     in.body_force_n = -0.5f * params.airDensity * params.dragCoeff * params.frontalArea * vBody * vHoriz;
     if (m_reverse) {
         // Bounded low-speed creep, like the bicycle path: constant push until the reverse cap.
@@ -407,7 +421,7 @@ void CarEntity::update_rigid_body(float dt) {
         m_gear_state = gearbox_shift_step(m_gear_state, vFwd, gearbox, rWheelRear, dt);
         AxleLongitudinal split{};
         longitudinal_accel(vFwd, m_throttle, m_brake, m_gear_state.gear, params, tire, gearbox, rWheelRear, drivetrain,
-                           AxleLateral{}, &split);
+                           AxleLateral{}, &split, m_profile.torque);
         // Brake / rolling resistance flip sign with v: ramp them out below 0.5 m/s so the standstill does
         // not chatter (TODO(stub): proper static-friction / stick model).
         const float ramp = m_throttle > 0.f ? 1.f : std::min(1.f, std::fabs(vFwd) / 0.5f);
@@ -464,16 +478,16 @@ void CarEntity::update_wheel_visuals(float dt) {
     if (!m_wheels_valid)
         return;
 
-    // Local, default-constructed each call — matches the existing
-    // `const CarParams params;` pattern in update(). Debug sliders (spec
+    // Chassis/tyre numbers from the active CarProfile, like update(); the
+    // suspension/ARB params are local defaults. Debug sliders (spec
     // §11) are a later step; these ARE the shipped defaults until then.
     // tireMu is overridden with this frame's wet-grip result (computed in
     // update(), which always runs first) for consistency with the other
     // CarParams construction site — unused by the suspension math today,
     // but keeps every CarParams in the file reading the same effective mu.
-    CarParams carParams;
-    carParams.tireMu = m_effective_mu;
-    const TireParams       tireParams;
+    CarParams carParams               = m_profile.car;
+    carParams.tireMu                  = m_effective_mu;
+    const TireParams&      tireParams = m_profile.tire;
     const SuspensionParams susp;
     const AntiRollParams   arb;
 
@@ -561,7 +575,7 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
     result.reserve(get_submeshes().size());
 
     Mat4  car_model = get_model_matrix();
-    float sw_angle  = m_steering_angle * kSteerRatio;
+    float sw_angle  = m_steering_angle * m_profile.steerRatio;
 
     // ── Road-wheel matrices ────────────────────────────────────────────
     // One matrix per corner for spinning pieces (tire/rim/disc) and one for
