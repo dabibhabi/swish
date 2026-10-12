@@ -273,13 +273,13 @@ TEST_CASE("Tunables: registry defaults equal the shipped literals (release-neutr
 
 TEST_CASE("Tunables: descriptor table is consistent", "[tunables]") {
     const DebugParams d{};
-    REQUIRE(tunables::all().size() == 25);  // every TUNE_B / TUNE_F row in Tunables.def (groups: ssr, reflection, wet, car_lights, car, wheels)
+    REQUIRE(tunables::all().size() == 34);  // every TUNE_B / TUNE_F row in Tunables.def (groups: ssr, reflection, wet, car_lights, car, wheels, gauges)
     for (const auto& t : tunables::all()) {
         INFO(t.name);
         CHECK(t.in_range(t.def));
         const std::string g = t.group;
         CHECK((g == "ssr" || g == "reflection" || g == "wet" || g == "car_lights" || g == "car" ||
-               g == "wheels"));
+               g == "wheels" || g == "gauges"));
         if (t.kind == tunables::Kind::Float)
             CHECK(t.get_float(d) == t.def);  // struct default generated from the same line
         else
@@ -483,8 +483,8 @@ TEST_CASE("Tunables: visit dispatches Bool to tag::flag and Float to tag::real (
             }
         });
     }
-    CHECK(flags == 7);  // TUNE_B rows
-    CHECK(reals == 18);  // TUNE_F rows
+    CHECK(flags == 8);   // TUNE_B rows
+    CHECK(reals == 26);  // TUNE_F rows
     // The visitor sees the live field: writing through it changes DebugParams (what load/widget rely on).
     const auto& ssr = tunables::all()[1];  // ssrIntensity
     tunables::visit(ssr, p, [](auto, auto& v) { v = std::remove_reference_t<decltype(v)>(1.25f); });

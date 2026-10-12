@@ -1,5 +1,6 @@
 #pragma once
 
+#include "scene/Entity/GaugeNeedles.h"  // kGaugeDefaults (Tunables.def "gauges" defaults)
 #include "scene/SceneTypes.h"   // MaterialOverride, MAT_COUNT, MaterialId
 #include "utils/input/GamepadMapping.h"  // GamepadConfig defaults (pure header)
 #include "utils/types/Types.h"           // swish::Vec3 / Vec4 (glm aliases)

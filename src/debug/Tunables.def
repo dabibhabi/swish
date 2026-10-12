@@ -85,6 +85,21 @@ TUNE_B(rigidBodyChassis, "car", "rigid_body_chassis", false, "Physics model: rig
 // (CarConfig); App::load_car seeds this field from that file at startup, so `def` is only the no-file fallback.
 TUNE_F(wheelAckermann, "wheels", "ackermann", 1.0f, 0.0f, 1.0f, "Ackermann##wheels", "%.2f", 2, NOPUSH, NOREL)
 
+// ── Dial needles ─ ImGui header "Gauge Needles", TOML table [gauges] (tasks/todo.md "Rigged Porsche" S1c) ──
+// CPU-only (NOPUSH). The defaults read kGaugeDefaults (scene/Entity/GaugeNeedles.h); App::load_car then
+// seeds these from config/car.toml [gauges] (the release source of truth, same keys) and App pushes them into
+// CarEntity::set_gauge_params each frame. The speedo lookup table stays TOML-only (arrays). Only cars with
+// Needle_* pivots (porsche_rigged.glb) have needles.
+TUNE_F(gaugeTachOffsetDeg, "gauges", "tach_offset_deg", kGaugeDefaults.tachOffsetDeg, -180.0f, -90.0f, "Tach offset (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(gaugeTachDegPerKrpm, "gauges", "tach_deg_per_krpm", kGaugeDefaults.tachDegPerKrpm, 20.0f, 50.0f, "Tach deg / 1000 rpm", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(gaugeRpmRestDeg, "gauges", "rpm_rest_deg", kGaugeDefaults.rpmRestDeg, -180.0f, 180.0f, "Tach needle rest (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(gaugeSpeedRestDeg, "gauges", "speed_rest_deg", kGaugeDefaults.speedRestDeg, -180.0f, 180.0f, "Speedo needle rest (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(gaugeNeedleTauMs, "gauges", "needle_tau_ms", kGaugeDefaults.needleTauS * 1000.0f, 5.0f, 500.0f, "Needle damping tau (ms)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(gaugeSweepDurationS, "gauges", "sweep_duration_s", kGaugeDefaults.sweepDurationS, 0.0f, 5.0f, "Startup sweep (s)", "%.2f", 2, NOPUSH, NOREL)
+TUNE_B(gaugeTestOn, "gauges", "test_on", false, "Force test readings##gauge", NOREL)
+TUNE_F(gaugeTestRpm, "gauges", "test_rpm", 4000.0f, 0.0f, 8000.0f, "Test rpm", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(gaugeTestKmh, "gauges", "test_kmh", 140.0f, 0.0f, 320.0f, "Test km/h", "%.0f", 0, NOPUSH, NOREL)
+
 #undef NOREL
 #undef TUNE_B
 #undef TUNE_F

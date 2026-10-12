@@ -189,10 +189,22 @@ void App::load_car() {
         car_entity->apply_profile(car_profiles::rs_993(&*rig));
 
     // Car visual config (config/car.toml): the release values; debug seeds its sliders from them.
+    // [gauges] is the dial-needle calibration; only Needle_* submeshes read it.
     const CarConfig car_cfg = CarConfig::load(std::string(CONFIG_DIR) + "car.toml");
     car_entity->set_ackermann(car_cfg.wheels.ackermann);
+    car_entity->set_gauge_params(car_cfg.gauges);
 #ifdef SWISH_DEBUG_UI
-    m_renderer->debug_params().wheelAckermann = car_cfg.wheels.ackermann;
+    {
+        const GaugeParams& gp  = car_cfg.gauges;
+        DebugParams&       dp  = m_renderer->debug_params();
+        dp.wheelAckermann      = car_cfg.wheels.ackermann;
+        dp.gaugeTachOffsetDeg  = gp.tachOffsetDeg;
+        dp.gaugeTachDegPerKrpm = gp.tachDegPerKrpm;
+        dp.gaugeRpmRestDeg     = gp.rpmRestDeg;
+        dp.gaugeSpeedRestDeg   = gp.speedRestDeg;
+        dp.gaugeNeedleTauMs    = gp.needleTauS * 1000.f;
+        dp.gaugeSweepDurationS = gp.sweepDurationS;
+    }
 #endif
 
     // Scale converts glTF meters to world units (1m = 1000 WU).

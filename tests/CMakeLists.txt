@@ -29,6 +29,7 @@ add_executable(swish_tests
     test_powertrain_invariants.cpp
     test_car_profiles.cpp
     test_wheel_articulation.cpp
+    test_gauge_needles.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/CarConfig/CarConfig.cpp   # config/car.toml loader (toml++)
 )
 
