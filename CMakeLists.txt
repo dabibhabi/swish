@@ -263,6 +263,10 @@ add_custom_command(
 
 add_custom_target(bake_configs DEPENDS ${ROAD_BIN})
 
+# Runtime TOML configs (parsed with toml++ at startup in both builds, not baked): copied next to road.bin so the
+# game and the tests read CONFIG_DIR "car.toml". configure_file re-runs CMake when the source changes.
+configure_file(${CMAKE_SOURCE_DIR}/config/car.toml ${CONFIG_DIR}/car.toml COPYONLY)   # CarConfig.cpp
+
 # --- Main executable ---
 # Sources are globbed (CONFIGURE_DEPENDS): new .cpp files under src/ are picked up
 # automatically, no list to edit. src/debug/ (Dear ImGui live-tuning UI) is only
@@ -305,6 +309,7 @@ target_link_libraries(swish PRIVATE
     glfw
     Vulkan::Vulkan
     tinygltf
+    tomlplusplus::tomlplusplus   # CarConfig.cpp reads config/car.toml in both builds
 )
 
 if(SWISH_BACKEND STREQUAL "APPLE_METAL")

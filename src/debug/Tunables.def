@@ -80,6 +80,11 @@ TUNE_F(carTailRangeM, "car_lights", "tail_range_m", 6.0f, 1.0f, 30.0f, "Tail ran
 // UI and never calls set_physics_model, so the bicycle model always runs (byte-identical).
 TUNE_B(rigidBodyChassis, "car", "rigid_body_chassis", false, "Physics model: rigid body (stub)", NOREL)
 
+// ── Road wheels ─ ImGui header "Road Wheels", TOML table [wheels] (S1a, tasks/todo.md "Rigged Porsche") ──
+// Draw-only Ackermann blend (0 = parallel, 1 = pure). The release value is config/car.toml [wheels] ackermann
+// (CarConfig); App::load_car seeds this field from that file at startup, so `def` is only the no-file fallback.
+TUNE_F(wheelAckermann, "wheels", "ackermann", 1.0f, 0.0f, 1.0f, "Ackermann##wheels", "%.2f", 2, NOPUSH, NOREL)
+
 #undef NOREL
 #undef TUNE_B
 #undef TUNE_F

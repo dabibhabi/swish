@@ -31,6 +31,47 @@ inline float wheel_spin_step(float theta, float v, float r, float dt) {
     return wrap_angle_2pi(theta + (v / r) * dt);
 }
 
+// One spin step from a wheel's angular speed ω (rad/s): θ' = wrap(θ + ω·dt). This is
+// what the visuals integrate from CarEntity's per-corner wheel_omega hook, so a later
+// slip/lockup model (Wheel Phase C) only has to write ω, never θ.
+inline float wheel_spin_advance(float theta, float omega, float dt) {
+    return wrap_angle_2pi(theta + omega * dt);
+}
+
+// ── Per-wheel kinematic rolling speed (S1a, tasks/todo.md "Rigged Porsche") ──
+// Car space: nose +X, up +Y, right +Z (metres). Yaw rate ψ̇ is right-positive, so the
+// body's angular velocity is (0, −ψ̇, 0) and a point p moves at v_ref + ω × p =
+// (v_x − ψ̇·p_z, 0, v_l + ψ̇·p_x). The reference is the entity origin, the point the
+// integrator actually moves (CarEntity::update), so hub_x/hub_z are hub positions in
+// car space. The tyre rolls with the component along its own heading (δ_w, right-
+// positive; 0 for the rears):
+//   v_i = (v_x − ψ̇·z_i)·cos δ_w + (v_l + ψ̇·x_i)·sin δ_w
+// In a right turn (ψ̇ > 0) the left (outer, z < 0) wheels roll faster. No slip: this
+// is the kinematic speed; ω_i = v_i / R_i.
+inline float wheel_rolling_speed(float v_x, float v_l, float yaw_rate, float hub_x_m, float hub_z_m,
+                                 float wheel_steer_rad) {
+    const float along = v_x - yaw_rate * hub_z_m;
+    const float side  = v_l + yaw_rate * hub_x_m;
+    return along * std::cos(wheel_steer_rad) + side * std::sin(wheel_steer_rad);
+}
+
+// ── Ackermann front-wheel angles (S1a, draw-only) ─────────────────────
+// Convention: the bicycle angle δ is the VIRTUAL CENTRE WHEEL, and pure Ackermann puts
+// the turn centre on the rear-axle line at R = L / tan δ from the centreline. A front
+// wheel at lateral offset z_w (right +Z, ±t/2) then needs
+//   cot δ_w = cot δ − z_w / L   ⇔   δ_w = atan( L·tan δ / (L − z_w·tan δ) )
+// so cot δ_outer − cot δ_inner = t / L (the textbook relation) and the mean of the two
+// COTANGENTS is cot δ; the arithmetic mean sits slightly above δ (second order). The
+// atan form has no singularity at δ = 0 and stays valid while z_w·tan δ < L (δ < ~72°
+// on the 993, far past any lock). `ackermann` blends 0 = parallel steer (δ_w = δ) to
+// 1 = pure Ackermann. Mirror-symmetric: f(−δ, −z) = −f(δ, z).
+inline float ackermann_wheel_angle(float delta_rad, float hub_z_m, float wheelbase_m, float ackermann) {
+    const float t     = std::tan(delta_rad);
+    const float pure  = std::atan(wheelbase_m * t / (wheelbase_m - hub_z_m * t));
+    const float blend = std::clamp(ackermann, 0.f, 1.f);
+    return delta_rad + blend * (pure - delta_rad);
+}
+
 // ── Quarter-car suspension (Phase B) ──────────────────────────────────
 // archive/docs/wheels/phase-b-spec.md. Kinematic travel only — no load transfer yet
 // (deferred to B2, spec §9). Pure SI, no GLM: CarEntity converts to/from

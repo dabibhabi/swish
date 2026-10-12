@@ -227,16 +227,12 @@ void CarEntity::update(float dt) {
         m_gear_state       = GearState{};
     }
 
-    // ── Road-wheel spin (kinematic rolling) ───────────────────────────
-    // Rolling without slip: ω = v / r per corner (front/rear radii differ).
-    // Signed v runs the wheels backward in reverse; the per-corner spin
-    // SIGN (which axle direction the baked frame points) is applied at
-    // draw-matrix time, so θ itself is side-agnostic.
-    if (m_wheels_valid && m_wheel_spin_on) {
-        const float v_roll = (m_forward_speed / kWorldUnitsPerMeter) * m_wheel_spin_mul;
-        for (int c = 0; c < 4; c++)
-            m_wheel_spin[c] = wheel_spin_step(m_wheel_spin[c], v_roll, m_wheel_frames[c].radius, dt);
-    }
+    // ── Road-wheel spin (kinematic rolling, per wheel) ────────────────
+    // ω_i = v_i / R_i with v_i each hub's own rolling speed (outer wheels faster in a
+    // turn, fronts along their steered heading); see advance_wheel_spin. Signed v runs
+    // the wheels backward in reverse; the per-corner spin SIGN (which axle direction the
+    // baked frame points) is applied at draw-matrix time, so θ itself is side-agnostic.
+    advance_wheel_spin(dt);
 
     // Truly at rest? Nothing left to integrate. The lateral terms matter for
     // Phase 2: a spin's forward component crosses zero while the car is still
@@ -459,14 +455,46 @@ void CarEntity::update_rigid_body(float dt) {
     if (!std::isfinite(m_forward_speed))
         m_forward_speed = 0.f;
 
-    // Wheel spin (kinematic rolling), same as the bicycle path.
-    if (m_wheels_valid && m_wheel_spin_on) {
-        const float vRoll = (m_forward_speed / kWorldUnitsPerMeter) * m_wheel_spin_mul;
-        for (int c = 0; c < 4; c++)
-            m_wheel_spin[c] = wheel_spin_step(m_wheel_spin[c], vRoll, m_wheel_frames[c].radius, dt);
-    }
+    // Wheel spin (kinematic rolling, per wheel), same as the bicycle path.
+    advance_wheel_spin(dt);
 }
 #endif  // SWISH_DEBUG_UI
+
+// ── Road-wheel articulation: Ackermann steer + per-wheel spin (S1a) ───
+// Draw-only: the bicycle model keeps the single steering angle δ. The fronts are drawn
+// at the Ackermann angle about δ (WheelKinematics.h::ackermann_wheel_angle, centreline
+// convention: cot δ_w = cot δ − z_w / L), with L and the front track t from the
+// loader-measured rig geometry (CarRig.h), z_w = ±t/2 by the hub's side.
+float CarEntity::get_wheel_steer_rad(int c) const {
+    if (!m_wheels_valid || !m_wheel_steer_on || c < 0 || c > 1)
+        return 0.f;  // 0 FL, 1 FR steer; the rears never do
+    const float delta = glm::radians(std::clamp(m_steering_angle, -m_profile.steerLockDeg, m_profile.steerLockDeg));
+    const CarRigGeometry g = m_rig_geometry ? *m_rig_geometry : measure_car_rig_geometry(m_wheel_frames, false);
+    if (g.wheelbase_m <= 0.f)
+        return delta;
+    const float halfTrack = 0.5f * g.track_front_m;
+    const float zw        = m_wheel_frames[static_cast<size_t>(c)].frame[3].z >= 0.f ? halfTrack : -halfTrack;
+    return ackermann_wheel_angle(delta, zw, g.wheelbase_m, m_ackermann);
+}
+
+// Kinematic per-wheel ω into the m_wheel_omega hook, then integrate the visible spin.
+// The lever arms are car-space hub positions relative to the entity origin, the point
+// update() moves at (v_x, v_l) and rotates about (WheelKinematics.h::wheel_rolling_speed).
+void CarEntity::advance_wheel_spin(float dt) {
+    if (!m_wheels_valid)
+        return;
+    const float vx = m_forward_speed / kWorldUnitsPerMeter;
+    for (int c = 0; c < 4; c++) {
+        const WheelFrame& wf = m_wheel_frames[static_cast<size_t>(c)];
+        const float       v  = wheel_rolling_speed(vx, m_lateral_velocity, m_yaw_rate, wf.frame[3].x, wf.frame[3].z,
+                                                   get_wheel_steer_rad(c));
+        m_wheel_omega[static_cast<size_t>(c)] = v / wf.radius;
+    }
+    if (!m_wheel_spin_on)
+        return;
+    for (size_t c = 0; c < 4; c++)
+        m_wheel_spin[c] = wheel_spin_advance(m_wheel_spin[c], m_wheel_omega[c] * m_wheel_spin_mul, dt);
+}
 
 // ── Phase-B quarter-car suspension (kinematic travel only) ────────────
 // archive/docs/wheels/phase-b-spec.md. LATE update: App.cpp calls this after
@@ -574,13 +602,17 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
     std::vector<DrawCall> result;
     result.reserve(get_submeshes().size());
 
-    Mat4  car_model = get_model_matrix();
-    float sw_angle  = m_steering_angle * m_profile.steerRatio;
+    Mat4 car_model = get_model_matrix();
+    // Steering wheel = the SAME rate-limited steer angle the fronts are drawn about, times the
+    // profile ratio (993: 16.5, ±29.5° lock -> 973.5° = 2.70 turns lock to lock).
+    float sw_angle = m_steering_angle * m_profile.steerRatio;
 
     // ── Road-wheel matrices ────────────────────────────────────────────
     // One matrix per corner for spinning pieces (tire/rim/disc) and one for
-    // steer-only pieces (calipers; only the fronts actually turn). In car
-    // space:  T(P) · R_y(−δ) · F · R_x(s·θ) · F⁻¹  — steer sits LEFT of
+    // steer-only pieces (calipers; only the fronts actually turn). δ_c is the
+    // corner's own Ackermann angle (get_wheel_steer_rad), so a caliper turns
+    // exactly with its wheel and never spins. In car
+    // space:  T(P) · R_y(−δ_c) · F · R_x(s·θ) · F⁻¹  — steer sits LEFT of
     // spin so the axle turns with the upright, and spin is conjugated
     // through the corner's baked frame F (camber tilt + 180° side flip),
     // i.e. about the true axle: spinning about an untilted axis instead
@@ -588,11 +620,11 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
     Mat4 wheelM[4];
     Mat4 steerM[4];
     if (m_wheels_valid) {
-        const float              steer_rad = m_wheel_steer_on ? glm::radians(-m_steering_angle) : 0.f;
         const SuspensionGeometry geom;  // Phase-1 camber/toe gain curves (defaults = shipped)
         for (int c = 0; c < 4; c++) {
-            const WheelFrame& wf    = m_wheel_frames[c];
-            const bool        front = c < 2;  // 0 FL, 1 FR steer; rears don't
+            const WheelFrame& wf        = m_wheel_frames[c];
+            const bool        front     = c < 2;                    // 0 FL, 1 FR steer; rears don't
+            const float       steer_rad = -get_wheel_steer_rad(c);  // R_y(−δ_c): + δ turns the nose to +Z (right)
             const Mat4 spin = wf.frame * glm::rotate(Mat4(1.f), wf.spin_sign * m_wheel_spin[c], Vec3(1.f, 0.f, 0.f)) *
                               glm::inverse(wf.frame);
             Mat4       steer(1.f);

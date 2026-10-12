@@ -28,6 +28,8 @@ add_executable(swish_tests
     ${CMAKE_SOURCE_DIR}/src/utils/telemetry/TelemetryRing.cpp
     test_powertrain_invariants.cpp
     test_car_profiles.cpp
+    test_wheel_articulation.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/CarConfig/CarConfig.cpp   # config/car.toml loader (toml++)
 )
 
 # The scene sources under test (Camera, RoadScene, Corridor alignment/bounds, RoadGeometry, CarEntity) live in
@@ -36,6 +38,7 @@ target_link_libraries(swish_tests PRIVATE
     swish_scene_core
     Catch2::Catch2WithMain
     swish_warnings
+    tomlplusplus::tomlplusplus   # CarConfig.cpp
 )
 
 target_compile_definitions(swish_tests PRIVATE

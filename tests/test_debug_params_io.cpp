@@ -5,6 +5,7 @@
 // ~/.config/swish/presets) and removed afterwards.
 #include "debug/DebugParamsIO.h"
 #include "debug/Tunables.h"
+#include "scene/CarConfig/CarConfig.h"
 #include "scene/RoadScene/RoadParams.h"
 
 #include <toml++/toml.hpp>
@@ -272,12 +273,13 @@ TEST_CASE("Tunables: registry defaults equal the shipped literals (release-neutr
 
 TEST_CASE("Tunables: descriptor table is consistent", "[tunables]") {
     const DebugParams d{};
-    REQUIRE(tunables::all().size() == 24);  // every TUNE_B / TUNE_F row in Tunables.def (groups: ssr, reflection, wet, car_lights, car)
+    REQUIRE(tunables::all().size() == 25);  // every TUNE_B / TUNE_F row in Tunables.def (groups: ssr, reflection, wet, car_lights, car, wheels)
     for (const auto& t : tunables::all()) {
         INFO(t.name);
         CHECK(t.in_range(t.def));
         const std::string g = t.group;
-        CHECK((g == "ssr" || g == "reflection" || g == "wet" || g == "car_lights" || g == "car"));
+        CHECK((g == "ssr" || g == "reflection" || g == "wet" || g == "car_lights" || g == "car" ||
+               g == "wheels"));
         if (t.kind == tunables::Kind::Float)
             CHECK(t.get_float(d) == t.def);  // struct default generated from the same line
         else
@@ -482,7 +484,7 @@ TEST_CASE("Tunables: visit dispatches Bool to tag::flag and Float to tag::real (
         });
     }
     CHECK(flags == 7);  // TUNE_B rows
-    CHECK(reals == 17);  // TUNE_F rows
+    CHECK(reals == 18);  // TUNE_F rows
     // The visitor sees the live field: writing through it changes DebugParams (what load/widget rely on).
     const auto& ssr = tunables::all()[1];  // ssrIntensity
     tunables::visit(ssr, p, [](auto, auto& v) { v = std::remove_reference_t<decltype(v)>(1.25f); });
@@ -544,4 +546,11 @@ TEST_CASE("Presets: legacy build/ presets stay loadable and listed; the new dir 
     CHECK(std::count(names2.begin(), names2.end(), name) == 1);
     CHECK(fs::exists(debugio::presets_dir() + name + ".toml"));
     CHECK(fs::exists(legacyFile));  // save() never touches the legacy copy
+}
+
+TEST_CASE("Tunables: the Ackermann slider fallback equals the config/car.toml struct default", "[tunables]") {
+    // Release reads config/car.toml (CarConfig); debug seeds the slider from the same file at startup,
+    // so the Tunables.def `def` is only the no-file fallback and must agree with CarWheelConfig.
+    const DebugParams d{};
+    REQUIRE(d.wheelAckermann == CarWheelConfig{}.ackermann);
 }

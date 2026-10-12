@@ -1,0 +1,15 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Car visual configuration (runtime, read once at startup in BOTH builds)
+#
+# Loader: src/scene/CarConfig/CarConfig.{h,cpp} (toml++). CMake copies this file to
+# build*/config/car.toml at configure time; the game reads CONFIG_DIR "car.toml".
+# Release behaviour is defined by these values. Debug builds seed the matching
+# Tunables.def sliders from them at startup, then the sliders drive the car live.
+# A missing file or key falls back to the CarConfig struct defaults (same values).
+# ═══════════════════════════════════════════════════════════════════════
+
+[wheels]
+# Front-wheel Ackermann, draw-only (the bicycle physics is untouched).
+# 0 = parallel steer (both fronts at the bicycle angle), 1 = pure Ackermann:
+# cot(d_outer) - cot(d_inner) = track / wheelbase (WheelKinematics.h).
+ackermann = 1.0

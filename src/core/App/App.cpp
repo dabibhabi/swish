@@ -217,6 +217,7 @@ void App::sync_car_with_debug_panel(float dt, bool debug_edit) {
                                          : glm::quat(1.f, 0.f, 0.f, 0.f));
     // Road-wheel tuning (panel defaults = the shipped behavior).
     m_car->set_wheel_tuning(dp.wheelSpinEnabled, dp.wheelSteerEnabled, dp.wheelSpinMul);
+    m_car->set_ackermann(dp.wheelAckermann);  // seeded from config/car.toml at startup (AppInit load_car)
     // Physics model (stub): unchecked = bicycle (default / identity). set_physics_model is idempotent.
     m_car->set_physics_model(dp.rigidBodyChassis ? PhysicsModel::RigidBody : PhysicsModel::Bicycle);
 

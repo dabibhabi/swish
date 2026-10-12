@@ -7,10 +7,12 @@
 #include "Entity.h"
 #include "RigidChassis.h"  // PhysicsModel + the 6-DOF chassis (debug-only alternative to the bicycle)
 #include "SlipVisuals.h"
-#include "WheelKinematics.h"  // CornerSpring (Phase-B suspension state)
+#include "WheelKinematics.h"            // CornerSpring (Phase-B suspension state)
+#include "scene/CarConfig/CarConfig.h"  // CarWheelConfig (Ackermann default)
 #include "utils/input/InputFrame.h"
 #include "utils/units/Units.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <glm/glm.hpp>
@@ -107,6 +109,18 @@ public:
     float get_yaw_rate() const { return m_yaw_rate; }                  // rad/s, right-positive
     // Wheel spin angle in [0, 2pi), corner order 0 FL, 1 FR, 2 BL, 3 BR (c in [0,4)).
     float get_wheel_spin(int c) const { return m_wheel_spin[static_cast<size_t>(c)]; }
+    // Per-corner wheel angular speed (rad/s, + = rolling forward), same corner order: the
+    // hook the spin visuals integrate. Filled each update() by the kinematic per-wheel
+    // model (WheelKinematics.h::wheel_rolling_speed / R); Wheel Phase C slip/lockup writes here.
+    const std::array<float, 4>& get_wheel_omega() const { return m_wheel_omega; }
+    // Drawn road-wheel steer angle of corner c (rad, + = right): the Ackermann-blended
+    // angle for the fronts (0 when steer articulation is off or frames are not loaded),
+    // 0 for the rears. Draw-only; the bicycle physics uses the plain steering angle.
+    float get_wheel_steer_rad(int c) const;
+    // Front Ackermann blend, 0 = parallel, 1 = pure (config/car.toml [wheels] ackermann;
+    // App sets it at startup, the debug slider each frame). Clamped to [0, 1].
+    void  set_ackermann(float k) { m_ackermann = std::clamp(k, 0.f, 1.f); }
+    float get_ackermann() const { return m_ackermann; }
     // Phase-B quarter-car state for a corner (x_m travel in m, v_mps), same corner order.
     const CornerSpring& get_corner_suspension(int c) const { return m_corner_susp[static_cast<size_t>(c)]; }
 
@@ -264,7 +278,11 @@ private:
     // step (WheelKinematics.h) so float precision holds over km drives.
     std::array<WheelFrame, 4> m_wheel_frames{};
     std::array<float, 4>      m_wheel_spin{0.f, 0.f, 0.f, 0.f};
+    std::array<float, 4>      m_wheel_omega{0.f, 0.f, 0.f, 0.f};  // rad/s hook (see get_wheel_omega)
     bool                      m_wheels_valid = false;
+    float                     m_ackermann    = CarWheelConfig{}.ackermann;  // see set_ackermann
+    // Per-corner kinematic ω -> m_wheel_omega, then θ += ω·spin_mul·dt (both physics paths).
+    void advance_wheel_spin(float dt);
     // Phase-B per-corner suspension state, advanced by update_wheel_visuals()
     // (WheelKinematics.h). All four start at rest {0,0} — identical to
     // today's rigid pose until the first call moves them (§7).

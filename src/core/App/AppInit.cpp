@@ -4,6 +4,7 @@
 #include "renderer/Renderer/Renderer.h"
 #include "renderer/TextureManager/TextureManager.h"
 #include "scene/Camera/Camera.h"
+#include "scene/CarConfig/CarConfig.h"
 #include "scene/Corridor/CorridorScene.h"
 #include "scene/Entity/CarEntity.h"
 #include "scene/ModelManager/ModelManager.h"
@@ -186,6 +187,13 @@ void App::load_car() {
     // its wheelbase and tyre radius measured from the hub pivots; every other car keeps the 992 default.
     if (const auto& rig = car_entity->get_rig_geometry(); rig && rig->named_rig)
         car_entity->apply_profile(car_profiles::rs_993(&*rig));
+
+    // Car visual config (config/car.toml): the release values; debug seeds its sliders from them.
+    const CarConfig car_cfg = CarConfig::load(std::string(CONFIG_DIR) + "car.toml");
+    car_entity->set_ackermann(car_cfg.wheels.ackermann);
+#ifdef SWISH_DEBUG_UI
+    m_renderer->debug_params().wheelAckermann = car_cfg.wheels.ackermann;
+#endif
 
     // Scale converts glTF meters to world units (1m = 1000 WU).
     car_entity->set_scale(Vec3(1000.f, 1000.f, 1000.f));
