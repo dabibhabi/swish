@@ -2,8 +2,9 @@
 
 #include "CarLights.h"   // CarLightAnchor / car_spot_lights (car lights)
 #include "CarPhysics.h"  // GearState (Wave 2 step 3b torque-curve/gearbox)
+#include "CarRig.h"      // CarRigGeometry (named-rig loader measurements)
 #include "Entity.h"
-#include "RigidChassis.h"     // PhysicsModel + the 6-DOF chassis (debug-only alternative to the bicycle)
+#include "RigidChassis.h"  // PhysicsModel + the 6-DOF chassis (debug-only alternative to the bicycle)
 #include "SlipVisuals.h"
 #include "WheelKinematics.h"  // CornerSpring (Phase-B suspension state)
 #include "utils/input/InputFrame.h"
@@ -13,6 +14,7 @@
 #include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <optional>
 
 struct GLFWwindow;
 
@@ -189,6 +191,13 @@ public:
         return car_spot_lights(m_light_anchors, get_model_matrix(), state, params);
     }
 
+    // ── Measured rig geometry (CarRig.h) ─────────────────────────────
+    // Wheelbase / tracks / tyre radii measured by ModelManager::load_car from the
+    // recovered hub frames; empty when wheel recovery failed. Data only: nothing in
+    // the physics reads it yet (the CarProfile work consumes it).
+    void                                 set_rig_geometry(const CarRigGeometry& g) { m_rig_geometry = g; }
+    const std::optional<CarRigGeometry>& get_rig_geometry() const { return m_rig_geometry; }
+
     std::vector<DrawCall> get_draw_calls() const override;
 
 #ifdef SWISH_DEBUG_UI
@@ -263,7 +272,8 @@ private:
     mutable std::vector<Mat4> m_lastExposedPrevModels;
 #endif
 
-    std::vector<CarLightAnchor> m_light_anchors;  // car-space lamps (see set_light_anchors)
+    std::vector<CarLightAnchor>   m_light_anchors;  // car-space lamps (see set_light_anchors)
+    std::optional<CarRigGeometry> m_rig_geometry;   // loader-measured (see set_rig_geometry)
 #ifdef SWISH_DEBUG_UI
     // ── Rigid-body chassis (stub; RigidChassis.h) ─────────────────────
     // Only live while m_physics_model == RigidBody. The body is authoritative for pose: each step it
