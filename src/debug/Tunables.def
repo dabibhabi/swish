@@ -74,6 +74,15 @@ TUNE_F(carHeadOuterDeg, "car_lights", "head_outer_deg", 28.0f, 2.0f, 60.0f, "Bea
 TUNE_F(carTailIntensity, "car_lights", "tail_intensity", 1.5f, 0.0f, 20.0f, "Tail intensity", "%.2f", 2, NOPUSH, NOREL)
 TUNE_F(carBrakeIntensity, "car_lights", "brake_intensity", 6.0f, 0.0f, 50.0f, "Brake intensity", "%.2f", 2, NOPUSH, NOREL)
 TUNE_F(carTailRangeM, "car_lights", "tail_range_m", 6.0f, 1.0f, 30.0f, "Tail range (m)", "%.1f", 1, NOPUSH, NOREL)
+// ── Wipers ─ ImGui header "Wet / Rain", TOML table [wiper] (tasks/todo.md "Rigged Porsche" S1b) ──
+// CPU-only (NOPUSH): App::update_wiper copies these into WiperParams each frame. The shipped values live in
+// config/car.toml [wipers] (the release values); App::load_car seeds these from it.
+TUNE_F(wiperLowWpm, "wiper", "low_wipes_per_min", 45.0f, 10.0f, 90.0f, "Wiper Low (wipes/min)", "%.0f", 1, NOPUSH, NOREL)
+TUNE_F(wiperHighWpm, "wiper", "high_wipes_per_min", 65.0f, 10.0f, 120.0f, "Wiper High (wipes/min)", "%.0f", 1, NOPUSH, NOREL)
+TUNE_F(wiperDwellS, "wiper", "intermittent_dwell_s", 4.0f, 0.0f, 15.0f, "Wiper intermittent pause (s)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(wiperSweepDeg, "wiper", "sweep_deg", 105.0f, 30.0f, 120.0f, "Wiper sweep (deg)", "%.0f", 1, NOPUSH, NOREL)
+TUNE_F(wiperEase, "wiper", "ease", 1.0f, 0.0f, 1.0f, "Wiper ease (0 linear, 1 cosine)", "%.2f", 2, NOPUSH, NOREL)
+
 // ── Physics model (stub) ─ ImGui header "Physics", TOML table [car] ──
 // Debug-only: App::apply_debug_params maps it to CarEntity::set_physics_model (false = bicycle, the
 // shipped model; true = 6-DOF rigid-body chassis stub). NOPUSH: never reaches the GPU. Release has no

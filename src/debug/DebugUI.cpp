@@ -339,6 +339,7 @@ void printValues(const DebugParams& p) {
     std::printf("depthBiasConst=%.3f depthBiasSlope=%.3f\n", p.depthBiasConst, p.depthBiasSlope);
     std::printf("rainIntensity=%.3f streakLen=%.1f\n", p.rainIntensity, p.streakLen);
     dump_tunable_group(p, "wet");
+    dump_tunable_group(p, "wiper");
     dump_tunable_group(p, "car_lights");
     dump_tunable_group(p, "car");
     std::printf("carOverride=%d carMetalness=%.3f carPaint={%.3f,%.3f,%.3f} carRoughnessMul=%.3f\n",
@@ -904,6 +905,8 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::SliderFloat("Rain intensity", &p.rainIntensity, 0.0f, 1.0f);
             ImGui::SliderFloat("Streak length", &p.streakLen, 0.0f, 10000.0f, "%.0f");
             draw_tunable_group(p, "wet");  // Wet porosity / roughness, Puddles, Puddle coverage (Tunables.def)
+            ImGui::Separator();
+            draw_tunable_group(p, "wiper");  // V cycles the mode; rates / pause / sweep / ease (Tunables.def)
             ImGui::Separator();
             ImGui::Checkbox("Road spray##spray", &p.sprayEnabled);
             ImGui::SliderFloat("Spray density", &p.sprayDensity, 0.0f, 1.0f);

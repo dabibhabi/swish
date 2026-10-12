@@ -3,6 +3,7 @@
 #include "core/CameraController/CameraController.h"
 #include "scene/CameraMode.h"
 #include "scene/Corridor/CorridorDriver.h"  // real LIE corridor (owned by App)
+#include "scene/Entity/Wiper.h"             // WiperState / WiperParams (V-key wipers)
 #include "scene/WeatherPreset.h"
 #include "utils/input/InputFrame.h"
 #ifdef SWISH_DEBUG_UI
@@ -85,8 +86,10 @@ private:
     // Rain (R key cycles off → light → heavy → off)
     int m_rain_level = 0;
 
-    // Windshield wiper (V key toggles continuous sweep on/off)
-    bool m_wiper_enabled = false;
+    // Windshield wipers (V cycles Off -> Intermittent -> Low -> High; scene/Entity/Wiper.h). The params
+    // come from config/car.toml [wipers] at load_car; debug builds tune them live (Tunables "wiper").
+    WiperState  m_wiper{};
+    WiperParams m_wiper_params{};
 
     // Weather HDRI preset (G key cycles partly cloudy → cloudy → very cloudy → golden hour)
     WeatherPreset m_weather_preset = WeatherPreset::PartlyCloudy;
@@ -128,12 +131,13 @@ private:
     bool  debug_edit_mode() const;                    // always false in release
     void  poll_events();                              // pollEvents + consume the resize flag
     void  process_key_bindings();                     // walks m_key_bindings
-    void  update_car(float dt, bool debug_edit);      // drive, Y-snap, corridor, wheel visuals, renderer push
+    void  update_car(float dt, bool debug_edit);      // drive, Y-snap, corridor, wheel visuals, wiper, renderer push
     void  update_camera(float dt, bool debug_edit);   // CameraController::update
     void  shutdown();                                 // reverse-order GPU cleanup
 
     // update_car() sub-steps
     void step_car_simulation(float dt, bool debug_edit);
+    void update_wiper(float dt);  // step the wiper model; the one angle goes to the car and the renderer
     void push_car_to_renderer();
 #ifdef SWISH_DEBUG_UI
     void sync_car_with_debug_panel(bool debug_edit);
@@ -150,7 +154,7 @@ private:
     void on_toggle_cursor_capture();
     void on_cycle_camera_mode();
     void on_cycle_rain();
-    void on_toggle_wiper();
+    void on_cycle_wiper();
     void on_cycle_weather();
 #ifdef SWISH_DEBUG_UI
     void on_toggle_debug_edit();
@@ -176,8 +180,8 @@ private:
     WeatherPreset weather_preset() const { return m_weather_preset; }
     void          set_weather_preset(WeatherPreset preset);
 
-    bool wiper_enabled() const { return m_wiper_enabled; }
-    void set_wiper(bool enabled);
+    WiperMode wiper_mode() const { return m_wiper.mode; }
+    void      set_wiper_mode(WiperMode mode);
 
     CameraMode camera_mode() const { return m_camera_ctl.mode(); }
     void       set_camera_mode(CameraMode mode);

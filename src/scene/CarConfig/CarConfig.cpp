@@ -71,6 +71,13 @@ CarConfig from_table(const toml::table& tbl) {
     CarConfig cfg;
     cfg.wheels.ackermann = std::clamp(tbl["wheels"]["ackermann"].value_or(cfg.wheels.ackermann), 0.f, 1.f);
     cfg.gauges           = gauges_from_table(tbl, kGaugeDefaults);
+    WiperParams& w       = cfg.wipers;
+    const auto   wt      = tbl["wipers"];
+    w.lowWipesPerMin     = std::clamp(wt["low_wipes_per_min"].value_or(w.lowWipesPerMin), 1.f, 120.f);
+    w.highWipesPerMin    = std::clamp(wt["high_wipes_per_min"].value_or(w.highWipesPerMin), 1.f, 120.f);
+    w.dwellS             = std::clamp(wt["intermittent_dwell_s"].value_or(w.dwellS), 0.f, 30.f);
+    w.sweepDeg           = std::clamp(wt["sweep_deg"].value_or(w.sweepDeg), 10.f, 120.f);
+    w.ease               = std::clamp(wt["ease"].value_or(w.ease), 0.f, 1.f);
     return cfg;
 }
 

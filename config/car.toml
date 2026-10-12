@@ -39,3 +39,12 @@ speed_rest_deg     = -151.0
 # startup sweep (to full scale and back, eased) on car load.
 needle_tau_ms      = 80.0
 sweep_duration_s   = 1.2
+
+[wipers]
+# Windshield wipers (Wiper.h). V cycles Off -> Intermittent -> Low -> High -> Off; one wipe = park -> top -> park.
+# Debug builds tune the same values live (Tunables.def group "wiper", Wet / Rain panel).
+low_wipes_per_min    = 45.0   # Low, and the speed of an Intermittent / parking wipe
+high_wipes_per_min   = 65.0
+intermittent_dwell_s = 4.0    # pause at park between Intermittent wipes
+sweep_deg            = 105.0  # park -> top; the rigged 993 blades leave the glass past ~120
+ease                 = 1.0    # 0 = constant angular speed, 1 = cosine (blades slow into each reversal)

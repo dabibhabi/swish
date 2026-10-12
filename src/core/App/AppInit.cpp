@@ -189,10 +189,12 @@ void App::load_car() {
         car_entity->apply_profile(car_profiles::rs_993(&*rig));
 
     // Car visual config (config/car.toml): the release values; debug seeds its sliders from them.
-    // [gauges] is the dial-needle calibration; only Needle_* submeshes read it.
+    // [gauges] is the dial-needle calibration (only Needle_* submeshes read it); [wipers] drives
+    // the wiper cycle for every car (rigged blades and the shader's clear region).
     const CarConfig car_cfg = CarConfig::load(std::string(CONFIG_DIR) + "car.toml");
     car_entity->set_ackermann(car_cfg.wheels.ackermann);
     car_entity->set_gauge_params(car_cfg.gauges);
+    m_wiper_params = car_cfg.wipers;
 #ifdef SWISH_DEBUG_UI
     {
         const GaugeParams& gp  = car_cfg.gauges;
@@ -204,6 +206,11 @@ void App::load_car() {
         dp.gaugeSpeedRestDeg   = gp.speedRestDeg;
         dp.gaugeNeedleTauMs    = gp.needleTauS * 1000.f;
         dp.gaugeSweepDurationS = gp.sweepDurationS;
+        dp.wiperLowWpm         = m_wiper_params.lowWipesPerMin;
+        dp.wiperHighWpm        = m_wiper_params.highWipesPerMin;
+        dp.wiperDwellS         = m_wiper_params.dwellS;
+        dp.wiperSweepDeg       = m_wiper_params.sweepDeg;
+        dp.wiperEase           = m_wiper_params.ease;
     }
 #endif
 

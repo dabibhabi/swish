@@ -3,6 +3,7 @@
 #include "renderer/GpuResource/GpuResource.h"
 #include "renderer/Passes/IRenderPass.h"
 #include "renderer/RendererConfig.h"
+#include "scene/Entity/WiperBlade.h"  // WiperFrame
 #include "scene/SceneTypes.h"
 #include "utils/types/Types.h"
 
@@ -14,6 +15,7 @@
 namespace swish {
 
 struct RendererServices;
+class Camera;
 
 // GPU layout UBO (std140): mirrors set 1, binding 0 in windshield_rain.frag.
 struct WindshieldRainUBO {
@@ -23,8 +25,8 @@ struct WindshieldRainUBO {
                          // z = drop density (cells across glass), w = refraction strength
     Vec4 screenAndRefr;  // x = framebuffer width (px), y = height (px),
                          // z = max blur LOD (reserved), w = Fresnel rim gain
-    Vec4 wiperState;     // x = blade angle (rad), y = phase [0,2π],
-                         // z = enabled (0/1), w = sweep speed (rad/s)
+    Vec4 wiperState;     // x = screen-space blade angle (rad, default car), y = wiper angle (rad),
+                         // z = draw the screen-space blade (0/1), w = sweep (rad)
 };
 
 // ══════════════════════════════════════════════════════════════════════
@@ -52,8 +54,8 @@ public:
     const char* name() const override { return "WindshieldRain"; }
     // Snapshots the HDR (refraction source) then draws the droplets over it, depth read-only.
     void declare(PassDeclaration& d) const override { d.read({Img::Hdr, Img::HdrDepth}).write({Img::Hdr}); }
-    void        init(const PassInitCtx& ctx) override;
-    void        onResize(const PassInitCtx& ctx) override;
+    void init(const PassInitCtx& ctx) override;
+    void onResize(const PassInitCtx& ctx) override;
     // Screen-space flow direction from the car heading, speed factor (car speed / kMaxSpeed), wetness and rain
     // intensity from FrameState (published by the rain pass), wiper toggle.
     void update(const FrameUpdate& u) override;
@@ -70,9 +72,13 @@ private:
     // Update per-frame state.
     //   screenFlowDir — car forward dir projected to screen XY (normalized).
     //   speedFactor   — car speed / kMaxSpeed, clamped to [0,1].
-    //   wetness / intensity — the rain system's current values; wiperEnabled — V-key toggle (continuous wiper sweep).
+    //   wetness / intensity — the rain system's current values.
     void step(uint32_t frameIndex, float deltaTime, Vec2 screenFlowDir, float speedFactor, float wetness,
-              float intensity, bool wiperEnabled);
+              float intensity);
+
+    // Project the wiper blades into the wetness map's screen space (last frame's and this frame's angle): the
+    // rigged 3D arms through the camera, or the analytic screen-space blade when the car has none.
+    void update_wiper(const WiperFrame& wiper, const Camera* camera);
 
     // Step the persistent wetness map (fullscreen pass): rain + advection + wiper + evaporation. After the glass
     // pass, before the snapshot / draw.
@@ -137,15 +143,25 @@ private:
     VkFormat         m_refrFormat     = VK_FORMAT_R16G16B16A16_SFLOAT;
     VkFormat         m_wetFormat      = VK_FORMAT_R16_SFLOAT;
 
-    float m_time         = 0.0f;
-    float m_wiperPhase   = 0.0f;
-    bool  m_wiperEnabled = false;
+    float m_time = 0.0f;
+
+    // Wiper (update_wiper): projected blade segments for the wetness clear, the screen-space blade for the UBO.
+    static constexpr size_t           kMaxWiperBlades  = 2;
+    bool                              m_wiperOn        = false;
+    bool                              m_sdfBlade       = false;
+    uint32_t                          m_bladeCount     = 0;
+    float                             m_wiperAngle     = 0.0f;  // rad off park
+    float                             m_wiperPrevAngle = 0.0f;
+    float                             m_wiperSweep     = 0.0f;
+    float                             m_screenAngle    = 0.0f;
+    Vec4                              m_band           = Vec4(0.0f);
+    std::array<Vec4, kMaxWiperBlades> m_prevSeg{};
+    std::array<Vec4, kMaxWiperBlades> m_curSeg{};
 
     // Wetness-pass push-constant params (filled by update(), used by record_wetness_update()).
     Vec2  m_waterFlow    = Vec2(0.0f, 1.0f);
     float m_curIntensity = 0.0f;
     float m_dt           = 0.0f;
-    float m_wiperAngle   = 0.0f;
     float m_advect       = 0.0f;
 };
 

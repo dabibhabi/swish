@@ -6,6 +6,7 @@
 #include "renderer/Passes/ImageRegistry.h"
 #include "renderer/Passes/PassRegistry.h"
 #include "renderer/WeatherController/WeatherController.h"
+#include "scene/Entity/WiperBlade.h"  // WiperFrame
 #include "scene/SceneTypes.h"
 #include "scene/WeatherPreset.h"
 #ifdef SWISH_DEBUG_UI
@@ -121,7 +122,8 @@ public:
     float get_wetness() const;
     void  set_car_velocity(Vec3 velocity);
     void  set_car_position(Vec3 position);
-    void  set_wiper_enabled(bool enabled);
+    // This frame's wiper (App steps the Wiper.h model; WindshieldRainPass clears the rain under the blades).
+    void set_wiper(const WiperFrame& wiper);
 
     // HDRI + sun/clarity look for driving weather. Rebakes IBL from assets/Sky/.
     void          set_weather_preset(WeatherPreset preset);
@@ -192,10 +194,10 @@ private:
 
     std::unique_ptr<Camera> m_camera;
 
-    float m_rainIntensity = 0.0f;
-    Vec3  m_carVelocity   = Vec3(0.0f, 0.0f, 0.0f);
-    Vec3  m_carPosition   = Vec3(0.0f, 0.0f, 0.0f);
-    bool  m_wiperEnabled  = false;
+    float      m_rainIntensity = 0.0f;
+    Vec3       m_carVelocity   = Vec3(0.0f, 0.0f, 0.0f);
+    Vec3       m_carPosition   = Vec3(0.0f, 0.0f, 0.0f);
+    WiperFrame m_wiper{};
 
     // Sun / clarity / HDRI look + IBL rebake (R5). Bound to m_cameraUniforms / m_ibl / m_debugParams.
     WeatherController m_weather;

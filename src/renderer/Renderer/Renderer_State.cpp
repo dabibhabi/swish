@@ -43,8 +43,8 @@ void Renderer::set_car_position(Vec3 position) {
     m_carPosition = position;
 }
 
-void Renderer::set_wiper_enabled(bool enabled) {
-    m_wiperEnabled = enabled;
+void Renderer::set_wiper(const WiperFrame& wiper) {
+    m_wiper = wiper;
 }
 
 void Renderer::set_weather_preset(WeatherPreset preset) {
