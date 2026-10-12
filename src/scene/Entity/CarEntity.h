@@ -222,8 +222,8 @@ public:
 
     // ── Measured rig geometry (CarRig.h) ─────────────────────────────
     // Wheelbase / tracks / tyre radii measured by ModelManager::load_car from the
-    // recovered hub frames; empty when wheel recovery failed. Data only: nothing in
-    // the physics reads it yet (the CarProfile work consumes it).
+    // recovered hub frames; empty when wheel recovery failed. Read by App::load_car
+    // (car_profiles::rs_993 for a named rig) and by the draw-only Ackermann angle.
     void                                 set_rig_geometry(const CarRigGeometry& g) { m_rig_geometry = g; }
     const std::optional<CarRigGeometry>& get_rig_geometry() const { return m_rig_geometry; }
 

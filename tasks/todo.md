@@ -83,15 +83,15 @@ Owner decisions, grill round 3 (2026-10-12):
   into it. **No push; `debug-ui` stays untouched until the owner says so.**
 
 ### Stages
-- [ ] S0a Blender: re-align the `Wiper_*` spindles to the glass normal (headless copy), re-export the GLB
+- [x] S0a Blender: re-align the `Wiper_*` spindles to the glass normal (headless copy), re-export the GLB
 - [x] S0b `assets/CREDITS.md`
-- [ ] S0c Named-rig loader branch in `ModelManager::load_car` (`Wheel_*`, `Caliper_*`, `SteeringWheel`, `Needle_*`, `Wiper_*`)
-- [ ] S0d 993 RS `CarProfile` + `gearCount` (992 Turbo S stays the bit-identical profile for tests)
-- [ ] S1a Wheels: per-wheel ω + `wheel_omega[4]` hook, Ackermann, travel, calipers; steering wheel at the real ratio
-- [ ] S1b Wipers: V cycles 4 modes; park-and-sweep; blades + rain shader share one angle
-- [ ] S1c Needles: tach fit, speedo lookup table, damped spring, startup sweep
-- [ ] S2 Verify (both builds, tests, screenshots rain 0/1.0) → make rigged the default → delete the heuristic loader
-- [ ] S3 Changelog + `docs/car-rig.md` + animated explainer artifact
+- [x] S0c Named-rig loader branch in `ModelManager::load_car` (`Wheel_*`, `Caliper_*`, `SteeringWheel`, `Needle_*`, `Wiper_*`)
+- [x] S0d 993 RS `CarProfile` + `gearCount` (992 Turbo S stays the bit-identical profile for tests)
+- [x] S1a Wheels: per-wheel ω + `wheel_omega[4]` hook, Ackermann, travel, calipers; steering wheel at the real ratio
+- [x] S1b Wipers: V cycles 4 modes; park-and-sweep; blades + rain shader share one angle
+- [x] S1c Needles: tach fit, speedo lookup table, damped spring, startup sweep
+- [ ] S2 Owner verifies in the app ([checklist](rigged-porsche-app-checks.md); unit tests green 352/377) → make rigged the default → delete the heuristic loader
+- [x] S3 Changelog + [`docs/car-rig.md`](../docs/car-rig.md) + animated explainer artifact (https://claude.ai/artifact/55BYHrUrXZQZLmLBeQCKh3)
 
 ## Car lights: headlights, tail/brake lights, rain on the lenses (started 2026-10-10)
 

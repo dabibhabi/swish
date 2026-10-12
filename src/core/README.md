@@ -11,7 +11,7 @@ and each concern is a named method (as-built notes: [`App/REFACTOR.md`](../../ar
 
 | File | Contents |
 |------|----------|
-| `App.cpp` | ctor/dtor, state setters (`set_rain_level`, `set_weather_preset`, `set_wiper`, `set_camera_mode`, `set_cursor_captured`), `run()` and the per-frame stages, car update + renderer push, `shutdown()` |
+| `App.cpp` | ctor/dtor, state setters (`set_rain_level`, `set_weather_preset`, `set_wiper_mode`, `set_camera_mode`, `set_cursor_captured`), `run()` and the per-frame stages, car update + renderer push, `shutdown()` |
 | `AppInit.cpp` | `init()` and its steps: window + renderer + callbacks, textures (incl. the procedural rumble strip), the road scene callback (corridor + POV camera), `SceneManager`, car load (`SWISH_CAR` override) |
 | `AppInput.cpp` | `KeyEdge`, the data-driven key table, the key actions, and the GLFW mouse / resize callbacks |
 | `../CameraController/` | `CameraController`: per-mode camera placement, cockpit FOV kick + shake, mouse-look offsets, free-fly WASD, helicopter Q/E |
@@ -107,7 +107,7 @@ Using `waitEvents()` instead of `pollEvents()` here means the CPU idles at ~0% d
 | Arrow Left / Right | Car steer |
 | C | Cycle camera preset (cockpit, chase, hood, bumper, roof, side, helicopter, free-fly) |
 | R | Cycle rain (off, light, heavy) |
-| V | Toggle windshield wiper |
+| V | Cycle the wipers: Off → Intermittent → Low → High → Off ([Wiper.h](../scene/Entity/Wiper.h)) |
 | G | Cycle weather HDRI preset |
 | Escape | Toggle cursor lock |
 | Backtick (`` ` ``) | Debug builds only: toggle edit mode (free cursor, frozen sim) |

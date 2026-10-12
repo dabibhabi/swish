@@ -101,6 +101,9 @@ drop or rename empties parented *through* an Armature, or force a skinning path 
 plain Empties parented as ordinary objects round-trip as plain glTF nodes with the pivot baked
 into the node's own translation.
 
+> **Built (2026-10-12):** the wheel, caliper, steering-wheel, needle and wiper part of this convention now ships as the
+> named-rig loader. For the as-built names, axes and Blender export settings, see [car-rig.md](car-rig.md).
+
 Proposed universal node skeleton, so the loader can eventually resolve every part **by exact
 name** instead of clustering translations / grepping ancestry strings:
 

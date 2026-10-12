@@ -44,6 +44,8 @@ After this, `set_position(y = 0)` means "tires resting on the road surface"
 (the road plane is at world Y = 0) and `set_rotation(0, 90, 0)` points the
 nose down −Z.
 
+> A GLB with the named pivots (`Wheel_*`, `Caliper_*`, `SteeringWheel`, `Needle_*`, `Wiper_*`) skips the heuristic wheel recovery: the loader reads wheels, steering wheel, needles and wipers by exact node name. See [car-rig.md](car-rig.md).
+
 ## Cockpit Camera
 
 The app starts in **cockpit mode**; `C` toggles cockpit ↔ free-fly.

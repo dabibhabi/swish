@@ -81,3 +81,20 @@ replied "ask the questions one by one so i can select".
 
 **Rule for myself:** for owner decisions use `AskUserQuestion` (at most 4 per call, options + recommended
 first), even when a skill's template shows a text format. Text only for explanations.
+
+## 2026-10-12 — Repeated the text-wall grill (I hadn't read this file first)
+
+**What happened:** the 2026-10-01 lesson above already said "ask decisions as selectable prompts". I still printed
+the grill round as a markdown wall, then as a `GRILL_ANSWERS.md` file to fill in. The owner said again: "ask one by one".
+
+**Rule for myself:** read `tasks/lessons.md` at session start, before the first decision prompt. The grilling skill now
+defaults to one `AskUserQuestion` per question (`~/.claude/skills/grilling/SKILL.md`).
+
+## 2026-10-12 — Agent worktrees are cut from `master`, not from the current branch
+
+**What happened:** three Stage-0 agents launched with `isolation: worktree` all started on `master`
+(a42f14b "hello"), not on `feature/rigged-porsche`. Each noticed it and branched off the feature branch (hooks block
+`reset --hard`), but it cost time and left stray `worktree-agent-*` branches.
+
+**Rule for myself:** every worktree-agent prompt starts with "FIRST run `git checkout -b <name> <base-branch>` and
+verify HEAD", and names the branch to merge in the report.

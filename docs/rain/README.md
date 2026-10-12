@@ -202,7 +202,7 @@ vec2  src = fragUV - p.flow * p.advect;     // advect upstream
 float w   = texture(prevWet, src).r;
 w += p.intensity * p.dt * 0.7;              // rain accumulates
 w -= p.dt * 0.04;                           // evaporation
-if (p.wiperOn > 0.5) w *= (1.0 - wiperClear(fragUV, p.wiperAngle, p.aspect));
+if (p.wiperOn > 0.5) w *= (1.0 - wiperClear(fragUV));   // swept quad + band, per projected blade
 outWet = clamp(w, 0.0, 1.0);
 ```
 
@@ -213,19 +213,14 @@ outWet = clamp(w, 0.0, 1.0);
 copies B→A so next frame's history is this result — fixed bindings (the rain frag always samples B),
 no per-frame descriptor churn. With explicit transfer barriers around the copy.
 
-**Wiper blade** — a rotating line-segment SDF in screen space (the cockpit view is fixed; the mesh
-UVs aren't a clean $[0,1]^2$ so screen space is reliable). Blade angle $\theta = \sin(\phi)\,\theta_{\max}$
-($\theta_{\max}\approx 66°$), `V` toggles it (edge-detected via the key table in [`AppInput.cpp`](../../src/core/App/AppInput.cpp)):
-
-```glsl
-float wiperClear(vec2 uv, float angle, float aspect) {
-    vec2 pivot = vec2(0.5, 0.92);
-    vec2 rel   = (uv - pivot) * vec2(aspect, 1.0);
-    vec2 dir   = vec2(sin(angle), -cos(angle));
-    float t    = clamp(dot(rel, dir), 0.0, 0.7);
-    return 1.0 - smoothstep(0.045, 0.12, length(rel - dir*t));
-}
-```
+**Wiper blade (since 2026-10-12).** One wiper angle from [`Wiper.h`](../../src/scene/Entity/Wiper.h) (park-and-sweep,
+eased reversals; `V` cycles Off → Intermittent → Low → High) drives everything. `WindshieldRainPass::update_wiper` projects
+each blade's wiped segment to screen UV at last frame's and this frame's angle. For the rigged car these come from its 3D
+`Wiper_*` arms; a car without them gets one analytic screen-space blade pivoting at $(0.5, 0.92)$. `wiperClear` in
+[`windshield_wetness.frag`](../../shaders/windshield_wetness.frag) clears the quad swept between the two segments plus a
+feathered band around the current one, so the cleared glass matches where the blade has been at any frame rate. Math and
+constants: [car-rig.md](../car-rig.md) §3. The pre-2026-10-12 version was a fixed band around a `sin`-driven
+angle ($\pm 66°$), toggled by `V`.
 
 **Speed crossover.** The flow is gravity→aero by speed. The crossover is tuned to the car's
 *achievable* range — terminal speed is drag-limited to $v\approx k_\text{accel}/k_\text{drag}=7200$ WU/s
@@ -247,7 +242,7 @@ The same flow drives both the wetness advection (`m_waterFlow`, CPU) and the pro
 | `flowAndTime` | flow dir x | flow dir y | speed [0,1] | time (s) |
 | `params` | wetness | intensity | drop density | refraction strength |
 | `screenAndRefr` | width (px) | height (px) | maxBlurLod (reserved) | Fresnel rim gain |
-| `wiperState` | blade angle | phase | enabled (0/1) | sweep speed |
+| `wiperState` | screen-space blade angle (rad; cars without rigged wipers) | wiper angle (rad) | draw the screen-space blade (0/1) | sweep (rad) |
 
 ## Tunables (current values)
 
@@ -270,12 +265,13 @@ The same flow drives both the wetness advection (`m_waterFlow`, CPU) and the pro
 | haze strength | `windshield_rain.frag` | `0.035 + 0.03·intensity` | wet-glass fog veil — kept very light so beads carry the look |
 | cull side | `createPipeline` | `FRONT` | which windshield face is shaded |
 | front mask | `windshield_rain.frag` | `smoothstep(0.12,0.45,n.x)` | how aggressively side/rear glass is excluded |
-| wiper pivot / band | `wiperClear` | `(0.5,0.92)` / `0.12` | sweep origin and streak width |
+| wiper band | `WindshieldRainPass.cpp` `kRigBand` / `kScreenBand` | `(0.008, 0.02)` rigged / `(0.04, 0.13)` screen-space, pivot `(0.5,0.92)` | feather around the blade (aspect-corrected UV) |
+| wiper rates / sweep | `config/car.toml` `[wipers]` | 45 / 65 wipes/min, 4 s dwell, 105°, ease 1 | mode speeds and sweep ([car-rig.md](../car-rig.md)) |
 | rain / evaporation rate | `windshield_wetness.frag` | `0.7` / `0.04` | how fast glass wets / dries |
 | flow crossover | `update` + frag | `smoothstep(0.05,0.20,speed)` | speed at which water flips from down → up |
 
 ## Controls
-`R` — cycle rain intensity (off → light → heavy) · `V` — toggle the wiper.
+`R` — cycle rain intensity (off → light → heavy) · `V` — cycle the wipers (off → intermittent → low → high).
 
 ## Files
 `shaders/windshield_rain.{vert,frag}` · `shaders/windshield_wetness.frag` (wetness map) · [`WindshieldRainPass/`](../../src/renderer/WindshieldRainPass/) · [`PostProcessManager.cpp`](../../src/renderer/PostProcessManager/PostProcessManager.cpp) (HDR `TRANSFER_SRC`) · [`Renderer_Record.cpp`](../../src/renderer/Renderer/Renderer_Record.cpp) (snapshot + ordering) · [`ModelManager.cpp`](../../src/scene/ModelManager/ModelManager.cpp) (tagging) · [`AppInput.cpp`](../../src/core/App/AppInput.cpp) (input).

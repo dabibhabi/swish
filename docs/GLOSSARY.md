@@ -196,7 +196,8 @@ See [`docs/rain/README.md`](rain/README.md) for the full architecture.
 | **Front-normal mask** | Discards drops whose object normal isn't forward-facing → confines rain to the windshield, not side/rear glass. |
 | **Wetness map** | Persistent screen-space R16F field: rain adds, it advects along the flow, the wiper clears it, it evaporates; gates where drops appear. |
 | **Advection (semi-Lagrangian)** | Moving the wetness by sampling *upstream* (`uv − flow·dt`) so water streams in the flow direction. |
-| **Wiper** | Analytic rotating blade SDF (screen space) that subtracts wetness along its sweep; toggled by `V`. |
+| **Wiper** | One angle (`Wiper.h`, park-and-sweep) drives the rigged 3D arms and the wetness clear: the area each blade swept since last frame plus a feathered band. Cars without `Wiper_*` pivots use an analytic screen-space blade. `V` cycles Off → Intermittent → Low → High. See [car-rig.md](car-rig.md). |
+| **Named rig** | A car GLB with exact-name pivots (`Wheel_*`, `Caliper_*`, `SteeringWheel`, `Needle_*`, `Wiper_*`) that the loader reads directly (`CarRig.h`); it selects the 993 RS `CarProfile`. See [car-rig.md](car-rig.md). |
 | **Flow / aero crossover** | Flow direction blends gravity (down) → aerodynamic (up) by speed: `smoothstep(0.05, 0.20, speedFactor)`. |
 | **`speedFactor`** | `carSpeed / 30000`, clamped `[0,1]`; drag limits it to ≈0.24 in practice. |
 
@@ -293,7 +294,7 @@ Everything here is gated behind `#ifdef SWISH_DEBUG_UI` (built by `make debug`) 
 | ← / → | Steer |
 | `R` | Cycle rain intensity (off → light → heavy) |
 | `G` | Cycle the weather HDRI preset (partly cloudy / cloudy / very cloudy / golden hour; procedural sky if an HDRI is missing) |
-| `V` | Toggle the windshield wiper |
+| `V` | Cycle the wipers: Off → Intermittent → Low → High |
 | `C` | Cycle camera: cockpit → chase → hood → bumper → roof → side → helicopter → free-fly |
 | `W` `A` `S` `D` `Q` `E` + Shift | Free-fly move; in helicopter, **Q/E** raise/lower height |
 | `Esc` | Toggle mouse-look capture |

@@ -65,6 +65,7 @@ Finished plans, shipped specs, resolved investigations, old notes, research surv
 | [learning-path.md](learning-path.md) | Study map — graphics algorithms, GPU methods, and the math (ODEs, SH, splines, volumetrics) behind rain · car · road · light, with resources and questions |
 | [data-types.md](data-types.md) | Every data struct (DTO) and UBO, with exact layouts and std140 rules |
 | [car_system.md](car_system.md) | GLB loading and car-mesh normalization algorithm |
+| [car-rig.md](car-rig.md) | The named-node car rig as built (2026-10-12): `Wheel_*` / `Caliper_*` / `SteeringWheel` / `Needle_*` / `Wiper_*` convention, how to rig and export a car in Blender, wheel spin + Ackermann, wiper motion + rain clear, dial calibration, `config/car.toml` keys, `CarProfile` (992 / 993 RS) |
 | [car-asset-pipeline.md](car-asset-pipeline.md) | Plan (not built) for generating your own car models with AI tools — mesh-gen tool survey, a modular node/pivot naming convention (body/wheels/steering wheel/seats/suspension/engine/wiper) so every car shares one rig, and a PBR clearcoat + flake texturing spec feeding the planned clearcoat shader |
 | [environment-asset-pipeline.md](environment-asset-pipeline.md) | Plan (not built) for roadside assets on the LIE corridor — why trees/leaves need a procedural-trunk + leaf-card pipeline instead of AI mesh-gen, why guardrails/lamps/signage should stay procedural C++ geometry, and where AI PBR texturing (not mesh-gen) actually helps |
 | [wheels/README.md](wheels/README.md) | Wheel/tire articulation plan — spin/steer/suspension phases A–C, decision log (4 open questions), risk register; synthesizes three expert research docs; Phase B shipped; its spec and the research docs are archived ([archive/README.md](../archive/README.md)) |
@@ -94,7 +95,8 @@ All diagrams are valid [Excalidraw](https://excalidraw.com) JSON (version 2). Op
 
 Six diagrams that drew deleted classes (`DepthBuffer`, `WORLD_SCALE`, `generate_trees`, the old set-3 layout) were moved to
 `archive/docs/diagrams/` on 2026-09-29. Diagrams that draw hand-wired per-pass recording predate the pass registry: the frame
-order is now [`Passes/PassList.def`](../src/renderer/Passes/PassList.def).
+order is now [`Passes/PassList.def`](../src/renderer/Passes/PassList.def). `rain-architecture` predates the 2026-10-12 wiper
+rework (it draws the old screen-space SDF wiper toggled by `V`); for the current wiper, see [car-rig.md](car-rig.md) §3.
 
 | Diagram | Shows |
 |---------|-------|

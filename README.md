@@ -96,7 +96,7 @@ cmake --build build -j
 | `Q` `E` | Camera down / up |
 | `Shift` | Sprint (free-fly speed ×2) |
 | `R` | Cycle rain: off → light → heavy |
-| `V` | Toggle the windshield wiper |
+| `V` | Cycle the wipers: off → intermittent → low → high |
 | `G` | Cycle the weather HDRI preset |
 | `ESC` | Toggle mouse capture |
 | `` ` `` | Debug build only: toggle edit (ImGui) vs drive mode |
