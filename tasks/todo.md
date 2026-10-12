@@ -36,6 +36,63 @@ FIFO vsync, run_mac.sh, 2026-07-25 reviews) and `assets/blend/porsche_rigged.{bl
    stale counts in `DESIGN_PATTERNS.md`; check `docs/utils-component-design.md` against `src/utils/`; decide whether to
    keep or delete `origin/debug-ui-2026-10` now that `origin/debug-ui` is current.
 
+## Rigged Porsche: first-class car (started 2026-10-12, source `goals.md`)
+
+Owner decisions, grill round 1 (2026-10-12):
+- **"Precise" means all three:** (a) it looks the same as `assets/Porsche/porsche.glb` (paint and materials, nothing missing),
+  (b) it's dimensionally accurate to the real 911 variant, and (c) pivots sit at the real hinge points.
+  Mesh vs physics: the mesh wheelbase is 2.259 m against `kWheelbase` 2.45 m, and the tyre radius is 0.320 m against 0.363 m. Round 2 decides which one moves.
+- **Default car:** build and verify behind `SWISH_CAR`. Once verified, it **becomes the new default**, as a separate labelled change.
+- **Steering wheel:** realistic ratio, driven by the same smoothed steer angle as the front wheels.
+- **Wheels: all four behaviours.** Spin at wheel speed; front steer with Ackermann; suspension travel (Phase B);
+  calipers steer and bounce but don't spin.
+- **Wipers:** one key cycles Off → Intermittent → Low → High. The 3D blades are synced with the windshield-rain wipe.
+- **Dials:** animate only the two needles, calibrated to the painted dial face. Units and range get confirmed from the face.
+- **Explanation:** both an animated artifact (LaTeX, SVG diagrams, motion design: the math and how it looks in-game) and
+  `docs/car-rig.md`.
+- **Agents:** the shared named-rig loader lands first. Then three specialists run in parallel: wheels + steering, wipers,
+  needles. Verification and docs run in sequence after that.
+
+Owner decisions, grill round 2 (2026-10-12):
+- **Wheel spin:** per-wheel kinematic speeds ($v_i = v + \dot\psi \times r_i$), plus a `wheel_omega[4]` hook for Phase C slip and lockup.
+- **Ackermann:** tunable 0–100%, default 100%. It changes only how the front wheels are drawn; the physics is untouched.
+- **Wiper key:** V cycles Off → Intermittent (~4 s pause) → Low (~45/min) → High (~65/min) → Off.
+- **Wiper motion:** real park-and-sweep with eased ends. One angle drives both the 3D blades and the rain-clearing shader.
+  This is an intended release visual change and gets a changelog entry.
+- **Needles:** critically-damped spring (~80 ms) plus a startup sweep to full scale and back.
+- **Old heuristic loader** (`Combined3DWheel*`, `Steering_Wheel`): **delete it once the rigged car is the default.**
+- **Tunables:** defaults in `config/*.toml`, live via `Tunables.def` in debug builds; release reads only the TOML.
+
+Facts (Blender, 2026-10-12): the model is a **1995 911 Carrera RS (993)** by ddiaz-design, licence CC BY-NC-SA 4.0, at true 1:1 scale
+(wheelbase 2.259 m vs a real 2.272 m; tyre radius 0.32 m).
+- Tach: θ = −145° + 36°/1000 rpm, red zone 6800–7600.
+- Speedo: km/h 0–300, non-linear.
+- Needle sweep axis: pivot glTF −Z.
+- Wiper spindle: glTF Y; parked at 0°; on-glass up to about 123°.
+- Wheel axle: local X at the hub.
+
+Owner decisions, grill round 3 (2026-10-12):
+- **Physics:** a full **993 RS car profile**. Geometry (wheelbase, track, tyre radius) is measured from the GLB; the powertrain uses 993 RS specs, with the redline matched to the dial.
+- **Speedo:** a lookup table from the measured dial marks (piecewise linear), stored in TOML.
+- **Wiper axis:** fix it in Blender. Re-align the `Wiper_*` spindles to the glass normal, working on a **fresh headless copy** of the committed
+  `.blend`. Leave the open, unsaved Blender session untouched.
+- **Licence:** add `assets/CREDITS.md` (author, source, CC BY-NC-SA 4.0, the non-commercial limit) and link it from the car docs.
+- **Gearbox:** `GearboxParams` gets a `gearCount` (6 for the 993, 7 for the 992). The ratios array keeps 7 slots, and the Ch01 validators and
+  `gear_for_speed` / `gearbox_shift_step` loop to `gearCount`. The 992 path stays bit-identical; add a note in the Ch01 tutorial.
+- **Workflow:** branch `feature/rigged-porsche` (from `debug-ui`). Agents make **local commits** on worktree branches, and I merge them
+  into it. **No push; `debug-ui` stays untouched until the owner says so.**
+
+### Stages
+- [ ] S0a Blender: re-align the `Wiper_*` spindles to the glass normal (headless copy), re-export the GLB
+- [x] S0b `assets/CREDITS.md`
+- [ ] S0c Named-rig loader branch in `ModelManager::load_car` (`Wheel_*`, `Caliper_*`, `SteeringWheel`, `Needle_*`, `Wiper_*`)
+- [ ] S0d 993 RS `CarProfile` + `gearCount` (992 Turbo S stays the bit-identical profile for tests)
+- [ ] S1a Wheels: per-wheel ω + `wheel_omega[4]` hook, Ackermann, travel, calipers; steering wheel at the real ratio
+- [ ] S1b Wipers: V cycles 4 modes; park-and-sweep; blades + rain shader share one angle
+- [ ] S1c Needles: tach fit, speedo lookup table, damped spring, startup sweep
+- [ ] S2 Verify (both builds, tests, screenshots rain 0/1.0) → make rigged the default → delete the heuristic loader
+- [ ] S3 Changelog + `docs/car-rig.md` + animated explainer artifact
+
 ## Car lights: headlights, tail/brake lights, rain on the lenses (started 2026-10-10)
 
 Branch `feature/car-lights` (worktree `.worktrees/car-lights`, off `debug-ui`). Asset: `assets/blend/porsche_rigged.blend`
