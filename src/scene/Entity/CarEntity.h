@@ -5,6 +5,7 @@
 #include "CarProfile.h"  // CarProfile: per-car physics (992 Turbo S default, 993 RS)
 #include "CarRig.h"      // CarRigGeometry (named-rig loader measurements)
 #include "Entity.h"
+#include "GaugeNeedles.h"  // GaugeParams / GaugeState (named-rig dial needles)
 #include "RigidChassis.h"  // PhysicsModel + the 6-DOF chassis (debug-only alternative to the bicycle)
 #include "SlipVisuals.h"
 #include "WheelKinematics.h"  // CornerSpring (Phase-B suspension state)
@@ -209,6 +210,24 @@ public:
     void                                 set_rig_geometry(const CarRigGeometry& g) { m_rig_geometry = g; }
     const std::optional<CarRigGeometry>& get_rig_geometry() const { return m_rig_geometry; }
 
+    // ── Dial needles (GaugeNeedles.h, tasks/todo.md "Rigged Porsche" S1c) ──
+    // Advance both needles one frame (startup sweep, then the damped follow of
+    // get_engine_rpm() / |speed| in km/h). App calls it every frame after
+    // update_wheel_visuals(). Only submeshes tagged RigPart::Needle* read the
+    // state, so a car without needles draws exactly as before.
+    void               update_gauges(float dt);
+    void               set_gauge_params(const GaugeParams& p) { m_gauge_params = p; }
+    const GaugeParams& get_gauge_params() const { return m_gauge_params; }
+    const GaugeState&  get_gauge_state() const { return m_gauge_state; }
+#ifdef SWISH_DEBUG_UI
+    // Debug calibration: drive the needles from fixed readings instead of the live ones.
+    void set_gauge_test(bool on, float rpm, float kmh) {
+        m_gauge_test     = on;
+        m_gauge_test_rpm = rpm;
+        m_gauge_test_kmh = kmh;
+    }
+#endif
+
     std::vector<DrawCall> get_draw_calls() const override;
 
 #ifdef SWISH_DEBUG_UI
@@ -288,6 +307,14 @@ private:
 
     std::vector<CarLightAnchor>   m_light_anchors;  // car-space lamps (see set_light_anchors)
     std::optional<CarRigGeometry> m_rig_geometry;   // loader-measured (see set_rig_geometry)
+
+    GaugeParams                   m_gauge_params = kGaugeDefaults;  // config/gauges.toml (App::load_car)
+    GaugeState                    m_gauge_state{};                  // starts the sweep on the first update
+#ifdef SWISH_DEBUG_UI
+    bool  m_gauge_test     = false;  // set_gauge_test
+    float m_gauge_test_rpm = 0.f;
+    float m_gauge_test_kmh = 0.f;
+#endif
 #ifdef SWISH_DEBUG_UI
     // ── Rigid-body chassis (stub; RigidChassis.h) ─────────────────────
     // Only live while m_physics_model == RigidBody. The body is authoritative for pose: each step it

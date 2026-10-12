@@ -935,6 +935,12 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::TextDisabled("needs a car GLB with *_Lamp nodes (SWISH_CAR=.../porsche_rigged.glb)");
         }
 
+        // ── Gauge Needles (tach / speedo calibration + damping; tasks/todo.md "Rigged Porsche" S1c) ──
+        if (ImGui::CollapsingHeader("Gauge Needles")) {
+            draw_tunable_group(p, "gauges");  // generated from Tunables.def; speedo table: config/gauges.toml
+            ImGui::TextDisabled("needs a car GLB with Needle_* pivots (SWISH_CAR=.../porsche_rigged.glb)");
+        }
+
         // ── Materials (per-submesh / per-material-slot editor) ────────
         if (ImGui::CollapsingHeader("Materials")) {
             if (p.matEditSlot < 0)

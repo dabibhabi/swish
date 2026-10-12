@@ -186,6 +186,7 @@ void App::step_car_simulation(float dt, bool debug_edit) {
     // origin rebase have settled. Draw-matrix-only — never touches the car's
     // transform (§8).
     m_car->update_wheel_visuals(dt);
+    m_car->update_gauges(dt);  // dial needles (named rig only; GaugeNeedles.h)
 }
 
 #ifdef SWISH_DEBUG_UI
@@ -219,6 +220,16 @@ void App::sync_car_with_debug_panel(float dt, bool debug_edit) {
     m_car->set_wheel_tuning(dp.wheelSpinEnabled, dp.wheelSteerEnabled, dp.wheelSpinMul);
     // Physics model (stub): unchecked = bicycle (default / identity). set_physics_model is idempotent.
     m_car->set_physics_model(dp.rigidBodyChassis ? PhysicsModel::RigidBody : PhysicsModel::Bicycle);
+    // Dial needles: the "gauges" sliders over the TOML calibration (the speedo table stays TOML-only).
+    GaugeParams gp    = m_car->get_gauge_params();
+    gp.tachOffsetDeg  = dp.gaugeTachOffsetDeg;
+    gp.tachDegPerKrpm = dp.gaugeTachDegPerKrpm;
+    gp.rpmRestDeg     = dp.gaugeRpmRestDeg;
+    gp.speedRestDeg   = dp.gaugeSpeedRestDeg;
+    gp.needleTauS     = dp.gaugeNeedleTauMs / 1000.f;
+    gp.sweepDurationS = dp.gaugeSweepDurationS;
+    m_car->set_gauge_params(gp);
+    m_car->set_gauge_test(dp.gaugeTestOn, dp.gaugeTestRpm, dp.gaugeTestKmh);
 
     sync_wheel_fx_with_debug_panel(dt);
 }

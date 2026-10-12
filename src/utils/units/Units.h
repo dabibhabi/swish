@@ -30,6 +30,9 @@ constexpr float ft(float feet) noexcept { return feet * kWuPerFt; }
 constexpr float to_m(float wu) noexcept { return wu / kWuPerMetre; }
 constexpr float to_ft(float wu) noexcept { return wu / kWuPerFt; }
 
+// ── Speed ─────────────────────────────────────────────────────────────
+inline constexpr float kKmhPerMps = 3.6f;  // 3600 s/h ÷ 1000 m/km
+
 // ── Angle ─────────────────────────────────────────────────────────────
 inline constexpr float kPi    = std::numbers::pi_v<float>;
 inline constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;

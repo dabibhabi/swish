@@ -6,6 +6,7 @@
 #include "scene/Camera/Camera.h"
 #include "scene/Corridor/CorridorScene.h"
 #include "scene/Entity/CarEntity.h"
+#include "scene/Entity/GaugeConfig.h"
 #include "scene/ModelManager/ModelManager.h"
 #include "scene/RoadGeometry/RoadGeometry.h"
 #include "scene/SceneManager/SceneManager.h"
@@ -186,6 +187,22 @@ void App::load_car() {
     // its wheelbase and tyre radius measured from the hub pivots; every other car keeps the 992 default.
     if (const auto& rig = car_entity->get_rig_geometry(); rig && rig->named_rig)
         car_entity->apply_profile(car_profiles::rs_993(&*rig));
+
+    // Dial-needle calibration (config/gauges.toml; only Needle_* submeshes read it). The debug build
+    // seeds the "Gauge Needles" sliders from the same file, so the TOML stays the one source.
+    car_entity->set_gauge_params(load_gauge_params(std::string(CONFIG_SRC_DIR) + "gauges.toml"));
+#ifdef SWISH_DEBUG_UI
+    {
+        const GaugeParams& gp  = car_entity->get_gauge_params();
+        DebugParams&       dp  = m_renderer->debug_params();
+        dp.gaugeTachOffsetDeg  = gp.tachOffsetDeg;
+        dp.gaugeTachDegPerKrpm = gp.tachDegPerKrpm;
+        dp.gaugeRpmRestDeg     = gp.rpmRestDeg;
+        dp.gaugeSpeedRestDeg   = gp.speedRestDeg;
+        dp.gaugeNeedleTauMs    = gp.needleTauS * 1000.f;
+        dp.gaugeSweepDurationS = gp.sweepDurationS;
+    }
+#endif
 
     // Scale converts glTF meters to world units (1m = 1000 WU).
     car_entity->set_scale(Vec3(1000.f, 1000.f, 1000.f));

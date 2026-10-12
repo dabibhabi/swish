@@ -1,0 +1,32 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Dial needles of the rigged 993 Carrera RS (assets/blend/porsche_rigged.glb)
+# tasks/todo.md "Rigged Porsche" S1c. Read at car load by GaugeConfig.cpp
+# (both builds); the debug build seeds the "Gauges" sliders from it.
+#
+# Angles are degrees CLOCKWISE from 12 o'clock as seen by the driver,
+# measured off the painted dial faces in the GLB atlas.
+# Missing keys keep the C++ defaults (scene/Entity/GaugeNeedles.h); an
+# invalid speedo table (unsorted, < 2 or > 16 rows) is ignored.
+# ═══════════════════════════════════════════════════════════════════════
+
+[gauges]
+# Tach ("1/min x1000", numerals 1-7, red zone 6800-7600): linear fit
+# theta = offset + slope * rpm/1000 to the 1k (-109.0), 4k (-0.4), 7k (+105.5) numerals.
+tach_offset_deg    = -145.0
+tach_deg_per_krpm  = 36.0
+tach_min_rpm       = 0.0
+tach_max_rpm       = 7600.0   # last printed (red) tick; the needle clamps here
+
+# Speedo (km/h, 0-300, non-linear): piecewise-linear table of the printed marks.
+# 0 km/h is extrapolated (no printed 0). The ends are the clamp range.
+speedo_kmh = [0.0, 10.0, 20.0, 60.0, 100.0, 140.0, 180.0, 220.0, 260.0, 300.0]
+speedo_deg = [-141.0, -133.0, -125.2, -90.9, -55.9, -18.9, 19.1, 58.5, 98.5, 138.1]
+
+# Where each needle mesh points as authored (no rotation applied).
+rpm_rest_deg       = -144.0
+speed_rest_deg     = -151.0
+
+# Critically damped follower time constant (omega_n = 1/tau) and the
+# startup sweep (to full scale and back, eased) on car load.
+needle_tau_ms      = 80.0
+sweep_duration_s   = 1.2

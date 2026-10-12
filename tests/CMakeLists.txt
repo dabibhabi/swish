@@ -28,6 +28,8 @@ add_executable(swish_tests
     ${CMAKE_SOURCE_DIR}/src/utils/telemetry/TelemetryRing.cpp
     test_powertrain_invariants.cpp
     test_car_profiles.cpp
+    test_gauge_needles.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/Entity/GaugeConfig.cpp
 )
 
 # The scene sources under test (Camera, RoadScene, Corridor alignment/bounds, RoadGeometry, CarEntity) live in
@@ -36,12 +38,14 @@ target_link_libraries(swish_tests PRIVATE
     swish_scene_core
     Catch2::Catch2WithMain
     swish_warnings
+    tomlplusplus::tomlplusplus   # GaugeConfig.cpp
 )
 
 target_compile_definitions(swish_tests PRIVATE
     CONFIG_DIR="${CMAKE_BINARY_DIR}/config/"
     GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden/"
     ASSET_DIR="${CMAKE_SOURCE_DIR}/assets/"
+    CONFIG_SRC_DIR="${CMAKE_SOURCE_DIR}/config/"
 )
 
 # test_car_rig.cpp parses assets/blend/porsche_rigged.glb with tinygltf (header-only; the test TU holds the

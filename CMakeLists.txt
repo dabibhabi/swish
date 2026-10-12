@@ -286,6 +286,7 @@ target_compile_definitions(swish PRIVATE
     TEXTURE_DIR="${CMAKE_SOURCE_DIR}/textures/"
     ASSET_DIR="${CMAKE_SOURCE_DIR}/assets/"
     CONFIG_DIR="${CONFIG_DIR}/"
+    CONFIG_SRC_DIR="${CMAKE_SOURCE_DIR}/config/"  # runtime-read TOML (config/gauges.toml), not baked
     $<$<STREQUAL:${SWISH_BACKEND},APPLE_METAL>:SWISH_BACKEND_APPLE>
     $<$<STREQUAL:${SWISH_BACKEND},LINUX_VULKAN>:SWISH_BACKEND_LINUX>
 )
@@ -305,6 +306,7 @@ target_link_libraries(swish PRIVATE
     glfw
     Vulkan::Vulkan
     tinygltf
+    tomlplusplus::tomlplusplus   # scene/Entity/GaugeConfig.cpp reads config/gauges.toml in both builds
 )
 
 if(SWISH_BACKEND STREQUAL "APPLE_METAL")

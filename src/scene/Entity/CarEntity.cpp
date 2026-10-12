@@ -543,6 +543,18 @@ void CarEntity::update_wheel_visuals(float dt) {
     }
 }
 
+void CarEntity::update_gauges(float dt) {
+    float rpm = get_engine_rpm();
+    float kmh = std::fabs(get_speed_mps()) * util::units::kKmhPerMps;
+#ifdef SWISH_DEBUG_UI
+    if (m_gauge_test) {
+        rpm = m_gauge_test_rpm;
+        kmh = m_gauge_test_kmh;
+    }
+#endif
+    m_gauge_state = gauges_step(m_gauge_state, m_gauge_params, rpm, kmh, dt);
+}
+
 std::vector<DrawCall> CarEntity::get_windshield_draw_calls() const {
     Mat4                  model = get_model_matrix();
     std::vector<DrawCall> result;
@@ -676,6 +688,12 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
             // Road wheels: tire/rim/disc pieces spin (+steer at the front);
             // caliper pieces only steer with the front uprights.
             dc.model = s.wheel_spins ? wheelM[s.wheel_corner] : steerM[s.wheel_corner];
+        } else if (s.rig_part == RigPart::NeedleRpm) {  // dial needles (GaugeNeedles.h)
+            dc.model = car_model *
+                       needle_pose(s.rig_pivot_frame, s.rig_part, m_gauge_state.rpm.pos, m_gauge_params.rpmRestDeg);
+        } else if (s.rig_part == RigPart::NeedleSpeed) {
+            dc.model = car_model *
+                       needle_pose(s.rig_pivot_frame, s.rig_part, m_gauge_state.speed.pos, m_gauge_params.speedRestDeg);
         } else {
             dc.model = car_model;
         }
