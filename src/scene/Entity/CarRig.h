@@ -29,6 +29,7 @@
 #include <cmath>
 #include <cstdint>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -66,6 +67,13 @@ inline CarRigTag car_rig_pivot_from_node(std::string_view name) {
     if (name == "Wiper_Passenger")
         return {CarRigRole::Part, -1, RigPart::WiperPassenger, -1};
     return {};
+}
+
+// The front glass of a named rig, by mesh node name (the 993 RS: rs:LOD_A_GLASS_FRONT_mm_windows
+// and its primitive child). Only this pane gets windshield rain and the wiper clear; the side and
+// rear glass (GLASS_LEFT/RIGHT[_QUARTER], GLASS_REAR) stay plain glass.
+inline bool car_rig_is_windshield_node(std::string_view name) {
+    return name.find("GLASS_FRONT") != std::string_view::npos;
 }
 
 // The convention is accepted when all four Wheel_* pivots exist.
@@ -133,6 +141,13 @@ inline Vec3 rig_part_local_axis(RigPart p) {
             break;
     }
     return Vec3(0.f);
+}
+
+// A cabin part swept by `angle` (rad) about its spindle, in car space: the rotation about
+// the local axis conjugated through the pivot frame, F * R_axis(angle) * F^-1 (like the
+// steering wheel). Identity at angle 0.
+inline Mat4 rig_part_sweep(const Mat4& pivot_frame, RigPart p, float angle) {
+    return pivot_frame * glm::rotate(Mat4(1.f), angle, rig_part_local_axis(p)) * glm::inverse(pivot_frame);
 }
 
 // Hub pivot (authored frame) -> WheelFrame, or nullopt when a check trips. The frame

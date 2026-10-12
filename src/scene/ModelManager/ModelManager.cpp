@@ -10,6 +10,7 @@
 #include "renderer/Vertex.h"
 #include "scene/Entity/CarLights.h"
 #include "scene/Entity/CarRig.h"
+#include "scene/Entity/WiperBlade.h"
 #include "scene/SceneTypes.h"
 #include "stb_image.h"
 
@@ -480,9 +481,10 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
 
             const bool rigGlass = rig && node_in_glass[ni];
             const bool isGlass = rigGlass || (prim.material >= 0 && gltf.materials[prim.material].alphaMode == "BLEND");
-            const bool isWindshield = isGlass && (rig ? node.name == "windshield"
-                                                      : node.name.find("Window_Geo") != std::string::npos &&
-                                                            node.name.find("RED_GLASS") == std::string::npos);
+            const bool isWindshield = isGlass && (rig         ? node.name == "windshield"
+                                                  : named_rig ? car_rig_is_windshield_node(node.name)
+                                                              : node.name.find("Window_Geo") != std::string::npos &&
+                                                                    node.name.find("RED_GLASS") == std::string::npos);
 
             std::string lowerName = node.name;
             std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
@@ -788,6 +790,10 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
                   << " / " << g.track_rear_m << " m, tyre radius " << g.tyre_radius_front_m << " m" << std::endl;
     }
     car->set_light_anchors(std::move(light_anchors));
+    car->set_wiper_blades(wiper_blades_from_mesh(car->get_mesh_data(), car->get_submeshes()));  // S1b
+    for (const WiperBlade& b : car->get_wiper_blades())
+        std::cout << "ModelManager::load_car: wiper arm reach " << std::sqrt(b.tip.x * b.tip.x + b.tip.z * b.tip.z)
+                  << " m" << std::endl;
 
     return car;
 }

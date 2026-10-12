@@ -243,7 +243,7 @@ target_compile_definitions(swish_scene_core PUBLIC
 
 # --- Config baker (TOML → binary) ---
 add_executable(toml_baker tools/toml_baker.cpp)
-target_link_libraries(toml_baker PRIVATE tomlplusplus::tomlplusplus swish_warnings)
+target_link_libraries(toml_baker PRIVATE tomlplusplus::tomlplusplus swish_utils swish_warnings)  # swish_utils: GLM (WiperParams)
 target_compile_features(toml_baker PRIVATE cxx_std_23)
 # Include root: same "scene/...", "utils/..." paths as the game (it shares RoadConfig.h and Units.h).
 target_include_directories(toml_baker PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -261,7 +261,18 @@ add_custom_command(
     COMMENT "Baking road.toml -> road.bin"
 )
 
-add_custom_target(bake_configs DEPENDS ${ROAD_BIN})
+# Wipers (src/scene/Entity/WiperConfig.h): App loads wiper.bin at startup.
+set(WIPER_TOML ${CMAKE_SOURCE_DIR}/config/wiper.toml)
+set(WIPER_BIN  ${CONFIG_DIR}/wiper.bin)
+
+add_custom_command(
+    OUTPUT ${WIPER_BIN}
+    COMMAND toml_baker wiper ${WIPER_TOML} ${WIPER_BIN}
+    DEPENDS toml_baker ${WIPER_TOML}
+    COMMENT "Baking wiper.toml -> wiper.bin"
+)
+
+add_custom_target(bake_configs DEPENDS ${ROAD_BIN} ${WIPER_BIN})
 
 # --- Main executable ---
 # Sources are globbed (CONFIGURE_DEPENDS): new .cpp files under src/ are picked up

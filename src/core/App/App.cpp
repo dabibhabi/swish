@@ -62,9 +62,9 @@ void App::set_weather_preset(WeatherPreset preset) {
     std::cout << "[weather] " << weather_preset_name(preset) << std::endl;
 }
 
-void App::set_wiper(bool enabled) {
-    m_wiper_enabled = enabled;
-    m_renderer->set_wiper_enabled(enabled);
+void App::set_wiper_mode(WiperMode mode) {
+    m_wiper = wiper_set_mode(m_wiper, mode);  // the blade keeps its place; Off finishes the wipe and parks
+    std::cout << "[wiper] " << wiper_mode_name(mode) << std::endl;
 }
 
 void App::set_camera_mode(CameraMode mode) {
@@ -138,7 +138,35 @@ void App::update_car(float dt, bool debug_edit) {
 #ifdef SWISH_DEBUG_UI
     sync_car_with_debug_panel(dt, debug_edit);
 #endif
+    update_wiper(dt);
     push_car_to_renderer();
+}
+
+// One wiper angle for the frame: the rigged blades (CarEntity::get_draw_calls) and the windshield
+// rain clear (WindshieldRainPass) both read it, so the cleared glass is where the blades are.
+void App::update_wiper(float dt) {
+#ifdef SWISH_DEBUG_UI
+    const DebugParams& dp          = m_renderer->debug_params();
+    m_wiper_params.lowWipesPerMin  = dp.wiperLowWpm;
+    m_wiper_params.highWipesPerMin = dp.wiperHighWpm;
+    m_wiper_params.dwellS          = dp.wiperDwellS;
+    m_wiper_params.sweepDeg        = dp.wiperSweepDeg;
+    m_wiper_params.ease            = dp.wiperEase;
+#endif
+    m_wiper           = wiper_step(m_wiper, m_wiper_params, dt);
+    const float angle = wiper_angle(m_wiper, m_wiper_params);
+    m_car->set_wiper_angle(angle);
+
+    WiperFrame frame;
+    frame.angle    = angle;
+    frame.sweep    = glm::radians(m_wiper_params.sweepDeg);
+    frame.active   = wiper_active(m_wiper);
+    frame.carModel = m_car->get_model_matrix();
+    for (const WiperBlade& b : m_car->get_wiper_blades()) {
+        if (frame.bladeCount < frame.blades.size())
+            frame.blades[frame.bladeCount++] = b;
+    }
+    m_renderer->set_wiper(frame);
 }
 
 void App::step_car_simulation(float dt, bool debug_edit) {

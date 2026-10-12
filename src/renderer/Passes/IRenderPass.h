@@ -38,6 +38,7 @@ class GeometryProducer;
 class MaterialDescriptors;
 class PassRegistry;
 struct DebugParams;
+struct WiperFrame;
 #ifdef SWISH_DEBUG_UI
 class DebugUI;
 class SceneParamsUniform;
@@ -84,7 +85,7 @@ struct FrameUpdate {
     Vec3                 carVelocity;
     Vec3                 carPosition;
     float                rainIntensity;  // target intensity (R key / debug slider)
-    bool                 wiperEnabled;
+    const WiperFrame&    wiper;          // scene/Entity/WiperBlade.h: angle, rigged blade frames, car model
 };
 
 struct FrameCtx {

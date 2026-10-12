@@ -67,7 +67,7 @@ void App::init_key_bindings() {
         {GLFW_KEY_ESCAPE, {}, &App::on_toggle_cursor_capture},  // toggle cursor lock
         {GLFW_KEY_C, {}, &App::on_cycle_camera_mode},           // cycle camera presets
         {GLFW_KEY_R, {}, &App::on_cycle_rain},                  // off → light → heavy → off
-        {GLFW_KEY_V, {}, &App::on_toggle_wiper},                // windshield wiper sweep
+        {GLFW_KEY_V, {}, &App::on_cycle_wiper},                 // wipers: off -> intermittent -> low -> high
         {GLFW_KEY_G, {}, &App::on_cycle_weather},               // HDRI weather presets
 #ifdef SWISH_DEBUG_UI
         {GLFW_KEY_GRAVE_ACCENT, {}, &App::on_toggle_debug_edit},  // backtick: edit vs drive
@@ -100,8 +100,8 @@ void App::on_cycle_rain() {
     set_rain_level(rain_level() + 1);
 }
 
-void App::on_toggle_wiper() {
-    set_wiper(!wiper_enabled());
+void App::on_cycle_wiper() {
+    set_wiper_mode(wiper_next_mode(wiper_mode()));
 }
 
 void App::on_cycle_weather() {

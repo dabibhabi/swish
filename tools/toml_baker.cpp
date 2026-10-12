@@ -1,7 +1,8 @@
 // ═══════════════════════════════════════════════════════════════════════
 // toml_baker — Converts road.toml → road.bin (packed RoadConfig struct)
 //
-// Usage: toml_baker <input.toml> <output.bin>
+// Usage: toml_baker <input.toml> <output.bin>          (road.toml -> road.bin)
+//        toml_baker wiper <input.toml> <output.bin>    (wiper.toml -> wiper.bin, WiperConfig)
 //
 // Unit conversion:
 //   kFt = 0.3048f * 1000.0f = 304.8  (feet → world units; from utils/units/Units.h)
@@ -18,6 +19,7 @@
 
 // RoadConfig (packed layout, MAGIC, VERSION) and the unit constants come from the SAME headers the
 // game reads, so the baked layout cannot drift; RoadConfig.h static_asserts sizeof(RoadConfig).
+#include "scene/Entity/WiperConfig.h"
 #include "scene/RoadScene/RoadConfig.h"
 #include "utils/units/Units.h"
 
@@ -39,9 +41,53 @@ static bool read_color(const toml::array* arr, float out[4]) {
     return true;
 }
 
+static bool write_blob(const void* data, size_t size, const char* input_path, const char* output_path) {
+    FILE* f = std::fopen(output_path, "wb");
+    if (!f) {
+        std::cerr << "Error: cannot open output file: " << output_path << "\n";
+        return false;
+    }
+    const size_t written = std::fwrite(data, size, 1, f);
+    std::fclose(f);
+    if (written != 1) {
+        std::cerr << "Error: failed to write config\n";
+        return false;
+    }
+    std::cout << "Baked " << input_path << " -> " << output_path << " (" << size << " bytes)\n";
+    return true;
+}
+
+// config/wiper.toml -> WiperConfig. Missing keys fall back to the WiperParams defaults.
+static int bake_wiper(const char* input_path, const char* output_path) {
+    toml::table tbl;
+    try {
+        tbl = toml::parse_file(input_path);
+    } catch (const toml::parse_error& err) {
+        std::cerr << "TOML parse error: " << err << "\n";
+        return 1;
+    }
+    const swish::WiperParams d;
+    swish::WiperConfig       cfg{};
+    cfg.magic                = swish::WiperConfig::MAGIC;
+    cfg.version              = swish::WiperConfig::VERSION;
+    cfg.low_wipes_per_min    = tbl["wiper"]["low_wipes_per_min"].value_or(d.lowWipesPerMin);
+    cfg.high_wipes_per_min   = tbl["wiper"]["high_wipes_per_min"].value_or(d.highWipesPerMin);
+    cfg.intermittent_dwell_s = tbl["wiper"]["intermittent_dwell_s"].value_or(d.dwellS);
+    cfg.sweep_deg            = tbl["wiper"]["sweep_deg"].value_or(d.sweepDeg);
+    cfg.ease                 = tbl["wiper"]["ease"].value_or(d.ease);
+    if (!(cfg.low_wipes_per_min > 0.f && cfg.high_wipes_per_min > 0.f && cfg.intermittent_dwell_s >= 0.f &&
+          cfg.sweep_deg > 0.f && cfg.sweep_deg < 180.f && cfg.ease >= 0.f && cfg.ease <= 1.f)) {
+        std::cerr << "Error: wiper values out of range in " << input_path << "\n";
+        return 1;
+    }
+    return write_blob(&cfg, sizeof(cfg), input_path, output_path) ? 0 : 1;
+}
+
 int main(int argc, char* argv[]) {
+    if (argc == 4 && std::string(argv[1]) == "wiper")
+        return bake_wiper(argv[2], argv[3]);
     if (argc != 3) {
-        std::cerr << "Usage: toml_baker <input.toml> <output.bin>\n";
+        std::cerr << "Usage: toml_baker <input.toml> <output.bin> | toml_baker wiper <input.toml> <output.bin>\n";
         return 1;
     }
 
@@ -135,21 +181,5 @@ int main(int argc, char* argv[]) {
     }
 
     // ── Write binary ──────────────────────────────────────────────────
-    FILE* f = std::fopen(output_path, "wb");
-    if (!f) {
-        std::cerr << "Error: cannot open output file: " << output_path << "\n";
-        return 1;
-    }
-
-    size_t written = std::fwrite(&cfg, sizeof(RoadConfig), 1, f);
-    std::fclose(f);
-
-    if (written != 1) {
-        std::cerr << "Error: failed to write config\n";
-        return 1;
-    }
-
-    std::cout << "Baked " << input_path << " -> " << output_path
-              << " (" << sizeof(RoadConfig) << " bytes)\n";
-    return 0;
+    return write_blob(&cfg, sizeof(RoadConfig), input_path, output_path) ? 0 : 1;
 }

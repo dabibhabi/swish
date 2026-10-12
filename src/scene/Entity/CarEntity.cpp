@@ -672,6 +672,8 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
             Mat4 C   = glm::mat4_cast(m_steer_axis_correction);
             Mat4 R   = glm::rotate(Mat4(1.f), glm::radians(-sw_angle), Vec3(0.f, 0.f, 1.f));
             dc.model = car_model * s.sw_pivot_frame * C * R * glm::inverse(s.sw_pivot_frame);
+        } else if (s.rig_part == RigPart::WiperDriver || s.rig_part == RigPart::WiperPassenger) {
+            dc.model = car_model * rig_part_sweep(s.rig_pivot_frame, s.rig_part, m_wiper_angle);  // S1b wipers
         } else if (m_wheels_valid && s.wheel_corner >= 0) {
             // Road wheels: tire/rim/disc pieces spin (+steer at the front);
             // caliper pieces only steer with the front uprights.

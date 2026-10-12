@@ -8,6 +8,7 @@
 #include "RigidChassis.h"  // PhysicsModel + the 6-DOF chassis (debug-only alternative to the bicycle)
 #include "SlipVisuals.h"
 #include "WheelKinematics.h"  // CornerSpring (Phase-B suspension state)
+#include "WiperBlade.h"       // WiperBlade (rigged wiper arms, S1b)
 #include "utils/input/InputFrame.h"
 #include "utils/units/Units.h"
 
@@ -16,6 +17,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <optional>
+#include <utility>
+#include <vector>
 
 struct GLFWwindow;
 
@@ -209,6 +212,13 @@ public:
     void                                 set_rig_geometry(const CarRigGeometry& g) { m_rig_geometry = g; }
     const std::optional<CarRigGeometry>& get_rig_geometry() const { return m_rig_geometry; }
 
+    // ── Wipers (WiperBlade.h, S1b) ───────────────────────────────────
+    // The loader measures the rigged arms (empty for a car without Wiper_* pivots);
+    // App sets the one wiper angle each frame and get_draw_calls sweeps the arms by it.
+    void                           set_wiper_blades(std::vector<WiperBlade> b) { m_wiper_blades = std::move(b); }
+    const std::vector<WiperBlade>& get_wiper_blades() const { return m_wiper_blades; }
+    void                           set_wiper_angle(float rad) { m_wiper_angle = rad; }
+
     std::vector<DrawCall> get_draw_calls() const override;
 
 #ifdef SWISH_DEBUG_UI
@@ -234,7 +244,7 @@ private:
     // Active physics profile (apply_profile). Default = 992 Turbo S, the pre-profile constants.
     CarProfile m_profile{};
 
-    float     m_forward_speed  = 0.f;                     // world units / second, positive = forward
+    float     m_forward_speed  = 0.f;                       // world units / second, positive = forward
     float     m_steering_angle = 0.f;                       // degrees, negative = left, positive = right
     float     m_rain_intensity = 0.f;                       // [0,1] — drives the interior cabin wash tint
     glm::quat m_steer_axis_correction{1.f, 0.f, 0.f, 0.f};  // debug spin-axis fix (identity = none)
@@ -286,8 +296,10 @@ private:
     mutable std::vector<Mat4> m_lastExposedPrevModels;
 #endif
 
-    std::vector<CarLightAnchor>   m_light_anchors;  // car-space lamps (see set_light_anchors)
-    std::optional<CarRigGeometry> m_rig_geometry;   // loader-measured (see set_rig_geometry)
+    std::vector<CarLightAnchor>   m_light_anchors;      // car-space lamps (see set_light_anchors)
+    std::optional<CarRigGeometry> m_rig_geometry;       // loader-measured (see set_rig_geometry)
+    std::vector<WiperBlade>       m_wiper_blades;       // rigged wiper arms (see set_wiper_blades)
+    float                         m_wiper_angle = 0.f;  // rad off park (Wiper.h wiper_angle)
 #ifdef SWISH_DEBUG_UI
     // ── Rigid-body chassis (stub; RigidChassis.h) ─────────────────────
     // Only live while m_physics_model == RigidBody. The body is authoritative for pose: each step it

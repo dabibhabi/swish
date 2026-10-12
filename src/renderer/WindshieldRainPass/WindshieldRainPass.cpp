@@ -20,6 +20,7 @@
 #include "utils/vulkan/RenderPass.h"
 #include "utils/vulkan/Samplers.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -30,16 +31,39 @@ namespace swish {
 
 namespace {
 // Push-constant block for the wetness-update fullscreen pass. Mirrors the
-// `Params` block in windshield_wetness.frag (std430, 32 bytes).
+// `Params` block in windshield_wetness.frag (std430, 112 bytes).
 struct WetnessPush {
     Vec2  flow;        // screen-space flow dir (down at rest → up at speed)
     float intensity;   // rain intensity [0,1]
     float dt;          // seconds
-    float wiperAngle;  // rad
     float wiperOn;     // 0/1
     float aspect;      // width / height
     float advect;      // upstream sample distance (UV)
+    float bladeCount;  // 0..2
+    Vec4  band;        // xy = clear-band feather radii (aspect-corrected UV)
+    Vec4  prevSeg[2];  // per blade: xy = inner end, zw = tip (screen UV), last frame's angle
+    Vec4  curSeg[2];   // ... this frame's angle
 };
+static_assert(sizeof(WetnessPush) == 112, "mirror windshield_wetness.frag Params");
+
+// The default car has no rigged blades: one analytic screen-space blade on the pre-S1b pivot,
+// parked at the left of its old ±66° arc and swept to the right end (the same band it always cleared).
+constexpr Vec2  kScreenPivot   = Vec2(0.5f, 0.92f);  // screen UV, bottom centre
+constexpr float kScreenHalfArc = 1.15f;              // rad either side of vertical
+constexpr float kScreenReach   = 0.95f;              // aspect-corrected UV
+constexpr Vec4  kScreenBand    = Vec4(0.04f, 0.13f, 0.f, 0.f);
+constexpr Vec4  kRigBand       = Vec4(0.008f, 0.02f, 0.f, 0.f);  // ~ the rubber's width on screen
+constexpr Vec4  kOffscreenSeg  = Vec4(-10.f);                    // clears nothing
+constexpr float kMinClipW      = 1e-3f;
+
+// Car-space point -> screen UV (0,0 top-left, the wetness map's space); false behind the camera.
+bool project_to_screen(const Mat4& viewProjModel, Vec3 p, Vec2& uv) {
+    const Vec4 c = viewProjModel * Vec4(p, 1.f);
+    if (c.w <= kMinClipW)
+        return false;
+    uv = Vec2(c.x, c.y) / c.w * 0.5f + 0.5f;
+    return true;
+}
 }  // namespace
 
 void WindshieldRainPass::init(const PassInitCtx& ctx) {
@@ -66,7 +90,52 @@ void WindshieldRainPass::update(const FrameUpdate& u) {
     // Normalize over the car's actual top speed (kMaxSpeed, now 92000 WU/s)
     // so speedFactor still spans 0..1 across the full speed range.
     const float speedFactor = glm::clamp(carSpeed / CarEntity::kMaxSpeed, 0.0f, 1.0f);
-    step(u.frameIndex, u.dt, screenFwd, speedFactor, u.state.wetness, u.state.rainIntensity, u.wiperEnabled);
+    update_wiper(u.wiper, u.camera);
+    step(u.frameIndex, u.dt, screenFwd, speedFactor, u.state.wetness, u.state.rainIntensity);
+}
+
+void WindshieldRainPass::update_wiper(const WiperFrame& w, const Camera* camera) {
+    const float aspect = static_cast<float>(m_extent.width) / static_cast<float>(std::max(m_extent.height, 1u));
+    m_wiperOn          = w.active;
+
+    if (w.bladeCount > 0 && camera) {
+        // Rigged blades: the arm's wiped part (kWiperBladeInnerFrac of the tip out to the tip), swept by the same
+        // angle CarEntity draws, projected through this frame's camera at last frame's and this frame's angle.
+        const Mat4 vpm = camera->get_projection_matrix_unjittered() * camera->get_view_matrix() * w.carModel;
+        m_bladeCount   = static_cast<uint32_t>(std::min<size_t>(w.bladeCount, kMaxWiperBlades));
+        for (uint32_t i = 0; i < m_bladeCount; i++) {
+            const WiperBlade& b = w.blades[i];
+            Vec2              a0, b0, a1, b1;
+            const bool ok = project_to_screen(vpm, wiper_blade_point(b, m_wiperPrevAngle, kWiperBladeInnerFrac), a0) &&
+                            project_to_screen(vpm, wiper_blade_point(b, m_wiperPrevAngle, 1.f), b0) &&
+                            project_to_screen(vpm, wiper_blade_point(b, w.angle, kWiperBladeInnerFrac), a1) &&
+                            project_to_screen(vpm, wiper_blade_point(b, w.angle, 1.f), b1);
+            m_prevSeg[i]  = ok ? Vec4(a0, b0) : kOffscreenSeg;
+            m_curSeg[i]   = ok ? Vec4(a1, b1) : kOffscreenSeg;
+        }
+        m_band        = kRigBand;
+        m_screenAngle = 0.f;
+        m_sdfBlade    = false;  // the 3D arms are drawn in the G-buffer
+    } else {
+        // Screen-space fallback (no rigged blades): park = left end of the arc, the configured sweep = right end.
+        const auto screen_angle = [&](float a) {
+            const float t = w.sweep > 0.f ? glm::clamp(a / w.sweep, 0.f, 1.f) : 0.f;
+            return -kScreenHalfArc + 2.f * kScreenHalfArc * t;
+        };
+        const auto seg = [&](float s) {
+            const Vec2 dir(std::sin(s), -std::cos(s));
+            return Vec4(kScreenPivot, kScreenPivot + kScreenReach * dir / Vec2(aspect, 1.f));
+        };
+        m_prevSeg[0]  = seg(screen_angle(m_wiperPrevAngle));
+        m_curSeg[0]   = seg(screen_angle(w.angle));
+        m_bladeCount  = 1;
+        m_band        = kScreenBand;
+        m_screenAngle = screen_angle(w.angle);
+        m_sdfBlade    = w.active;  // windshield_rain.frag draws this blade
+    }
+    m_wiperAngle     = w.angle;
+    m_wiperSweep     = w.sweep;
+    m_wiperPrevAngle = w.angle;
 }
 
 void WindshieldRainPass::record(const FrameCtx& c) {
@@ -108,22 +177,8 @@ void WindshieldRainPass::create(const RendererServices&                         
 }
 
 void WindshieldRainPass::step(uint32_t frameIndex, float deltaTime, Vec2 screenFlowDir, float speedFactor,
-                              float wetness, float intensity, bool wiperEnabled) {
+                              float wetness, float intensity) {
     m_time += deltaTime;
-    m_wiperEnabled = wiperEnabled;
-
-    // Continuous wiper: advance the phase only while enabled; the blade angle
-    // is a sinusoid so the blade sweeps across the windshield and back.
-    static_assert(swish::util::units::kTwoPi == 6.2831853f, "must stay bit-identical to the previous literal");
-    constexpr float kTwoPi          = swish::util::units::kTwoPi;
-    constexpr float kWiperSpeed     = 3.2f;   // rad/s of the phase oscillator
-    constexpr float kWiperHalfSweep = 1.15f;  // ~±66° of blade travel
-    if (wiperEnabled) {
-        m_wiperPhase += kWiperSpeed * deltaTime;
-        if (m_wiperPhase > kTwoPi)
-            m_wiperPhase -= kTwoPi;
-    }
-    const float bladeAngle = std::sin(m_wiperPhase) * kWiperHalfSweep;
 
     // Water flow direction for the SCREEN-SPACE wetness-map advection. Here +Y is
     // screen-down, so gravity = (0,+1) drifts the field DOWN at rest, and aero
@@ -138,7 +193,6 @@ void WindshieldRainPass::step(uint32_t frameIndex, float deltaTime, Vec2 screenF
     m_waterFlow          = glm::normalize(glm::mix(gravity, aero, aeroBias));
     m_curIntensity       = intensity;
     m_dt                 = deltaTime;
-    m_wiperAngle         = bladeAngle;
     m_advect             = deltaTime * (0.05f + 0.30f * speedFactor);  // drift this frame (UV)
 
     WindshieldRainUBO ubo{};
@@ -149,7 +203,9 @@ void WindshieldRainPass::step(uint32_t frameIndex, float deltaTime, Vec2 screenF
     // back to 0.06 — bright bead rims, not a glowing sheet.
     ubo.params        = Vec4(wetness, intensity, 60.0f, 0.095f);
     ubo.screenAndRefr = Vec4(static_cast<float>(m_extent.width), static_cast<float>(m_extent.height), 0.0f, 0.06f);
-    ubo.wiperState    = Vec4(bladeAngle, m_wiperPhase, wiperEnabled ? 1.0f : 0.0f, kWiperSpeed);
+    // x = the screen-space blade's angle, z = draw it (default car only; the rigged car draws 3D arms),
+    // y / w = the wiper angle / sweep (rad, informational).
+    ubo.wiperState = Vec4(m_screenAngle, m_wiperAngle, m_sdfBlade ? 1.0f : 0.0f, m_wiperSweep);
     std::memcpy(m_ubos[frameIndex].mapped(), &ubo, sizeof(ubo));
 }
 
@@ -177,10 +233,15 @@ void WindshieldRainPass::record_wetness_update(VkCommandBuffer cmd) {
     pc.flow       = m_waterFlow;
     pc.intensity  = m_curIntensity;
     pc.dt         = m_dt;
-    pc.wiperAngle = m_wiperAngle;
-    pc.wiperOn    = m_wiperEnabled ? 1.0f : 0.0f;
+    pc.wiperOn    = m_wiperOn ? 1.0f : 0.0f;
     pc.aspect     = static_cast<float>(m_extent.width) / static_cast<float>(m_extent.height);
     pc.advect     = m_advect;
+    pc.bladeCount = static_cast<float>(m_bladeCount);
+    pc.band       = m_band;
+    for (size_t i = 0; i < kMaxWiperBlades; i++) {
+        pc.prevSeg[i] = m_prevSeg[i];
+        pc.curSeg[i]  = m_curSeg[i];
+    }
     vkCmdPushConstants(cmd, m_wetPipeLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);  // fullscreen triangle

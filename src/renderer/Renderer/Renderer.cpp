@@ -269,11 +269,9 @@ void Renderer::init_passes(bool resize) {
 }
 
 FrameUpdate Renderer::make_frame_update(float dt) {
-    return FrameUpdate{m_currentFrame,  dt,
-                       m_camera.get(),  tune(),
-                       m_frameState,    m_passRes,
-                       m_carVelocity,   m_carPosition,
-                       m_rainIntensity, m_wiperEnabled};
+    return FrameUpdate{m_currentFrame,  dt,        m_camera.get(), tune(),
+                       m_frameState,    m_passRes, m_carVelocity,  m_carPosition,
+                       m_rainIntensity, m_wiper};
 }
 
 const DebugParams& Renderer::tune() const {

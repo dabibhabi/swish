@@ -21,6 +21,7 @@ add_executable(swish_tests
     test_road_params.cpp
     test_car_lights.cpp
     test_car_rig.cpp
+    test_wiper.cpp
     test_rigid_chassis.cpp
     test_input.cpp
     test_bench.cpp
