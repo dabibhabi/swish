@@ -201,14 +201,14 @@ inline BenchResult skidpad_40m() {
     constexpr double R       = 40.0;
     constexpr double kappa_t = 1.0 / R;
     CarEntity        car;
-    const double     L_m    = 2.45;                // CarEntity::kWheelbase / kWuPerMetre (private there; documented)
+    const double     L_m    = 2.45;                // default (992) CarProfile wheelbase, car.wheelbase
     double           delta  = std::atan(L_m / R);  // rad, right-positive
     double           ay_ema = 0.0, peak_g = 0.0, off_t = 0.0;
     bool             limit = false, reached = false;
     auto             drive = [&](const BenchState& s, CarEntity&) {
         const double vt = std::min(6.0 + 0.5 * s.t, 60.0);
         InputFrame   f  = speed_hold(s.v_mps, vt);
-        f.steer         = static_cast<float>(std::clamp(delta / glm::radians(CarEntity::steer_max()), -1.0, 1.0));
+        f.steer         = static_cast<float>(std::clamp(delta / glm::radians(car.steer_max()), -1.0, 1.0));
         f.steer_mode    = SteerMode::Target;
         return f;
     };
@@ -218,7 +218,7 @@ inline BenchResult skidpad_40m() {
             return;
         const double kappa = s.yaw_rate / s.v_mps;
         delta += 0.5 * (kappa_t - kappa) * kDt;
-        delta = std::clamp(delta, 0.0, static_cast<double>(glm::radians(CarEntity::steer_max())));
+        delta = std::clamp(delta, 0.0, static_cast<double>(glm::radians(car.steer_max())));
         ay_ema += (s.v_mps * s.yaw_rate - ay_ema) * (kDt / 0.25);
         const double radius_err = std::abs(kappa - kappa_t) / kappa_t;
         if (radius_err < 0.10) {

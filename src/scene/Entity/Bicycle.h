@@ -231,12 +231,14 @@ inline BicycleDeriv dynamic_bicycle_deriv(float vx, float vl, float r, float del
 // TireParams too because the per-axle load-transfer geometry feeds the traction
 // model; in practice traction never binds up here (power-limited long before
 // top speed), but the signature must match.
+// `d` / `curve` default to the 992 Turbo S driveline and engine (CarProfile supplies its own).
 inline float top_speed_in_gear(int gear, const CarParams& p, const TireParams& t, const GearboxParams& g,
-                               float rWheelRear) {
+                               float rWheelRear, const DrivetrainParams& d = DrivetrainParams{},
+                               const TorqueCurve& curve = kTurboS992TorqueCurve) {
     float lo = 0.0f, hi = 150.0f;
     for (int i = 0; i < 64; ++i) {
         const float mid = 0.5f * (lo + hi);
-        if (longitudinal_accel(mid, 1.0f, 0.0f, gear, p, t, g, rWheelRear) > 0.0f)
+        if (longitudinal_accel(mid, 1.0f, 0.0f, gear, p, t, g, rWheelRear, d, AxleLateral{}, nullptr, curve) > 0.0f)
             lo = mid;
         else
             hi = mid;
@@ -253,10 +255,13 @@ inline float top_speed_in_gear(int gear, const CarParams& p, const TireParams& t
 // calibrated so the rpm at the resulting Vmax sits below redline with real
 // headroom (see the top-speed test) — top speed stays drag-limited, not
 // rev-limited.
-inline float steady_state_top_speed(const CarParams& p, const TireParams& t, const GearboxParams& g, float rWheelRear) {
+// Scans the gearCount fitted gears only (the unused ratio slots past it are not gears).
+inline float steady_state_top_speed(const CarParams& p, const TireParams& t, const GearboxParams& g, float rWheelRear,
+                                    const DrivetrainParams& d     = DrivetrainParams{},
+                                    const TorqueCurve&      curve = kTurboS992TorqueCurve) {
     float best = 0.0f;
-    for (size_t i = 0; i < g.ratios.size(); ++i)
-        best = std::max(best, top_speed_in_gear(static_cast<int>(i), p, t, g, rWheelRear));
+    for (int i = 0; i < g.gearCount; ++i)
+        best = std::max(best, top_speed_in_gear(i, p, t, g, rWheelRear, d, curve));
     return best;
 }
 

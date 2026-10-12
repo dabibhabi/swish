@@ -2,6 +2,7 @@
 
 #include "CarLights.h"   // CarLightAnchor / car_spot_lights (car lights)
 #include "CarPhysics.h"  // GearState (Wave 2 step 3b torque-curve/gearbox)
+#include "CarProfile.h"  // CarProfile: per-car physics (992 Turbo S default, 993 RS)
 #include "Entity.h"
 #include "RigidChassis.h"     // PhysicsModel + the 6-DOF chassis (debug-only alternative to the bicycle)
 #include "SlipVisuals.h"
@@ -31,6 +32,13 @@ public:
     // Advance physics: drag → steering yaw rate → position integration.
     void update(float dt) override;
 
+    // Switch the car's physics to `profile` (CarProfile.h): chassis, tyres, gearbox, torque curve,
+    // driveline, fallback wheel radius, steer lock and steering-wheel ratio. The default is
+    // car_profiles::turbo_s_992(), i.e. exactly the pre-profile behaviour. Keeps the wet-grip muDry
+    // equal to the new tireMu, re-clamps the steer angle to the new lock and the gear to the new box.
+    void              apply_profile(const CarProfile& profile);
+    const CarProfile& get_profile() const { return m_profile; }
+
     // Clamp position to road bounds (X axis).
     void set_road_bounds(float min_x, float max_x) {
         m_min_x = min_x;
@@ -44,13 +52,15 @@ public:
     float get_speed_mps() const { return m_forward_speed / kWorldUnitsPerMeter; }
 
     // Steering angle (degrees) get/set — the debug UI overrides this to pose the
-    // wheel. set clamps to the physical lock. kSteerRatio exposed for the gizmo.
+    // wheel. set clamps to the physical lock. The steer ratio is exposed for the gizmo.
+    // Lock and ratio come from the active CarProfile (992: 35°, 450/35; 993 RS: 29.5°, 16.5).
     float get_steering_angle() const { return m_steering_angle; }
     void  set_steering_angle(float deg) {
-        m_steering_angle = deg < -kMaxSteer ? -kMaxSteer : (deg > kMaxSteer ? kMaxSteer : deg);
+        const float lock = m_profile.steerLockDeg;
+        m_steering_angle = deg < -lock ? -lock : (deg > lock ? lock : deg);
     }
-    static constexpr float steer_max() { return kMaxSteer; }
-    static constexpr float steer_ratio() { return kSteerRatio; }
+    float steer_max() const { return m_profile.steerLockDeg; }
+    float steer_ratio() const { return m_profile.steerRatio; }
 
     // World-space pivot frame of the steering-wheel submesh (model * sw_pivot_frame),
     // or the car model if there's no wheel submesh. Positions the steering gizmo; its
@@ -105,12 +115,13 @@ public:
     // Engine rpm implied by this frame's speed + gear, via the SAME no-slip
     // driveline mapping CarEntity::update() already uses to drive the
     // auto-shift machine (CarPhysics.h::engine_rpm) — not new state, just the
-    // existing model evaluated for display. GearboxParams{} matches update()'s
-    // local `const GearboxParams gearbox;` (also default-constructed).
+    // existing model evaluated for display, with the active profile's gearbox.
     float get_engine_rpm() const {
-        return engine_rpm(m_forward_speed / kWorldUnitsPerMeter, m_gear_state.gear, GearboxParams{},
+        return engine_rpm(m_forward_speed / kWorldUnitsPerMeter, m_gear_state.gear, m_profile.gearbox,
                           rear_wheel_radius());
     }
+    // Fuel-cut rpm of the active profile's torque curve (zero torque at or above it).
+    float get_redline_rpm() const { return m_profile.torque.redline; }
 
     // Phase-C slip/skid/spray-boost summary (SlipVisuals.h), evaluated from the
     // CURRENT state on demand; const, touches no physics state.
@@ -120,10 +131,10 @@ public:
         in.vx    = m_forward_speed / kWorldUnitsPerMeter;
         in.vl    = m_lateral_velocity;
         in.r     = m_yaw_rate;
-        in.delta = glm::radians(std::clamp(m_steering_angle, -kMaxSteer, kMaxSteer));
+        in.delta = glm::radians(std::clamp(m_steering_angle, -m_profile.steerLockDeg, m_profile.steerLockDeg));
         in.fx    = m_long_force;
         in.mu    = m_effective_mu;
-        return compute_slip_visuals(in, CarParams{}, TireParams{}, sp);
+        return compute_slip_visuals(in, m_profile.car, m_profile.tire, sp);
     }
 
     // World-space tyre contact point of wheel c (0 FL · 1 FR · 2 BL · 3 BR), WU: the loader-recovered pivot centre
@@ -211,6 +222,9 @@ public:
 private:
     friend struct CarEntityTestAccess;  // defined in tests/test_golden_car.cpp only; no code in the app
 
+    // Active physics profile (apply_profile). Default = 992 Turbo S, the pre-profile constants.
+    CarProfile m_profile{};
+
     float     m_forward_speed  = 0.f;                     // world units / second, positive = forward
     float     m_steering_angle = 0.f;                       // degrees, negative = left, positive = right
     float     m_rain_intensity = 0.f;                       // [0,1] — drives the interior cabin wash tint
@@ -282,18 +296,17 @@ private:
     float m_brake    = 0.f;    // [0,1]
     bool  m_reverse  = false;  // DOWN held while ~stopped → creep backward
 
-    // 7-speed PDK-style auto-shift state (Wave 2 step 3b, CarPhysics.h). Pure
-    // state struct advanced each frame by gearbox_shift_step(); starts in 1st.
+    // Auto-shift state (Wave 2 step 3b, CarPhysics.h) over the profile's gearbox
+    // (7-speed PDK on the 992). Advanced each frame by gearbox_shift_step(); starts in 1st.
     GearState m_gear_state{};
 
     // Rear (driven-axle) rolling radius for the gearbox's rpm/force math —
     // the loader-measured value once wheel frames are recovered (§ Road-wheel
-    // articulation below), else this fallback (matches the task's ~0.363 m
+    // articulation below), else the profile's wheelRadiusM (992: the 0.363 m
     // measured rear radius) so the drivetrain isn't zero-force/undefined
     // before ModelManager::load_car finishes.
-    static constexpr float kFallbackRearRadiusM = 0.363f;
-    float                  rear_wheel_radius() const {
-        return m_wheels_valid ? m_wheel_frames[2].radius : kFallbackRearRadiusM;  // 2 = BL (rear)
+    float rear_wheel_radius() const {
+        return m_wheels_valid ? m_wheel_frames[2].radius : m_profile.wheelRadiusM;  // 2 = BL (rear)
     }
 
     // Lateral/yaw dynamic state (dynamic bicycle model, P0 #4). Right-positive.
@@ -311,13 +324,9 @@ private:
     static constexpr float kMaxReverseSpeed    = 12'000.f;  // ~27 mph in reverse
     static constexpr float kReverseAccel       = 6'000.f;   // WU/s²; gentle low-speed reverse
     static constexpr float kSpeedDeadZone      = 0.5f;
-    static constexpr float kWheelLockToDeg     = 450.f;  // full lock-to-lock steering range
-    static constexpr float kMaxSteer           = 35.f;   // degrees
-    static constexpr float kSteerRatio         = kWheelLockToDeg / kMaxSteer;
-    static constexpr float kSteerRate          = 90.f;   // degrees/s
-    static constexpr float kSteerReturn        = 120.f;  // return-to-center rate
-    // Real 992 Turbo S wheelbase ≈ 2.45 m (was 2.8 m).
-    static constexpr float kWheelbase = 2'450.f;  // 2.45 m in WU
+    // Steer lock, steering-wheel ratio and wheelbase live in m_profile (CarProfile.h).
+    static constexpr float kSteerRate   = 90.f;   // degrees/s
+    static constexpr float kSteerReturn = 120.f;  // return-to-center rate
     // Below this speed CarEntity::update() uses the KINEMATIC yaw model (the
     // dynamic bicycle's 1/vx is singular there), so no lateral tire forces
     // exist to feed the friction circle. Named here because both the lateral

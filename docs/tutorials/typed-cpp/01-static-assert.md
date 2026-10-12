@@ -442,3 +442,31 @@ value. Do **not** add `static_assert(MAX_FRAMES_IN_FLIGHT == 2)` here or at the 
 - [Constant expressions](https://en.cppreference.com/w/cpp/language/constant_expression)
 - [Aggregate initialization (designated initialisers)](https://en.cppreference.com/w/cpp/language/aggregate_initialization)
 - [`std::tuple_size<std::array>`](https://en.cppreference.com/w/cpp/container/array/tuple_size)
+
+## 10. Postscript (2026-10-12): `gearCount` added for the 993 profile
+
+> Added with AI assistance (Claude) during the rigged-Porsche work; owner review pending.
+
+The rigged car is a 1995 911 Carrera RS (993). Its G50/31 is a **six-speed**, so "top gear is index 6" stopped being
+true for one of the two cars. This is the edit `static_assert(kGearCount == 7, ...)` was written to catch, and it
+caught it: the message named the three lines that hard-coded 6.
+
+The fix keeps the array and adds a count:
+
+- `GearboxParams` gains `int gearCount` (7 for the 992, 6 for the 993). `ratios` keeps its 7 slots, and slots at or past
+  `gearCount` are unused (the 993 stores a `0.f` there).
+- Every validator walks `active_gear_count(g)` (that is, `gearCount` clamped into the array) instead of `ratios.size()`. A
+  new validator, `gear_count_in_range`, checks `1 <= gearCount <= kGearCount`. Without the clamp, a bad count would
+  index past the array, and in a constant expression that is a compile error with no useful message.
+- `gear_for_speed` and `gearbox_shift_step` use `gearCount - 1` as the top gear. With `gearCount == 7`, that is the old
+  `6`, so the 992 is bit-identical; `tests/test_car_profiles.cpp` checks this against frozen copies of the old functions.
+- `static_assert(kGearCount == 7, ...)` becomes `static_assert(GearboxParams{}.gearCount <= kGearCount, ...)`, plus a
+  `gear_count_in_range(GearboxParams{})` line in the block of default checks.
+
+The zero in the unused slot is deliberate: it keeps the validators meaningful. Copy the 993 box, set `gearCount = 7`,
+and `ratios_positive` fails, because that seventh "gear" was never a gear.
+
+This also pays off the **Defaults only** pitfall (section 7). The 993's numbers are not `GearboxParams{}`, so
+`car_profiles::rs_993()` is `constexpr` and gets its own `static_assert(car_profile_valid(...))` in `CarProfile.h`. The
+version that uses wheelbase and tyre radius measured from the mesh is built at runtime, and the tests call the same
+validator on it.
