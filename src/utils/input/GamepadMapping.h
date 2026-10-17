@@ -36,8 +36,7 @@ inline float apply_deadzone(float x, float dz) {
     x             = std::clamp(x, -1.f, 1.f);
     dz            = std::clamp(dz, 0.f, 0.999f);
     const float a = std::fabs(x);
-    if (a <= dz)
-        return 0.f;
+    if (a <= dz) return 0.f;
     return std::copysign((a - dz) / (1.f - dz), x);
 }
 

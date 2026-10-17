@@ -16,12 +16,8 @@ static_assert(std::is_same_v<std::remove_const_t<decltype(tag::real)>, tag::real
 static_assert(tag::is_tag_v<tag::flag_t> && tag::is_tag_v<const tag::real_t> && !tag::is_tag_v<int>);
 
 // The pattern the tags exist for: one overload per kind, picked by the tag object.
-std::string describe(tag::flag_t, bool v) {
-    return v ? "flag:1" : "flag:0";
-}
-std::string describe(tag::real_t, float v) {
-    return "real:" + std::to_string(static_cast<int>(v));
-}
+std::string describe(tag::flag_t, bool v) { return v ? "flag:1" : "flag:0"; }
+std::string describe(tag::real_t, float v) { return "real:" + std::to_string(static_cast<int>(v)); }
 
 // A generic caller (like Tunables.h visit) forwards whichever tag it was handed.
 template <class F>

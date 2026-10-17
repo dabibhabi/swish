@@ -37,9 +37,7 @@ TelemetrySample make_sample(float t) {
     return s;
 }
 
-bool bits_equal(float a, float b) {
-    return std::memcmp(&a, &b, sizeof a) == 0;
-}
+bool bits_equal(float a, float b) { return std::memcmp(&a, &b, sizeof a) == 0; }
 
 std::vector<InputFrame> scripted_run(int n) {
     std::vector<InputFrame> v;
@@ -60,13 +58,11 @@ TEST_CASE("ring wraparound and ordering", "[telemetry]") {
     CHECK(r.capacity() == 4);
     CHECK(r.size() == 0);
     CHECK(r.empty());
-    for (int i = 0; i < 3; ++i)
-        r.push(make_sample(static_cast<float>(i)));
+    for (int i = 0; i < 3; ++i) r.push(make_sample(static_cast<float>(i)));
     CHECK(r.size() == 3);
     CHECK(r.oldest().t == 0.f);
     CHECK(r.newest().t == 2.f);
-    for (int i = 3; i < 10; ++i)
-        r.push(make_sample(static_cast<float>(i)));
+    for (int i = 3; i < 10; ++i) r.push(make_sample(static_cast<float>(i)));
     CHECK(r.size() == 4);  // capped at capacity
     for (std::size_t i = 0; i < r.size(); ++i)
         CHECK(r.at(i).t == static_cast<float>(6 + i));  // oldest -> newest: 6,7,8,9
@@ -176,8 +172,7 @@ TEST_CASE("TelemetryRecorder records and replays", "[telemetry][debug]") {
     rec.start_replay(0.01f);
     CHECK(rec.replay_active());
     CHECK_FALSE(rec.recording());
-    for (int i = 0; i < 10; ++i)
-        CHECK(rec.next_replay_frame(0.01f).throttle == 1.f);
+    for (int i = 0; i < 10; ++i) CHECK(rec.next_replay_frame(0.01f).throttle == 1.f);
     CHECK_FALSE(rec.replay_active());
 }
 #endif

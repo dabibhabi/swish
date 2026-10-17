@@ -31,8 +31,6 @@ void SceneManager::set_active_scene(int index) {
     m_active_scene = index;
 }
 
-int SceneManager::get_active_scene() const {
-    return m_active_scene;
-}
+int SceneManager::get_active_scene() const { return m_active_scene; }
 
 }  // namespace swish

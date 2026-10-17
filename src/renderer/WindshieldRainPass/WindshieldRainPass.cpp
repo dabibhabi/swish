@@ -59,8 +59,7 @@ constexpr float kMinClipW      = 1e-3f;
 // Car-space point -> screen UV (0,0 top-left, the wetness map's space); false behind the camera.
 bool project_to_screen(const Mat4& viewProjModel, Vec3 p, Vec2& uv) {
     const Vec4 c = viewProjModel * Vec4(p, 1.f);
-    if (c.w <= kMinClipW)
-        return false;
+    if (c.w <= kMinClipW) return false;
     uv = Vec2(c.x, c.y) / c.w * 0.5f + 0.5f;
     return true;
 }
@@ -84,8 +83,7 @@ void WindshieldRainPass::update(const FrameUpdate& u) {
         Vec3 fwdDir = u.carVelocity / carSpeed;
         Vec4 vsFwd  = u.camera->get_view_matrix() * Vec4(fwdDir, 0.0f);
         Vec2 raw(vsFwd.x, vsFwd.y);
-        if (glm::length(raw) > 0.001f)
-            screenFwd = glm::normalize(raw);
+        if (glm::length(raw) > 0.001f) screenFwd = glm::normalize(raw);
     }
     // Normalize over the car's actual top speed (kMaxSpeed, now 92000 WU/s)
     // so speedFactor still spans 0..1 across the full speed range.
@@ -141,8 +139,7 @@ void WindshieldRainPass::update_wiper(const WiperFrame& w, const Camera* camera)
 void WindshieldRainPass::record(const FrameCtx& c) {
     const GeometryProducer& geo = *c.res.geometry;
     const SceneGeometry&    car = geo.dynamic();
-    if (geo.windshield_draws().empty() || !car.has_geometry())
-        return;
+    if (geo.windshield_draws().empty() || !car.has_geometry()) return;
 
     // Step the persistent wetness map, then snapshot the post-glass HDR scene so the windshield rain can refract it
     // (drops act as lenses). Leaves HDR in COLOR_ATTACHMENT_OPTIMAL.
@@ -292,8 +289,7 @@ void WindshieldRainPass::record_scene_snapshot(VkCommandBuffer cmd, uint32_t fra
 
 void WindshieldRainPass::record_draws(VkCommandBuffer cmd, uint32_t frameIndex, VkBuffer carVBO, VkBuffer carIBO,
                                       const std::vector<DrawCall>& windshieldDCs) const {
-    if (windshieldDCs.empty() || carVBO == VK_NULL_HANDLE)
-        return;
+    if (windshieldDCs.empty() || carVBO == VK_NULL_HANDLE) return;
 
     VkClearValue clearVals[2]{};
     auto         beginInfo      = vkx::makeRenderPassBeginInfo();
@@ -709,8 +705,6 @@ void WindshieldRainPass::createWetnessPipeline(VkDevice device, VkPipelineCache 
     m_wetPipeline = pipeline::create_graphics(device, cache, cfg, m_wetRenderPass, m_extent);
 }
 
-std::unique_ptr<IRenderPass> make_windshield_rain_pass() {
-    return std::make_unique<WindshieldRainPass>();
-}
+std::unique_ptr<IRenderPass> make_windshield_rain_pass() { return std::make_unique<WindshieldRainPass>(); }
 
 }  // namespace swish

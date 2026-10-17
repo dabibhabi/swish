@@ -161,8 +161,7 @@ public:
     // dropped by the rolling radius. Falls back to the car origin until wheel frames are loaded. Const, read-only
     // (debug per-wheel spray feed; nothing in the sim or draw path calls it).
     Vec3 get_wheel_contact_world(int c) const {
-        if (!m_wheels_valid || c < 0 || c > 3)
-            return get_position();
+        if (!m_wheels_valid || c < 0 || c > 3) return get_position();
         Vec3 p = Vec3((get_model_matrix() * m_wheel_frames[static_cast<std::size_t>(c)].frame)[3]);
         p.y -= m_wheel_frames[static_cast<std::size_t>(c)].radius * kWorldUnitsPerMeter;
         return p;

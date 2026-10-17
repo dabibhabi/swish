@@ -30,9 +30,9 @@ public:
     void declare(PassDeclaration& d) const override {
         d.write({Img::GbAlbedo, Img::GbNormal, Img::GbMaterial, Img::GbClearcoat, Img::HdrDepth});
     }
-    void        init(const PassInitCtx& ctx) override;  // depth-only + G-buffer pipelines
-    void        record(const FrameCtx& ctx) override;   // shadow atlas, G-buffer, lighting barriers
-    void        cleanup(VkDevice device) override;      // pipelines (scene buffers: destroy_scene / destroy_dynamic)
+    void init(const PassInitCtx& ctx) override;  // depth-only + G-buffer pipelines
+    void record(const FrameCtx& ctx) override;   // shadow atlas, G-buffer, lighting barriers
+    void cleanup(VkDevice device) override;      // pipelines (scene buffers: destroy_scene / destroy_dynamic)
 
     // ── CSM ──────────────────────────────────────────────────────────
     // Fit the per-cascade sun light-space matrices + split distances to the camera frustum. Call after the camera
@@ -80,12 +80,9 @@ private:
     template <class F>
     void for_each_static(F&& f) const {
         f(m_scene, Vec3(0.0f, 0.0f, m_introOffsetZ));
-        for (float slotZ : m_chunkSlotOffsetsZ)
-            f(m_chunk, Vec3(0.0f, 0.0f, slotZ));
-        for (float slotZ : m_interchangeSlotOffsetsZ)
-            f(m_interchange, Vec3(0.0f, 0.0f, slotZ));
-        for (const CorridorInstance& ci : m_corridorInstances)
-            f(m_corridorSegments[ci.segment], ci.offset);
+        for (float slotZ : m_chunkSlotOffsetsZ) f(m_chunk, Vec3(0.0f, 0.0f, slotZ));
+        for (float slotZ : m_interchangeSlotOffsetsZ) f(m_interchange, Vec3(0.0f, 0.0f, slotZ));
+        for (const CorridorInstance& ci : m_corridorInstances) f(m_corridorSegments[ci.segment], ci.offset);
     }
 
     ScenePipeline     m_scenePipeline;      // G-buffer (basic.vert + gbuffer.frag)

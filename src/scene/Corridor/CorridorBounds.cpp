@@ -31,9 +31,7 @@ void CorridorDriver::set_alignment(const CorridorAlignment* alignment) {
     }
 }
 
-void CorridorDriver::set_segments(std::vector<CorridorPlacement> placements) {
-    m_segments = std::move(placements);
-}
+void CorridorDriver::set_segments(std::vector<CorridorPlacement> placements) { m_segments = std::move(placements); }
 
 void CorridorDriver::carriageway_bounds(double s, int side, float& minLat, float& maxLat) const {
     if (!m_al || !m_al->valid()) {

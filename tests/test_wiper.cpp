@@ -18,8 +18,7 @@ constexpr float kDt = 1.f / 120.f;
 
 // Step for `seconds` at kDt; returns the final state.
 WiperState run(WiperState s, const WiperParams& p, float seconds) {
-    for (int i = 0, n = static_cast<int>(std::lround(seconds / kDt)); i < n; i++)
-        s = wiper_step(s, p, kDt);
+    for (int i = 0, n = static_cast<int>(std::lround(seconds / kDt)); i < n; i++) s = wiper_step(s, p, kDt);
     return s;
 }
 
@@ -28,8 +27,7 @@ int count_wipes(WiperState s, const WiperParams& p, float seconds) {
     int wipes = 0;
     for (int i = 0, n = static_cast<int>(std::lround(seconds / kDt)); i < n; i++) {
         const WiperState next = wiper_step(s, p, kDt);
-        if (!wiper_parked(s) && (next.phase < s.phase))
-            wipes++;
+        if (!wiper_parked(s) && (next.phase < s.phase)) wipes++;
         s = next;
     }
     return wipes;

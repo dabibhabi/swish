@@ -25,7 +25,6 @@ TEST_CASE("affine of an empty vector is empty the input is untouched", "[contain
 TEST_CASE("filled makes n copies", "[container]") {
     const auto v = uc::filled(5, 7.5f);
     REQUIRE(v.size() == 5);
-    for (float x : v)
-        CHECK(x == 7.5f);
+    for (float x : v) CHECK(x == 7.5f);
     CHECK(uc::filled(0, 1.0f).empty());
 }

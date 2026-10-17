@@ -38,16 +38,14 @@ struct LoadedRig {
 };
 
 Mat4 local_matrix(const tinygltf::Node& n) {
-    if (n.matrix.size() == 16)
-        return Mat4(glm::make_mat4(n.matrix.data()));
+    if (n.matrix.size() == 16) return Mat4(glm::make_mat4(n.matrix.data()));
     Mat4 t(1.f), r(1.f), s(1.f);
     if (n.translation.size() == 3)
         t = glm::translate(Mat4(1.f), Vec3(n.translation[0], n.translation[1], n.translation[2]));
     if (n.rotation.size() == 4)
         r = glm::mat4_cast(glm::quat(static_cast<float>(n.rotation[3]), static_cast<float>(n.rotation[0]),
                                      static_cast<float>(n.rotation[1]), static_cast<float>(n.rotation[2])));
-    if (n.scale.size() == 3)
-        s = glm::scale(Mat4(1.f), Vec3(n.scale[0], n.scale[1], n.scale[2]));
+    if (n.scale.size() == 3) s = glm::scale(Mat4(1.f), Vec3(n.scale[0], n.scale[1], n.scale[2]));
     return t * r * s;
 }
 
@@ -55,8 +53,7 @@ void walk(LoadedRig& rig, int n, const Mat4& parent) {
     const auto i   = static_cast<size_t>(n);
     rig.world[i]   = parent * local_matrix(rig.gltf.nodes[i]);
     rig.visited[i] = true;
-    for (int c : rig.gltf.nodes[i].children)
-        walk(rig, c, rig.world[i]);
+    for (int c : rig.gltf.nodes[i].children) walk(rig, c, rig.world[i]);
 }
 
 bool skip_images(tinygltf::Image*, const int, std::string*, std::string*, int, int, const unsigned char*, int, void*) {
@@ -77,16 +74,13 @@ const LoadedRig& porsche_rig() {
         r.visited.assign(n, false);
         for (size_t i = 0; i < n; i++) {
             r.names.emplace_back(r.gltf.nodes[i].name);
-            for (int c : r.gltf.nodes[i].children)
-                r.parent[static_cast<size_t>(c)] = static_cast<int>(i);
+            for (int c : r.gltf.nodes[i].children) r.parent[static_cast<size_t>(c)] = static_cast<int>(i);
         }
         const auto& scene = r.gltf.scenes[static_cast<size_t>(r.gltf.defaultScene >= 0 ? r.gltf.defaultScene : 0)];
-        for (int root : scene.nodes)
-            walk(r, root, Mat4(1.f));
+        for (int root : scene.nodes) walk(r, root, Mat4(1.f));
         for (size_t i = 0; i < n; i++) {
             const auto& node = r.gltf.nodes[i];
-            if (!r.visited[i] || node.mesh < 0)
-                continue;
+            if (!r.visited[i] || node.mesh < 0) continue;
             for (const auto& prim : r.gltf.meshes[static_cast<size_t>(node.mesh)].primitives) {
                 const auto& acc  = r.gltf.accessors[static_cast<size_t>(prim.attributes.at("POSITION"))];
                 const auto& view = r.gltf.bufferViews[static_cast<size_t>(acc.bufferView)];
@@ -104,8 +98,7 @@ const LoadedRig& porsche_rig() {
 std::array<WheelFrame, 4> recover_wheels(const LoadedRig& rig, const std::vector<CarRigTag>& tags) {
     std::array<int, 4> pivot{-1, -1, -1, -1}, spinning{0, 0, 0, 0};
     for (size_t i = 0; i < tags.size(); i++) {
-        if (tags[i].role != CarRigRole::Wheel)
-            continue;
+        if (tags[i].role != CarRigRole::Wheel) continue;
         const auto c = static_cast<size_t>(tags[i].corner);
         if (tags[i].pivot == static_cast<int>(i))
             pivot[c] = static_cast<int>(i);
@@ -185,10 +178,8 @@ TEST_CASE("porsche_rigged.glb: wheel pieces spin, calipers only steer", "[car_ri
     const auto       tags        = car_rig_tag_nodes(rig.names, rig.parent);
     int              spinning[4] = {0, 0, 0, 0}, calipers[4] = {0, 0, 0, 0};
     for (size_t i = 0; i < tags.size(); i++) {
-        if (rig.gltf.nodes[i].mesh < 0)
-            continue;
-        if (tags[i].role == CarRigRole::Wheel)
-            spinning[tags[i].corner]++;
+        if (rig.gltf.nodes[i].mesh < 0) continue;
+        if (tags[i].role == CarRigRole::Wheel) spinning[tags[i].corner]++;
         if (tags[i].role == CarRigRole::Caliper) {
             calipers[tags[i].corner]++;
             // A caliper is a sibling of its wheel, never under it: it must not inherit the spin.
@@ -207,8 +198,7 @@ TEST_CASE("porsche_rigged.glb: steering wheel turns clockwise on right steer", "
     int              pivot  = -1;
     int              meshes = 0;
     for (size_t i = 0; i < tags.size(); i++) {
-        if (tags[i].role != CarRigRole::SteeringWheel)
-            continue;
+        if (tags[i].role != CarRigRole::SteeringWheel) continue;
         if (tags[i].pivot == static_cast<int>(i))
             pivot = static_cast<int>(i);
         else if (rig.gltf.nodes[i].mesh >= 0)
@@ -236,8 +226,7 @@ TEST_CASE("porsche_rigged.glb: needles and wipers are tagged with their pivot fr
     const auto       tags     = car_rig_tag_nodes(rig.names, rig.parent);
     int              count[5] = {0, 0, 0, 0, 0};
     for (size_t i = 0; i < tags.size(); i++) {
-        if (tags[i].role != CarRigRole::Part || rig.gltf.nodes[i].mesh < 0)
-            continue;
+        if (tags[i].role != CarRigRole::Part || rig.gltf.nodes[i].mesh < 0) continue;
         count[static_cast<int>(tags[i].part)]++;
         const Mat4 F      = normalize_pivot_frame(rig.world[static_cast<size_t>(tags[i].pivot)], rig.ground_y);
         const Vec3 axis   = glm::normalize(glm::mat3(F) * rig_part_local_axis(tags[i].part));
@@ -259,15 +248,13 @@ namespace {
 // The car-space (normalized, grounded) positions and normals of one mesh node, as ModelManager emits them.
 void car_space_vertices(const LoadedRig& rig, size_t node, std::vector<Vec3>& pos, std::vector<Vec3>& nrm) {
     const auto& n = rig.gltf.nodes[node];
-    if (n.mesh < 0)
-        return;
+    if (n.mesh < 0) return;
     const Mat4      W = rig.world[node];
     const glm::mat3 N = glm::transpose(glm::inverse(glm::mat3(W)));
     for (const auto& prim : rig.gltf.meshes[static_cast<size_t>(n.mesh)].primitives) {
         const auto read = [&](const char* attr) -> const float* {
             const auto it = prim.attributes.find(attr);
-            if (it == prim.attributes.end())
-                return nullptr;
+            if (it == prim.attributes.end()) return nullptr;
             const auto& acc  = rig.gltf.accessors[static_cast<size_t>(it->second)];
             const auto& view = rig.gltf.bufferViews[static_cast<size_t>(acc.bufferView)];
             return reinterpret_cast<const float*>(rig.gltf.buffers[static_cast<size_t>(view.buffer)].data.data() +
@@ -329,8 +316,7 @@ TEST_CASE("porsche_rigged.glb: wiper arms measured from the mesh sweep up the gl
     int              arms = 0;
     for (size_t i = 0; i < tags.size(); i++) {
         const bool wiper = tags[i].part == RigPart::WiperDriver || tags[i].part == RigPart::WiperPassenger;
-        if (!wiper || rig.gltf.nodes[i].mesh < 0)
-            continue;
+        if (!wiper || rig.gltf.nodes[i].mesh < 0) continue;
         arms++;
         std::vector<Vec3> pos, nrm;
         car_space_vertices(rig, i, pos, nrm);

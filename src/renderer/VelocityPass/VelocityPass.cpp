@@ -33,23 +33,19 @@ void VelocityPass::onResize(const PassInitCtx& ctx) {
 }
 
 void VelocityPass::publish(ImageRegistry& images) const {
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-        images.set(Img::Velocity, i, m_images[i].handle(), m_views[i]);
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) images.set(Img::Velocity, i, m_images[i].handle(), m_views[i]);
 }
 
 void VelocityPass::update(const FrameUpdate& u) {
-    if (!u.tune.taaEnabled || !u.camera)
-        return;
+    if (!u.tune.taaEnabled || !u.camera) return;
     m_prevViewProj = m_lastUnjit;
     m_lastUnjit    = u.camera->get_projection_matrix_unjittered() * u.camera->get_view_matrix();
 }
 
 void VelocityPass::record(const FrameCtx& c) {
-    if (!c.tune.taaEnabled)
-        return;
+    if (!c.tune.taaEnabled) return;
     const SceneGeometry& car = c.res.geometry->dynamic();
-    if (!c.camera || !car.has_geometry())
-        return;
+    if (!c.camera || !car.has_geometry()) return;
 
     const Mat4 curViewProj = c.camera->get_projection_matrix() * c.camera->get_view_matrix();
     draw(c.cmd, c.frameIndex, car.get_vertex_buffer(), car.get_index_buffer(), car.get_draw_calls(),
@@ -72,8 +68,7 @@ void VelocityPass::create(const RendererServices& s, const std::array<VkImageVie
 void VelocityPass::draw(VkCommandBuffer cmd, uint32_t frameIndex, VkBuffer carVBO, VkBuffer carIBO,
                         const std::vector<DrawCall>& draws, const std::vector<Mat4>& prevModels,
                         const Mat4& curViewProj, const Mat4& prevViewProj) const {
-    if (draws.empty() || carVBO == VK_NULL_HANDLE)
-        return;
+    if (draws.empty() || carVBO == VK_NULL_HANDLE) return;
 
     // Topology just changed (e.g. wheel frames loaded mid-flight) — fall back to
     // "no motion this frame" for every draw rather than mis-pairing indices.
@@ -243,9 +238,7 @@ void VelocityPass::createPipeline(VkDevice device, VkPipelineCache cache) {
     m_pipeline = pipeline::create_graphics(device, cache, cfg, m_renderPass, m_extent);
 }
 
-std::unique_ptr<IRenderPass> make_velocity_pass() {
-    return std::make_unique<VelocityPass>();
-}
+std::unique_ptr<IRenderPass> make_velocity_pass() { return std::make_unique<VelocityPass>(); }
 
 }  // namespace swish
 

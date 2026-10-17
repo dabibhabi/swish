@@ -64,8 +64,7 @@ void RoadScene::generate_guardrail(MeshBuilder& builder, const RoadLayout& layou
     Vec4  fence_tint  = {0.55f, 0.58f, 0.55f, 1.0f};
 
     auto emit_eb_wall = [&](float za, float zb) {
-        if (!(za < zb))
-            return;
+        if (!(za < zb)) return;
         builder.addVerticalFace(rail_x, wall_height, za, zb, kLeft, wall_tint, MAT_CONCRETE, m_concrete_tile);
         builder.addVerticalFace(rail_x + wall_thick, wall_height, za, zb, kRight, wall_dark, MAT_CONCRETE,
                                 m_concrete_tile);
@@ -485,8 +484,7 @@ void RoadScene::generate_sound_barriers(MeshBuilder& builder, const RoadLayout& 
     Vec4  post_tint    = {0.65f, 0.63f, 0.60f, 1.0f};  // concrete post
 
     auto emit_eb_panels = [&](float za, float zb) {
-        if (!(za < zb))
-            return;
+        if (!(za < zb)) return;
         builder.addVerticalFace(wall_x, panel_top, za, zb, kLeft, panel_tint_front, MAT_CONCRETE, m_concrete_tile);
         builder.addVerticalFace(wall_x + panel_w, panel_top, za, zb, kRight, panel_tint_back, MAT_CONCRETE,
                                 m_concrete_tile);

@@ -45,10 +45,8 @@ float engine_torque(float rpm) {
     };
     constexpr float  kRedline = 7200.f;
     constexpr size_t kCurveN  = sizeof(kCurve) / sizeof(kCurve[0]);
-    if (rpm >= kRedline)
-        return 0.f;
-    if (rpm <= kCurve[0].rpm)
-        return kCurve[0].nm;
+    if (rpm >= kRedline) return 0.f;
+    if (rpm <= kCurve[0].rpm) return kCurve[0].nm;
     for (size_t i = 0; i + 1 < kCurveN; ++i) {
         if (rpm >= kCurve[i].rpm && rpm <= kCurve[i + 1].rpm) {
             const float f = (rpm - kCurve[i].rpm) / (kCurve[i + 1].rpm - kCurve[i].rpm);
@@ -59,8 +57,7 @@ float engine_torque(float rpm) {
 }
 int gear_for_speed(float v, const GearboxParams& g, float rWheel) {
     for (int i = 0; i < 6; ++i) {
-        if (engine_rpm(v, i, g, rWheel) < g.upshiftRpm)
-            return i;
+        if (engine_rpm(v, i, g, rWheel) < g.upshiftRpm) return i;
     }
     return 6;
 }
@@ -140,8 +137,7 @@ TEST_CASE("993 RS: 0-100 km/h through the real CarEntity is 4.8-5.6 s", "[car][p
 
 TEST_CASE("993 RS: redline 6800 rpm, zero torque at and above it, spec anchors hit", "[car][profile]") {
     REQUIRE(kRs.torque.redline == 6800.f);
-    for (float rpm = 6800.f; rpm <= 12000.f; rpm += 50.f)
-        REQUIRE(engine_torque(rpm, kRs.torque) == 0.f);
+    for (float rpm = 6800.f; rpm <= 12000.f; rpm += 50.f) REQUIRE(engine_torque(rpm, kRs.torque) == 0.f);
     REQUIRE(engine_torque(6799.f, kRs.torque) > 0.f);
     REQUIRE_THAT(engine_torque(5400.f, kRs.torque), WithinAbs(355.f, 1e-3f));  // peak torque [spec]
     const float omega6500 = 6500.f * 2.f * kEnginePi / 60.f;

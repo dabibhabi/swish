@@ -102,8 +102,7 @@ inline WheelSlipVisual make_wheel_slip_visual(float slipRatio, float slipAngle, 
     WheelSlipVisual w;
     w.slipRatio = slipRatio;
     w.slipAngle = slipAngle;
-    if (std::fabs(speed) <= sp.minSpeed)
-        return w;
+    if (std::fabs(speed) <= sp.minSpeed) return w;
     const float aR = std::fabs(slipRatio);
     const float aA = std::fabs(slipAngle);
     const float s  = std::max(slip_detail::smoothstep01(aR, sp.ratioStart, sp.ratioFull),

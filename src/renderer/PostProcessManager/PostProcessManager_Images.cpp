@@ -98,8 +98,7 @@ void PostProcessManager::createImages() {
         VmaAllocationCreateInfo bai{};
         bai.usage = VMA_MEMORY_USAGE_AUTO;
         bai.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
-        for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
-            m_lumReadback[i] = GpuBuffer(m_allocator, bi, bai);
+        for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) m_lumReadback[i] = GpuBuffer(m_allocator, bi, bai);
     }
 
     // CSM shadow atlas (kShadowAtlasW × kShadowDim, D32_SFLOAT, per frame):
@@ -139,10 +138,8 @@ void PostProcessManager::destroyImages() {
     destroy(m_ssrImage, m_ssrView);
     destroy(m_godraysImage, m_godraysView);
     m_lumImage.reset();  // no view (transfer-only)
-    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
-        m_lumReadback[i].reset();
-    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
-        destroy(m_shadowImages[i], m_shadowViews[i]);
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) m_lumReadback[i].reset();
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) destroy(m_shadowImages[i], m_shadowViews[i]);
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -228,10 +225,8 @@ void PostProcessManager::destroyFramebuffers() {
     destroy(m_aoBlurFB);
     destroy(m_ssrFB);
     destroy(m_godraysFB);
-    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
-        destroy(m_shadowFramebuffers[i]);
-    for (auto& fb : m_compositeFBs)
-        destroy(fb);
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) destroy(m_shadowFramebuffers[i]);
+    for (auto& fb : m_compositeFBs) destroy(fb);
     m_compositeFBs.clear();
 }
 

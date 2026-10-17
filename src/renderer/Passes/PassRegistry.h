@@ -45,8 +45,7 @@ public:
     template <class T>
     T* find() const {
         for (const Entry& e : m_entries)
-            if (auto* p = dynamic_cast<T*>(e.pass))
-                return p;
+            if (auto* p = dynamic_cast<T*>(e.pass)) return p;
         return nullptr;
     }
 

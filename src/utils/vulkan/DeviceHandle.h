@@ -90,7 +90,7 @@ public:
         m_services = nullptr;
     }
 
-    [[nodiscard]] H get() const { return m_handle; }
+    [[nodiscard]] H        get() const { return m_handle; }
     [[nodiscard]] explicit operator bool() const { return m_handle != H{}; }
 
     // Gives up ownership; the caller must destroy the handle.

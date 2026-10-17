@@ -63,8 +63,7 @@ glm::mat4 gltf_node_local_matrix(const tinygltf::Node& node) {
     if (node.rotation.size() == 4)  // glTF order: x, y, z, w
         r = glm::mat4_cast(glm::quat(static_cast<float>(node.rotation[3]), static_cast<float>(node.rotation[0]),
                                      static_cast<float>(node.rotation[1]), static_cast<float>(node.rotation[2])));
-    if (node.scale.size() == 3)
-        s = glm::scale(glm::mat4(1.f), glm::vec3(node.scale[0], node.scale[1], node.scale[2]));
+    if (node.scale.size() == 3) s = glm::scale(glm::mat4(1.f), glm::vec3(node.scale[0], node.scale[1], node.scale[2]));
     return t * r * s;
 }
 
@@ -74,8 +73,7 @@ void gltf_walk_nodes(const tinygltf::Model& model, int node_idx, const glm::mat4
     glm::mat4   w     = parent * gltf_node_local_matrix(node);
     world[node_idx]   = w;
     visited[node_idx] = true;
-    for (int child : node.children)
-        gltf_walk_nodes(model, child, w, world, visited);
+    for (int child : node.children) gltf_walk_nodes(model, child, w, world, visited);
 }
 
 enum class WheelPieceClass : uint8_t { None, Spinning, Caliper };
@@ -106,8 +104,7 @@ void classify_wheel_nodes(const tinygltf::Model& model, int node_idx, WheelPiece
     }
     out[node_idx]     = current;
     hub_out[node_idx] = hub;
-    for (int child : node.children)
-        classify_wheel_nodes(model, child, current, hub, hub_prefix, out, hub_out);
+    for (int child : node.children) classify_wheel_nodes(model, child, current, hub, hub_prefix, out, hub_out);
 }
 
 // Rig-convention wheel frame in RootNode-relative (pre-normalization) space:
@@ -141,12 +138,10 @@ static void transcodeIndices(const tinygltf::Model& gltf, int accessor, size_t n
 // Upload one decoded image to TextureManager; returns name on success, "" on failure.
 std::string upload_gltf_image(const tinygltf::Model& model, int image_idx, const std::string& name,
                               TextureManager& tex_mgr) {
-    if (image_idx < 0 || image_idx >= static_cast<int>(model.images.size()))
-        return "";
+    if (image_idx < 0 || image_idx >= static_cast<int>(model.images.size())) return "";
 
     const auto& img = model.images[image_idx];
-    if (img.image.empty())
-        return "";
+    if (img.image.empty()) return "";
 
     std::vector<uint8_t> rgba;
     if (img.component == 4) {
@@ -183,8 +178,7 @@ std::string upload_gltf_roughness(const tinygltf::Model& model, int image_idx, c
 
     const auto& img   = model.images[image_idx];
     const int   comps = img.component;
-    if (comps < 2 || comps > 4)
-        return "";
+    if (comps < 2 || comps > 4) return "";
 
     const int            pixel_count = img.width * img.height;
     std::vector<uint8_t> rgba(static_cast<size_t>(pixel_count) * 4);
@@ -208,20 +202,17 @@ std::vector<uint32_t> gltf_read_indices(const tinygltf::Model& gltf, int accesso
     switch (gltf.accessors[accessor].componentType) {
         case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT: {
             const auto* p = gltf_accessor_data<uint32_t>(gltf, accessor);
-            for (size_t i = 0; i < n; i++)
-                out[i] = p[i];
+            for (size_t i = 0; i < n; i++) out[i] = p[i];
             break;
         }
         case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: {
             const auto* p = gltf_accessor_data<uint16_t>(gltf, accessor);
-            for (size_t i = 0; i < n; i++)
-                out[i] = p[i];
+            for (size_t i = 0; i < n; i++) out[i] = p[i];
             break;
         }
         case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE: {
             const auto* p = gltf_accessor_data<uint8_t>(gltf, accessor);
-            for (size_t i = 0; i < n; i++)
-                out[i] = p[i];
+            for (size_t i = 0; i < n; i++) out[i] = p[i];
             break;
         }
         default:
@@ -240,16 +231,14 @@ std::vector<glm::vec4> generate_tangents(const float* pos, const float* nrm, con
     std::vector<glm::vec3> tan(nv, glm::vec3(0.f)), bit(nv, glm::vec3(0.f));
     for (size_t i = 0; i + 2 < idx.size(); i += 3) {
         const uint32_t a = idx[i], b = idx[i + 1], c = idx[i + 2];
-        if (a >= nv || b >= nv || c >= nv)
-            continue;
+        if (a >= nv || b >= nv || c >= nv) continue;
         const glm::vec3 p0(pos[a * 3], pos[a * 3 + 1], pos[a * 3 + 2]);
         const glm::vec3 e1  = glm::vec3(pos[b * 3], pos[b * 3 + 1], pos[b * 3 + 2]) - p0;
         const glm::vec3 e2  = glm::vec3(pos[c * 3], pos[c * 3 + 1], pos[c * 3 + 2]) - p0;
         const float     du1 = uv[b * 2] - uv[a * 2], dv1 = uv[b * 2 + 1] - uv[a * 2 + 1];
         const float     du2 = uv[c * 2] - uv[a * 2], dv2 = uv[c * 2 + 1] - uv[a * 2 + 1];
         const float     det = du1 * dv2 - du2 * dv1;
-        if (std::abs(det) < 1e-20f)
-            continue;
+        if (std::abs(det) < 1e-20f) continue;
         const float     r  = 1.f / det;
         const glm::vec3 t  = (e1 * dv2 - e2 * dv1) * r;
         const glm::vec3 bt = (e2 * du1 - e1 * du2) * r;
@@ -283,10 +272,8 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     std::string        err, warn;
 
     bool ok = loader.LoadBinaryFromFile(&gltf, &err, &warn, path);
-    if (!ok || !err.empty())
-        throw std::runtime_error("ModelManager::load_car: '" + path + "': " + err);
-    if (gltf.meshes.empty())
-        throw std::runtime_error("ModelManager::load_car: no meshes in '" + path + "'");
+    if (!ok || !err.empty()) throw std::runtime_error("ModelManager::load_car: '" + path + "': " + err);
+    if (gltf.meshes.empty()) throw std::runtime_error("ModelManager::load_car: no meshes in '" + path + "'");
 
     TextureManager* tex_mgr = m_renderer->get_texture_manager();
 
@@ -302,8 +289,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     std::vector<int>              node_parent(gltf.nodes.size(), -1);
     for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
         node_names.emplace_back(gltf.nodes[ni].name);
-        for (int child : gltf.nodes[ni].children)
-            node_parent[static_cast<size_t>(child)] = static_cast<int>(ni);
+        for (int child : gltf.nodes[ni].children) node_parent[static_cast<size_t>(child)] = static_cast<int>(ni);
     }
     const bool                   named_rig = car_rig_detect(node_names);
     const std::vector<CarRigTag> rig_tags =
@@ -340,8 +326,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
                 1);
 
         int normal_img = -1;
-        if (mat.normalTexture.index >= 0)
-            normal_img = gltf.textures[mat.normalTexture.index].source;
+        if (mat.normalTexture.index >= 0) normal_img = gltf.textures[mat.normalTexture.index].source;
         std::string normal_name = slot + "_normal";
         if (upload_gltf_image(gltf, normal_img, normal_name, *tex_mgr).empty())
             tex_mgr->register_from_pixels(normal_name, {128, 128, 255, 255}, 1, 1);
@@ -361,8 +346,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     std::vector<glm::mat4> node_world(gltf.nodes.size(), glm::mat4(1.f));
     std::vector<bool>      node_visited(gltf.nodes.size(), false);
     const auto&            scene = gltf.scenes[gltf.defaultScene >= 0 ? gltf.defaultScene : 0];
-    for (int root : scene.nodes)
-        gltf_walk_nodes(gltf, root, glm::mat4(1.f), node_world, node_visited);
+    for (int root : scene.nodes) gltf_walk_nodes(gltf, root, glm::mat4(1.f), node_world, node_visited);
 
     // Rig glass is grouped under a "Glass" node rather than flagged BLEND in its
     // materials (they're all OPAQUE), so mark that subtree by ancestry.
@@ -370,8 +354,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     if (rig) {
         const std::function<void(int)> mark = [&](int n) {
             node_in_glass[n] = true;
-            for (int c : gltf.nodes[n].children)
-                mark(c);
+            for (int c : gltf.nodes[n].children) mark(c);
         };
         // The Hellcat has no "Glass" group node: tag its six panes by node name instead.
         static constexpr const char* kHellcatGlass[] = {"windshield", "rear_windshield", "window_FL",
@@ -404,10 +387,8 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     glm::mat4   sw_pivot_frame(1.f);
     bool        found_sw_pivot = false;
     for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
-        if (!rig && gltf.nodes[ni].name == "RootNode")
-            ref_inverse = glm::inverse(node_world[ni]);
-        if (gltf.nodes[ni].name == sw_node_name)
-            steering_wheel_idx = static_cast<int>(ni);
+        if (!rig && gltf.nodes[ni].name == "RootNode") ref_inverse = glm::inverse(node_world[ni]);
+        if (gltf.nodes[ni].name == sw_node_name) steering_wheel_idx = static_cast<int>(ni);
     }
     if (steering_wheel_idx >= 0 && node_visited[steering_wheel_idx]) {
         sw_pivot_frame = ref_inverse * node_world[steering_wheel_idx];
@@ -418,10 +399,8 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     std::array<int, 4> rig_wheel_pivot{-1, -1, -1, -1};
     for (size_t ni = 0; named_rig && ni < gltf.nodes.size(); ni++) {
         const CarRigTag& t = rig_tags[ni];
-        if (t.pivot != static_cast<int>(ni) || !node_visited[ni])
-            continue;
-        if (t.role == CarRigRole::Wheel)
-            rig_wheel_pivot[static_cast<size_t>(t.corner)] = static_cast<int>(ni);
+        if (t.pivot != static_cast<int>(ni) || !node_visited[ni]) continue;
+        if (t.role == CarRigRole::Wheel) rig_wheel_pivot[static_cast<size_t>(t.corner)] = static_cast<int>(ni);
         if (t.role == CarRigRole::SteeringWheel) {
             sw_pivot_frame = ref_inverse * node_world[ni];
             found_sw_pivot = true;
@@ -433,8 +412,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         // exporter's Y-up swap): the column axis, pointing forward-down. Build an
         // orthonormal frame (Z = axis, X = up × Z, Y = Z × X) at its origin.
         for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
-            if (gltf.nodes[ni].name != "HELCAT_ASM_SteeringSpin" || !node_visited[ni])
-                continue;
+            if (gltf.nodes[ni].name != "HELCAT_ASM_SteeringSpin" || !node_visited[ni]) continue;
             const glm::vec3 axis = glm::normalize(glm::vec3(node_world[ni][1]));
             const glm::vec3 x    = glm::normalize(glm::cross(glm::vec3(0.f, 1.f, 0.f), axis));
             glm::mat4       F(1.f);
@@ -467,8 +445,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
 
     for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
         const auto& node = gltf.nodes[ni];
-        if (!node_visited[ni] || node.mesh < 0)
-            continue;
+        if (!node_visited[ni] || node.mesh < 0) continue;
 
         glm::mat4 xform      = ref_inverse * node_world[ni];
         glm::mat3 normal_mat = glm::transpose(glm::inverse(glm::mat3(xform)));
@@ -476,8 +453,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         const WheelPieceClass wclass = node_wheel_class[ni];
 
         for (const auto& prim : gltf.meshes[node.mesh].primitives) {
-            if (prim.mode != TINYGLTF_MODE_TRIANGLES || prim.indices < 0)
-                continue;
+            if (prim.mode != TINYGLTF_MODE_TRIANGLES || prim.indices < 0) continue;
 
             const bool rigGlass = rig && node_in_glass[ni];
             const bool isGlass = rigGlass || (prim.material >= 0 && gltf.materials[prim.material].alphaMode == "BLEND");
@@ -492,8 +468,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
             const bool isInterior = !isGlass && lowerName.find("interior") != std::string::npos;
 
             auto pos_it = prim.attributes.find("POSITION");
-            if (pos_it == prim.attributes.end())
-                continue;
+            if (pos_it == prim.attributes.end()) continue;
 
             auto norm_it = prim.attributes.find("NORMAL");
             auto uv_it   = prim.attributes.find("TEXCOORD_0");
@@ -639,8 +614,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         }
     }
 
-    if (mesh.empty())
-        throw std::runtime_error("ModelManager::load_car: no usable geometry in '" + path + "'");
+    if (mesh.empty()) throw std::runtime_error("ModelManager::load_car: no usable geometry in '" + path + "'");
 
     glm::vec3 bb_min(std::numeric_limits<float>::max());
     glm::vec3 bb_max(std::numeric_limits<float>::lowest());
@@ -660,8 +634,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         sw_pivot_frame = norm_matrix_y90(sw_pivot_frame);
         sw_pivot_frame[3].y -= bb_min.y;
 
-        for (int c = 0; c < 3; c++)
-            sw_pivot_frame[c] = glm::vec4(glm::normalize(glm::vec3(sw_pivot_frame[c])), 0.f);
+        for (int c = 0; c < 3; c++) sw_pivot_frame[c] = glm::vec4(glm::normalize(glm::vec3(sw_pivot_frame[c])), 0.f);
 
         // CarEntity turns the wheel about the pivot's local +Z, which the Porsche
         // authors pointing FORWARD (+X). The rig's steering_wheel points it back at
@@ -674,15 +647,13 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     }
     if (found_sw_pivot) {
         for (auto& sm : submeshes) {
-            if (sm.is_steering_wheel)
-                sm.sw_pivot_frame = sw_pivot_frame;
+            if (sm.is_steering_wheel) sm.sw_pivot_frame = sw_pivot_frame;
         }
     }
     // Named-rig needles / wipers: same normalization as the steering pivot.
     for (auto* list : {&submeshes, &glassSubmeshes}) {
         for (auto& sm : *list) {
-            if (sm.rig_part != RigPart::None)
-                sm.rig_pivot_frame = normalize_pivot_frame(sm.rig_pivot_frame, bb_min.y);
+            if (sm.rig_part != RigPart::None) sm.rig_pivot_frame = normalize_pivot_frame(sm.rig_pivot_frame, bb_min.y);
         }
     }
 
@@ -707,8 +678,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         }
         glm::mat4 F = norm_matrix_y90(acc.frame);  // Frame
         F[3].y -= bb_min.y;
-        for (int col = 0; col < 3; col++)
-            F[col] = glm::vec4(glm::normalize(glm::vec3(F[col])), 0.f);
+        for (int col = 0; col < 3; col++) F[col] = glm::vec4(glm::normalize(glm::vec3(F[col])), 0.f);
 
         WheelFrame wf;
         wf.frame  = F;
@@ -717,8 +687,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
         const glm::vec3 axle(glm::normalize(glm::vec3(F[0])));
         wf.spin_sign = axle.z > 0.f ? -1.f : 1.f;
 
-        if (std::abs(axle.z) < 0.9f || wf.radius < 0.25f || wf.radius > 0.45f)
-            wheels_ok = false;
+        if (std::abs(axle.z) < 0.9f || wf.radius < 0.25f || wf.radius > 0.45f) wheels_ok = false;
         wheel_frames[c] = wf;
     }
     if (!wheels_ok) {
@@ -764,8 +733,7 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
     std::vector<CarLightAnchor> light_anchors;
     for (size_t ni = 0; ni < gltf.nodes.size(); ni++) {
         const auto kind = car_light_kind_from_node(gltf.nodes[ni].name);
-        if (!kind || !node_visited[ni])
-            continue;
+        if (!kind || !node_visited[ni]) continue;
         const glm::mat4 M = ref_inverse * node_world[ni];
         const glm::vec3 p(M[3]);
         const glm::vec3 d = -glm::normalize(glm::vec3(M[2]));
@@ -776,10 +744,8 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
 
     auto car = std::make_unique<CarEntity>();
     car->set_mesh_data(std::move(mesh));
-    for (const auto& sm : submeshes)
-        car->add_submesh(sm);
-    for (const auto& sm : glassSubmeshes)
-        car->add_glass_submesh(sm);
+    for (const auto& sm : submeshes) car->add_submesh(sm);
+    for (const auto& sm : glassSubmeshes) car->add_glass_submesh(sm);
     if (wheels_ok) {
         car->set_wheel_frames(wheel_frames);
         car->set_rig_geometry(measure_car_rig_geometry(wheel_frames, named_rig));

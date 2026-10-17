@@ -20,8 +20,7 @@ void GpuProfiler::init(const RendererServices& svc, u32 graphicsQueueFamily, con
     m_passCount = static_cast<u32>(passes.size());
 
     m_snap = {};
-    for (std::string_view n : passes.names())
-        m_snap.names.emplace_back(n);
+    for (std::string_view n : passes.names()) m_snap.names.emplace_back(n);
     m_snap.ms.assign(m_passCount, 0.0f);
     m_snap.smoothedMs.assign(m_passCount, 0.0f);
 
@@ -75,8 +74,7 @@ void GpuProfiler::write_boundary(VkCommandBuffer cmd, u32 slot, u32 boundary) co
 }
 
 void GpuProfiler::on_record_begin(VkCommandBuffer cmd, u32 frameIndex) {
-    if (m_pool == VK_NULL_HANDLE)
-        return;
+    if (m_pool == VK_NULL_HANDLE) return;
     const u32 slot = gpuprof::ring_slot(frameIndex, MAX_FRAMES_IN_FLIGHT);
     vkCmdResetQueryPool(cmd, m_pool, gpuprof::slot_base(slot, m_passCount), gpuprof::boundary_count(m_passCount));
     write_boundary(cmd, slot, 0);
@@ -84,25 +82,21 @@ void GpuProfiler::on_record_begin(VkCommandBuffer cmd, u32 frameIndex) {
 }
 
 void GpuProfiler::on_pass_recorded(VkCommandBuffer cmd, u32 frameIndex, usize passIndex) {
-    if (m_pool == VK_NULL_HANDLE || passIndex >= m_passCount)
-        return;
+    if (m_pool == VK_NULL_HANDLE || passIndex >= m_passCount) return;
     write_boundary(cmd, gpuprof::ring_slot(frameIndex, MAX_FRAMES_IN_FLIGHT), static_cast<u32>(passIndex) + 1);
 }
 
 void GpuProfiler::collect(u32 frameSlot, float dt) {
-    if (m_pool == VK_NULL_HANDLE)
-        return;
+    if (m_pool == VK_NULL_HANDLE) return;
     const u32 slot = gpuprof::ring_slot(frameSlot, MAX_FRAMES_IN_FLIGHT);
-    if (!m_pending[slot])
-        return;  // first frames, or the slot was not recorded (early-out frame)
+    if (!m_pending[slot]) return;  // first frames, or the slot was not recorded (early-out frame)
 
     const u32 count = gpuprof::boundary_count(m_passCount);
     // No VK_QUERY_RESULT_WAIT_BIT: the slot's fence is already signalled, so this normally succeeds; if the driver
     // still reports NOT_READY we skip this read-back instead of stalling and try again next time.
     const VkResult r = vkGetQueryPoolResults(m_device, m_pool, gpuprof::slot_base(slot, m_passCount), count,
                                              count * sizeof(u64), m_raw.data(), sizeof(u64), VK_QUERY_RESULT_64_BIT);
-    if (r == VK_NOT_READY)
-        return;
+    if (r == VK_NOT_READY) return;
     VK_CHECK(r);
     m_pending[slot] = false;
 

@@ -53,8 +53,7 @@ std::span<const Img> default_primed_images() {
 std::vector<std::string> validate_pass_declarations(const std::vector<NamedDeclaration>& ordered,
                                                     std::span<const Img>                 primed) {
     std::array<bool, kImgCount> written{};
-    for (Img p : primed)
-        written[static_cast<std::size_t>(p)] = true;
+    for (Img p : primed) written[static_cast<std::size_t>(p)] = true;
 
     std::vector<std::string> warnings;
     for (const NamedDeclaration& nd : ordered) {
@@ -66,8 +65,7 @@ std::vector<std::string> validate_pass_declarations(const std::vector<NamedDecla
                 reported[i] = true;
             }
         }
-        for (Img w : nd.decl.writes)
-            written[static_cast<std::size_t>(w)] = true;
+        for (Img w : nd.decl.writes) written[static_cast<std::size_t>(w)] = true;
     }
     return warnings;
 }

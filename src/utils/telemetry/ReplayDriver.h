@@ -31,16 +31,14 @@ public:
     static ReplayDriver from_ring(const TelemetryRing& ring, float dt) {
         std::vector<InputFrame> f;
         f.reserve(ring.size());
-        for (std::size_t i = 0; i < ring.size(); ++i)
-            f.push_back(ring.at(i).input);
+        for (std::size_t i = 0; i < ring.size(); ++i) f.push_back(ring.at(i).input);
         return ReplayDriver(std::move(f), dt);
     }
 
     // Returns the recorded frame and advances. `dt` is ignored (the recording's own dt() rules);
     // after the end it returns a neutral frame and done() stays true.
     InputFrame next(float /*dt*/) {
-        if (m_pos >= m_frames.size())
-            return InputFrame{};
+        if (m_pos >= m_frames.size()) return InputFrame{};
         return m_frames[m_pos++];
     }
     InputFrame sample(float dt) override { return next(dt); }

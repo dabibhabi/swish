@@ -38,8 +38,7 @@ void Swapchain::init(Device& device, VkSurfaceKHR surface, uint32_t width, uint3
 #ifdef SWISH_DEBUG_UI
     // Frame capture (FrameCapture) copies the presented image out; debug builds only, release usage is unchanged.
     m_transferSrc = (swapChainSupport.capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
-    if (m_transferSrc)
-        createInfo.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    if (m_transferSrc) createInfo.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 #endif
 
     QueueFamilyIndices indices              = device.findQueueFamilies(device.getPhysicalDevice(), surface);
@@ -86,9 +85,7 @@ void Swapchain::init(Device& device, VkSurfaceKHR surface, uint32_t width, uint3
 }
 
 void Swapchain::cleanup(VkDevice device) {
-    for (auto imageView : m_imageViews) {
-        vkDestroyImageView(device, imageView, nullptr);
-    }
+    for (auto imageView : m_imageViews) { vkDestroyImageView(device, imageView, nullptr); }
     m_imageViews.clear();
 
     if (m_swapchain != VK_NULL_HANDLE) {
@@ -97,21 +94,11 @@ void Swapchain::cleanup(VkDevice device) {
     }
 }
 
-VkSwapchainKHR Swapchain::getSwapchain() const {
-    return m_swapchain;
-}
-VkFormat Swapchain::getImageFormat() const {
-    return m_imageFormat;
-}
-VkExtent2D Swapchain::getExtent() const {
-    return m_extent;
-}
-const std::vector<VkImageView>& Swapchain::getImageViews() const {
-    return m_imageViews;
-}
-uint32_t Swapchain::getImageCount() const {
-    return static_cast<uint32_t>(m_images.size());
-}
+VkSwapchainKHR                  Swapchain::getSwapchain() const { return m_swapchain; }
+VkFormat                        Swapchain::getImageFormat() const { return m_imageFormat; }
+VkExtent2D                      Swapchain::getExtent() const { return m_extent; }
+const std::vector<VkImageView>& Swapchain::getImageViews() const { return m_imageViews; }
+uint32_t                        Swapchain::getImageCount() const { return static_cast<uint32_t>(m_images.size()); }
 
 VkSurfaceFormatKHR Swapchain::chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) const {
     // Prefer standard 8-bit sRGB. On Linux (NVIDIA + Wayland/Hyprland) the
@@ -120,12 +107,10 @@ VkSurfaceFormatKHR Swapchain::chooseSwapSurfaceFormat(const std::vector<VkSurfac
     // offers that pair, which is why the same build looked fine there.
     // AgX already outputs linear [0,1] — correct for sRGB swapchains (HW encodes).
     for (const auto& f : availableFormats)
-        if (f.format == VK_FORMAT_B8G8R8A8_SRGB && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
-            return f;
+        if (f.format == VK_FORMAT_B8G8R8A8_SRGB && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) return f;
 
     for (const auto& f : availableFormats)
-        if (f.format == VK_FORMAT_B8G8R8A8_UNORM && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
-            return f;
+        if (f.format == VK_FORMAT_B8G8R8A8_UNORM && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) return f;
 
     // Optional wide-gamut path — only if nothing standard is available.
     for (const auto& f : availableFormats)

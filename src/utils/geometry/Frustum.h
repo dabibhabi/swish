@@ -40,8 +40,7 @@ inline void extract_frustum_planes(const glm::mat4& vp, glm::vec4 planes[6]) {
     planes[5] = r3 - r2;  // far    (z <=  w)
     for (int i = 0; i < 6; ++i) {
         float len = glm::length(glm::vec3(planes[i]));
-        if (len > 0.0f)
-            planes[i] /= len;
+        if (len > 0.0f) planes[i] /= len;
     }
 }
 
@@ -49,8 +48,7 @@ inline void extract_frustum_planes(const glm::mat4& vp, glm::vec4 planes[6]) {
 // Planes point inward; a sphere is outside a plane when its signed distance is < -radius.
 inline bool sphere_outside_frustum(std::span<const glm::vec4, 6> planes, const glm::vec3& centre, float radius) {
     for (const glm::vec4& pl : planes) {
-        if (glm::dot(glm::vec3(pl), centre) + pl.w < -radius)
-            return true;
+        if (glm::dot(glm::vec3(pl), centre) + pl.w < -radius) return true;
     }
     return false;
 }

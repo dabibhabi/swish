@@ -104,8 +104,7 @@ void Renderer::init(Window& window) {
     // for the debug UI. Informational only: never changes the pass order or recording.
     m_passDecls    = collect_pass_declarations(&m_geometry);
     m_declWarnings = validate_pass_declarations(m_passDecls);
-    for (const std::string& w : m_declWarnings)
-        std::fprintf(stderr, "[PassDeclaration] WARNING: %s\n", w.c_str());
+    for (const std::string& w : m_declWarnings) std::fprintf(stderr, "[PassDeclaration] WARNING: %s\n", w.c_str());
     // S5: shader hot-reload hooks. Only Composite rebuilds live today; other shaders log TODO(stub) on change.
     m_shaderReload.register_rebuild("composite", [this] { rebuild_composite_pass(*m_postProcess); });
     // S2/S3: GPU timestamp profiler (observes record_all) and frame capture (staging buffers via VMA).
@@ -174,13 +173,9 @@ void Renderer::cleanup() {
 // Manager registration + getters
 // ══════════════════════════════════════════════════════════════════════
 
-void Renderer::register_texture_manager(TextureManager* mgr) {
-    m_textureManager = mgr;
-}
+void Renderer::register_texture_manager(TextureManager* mgr) { m_textureManager = mgr; }
 
-TextureManager* Renderer::get_texture_manager() const {
-    return m_textureManager;
-}
+TextureManager* Renderer::get_texture_manager() const { return m_textureManager; }
 
 // ══════════════════════════════════════════════════════════════════════
 // Vulkan handle getters (for managers that need raw handles)
@@ -204,21 +199,15 @@ RendererServices Renderer::services() const {
 // Camera
 // ══════════════════════════════════════════════════════════════════════
 
-void Renderer::set_camera(Camera* camera) {
-    m_camera.reset(camera);
-}
+void Renderer::set_camera(Camera* camera) { m_camera.reset(camera); }
 
-Camera* Renderer::get_camera() const {
-    return m_camera.get();
-}
+Camera* Renderer::get_camera() const { return m_camera.get(); }
 
 // ══════════════════════════════════════════════════════════════════════
 // GPU synchronization
 // ══════════════════════════════════════════════════════════════════════
 
-void Renderer::wait_for_idle() {
-    vkDeviceWaitIdle(m_device->getDevice());
-}
+void Renderer::wait_for_idle() { vkDeviceWaitIdle(m_device->getDevice()); }
 
 // ══════════════════════════════════════════════════════════════════════
 // recreateSwapchain()

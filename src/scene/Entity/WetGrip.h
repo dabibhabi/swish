@@ -44,8 +44,7 @@ struct WetGripParams {
 // and during a spin they differ enormously: keying off vx alone would have the
 // car "stop hydroplaning" merely because its nose rotated.
 inline float hydroplane_fraction(float speed, float filmOverTread, const WetGripParams& g) {
-    if (filmOverTread < 1.0f)
-        return 0.0f;
+    if (filmOverTread < 1.0f) return 0.0f;
     const float t = std::clamp((std::fabs(speed) - g.vPlane) / g.planeBand, 0.0f, 1.0f);
     return t * t * (3.0f - 2.0f * t);
 }
@@ -58,8 +57,7 @@ inline float hydroplane_fraction(float speed, float filmOverTread, const WetGrip
 // defaults and never calls this function, so they are that invariant's
 // regression guard; see also the dedicated test for this function.)
 inline float effective_mu(float wetness, float v, float filmOverTread, const WetGripParams& g) {
-    if (wetness <= 0.0f)
-        return g.muDry;
+    if (wetness <= 0.0f) return g.muDry;
     const float muLow = g.muDry + wetness * (g.muWet - g.muDry);
     const float vAbs  = std::fabs(v);
     const float faded = muLow * (1.0f - wetness * g.speedFade * std::min(vAbs, g.vPlane));
@@ -69,8 +67,7 @@ inline float effective_mu(float wetness, float v, float filmOverTread, const Wet
     // planing and non-planing cases agree on their shared boundary and only
     // differ where filmOverTread actually gates in.
     const float s = hydroplane_fraction(vAbs, filmOverTread, g);
-    if (s <= 0.0f)
-        return faded;
+    if (s <= 0.0f) return faded;
     return faded + s * (g.muPlane - faded);
 }
 
@@ -112,8 +109,7 @@ inline float puddle_noise(float x, float y) {
 // never pool); physics has no G-buffer, so this implicitly assumes the car
 // is on puddle-eligible pavement — true for the LIE corridor it drives on.
 inline float puddle_amount(float worldX, float worldZ, float coverage) {
-    if (coverage <= 0.0f)
-        return 0.0f;
+    if (coverage <= 0.0f) return 0.0f;
     const float px = worldX * 0.00013f;  // ~7.7 m puddle cells
     const float pz = worldZ * 0.00013f;
     const float n  = puddle_noise(px, pz) * 0.65f + puddle_noise(px * 2.7f + 11.0f, pz * 2.7f + 11.0f) * 0.35f;

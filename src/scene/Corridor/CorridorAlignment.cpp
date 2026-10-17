@@ -5,23 +5,19 @@
 
 namespace swish {
 
-void CorridorAlignment::load(const std::string& path) {
-    m_asset = load_corridor_asset(path);
-}
+void CorridorAlignment::load(const std::string& path) { m_asset = load_corridor_asset(path); }
 
 size_t CorridorAlignment::index_at(double s) const {
     const double sp = static_cast<double>(m_asset.header.stationSpacing);
     const double i  = std::floor(s / sp);
-    if (i <= 0.0)
-        return 0;
+    if (i <= 0.0) return 0;
     const size_t last = m_asset.stations.size() - 1;
     return std::min(static_cast<size_t>(i), last);
 }
 
 CorridorAlignment::Sample CorridorAlignment::sample(double s) const {
     Sample out;
-    if (!valid())
-        return out;
+    if (!valid()) return out;
 
     const double sp   = static_cast<double>(m_asset.header.stationSpacing);
     const size_t last = m_asset.stations.size() - 1;
@@ -65,8 +61,7 @@ static void project_window(const std::vector<CorridorStation>& st, double sp, si
         const double bx = st[i + 1].x, bz = st[i + 1].z;
         const double ex = bx - ax, ez = bz - az;
         const double e2 = ex * ex + ez * ez;
-        if (e2 < 1e-9)
-            continue;
+        if (e2 < 1e-9) continue;
         const double u  = std::clamp(((px - ax) * ex + (pz - az) * ez) / e2, 0.0, 1.0);
         const double qx = ax + ex * u, qz = az + ez * u;
         const double d2 = (px - qx) * (px - qx) + (pz - qz) * (pz - qz);
@@ -109,9 +104,7 @@ void CorridorAlignment::project_global(double x, double z, size_t& hint, double&
                    x, z, hint, s, lateral);
 }
 
-float CorridorAlignment::inner_edge(float) const {
-    return m_asset.header.medianHalfWidth;
-}
+float CorridorAlignment::inner_edge(float) const { return m_asset.header.medianHalfWidth; }
 
 float CorridorAlignment::outer_edge(float lanes) const {
     const CorridorHeader& h = m_asset.header;

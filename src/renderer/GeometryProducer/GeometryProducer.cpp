@@ -91,7 +91,7 @@ void GeometryProducer::record_shadow(const FrameCtx& c) {
     shadowCull.useFrustum  = false;
 
     [[maybe_unused]] CullStats sstats;  // summed across cascades (ratio is per-cascade); read only in debug-UI builds
-    CullStats* stats = nullptr;
+    CullStats*                 stats = nullptr;
 #ifdef SWISH_DEBUG_UI
     stats = &sstats;
 #endif
@@ -162,14 +162,12 @@ void GeometryProducer::compute_cascades(const Camera& camera, const Vec3& sunDir
         }
 
         Vec3 center(0.0f);
-        for (const Vec3& p : corners)
-            center += p;
+        for (const Vec3& p : corners) center += p;
         center /= 8.0f;
 
         // Bounding-sphere fit → a stable square ortho (less shimmer than an AABB).
         float radius = 0.0f;
-        for (const Vec3& p : corners)
-            radius = std::max(radius, glm::length(p - center));
+        for (const Vec3& p : corners) radius = std::max(radius, glm::length(p - center));
         radius = std::ceil(radius);
 
         const float margin    = radius;  // pull the near plane back to catch occluders behind the slice
@@ -235,7 +233,7 @@ void GeometryProducer::record_gbuffer(const FrameCtx& c) {
 #endif
 
     [[maybe_unused]] CullStats stats;  // read only in debug-UI builds
-    CullStats* sp = nullptr;
+    CullStats*                 sp = nullptr;
 #ifdef SWISH_DEBUG_UI
     sp = &stats;
 #endif
@@ -275,8 +273,7 @@ void GeometryProducer::destroy_scene(VkDevice device) {
     m_scene.cleanup(device);
     m_chunk.cleanup(device);
     m_interchange.cleanup(device);
-    for (SceneGeometry& seg : m_corridorSegments)
-        seg.cleanup(device);
+    for (SceneGeometry& seg : m_corridorSegments) seg.cleanup(device);
     m_corridorSegments.clear();
     m_corridorInstances.clear();
     m_chunkSlotOffsetsZ.clear();

@@ -79,10 +79,8 @@ void SpraySystem::update(const FrameUpdate& u) {
 #ifdef SWISH_DEBUG_UI
 void SpraySystem::set_emitters(const SprayEmitter* emitters, uint32_t count) {
     m_emitterCount = emitters ? std::min(count, kMaxWheelEmitters) : 0;
-    for (uint32_t i = 0; i < m_emitterCount; i++)
-        m_emitters[i] = emitters[i];
-    if (m_emitterCount == 0)
-        m_emitterCursor = 0;
+    for (uint32_t i = 0; i < m_emitterCount; i++) m_emitters[i] = emitters[i];
+    if (m_emitterCount == 0) m_emitterCursor = 0;
 }
 #endif
 
@@ -129,8 +127,7 @@ void SpraySystem::write_sim_ubo(uint32_t frameIndex, float deltaTime, Vec3 spawn
 }
 
 void SpraySystem::record_compute(VkCommandBuffer cmd, uint32_t frameIndex) const {
-    if (!m_active)
-        return;
+    if (!m_active) return;
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipeLayout, 0, 1, &m_computeSets[frameIndex],
@@ -154,8 +151,7 @@ void SpraySystem::record_compute(VkCommandBuffer cmd, uint32_t frameIndex) const
 }
 
 void SpraySystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const {
-    if (!m_active)
-        return;
+    if (!m_active) return;
 
     VkClearValue clearVals[2]{};  // LOAD_OP_LOAD — ignored, but count must match
 
@@ -236,8 +232,7 @@ void SpraySystem::cleanup(VkDevice device) {
     }
 
     // RAII (VMA): reset frees each buffer + its sub-allocation.
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-        m_simUBOs[i].reset();
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) m_simUBOs[i].reset();
     m_particleBuffer.reset();
 }
 
@@ -434,8 +429,8 @@ public:
     const char* name() const override { return "SprayDraw"; }
     // Additive billboards onto the lit HDR, scene depth read-only. (SpraySim only touches its particle SSBO.)
     void declare(PassDeclaration& d) const override { d.read({Img::Hdr, Img::HdrDepth}).write({Img::Hdr}); }
-    void        init(const PassInitCtx& ctx) override { m_sim = ctx.passes.find<SpraySystem>(); }
-    void        record(const FrameCtx& c) override {
+    void init(const PassInitCtx& ctx) override { m_sim = ctx.passes.find<SpraySystem>(); }
+    void record(const FrameCtx& c) override {
         // Bind camera set (set 0) via the spray pipeline layout; record_draws binds its own set 1 (particle SSBO)
         // and begins its render pass internally.
         VkDescriptorSet camSet = c.res.cameraUniforms->get_set(c.frameIndex);
@@ -451,12 +446,8 @@ private:
 
 }  // namespace
 
-std::unique_ptr<IRenderPass> make_spray_sim_pass() {
-    return std::make_unique<SpraySystem>();
-}
+std::unique_ptr<IRenderPass> make_spray_sim_pass() { return std::make_unique<SpraySystem>(); }
 
-std::unique_ptr<IRenderPass> make_spray_draw_pass() {
-    return std::make_unique<SprayDrawPass>();
-}
+std::unique_ptr<IRenderPass> make_spray_draw_pass() { return std::make_unique<SprayDrawPass>(); }
 
 }  // namespace swish

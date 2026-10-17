@@ -89,20 +89,14 @@ static_assert(sizeof(RoadConfig) == 292, "RoadConfig layout changed: bump RoadCo
 
 [[nodiscard]] inline RoadConfig load_road_config(const std::string& path) {
     FILE* f = std::fopen(path.c_str(), "rb");
-    if (!f) {
-        throw std::runtime_error("RoadConfig: cannot open " + path);
-    }
+    if (!f) { throw std::runtime_error("RoadConfig: cannot open " + path); }
 
     RoadConfig cfg{};
     size_t     read = std::fread(&cfg, sizeof(RoadConfig), 1, f);
     std::fclose(f);
 
-    if (read != 1) {
-        throw std::runtime_error("RoadConfig: failed to read " + path);
-    }
-    if (cfg.magic != RoadConfig::MAGIC) {
-        throw std::runtime_error("RoadConfig: bad magic in " + path);
-    }
+    if (read != 1) { throw std::runtime_error("RoadConfig: failed to read " + path); }
+    if (cfg.magic != RoadConfig::MAGIC) { throw std::runtime_error("RoadConfig: bad magic in " + path); }
     if (cfg.version != RoadConfig::VERSION) {
         throw std::runtime_error("RoadConfig: version mismatch in " + path + " (expected " +
                                  std::to_string(RoadConfig::VERSION) + ", got " + std::to_string(cfg.version) + ")");

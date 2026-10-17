@@ -110,8 +110,7 @@ void PostProcessManager::createDescriptorSets() {
 
     // Bloom extract samples each frame's own lit HDR. (It used to share one set pinned to HDR[0], so odd
     // frames sampled the other frame's image without a barrier in their command buffer.)
-    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
-        writeSingle(m_bloomExtractSets[i], m_hdrViews[i]);
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) writeSingle(m_bloomExtractSets[i], m_hdrViews[i]);
     writeSingle(m_bloomBlurHSet, m_bloomExtractView);
     writeSingle(m_bloomBlurVSet, m_bloomBlurHView);
     // SSAO samples the scene depth (a depth image → DEPTH_STENCIL_READ_ONLY layout),
@@ -120,11 +119,9 @@ void PostProcessManager::createDescriptorSets() {
         writeSingleLayout(m_aoSets[i], m_hdrDepthViews[i], VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
     writeSingle(m_aoBlurSet, m_aoView);
     // SSR samples each frame's lit HDR (colour, SHADER_READ).
-    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
-        writeSingle(m_ssrHdrSets[i], m_hdrViews[i]);
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) writeSingle(m_ssrHdrSets[i], m_hdrViews[i]);
     // God-rays samples each frame's lit HDR too (the shaft "source").
-    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
-        writeSingle(m_godraysHdrSets[i], m_hdrViews[i]);
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) writeSingle(m_godraysHdrSets[i], m_hdrViews[i]);
 
     // Composite sets: the declared inputs (HDR is per-frame, the rest are shared images), one write per input.
     // Batched in one vkUpdateDescriptorSets call, as before.
@@ -139,8 +136,7 @@ void PostProcessManager::createDescriptorSets() {
         }
         vkUpdateDescriptorSets(m_device, n, writes.data(), 0, nullptr);
     };
-    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++)
-        writeDeclared(m_compositeSets[i], kCompositeInputs, i);
+    for (uint32_t i = 0; i < PP_MAX_FRAMES; i++) writeDeclared(m_compositeSets[i], kCompositeInputs, i);
 
     // Lighting sets: the G-buffer per frame, from kGBufferInputs (albedo, normal, material, depth, clearcoat+flake).
     // Depth stays at binding 3 (unchanged) so SSR/god-rays, which share m_lightingTexLayout but only declare bindings

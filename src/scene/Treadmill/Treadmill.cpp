@@ -19,9 +19,7 @@ void Treadmill::set_intro(float introLen, std::vector<LightDesc> sceneLights) {
     m_sceneLights = std::move(sceneLights);
 }
 
-void Treadmill::set_ribbons(std::vector<Ribbon> ribbons) {
-    m_ixRibbons = std::move(ribbons);
-}
+void Treadmill::set_ribbons(std::vector<Ribbon> ribbons) { m_ixRibbons = std::move(ribbons); }
 
 void Treadmill::update(CarEntity& car, Renderer& renderer, GLFWwindow* window, float deltaTime, bool debugEdit) {
     using RG = RoadGeometry;
@@ -40,8 +38,7 @@ void Treadmill::update(CarEntity& car, Renderer& renderer, GLFWwindow* window, f
         m_originShift -= static_cast<double>(shift);
         // Shift the intro lamp point-lights into the new render frame so they stay
         // attached to their posts (lighting works in render frame).
-        for (LightDesc& l : m_sceneLights)
-            l.position.z -= shift;
+        for (LightDesc& l : m_sceneLights) l.position.z -= shift;
         renderer.set_scene_lights(m_sceneLights);
     }
 
@@ -119,8 +116,7 @@ void Treadmill::update(CarEntity& car, Renderer& renderer, GLFWwindow* window, f
                 Vec3 p, tn;
                 RG::ribbon_sample(*r, m_ribbonS, p, tn);
                 Vec3 rightH = glm::cross(tn, Vec3(0.f, 1.f, 0.f));
-                if (glm::length(rightH) > 1e-4f)
-                    rightH = glm::normalize(rightH);
+                if (glm::length(rightH) > 1e-4f) rightH = glm::normalize(rightH);
                 car.set_position(p + Vec3(0.f, 0.f, ixZ) + rightH * m_ribbonT);
                 Vec3        th    = glm::normalize(Vec3(tn.x, 0.f, tn.z));
                 const float yaw   = glm::degrees(std::atan2(-th.z, th.x));

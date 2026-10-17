@@ -101,8 +101,7 @@ public:
     RenderingInfo& operator=(const RenderingInfo&) = delete;
 
     RenderingInfo& color(const VkRenderingAttachmentInfo& a) {
-        if (m_colorCount >= kMaxColor)
-            throw std::logic_error("vkx::RenderingInfo: too many colour attachments");
+        if (m_colorCount >= kMaxColor) throw std::logic_error("vkx::RenderingInfo: too many colour attachments");
         m_colors[m_colorCount++] = a;
         return *this;
     }
@@ -146,8 +145,6 @@ inline void begin_rendering(VkCommandBuffer cmd, const RenderingInfo& info) {
     vkCmdBeginRendering(cmd, &r);
 }
 
-inline void end_rendering(VkCommandBuffer cmd) {
-    vkCmdEndRendering(cmd);
-}
+inline void end_rendering(VkCommandBuffer cmd) { vkCmdEndRendering(cmd); }
 
 }  // namespace swish::vkx

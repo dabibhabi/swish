@@ -28,8 +28,7 @@ void GlassPass::onResize(const PassInitCtx& ctx) {
 void GlassPass::record(const FrameCtx& c) {
     const GeometryProducer& geo = *c.res.geometry;
     const SceneGeometry&    car = geo.dynamic();
-    if (geo.glass_draws().empty() || !car.has_geometry())
-        return;
+    if (geo.glass_draws().empty() || !car.has_geometry()) return;
 
     VkDescriptorSet camSet = c.res.cameraUniforms->get_set(c.frameIndex);
     vkCmdBindDescriptorSets(c.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeLayout, 0, 1, &camSet, 0, nullptr);
@@ -49,8 +48,7 @@ void GlassPass::create(const RendererServices& s, const std::array<VkImageView, 
 
 void GlassPass::record_draws(VkCommandBuffer cmd, uint32_t frameIndex, VkBuffer carVBO, VkBuffer carIBO,
                              const std::vector<DrawCall>& glassDCs) const {
-    if (glassDCs.empty() || carVBO == VK_NULL_HANDLE)
-        return;
+    if (glassDCs.empty() || carVBO == VK_NULL_HANDLE) return;
 
     VkClearValue clearVals[2]{};
     auto         beginInfo      = vkx::makeRenderPassBeginInfo();
@@ -168,8 +166,6 @@ void GlassPass::createPipeline(VkDevice device, VkPipelineCache cache, VkDescrip
     m_pipeline = pipeline::create_graphics(device, cache, cfg, m_renderPass, m_extent);
 }
 
-std::unique_ptr<IRenderPass> make_glass_pass() {
-    return std::make_unique<GlassPass>();
-}
+std::unique_ptr<IRenderPass> make_glass_pass() { return std::make_unique<GlassPass>(); }
 
 }  // namespace swish

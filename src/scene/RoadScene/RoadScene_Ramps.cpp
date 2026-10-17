@@ -92,8 +92,7 @@ RoadScene::IxDims RoadScene::ix_dims() const {
 
 std::vector<Ribbon> RoadScene::interchange_ribbons() const {
     std::vector<Ribbon> ribbons;
-    if (m_lane_count <= 0)
-        return ribbons;
+    if (m_lane_count <= 0) return ribbons;
     const IxDims d = ix_dims();
 
     auto curve = [](Vec3 p0, Vec3 p1, int N) {
@@ -167,8 +166,7 @@ void RoadScene::generate_interchange(MeshBuilder& builder, const RoadLayout& /*l
 RoadScene::SceneData RoadScene::generate_interchange_scene() const {
     SceneData   scene;
     MeshBuilder builder(scene.meshData, scene.drawCalls);
-    if (m_lane_count <= 0)
-        return scene;
+    if (m_lane_count <= 0) return scene;
     RoadLayout layout{
         m_barrier_width + 3.0f * kFt,
         static_cast<float>(m_lane_count) * m_lane_width,
@@ -297,8 +295,7 @@ void RoadScene::generate_exit_ramp(MeshBuilder& builder, const RoadLayout& layou
                     // Slight Z stagger per stripe for a diagonal / read
                     float z_a = z0 - u * (z0 - z1) * 0.35f;
                     float z_b = z1 + (1.0f - u) * (z0 - z1) * 0.35f;
-                    if (z_a > z_b)
-                        std::swap(z_a, z_b);
+                    if (z_a > z_b) std::swap(z_a, z_b);
                     builder.addHorizontalQuad(band_lo, band_hi, mark_y + 1.0f, z_a, z_b, kUp, m_white_marking);
                 }
             }

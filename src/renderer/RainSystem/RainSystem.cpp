@@ -137,8 +137,7 @@ void RainSystem::step(uint32_t frameIndex, float deltaTime, float intensity, Vec
 }
 
 void RainSystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const {
-    if (m_intensity < 0.001f)
-        return;
+    if (m_intensity < 0.001f) return;
 
     // Two attachments (color + depth), both LOAD_OP_LOAD — clear values are ignored
     // but the count must match the render pass attachment count.
@@ -300,9 +299,7 @@ void RainSystem::createInstanceBuffer(const RendererServices& s) {
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
     std::vector<RainInstance> seeds(kRainMaxDrops);
-    for (auto& inst : seeds) {
-        inst.seed = Vec4(dist(rng), dist(rng), dist(rng), dist(rng));
-    }
+    for (auto& inst : seeds) { inst.seed = Vec4(dist(rng), dist(rng), dist(rng), dist(rng)); }
 
     const VkDeviceSize size = sizeof(RainInstance) * kRainMaxDrops;
 
@@ -416,8 +413,6 @@ void RainSystem::createPipeline(VkDevice device, VkPipelineCache cache, VkDescri
     m_pipeline = pipeline::create_graphics(device, cache, cfg, m_renderPass, m_extent);
 }
 
-std::unique_ptr<IRenderPass> make_rain_pass() {
-    return std::make_unique<RainSystem>();
-}
+std::unique_ptr<IRenderPass> make_rain_pass() { return std::make_unique<RainSystem>(); }
 
 }  // namespace swish

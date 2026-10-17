@@ -23,9 +23,7 @@ TextureManager::TextureManager(const RendererServices& services)
     create_sampler();
 }
 
-TextureManager::~TextureManager() {
-    cleanup();
-}
+TextureManager::~TextureManager() { cleanup(); }
 
 // ══════════════════════════════════════════════════════════════════════
 // load_directory — Scan a directory and load all image files.
@@ -34,17 +32,13 @@ TextureManager::~TextureManager() {
 void TextureManager::load_directory(const std::string& dir) {
     namespace fs = std::filesystem;
 
-    if (!fs::exists(dir)) {
-        throw std::runtime_error("TextureManager: directory not found: " + dir);
-    }
+    if (!fs::exists(dir)) { throw std::runtime_error("TextureManager: directory not found: " + dir); }
 
     for (const auto& entry : fs::directory_iterator(dir)) {
-        if (!entry.is_regular_file())
-            continue;
+        if (!entry.is_regular_file()) continue;
 
         std::string ext = entry.path().extension().string();
-        if (ext != ".jpg" && ext != ".jpeg" && ext != ".png")
-            continue;
+        if (ext != ".jpg" && ext != ".jpeg" && ext != ".png") continue;
 
         std::string name = entry.path().stem().string();
         std::string path = entry.path().string();
@@ -91,9 +85,7 @@ Texture* TextureManager::get_texture(const std::string& name) {
     return (it != m_textures.end()) ? &it->second : nullptr;
 }
 
-VkSampler TextureManager::get_sampler() const {
-    return m_sampler;
-}
+VkSampler TextureManager::get_sampler() const { return m_sampler; }
 
 // ══════════════════════════════════════════════════════════════════════
 // cleanup — Destroy all Vulkan resources.
@@ -101,8 +93,7 @@ VkSampler TextureManager::get_sampler() const {
 
 void TextureManager::cleanup() {
     for (auto& [name, tex] : m_textures) {
-        if (tex.view != VK_NULL_HANDLE)
-            vkDestroyImageView(m_device, tex.view, nullptr);
+        if (tex.view != VK_NULL_HANDLE) vkDestroyImageView(m_device, tex.view, nullptr);
     }
     m_textures.clear();  // GpuImage RAII frees each image + sub-allocation
 

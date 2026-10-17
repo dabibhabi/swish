@@ -67,29 +67,22 @@ inline float tach_angle_deg(const GaugeParams& p, float rpm) {
 
 // Piecewise-linear lookup, clamped to the table's ends. A table with < 2 rows returns its only angle (or 0).
 inline float speedo_angle_deg(const SpeedoLut& lut, float kmh) {
-    if (lut.count <= 0)
-        return 0.f;
+    if (lut.count <= 0) return 0.f;
     const auto n = static_cast<size_t>(lut.count);
-    if (n == 1 || kmh <= lut.kmh[0])
-        return lut.deg[0];
-    if (kmh >= lut.kmh[n - 1])
-        return lut.deg[n - 1];
+    if (n == 1 || kmh <= lut.kmh[0]) return lut.deg[0];
+    if (kmh >= lut.kmh[n - 1]) return lut.deg[n - 1];
     size_t i = 1;
-    while (kmh > lut.kmh[i])
-        i++;
-    if (kmh == lut.kmh[i])
-        return lut.deg[i];  // anchors map exactly (no a + 1*(b - a) rounding)
+    while (kmh > lut.kmh[i]) i++;
+    if (kmh == lut.kmh[i]) return lut.deg[i];  // anchors map exactly (no a + 1*(b - a) rounding)
     const float t = (kmh - lut.kmh[i - 1]) / (lut.kmh[i] - lut.kmh[i - 1]);
     return lut.deg[i - 1] + t * (lut.deg[i] - lut.deg[i - 1]);
 }
 
 // A usable table: 2..kSpeedoLutMax rows, km/h strictly increasing, angles non-decreasing.
 inline bool speedo_lut_valid(const SpeedoLut& lut) {
-    if (lut.count < 2 || lut.count > kSpeedoLutMax)
-        return false;
+    if (lut.count < 2 || lut.count > kSpeedoLutMax) return false;
     for (size_t i = 1; i < static_cast<size_t>(lut.count); i++)
-        if (!(lut.kmh[i] > lut.kmh[i - 1]) || lut.deg[i] < lut.deg[i - 1])
-            return false;
+        if (!(lut.kmh[i] > lut.kmh[i - 1]) || lut.deg[i] < lut.deg[i - 1]) return false;
     return true;
 }
 
@@ -109,8 +102,7 @@ struct NeedleFollower {
 };
 
 inline NeedleFollower needle_follow(NeedleFollower s, float target, float dt, float omega_n) {
-    if (dt <= 0.f || omega_n <= 0.f)
-        return s;
+    if (dt <= 0.f || omega_n <= 0.f) return s;
     const float e  = s.pos - target;
     const float k  = s.vel + omega_n * e;
     const float ex = std::exp(-omega_n * dt);
@@ -121,8 +113,7 @@ inline NeedleFollower needle_follow(NeedleFollower s, float target, float dt, fl
 // Fraction of full scale at time t into a sweep of `duration`: smoothstep up over the first half,
 // smoothstep back down over the second; 0 outside [0, duration].
 inline float gauge_sweep_fraction(float t, float duration) {
-    if (duration <= 0.f || t <= 0.f || t >= duration)
-        return 0.f;
+    if (duration <= 0.f || t <= 0.f || t >= duration) return 0.f;
     const float half = 0.5f * duration;
     const float u    = t < half ? t / half : (duration - t) / half;
     return u * u * (3.f - 2.f * u);

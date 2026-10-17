@@ -77,8 +77,6 @@ private:
 
 }  // namespace
 
-std::unique_ptr<IRenderPass> make_lighting_pass() {
-    return std::make_unique<LightingPass>();
-}
+std::unique_ptr<IRenderPass> make_lighting_pass() { return std::make_unique<LightingPass>(); }
 
 }  // namespace swish

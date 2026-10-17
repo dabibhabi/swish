@@ -1,8 +1,8 @@
-#include <catch2/catch_test_macros.hpp>
-#include <catch2/matchers/catch_matchers_floating_point.hpp>
-
 #include "renderer/RainSystem/RainPhysics.h"
 #include "scene/WeatherPreset.h"
+
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 using namespace swish;
 using Catch::Matchers::WithinAbs;
@@ -27,7 +27,7 @@ TEST_CASE("Mean sampled diameter tracks Marshall-Palmer 1/Lambda", "[rain]") {
     const float R      = 25.0f;
     const float lambda = marshall_palmer_lambda(R);
     // E[D] of an exponential is 1/Λ. Average the inverse-CDF over a uniform grid.
-    const int N = 20000;
+    const int N   = 20000;
     double    sum = 0.0;
     for (int i = 0; i < N; ++i) {
         float u = (static_cast<float>(i) + 0.5f) / static_cast<float>(N);

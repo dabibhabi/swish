@@ -21,15 +21,13 @@ TEST_CASE("gauges: tach fit hits the painted numerals and clamps to the printed 
     CHECK(tach_angle_deg(p, 7000.f) == Approx(105.5f).margin(1.6f));
     CHECK(tach_angle_deg(p, -500.f) == tach_angle_deg(p, p.tachMinRpm));
     CHECK(tach_angle_deg(p, 12000.f) == tach_angle_deg(p, p.tachMaxRpm));
-    for (float r = 0.f; r < 7600.f; r += 50.f)
-        CHECK(tach_angle_deg(p, r + 50.f) > tach_angle_deg(p, r));
+    for (float r = 0.f; r < 7600.f; r += 50.f) CHECK(tach_angle_deg(p, r + 50.f) > tach_angle_deg(p, r));
 }
 
 TEST_CASE("gauges: speedo LUT maps every anchor exactly, is monotonic and clamps", "[gauges]") {
     const SpeedoLut& lut = kSpeedoLut993;
     REQUIRE(speedo_lut_valid(lut));
-    for (size_t i = 0; i < static_cast<size_t>(lut.count); i++)
-        CHECK(speedo_angle_deg(lut, lut.kmh[i]) == lut.deg[i]);
+    for (size_t i = 0; i < static_cast<size_t>(lut.count); i++) CHECK(speedo_angle_deg(lut, lut.kmh[i]) == lut.deg[i]);
     float prev = speedo_angle_deg(lut, 0.f);
     for (float v = 0.5f; v <= 300.f; v += 0.5f) {
         const float a = speedo_angle_deg(lut, v);
@@ -67,10 +65,8 @@ TEST_CASE("gauges: follower converges without overshoot, frame-rate independent 
     }
     // The exact solution: the same wall-clock time gives the same position at any step size.
     NeedleFollower a{0.f, 0.f}, b{0.f, 0.f};
-    for (int i = 0; i < 240; i++)
-        a = needle_follow(a, 50.f, 1.f / 240.f, w);
-    for (int i = 0; i < 4; i++)
-        b = needle_follow(b, 50.f, 0.25f, w);
+    for (int i = 0; i < 240; i++) a = needle_follow(a, 50.f, 1.f / 240.f, w);
+    for (int i = 0; i < 4; i++) b = needle_follow(b, 50.f, 0.25f, w);
     CHECK(a.pos == Approx(b.pos).margin(1e-3f));
     // One time constant from rest: e = e0 (1 + 1) e^-1 = 0.7358 e0.
     const NeedleFollower c = needle_follow({0.f, 0.f}, 1.f, kGaugeDefaults.needleTauS, w);
@@ -100,8 +96,7 @@ TEST_CASE("gauges: startup sweep reaches full scale and returns, then follows li
     s = gauges_step(s, p, 3000.f, 80.f, dt);  // the sweep ends this frame at zero
     CHECK(s.rpm.pos == Approx(tach_angle_deg(p, 0.f)));
     CHECK(s.speed.pos == Approx(kSpeedoLut993.deg[0]));
-    for (int i = 0; i < 240; i++)
-        s = gauges_step(s, p, 3000.f, 80.f, dt);
+    for (int i = 0; i < 240; i++) s = gauges_step(s, p, 3000.f, 80.f, dt);
     CHECK(s.rpm.pos == Approx(tach_angle_deg(p, 3000.f)).margin(0.05f));
     CHECK(s.speed.pos == Approx(speedo_angle_deg(p.speedo, 80.f)).margin(0.05f));
 

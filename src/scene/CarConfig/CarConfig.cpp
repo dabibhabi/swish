@@ -10,16 +10,14 @@ namespace swish {
 namespace {
 
 void read_float(const toml::table& g, std::string_view key, float& out) {
-    if (const auto v = g[key].value<double>())
-        out = static_cast<float>(*v);
+    if (const auto v = g[key].value<double>()) out = static_cast<float>(*v);
 }
 
 // Both arrays present, same length, numeric, and a valid table, else `lut` is left alone.
 void read_speedo(const toml::table& g, SpeedoLut& lut) {
     const toml::array* kmh = g["speedo_kmh"].as_array();
     const toml::array* deg = g["speedo_deg"].as_array();
-    if (!kmh && !deg)
-        return;
+    if (!kmh && !deg) return;
     SpeedoLut next;
     if (kmh && deg && kmh->size() == deg->size() && kmh->size() <= static_cast<size_t>(kSpeedoLutMax)) {
         next.count = static_cast<int>(kmh->size());
@@ -43,8 +41,7 @@ void read_speedo(const toml::table& g, SpeedoLut& lut) {
 GaugeParams gauges_from_table(const toml::table& tbl, const GaugeParams& fallback) {
     GaugeParams p = fallback;
     const auto* g = tbl["gauges"].as_table();
-    if (!g)
-        return p;
+    if (!g) return p;
     read_float(*g, "tach_offset_deg", p.tachOffsetDeg);
     read_float(*g, "tach_deg_per_krpm", p.tachDegPerKrpm);
     read_float(*g, "tach_min_rpm", p.tachMinRpm);

@@ -30,35 +30,23 @@ void SyncObjects::init(VkDevice device, uint32_t framesInFlight, uint32_t swapch
     }
 
     m_renderFinished.resize(swapchainImageCount);
-    for (uint32_t i = 0; i < swapchainImageCount; i++) {
-        m_renderFinished[i] = createBinarySemaphore(device);
-    }
+    for (uint32_t i = 0; i < swapchainImageCount; i++) { m_renderFinished[i] = createBinarySemaphore(device); }
 }
 
 void SyncObjects::cleanup(VkDevice device) {
-    for (VkSemaphore sem : m_renderFinished) {
-        vkDestroySemaphore(device, sem, nullptr);
-    }
-    for (VkSemaphore sem : m_imageAvailable) {
-        vkDestroySemaphore(device, sem, nullptr);
-    }
-    for (VkFence fence : m_inFlightFences) {
-        vkDestroyFence(device, fence, nullptr);
-    }
+    for (VkSemaphore sem : m_renderFinished) { vkDestroySemaphore(device, sem, nullptr); }
+    for (VkSemaphore sem : m_imageAvailable) { vkDestroySemaphore(device, sem, nullptr); }
+    for (VkFence fence : m_inFlightFences) { vkDestroyFence(device, fence, nullptr); }
     m_renderFinished.clear();
     m_imageAvailable.clear();
     m_inFlightFences.clear();
 }
 
 void SyncObjects::recreateRenderFinishedSemaphores(VkDevice device, uint32_t swapchainImageCount) {
-    for (VkSemaphore sem : m_renderFinished) {
-        vkDestroySemaphore(device, sem, nullptr);
-    }
+    for (VkSemaphore sem : m_renderFinished) { vkDestroySemaphore(device, sem, nullptr); }
     m_renderFinished.clear();
     m_renderFinished.reserve(swapchainImageCount);
-    for (uint32_t i = 0; i < swapchainImageCount; i++) {
-        m_renderFinished.push_back(createBinarySemaphore(device));
-    }
+    for (uint32_t i = 0; i < swapchainImageCount; i++) { m_renderFinished.push_back(createBinarySemaphore(device)); }
 }
 
 void SyncObjects::waitForFence(VkDevice device, uint32_t frameIndex) {

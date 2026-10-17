@@ -75,15 +75,13 @@ public:
     // Next recorded frame; clears replay_active() when the recording is exhausted.
     InputFrame next_replay_frame(float dt) {
         InputFrame f = m_replay.next(dt);
-        if (m_replay.done())
-            m_replay_active = false;
+        if (m_replay.done()) m_replay_active = false;
         return f;
     }
 
     void on_step(const CarEntity& car, const InputFrame& input, float dt) {
         m_time += dt;
-        if (m_recording)
-            m_ring.push(sample_from(car, m_time, input));
+        if (m_recording) m_ring.push(sample_from(car, m_time, input));
     }
 
     void clear() {

@@ -8,8 +8,7 @@ using namespace swish;
 
 namespace {
 float run(float rain, float speed, float seconds, LensWetnessModel& m, const char* lens = "Headlight_L_Lens") {
-    for (float t = 0.0f; t < seconds; t += 0.05f)
-        m.step(0.05f, rain, speed);
+    for (float t = 0.0f; t < seconds; t += 0.05f) m.step(0.05f, rain, speed);
     return m.get(lens).coverage;
 }
 }  // namespace

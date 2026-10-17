@@ -18,9 +18,7 @@ namespace fs = std::filesystem;
 
 // ── pure helpers ─────────────────────────────────────────────────────────────
 
-std::string shader_stem(const fs::path& file) {
-    return file.stem().string();
-}
+std::string shader_stem(const fs::path& file) { return file.stem().string(); }
 
 bool is_shader_source(const fs::path& file) {
     const std::string ext = file.extension().string();
@@ -28,8 +26,7 @@ bool is_shader_source(const fs::path& file) {
 }
 
 bool is_shared_include(const fs::path& shaderDir, const fs::path& file) {
-    if (file.extension() != ".glsl")
-        return false;
+    if (file.extension() != ".glsl") return false;
     // Lexical: <shaderDir>/common/<...>.glsl
     const fs::path rel = file.lexically_normal().lexically_relative((shaderDir / "common").lexically_normal());
     return !rel.empty() && *rel.begin() != "..";
@@ -42,8 +39,7 @@ fs::path spv_path(const fs::path& outputDir, const fs::path& source) {
 std::vector<std::string> glslc_command(const GlslcSettings& s, const fs::path& source, const fs::path& outSpv) {
     std::vector<std::string> argv;
     argv.push_back(s.glslc);
-    for (const std::string& d : s.defines)
-        argv.push_back(d);
+    for (const std::string& d : s.defines) argv.push_back(d);
     argv.push_back("-I");
     argv.push_back((s.shaderDir / "common").string());
     argv.push_back("-I");
@@ -69,8 +65,7 @@ std::string shell_quote(const std::string& arg) {
 std::string join_command(const std::vector<std::string>& argv) {
     std::string out;
     for (std::size_t i = 0; i < argv.size(); ++i) {
-        if (i)
-            out += ' ';
+        if (i) out += ' ';
         out += shell_quote(argv[i]);
     }
     return out;
@@ -80,11 +75,9 @@ std::string locate_glslc(const char* vulkanSdkEnv, const std::string& fallback,
                          const std::function<bool(const fs::path&)>& exists) {
     if (vulkanSdkEnv && *vulkanSdkEnv) {
         const fs::path sdk = fs::path(vulkanSdkEnv) / "bin" / "glslc";
-        if (exists(sdk))
-            return sdk.string();
+        if (exists(sdk)) return sdk.string();
     }
-    if (!fallback.empty())
-        return fallback;
+    if (!fallback.empty()) return fallback;
     return "glslc";
 }
 
@@ -93,8 +86,7 @@ std::vector<fs::path> MtimeTracker::update(const std::vector<FileStamp>& now) {
     if (m_baseline) {
         for (const FileStamp& n : now) {
             auto it = std::find_if(m_last.begin(), m_last.end(), [&](const FileStamp& o) { return o.path == n.path; });
-            if (it == m_last.end() || it->mtime != n.mtime)
-                changed.push_back(n.path);
+            if (it == m_last.end() || it->mtime != n.mtime) changed.push_back(n.path);
         }
     }
     m_last     = now;
@@ -116,12 +108,10 @@ ShaderHotReloadDeps default_hot_reload_deps() {
         for (fs::recursive_directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end;
              !ec && it != end; it.increment(ec)) {
             const fs::path& p = it->path();
-            if (!is_shader_source(p) && p.extension() != ".glsl")
-                continue;
+            if (!is_shader_source(p) && p.extension() != ".glsl") continue;
             std::error_code tec;
             const auto      t = fs::last_write_time(p, tec);
-            if (tec)
-                continue;
+            if (tec) continue;
             out.push_back({p, static_cast<std::int64_t>(t.time_since_epoch().count())});
         }
         return out;
@@ -136,8 +126,7 @@ ShaderHotReloadDeps default_hot_reload_deps() {
             return r;
         }
         char buf[512];
-        while (std::fgets(buf, sizeof buf, pipe))
-            r.output += buf;
+        while (std::fgets(buf, sizeof buf, pipe)) r.output += buf;
         const int status = pclose(pipe);
         r.exitCode       = status;  // 0 on success; any non-zero wait status is a failure
         return r;
@@ -169,8 +158,7 @@ ShaderHotReloadConfig default_hot_reload_config() {
 
 ShaderHotReload::ShaderHotReload(ShaderHotReloadConfig cfg, ShaderHotReloadDeps deps)
     : m_cfg(std::move(cfg)), m_deps(std::move(deps)) {
-    if (m_cfg.glslc.shaderDir.empty())
-        m_cfg.glslc.shaderDir = m_cfg.shaderDir;
+    if (m_cfg.glslc.shaderDir.empty()) m_cfg.glslc.shaderDir = m_cfg.shaderDir;
     if (m_cfg.shaderDir.empty() || m_cfg.outputDir.empty())
         m_enabled = false;  // built without the shader dirs (e.g. a unit-test target): nothing to watch
 }
@@ -186,22 +174,18 @@ void ShaderHotReload::note(bool ok, const std::string& line) {
 }
 
 std::size_t ShaderHotReload::poll() {
-    if (!m_enabled)
-        return 0;
+    if (!m_enabled) return 0;
     const double t = m_deps.now();
-    if (t < m_nextPoll)
-        return 0;
+    if (t < m_nextPoll) return 0;
     m_nextPoll = t + m_cfg.pollIntervalSec;
     return poll_now();
 }
 
 std::size_t ShaderHotReload::poll_now() {
-    if (!m_enabled)
-        return 0;
+    if (!m_enabled) return 0;
     const std::vector<FileStamp> scan    = m_deps.scan(m_cfg.shaderDir);
     const std::vector<fs::path>  changed = m_tracker.update(scan);
-    if (changed.empty())
-        return 0;
+    if (changed.empty()) return 0;
 
     // What to recompile: the changed shader sources; a changed shared include means every shader.
     bool                  includeChanged = false;
@@ -216,8 +200,7 @@ std::size_t ShaderHotReload::poll_now() {
         // TODO(stub): use the glslc depfile to recompile only the shaders that include the touched file.
         toBuild.clear();
         for (const FileStamp& f : scan)
-            if (is_shader_source(f.path))
-                toBuild.push_back(f.path);
+            if (is_shader_source(f.path)) toBuild.push_back(f.path);
     }
 
     std::set<std::string> okStems;
@@ -243,11 +226,9 @@ std::size_t ShaderHotReload::poll_now() {
     // Pipelines: all hooks for an include change (when everything compiled), else the hooks of the shaders that did.
     std::vector<std::string> errors;
     if (includeChanged && failures == 0) {
-        if (m_rebuild.size() == 0)
-            ++m_status.unhooked;
+        if (m_rebuild.size() == 0) ++m_status.unhooked;
         m_status.rebuilds += static_cast<std::uint32_t>(m_rebuild.trigger_all(&errors));
-        if (m_rebuild.size() > 0)
-            note(errors.empty(), "shared include changed: ran all pipeline rebuild hooks");
+        if (m_rebuild.size() > 0) note(errors.empty(), "shared include changed: ran all pipeline rebuild hooks");
     } else {
         for (const std::string& stem : okStems) {
             const std::size_t ran = m_rebuild.trigger(stem, &errors);

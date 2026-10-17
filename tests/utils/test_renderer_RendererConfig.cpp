@@ -11,8 +11,7 @@ static_assert(prev_frame<3>(0) == 2);
 namespace {
 template <u32 N>
 void check_ring() {
-    for (u32 f = 0; f < N; ++f)
-        CHECK((prev_frame<N>(f) + 1) % N == f);
+    for (u32 f = 0; f < N; ++f) CHECK((prev_frame<N>(f) + 1) % N == f);
 }
 }  // namespace
 
@@ -23,6 +22,5 @@ TEST_CASE("prev_frame steps back one slot in the ring", "[renderer]") {
 }
 
 TEST_CASE("prev_frame matches the legacy TAA history index for two frames", "[renderer]") {
-    for (u32 f = 0; f < 2; ++f)
-        CHECK(prev_frame<2>(f) == (f + 1) % 2);
+    for (u32 f = 0; f < 2; ++f) CHECK(prev_frame<2>(f) == (f + 1) % 2);
 }

@@ -67,16 +67,13 @@ RunOutcome run_scenario(CarEntity& car, Drive&& drive, Stop&& stop, Observe&& ob
         car.update(kDt);
         const float head = car.get_rotation().y;
         float       dh   = head - prev_head;
-        while (dh > 180.f)
-            dh -= 360.f;
-        while (dh < -180.f)
-            dh += 360.f;
+        while (dh > 180.f) dh -= 360.f;
+        while (dh < -180.f) dh += 360.f;
         prev_head  = head;
         s.yaw_rate = -static_cast<double>(glm::radians(dh)) / kDt;
         s.v_mps    = car.get_speed_mps();
         s.dist_m += std::abs(s.v_mps) * kDt;
-        if (!std::isfinite(s.v_mps) || !std::isfinite(s.yaw_rate))
-            out.finite = false;
+        if (!std::isfinite(s.v_mps) || !std::isfinite(s.yaw_rate)) out.finite = false;
         observe(s);
     }
     out.final_state = s;
@@ -214,8 +211,7 @@ inline BenchResult skidpad_40m() {
     };
     auto stop    = [&](const BenchState& s) { return limit || s.v_mps >= 60.0; };
     auto observe = [&](const BenchState& s) {
-        if (s.v_mps < 8.0)
-            return;
+        if (s.v_mps < 8.0) return;
         const double kappa = s.yaw_rate / s.v_mps;
         delta += 0.5 * (kappa_t - kappa) * kDt;
         delta = std::clamp(delta, 0.0, static_cast<double>(glm::radians(car.steer_max())));
@@ -226,8 +222,7 @@ inline BenchResult skidpad_40m() {
             reached = true;
         }
         off_t = radius_err > 0.25 ? off_t + kDt : 0.0;
-        if (off_t > 1.0)
-            limit = true;
+        if (off_t > 1.0) limit = true;
     };
     const RunOutcome o = run_scenario(car, drive, stop, observe, 120.0);
     return {"skidpad 40 m", "g", peak_g, 1.1, 0.15, reached, o.finite};

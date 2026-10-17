@@ -84,20 +84,15 @@ struct WiperState {
     return s;
 }
 
-[[nodiscard]] constexpr bool wiper_parked(const WiperState& s) {
-    return s.phase <= 0.f;
-}
+[[nodiscard]] constexpr bool wiper_parked(const WiperState& s) { return s.phase <= 0.f; }
 
 // Moving, or switched on (an Intermittent blade dwelling at park is active).
-[[nodiscard]] constexpr bool wiper_active(const WiperState& s) {
-    return s.mode != WiperMode::Off || !wiper_parked(s);
-}
+[[nodiscard]] constexpr bool wiper_active(const WiperState& s) { return s.mode != WiperMode::Off || !wiper_parked(s); }
 
 // Advance by dt seconds. Off never stops mid-glass: it finishes the wipe, then parks.
 [[nodiscard]] inline WiperState wiper_step(WiperState s, const WiperParams& p, float dt) {
     if (wiper_parked(s)) {
-        if (s.mode == WiperMode::Off)
-            return s;
+        if (s.mode == WiperMode::Off) return s;
         if (s.mode == WiperMode::Intermittent && s.dwell > 0.f) {
             s.dwell = std::max(0.f, s.dwell - dt);
             return s;

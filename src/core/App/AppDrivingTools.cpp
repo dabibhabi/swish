@@ -48,10 +48,8 @@ void set_text(char (&dst)[N], const char* src) {
 }  // namespace
 
 void App::ensure_driving_tools() {
-    if (!m_gamepad)
-        m_gamepad = std::make_unique<GlfwGamepadSource>();
-    if (!m_recorder)
-        m_recorder = std::make_unique<TelemetryRecorder>();
+    if (!m_gamepad) m_gamepad = std::make_unique<GlfwGamepadSource>();
+    if (!m_recorder) m_recorder = std::make_unique<TelemetryRecorder>();
 }
 
 bool App::step_driving_tools(float dt) {
@@ -108,10 +106,8 @@ void App::sync_driving_tools_panel(DebugParams& dp) {
     m_prev_replay = dp.drvReplay;
 
     // Record: rising edge starts a fresh clip; recording and replay are mutually exclusive.
-    if (dp.drvReplay)
-        dp.drvRecord = false;
-    if (dp.drvRecord && !m_prev_record)
-        rec.clear();
+    if (dp.drvReplay) dp.drvRecord = false;
+    if (dp.drvRecord && !m_prev_record) rec.clear();
     rec.set_recording(dp.drvRecord);
     m_prev_record = dp.drvRecord;
 

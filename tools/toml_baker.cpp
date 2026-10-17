@@ -13,7 +13,6 @@
 #include <cstring>
 #include <iostream>
 #include <string>
-
 #include <toml++/toml.hpp>
 
 // RoadConfig (packed layout, MAGIC, VERSION) and the unit constants come from the SAME headers the
@@ -33,9 +32,7 @@ static bool read_color(const toml::array* arr, float out[4]) {
         std::cerr << "Error: color array must have exactly 4 elements\n";
         return false;
     }
-    for (int i = 0; i < 4; i++) {
-        out[i] = static_cast<float>(arr->get(i)->value_or(0.0));
-    }
+    for (int i = 0; i < 4; i++) { out[i] = static_cast<float>(arr->get(i)->value_or(0.0)); }
     return true;
 }
 
@@ -61,12 +58,12 @@ int main(int argc, char* argv[]) {
     cfg.version = VERSION;
 
     // ── Road geometry ─────────────────────────────────────────────────
-    cfg.road_length      = tbl["road"]["length_m"].value_or(1000.0) * WORLD_SCALE;
-    cfg.lane_width       = tbl["road"]["lane_width_ft"].value_or(12.17) * kFt;
-    cfg.lane_count       = tbl["road"]["lane_count"].value_or(3);
+    cfg.road_length       = tbl["road"]["length_m"].value_or(1000.0) * WORLD_SCALE;
+    cfg.lane_width        = tbl["road"]["lane_width_ft"].value_or(12.17) * kFt;
+    cfg.lane_count        = tbl["road"]["lane_count"].value_or(3);
     cfg.shoulder_width_wb = tbl["road"]["shoulder_width_wb_ft"].value_or(3.0) * kFt;
     cfg.shoulder_width_eb = tbl["road"]["shoulder_width_eb_ft"].value_or(10.0) * kFt;
-    cfg.grass_extent     = tbl["road"]["grass_extent_ft"].value_or(500.0) * kFt;
+    cfg.grass_extent      = tbl["road"]["grass_extent_ft"].value_or(500.0) * kFt;
 
     // ── Barrier ───────────────────────────────────────────────────────
     cfg.barrier_width  = tbl["barrier"]["width_ft"].value_or(2.67) * kFt;
@@ -93,45 +90,58 @@ int main(int argc, char* argv[]) {
 
     // ── Colors ────────────────────────────────────────────────────────
     if (!read_color(tbl["colors"]["shoulder_tint"].as_array(), cfg.shoulder_tint)) {
-        std::cerr << "Error: invalid colors.shoulder_tint\n"; return 1;
+        std::cerr << "Error: invalid colors.shoulder_tint\n";
+        return 1;
     }
     if (!read_color(tbl["colors"]["barrier_tint"].as_array(), cfg.barrier_tint)) {
-        std::cerr << "Error: invalid colors.barrier_tint\n"; return 1;
+        std::cerr << "Error: invalid colors.barrier_tint\n";
+        return 1;
     }
     if (!read_color(tbl["colors"]["rail_tint"].as_array(), cfg.rail_tint)) {
-        std::cerr << "Error: invalid colors.rail_tint\n"; return 1;
+        std::cerr << "Error: invalid colors.rail_tint\n";
+        return 1;
     }
     if (!read_color(tbl["colors"]["white_marking"].as_array(), cfg.white_marking)) {
-        std::cerr << "Error: invalid colors.white_marking\n"; return 1;
+        std::cerr << "Error: invalid colors.white_marking\n";
+        return 1;
     }
     if (!read_color(tbl["colors"]["yellow_marking"].as_array(), cfg.yellow_marking)) {
-        std::cerr << "Error: invalid colors.yellow_marking\n"; return 1;
+        std::cerr << "Error: invalid colors.yellow_marking\n";
+        return 1;
     }
 
     // ── Material texture tints ────────────────────────────────────────
     if (!read_color(tbl["colors"]["ground_tint"].as_array(), cfg.ground_tint)) {
-        std::cerr << "Error: invalid colors.ground_tint\n"; return 1;
+        std::cerr << "Error: invalid colors.ground_tint\n";
+        return 1;
     }
     if (!read_color(tbl["colors"]["grass_tint"].as_array(), cfg.grass_tint)) {
-        std::cerr << "Error: invalid colors.grass_tint\n"; return 1;
+        std::cerr << "Error: invalid colors.grass_tint\n";
+        return 1;
     }
     if (!read_color(tbl["colors"]["asphalt_tint"].as_array(), cfg.asphalt_tint)) {
-        std::cerr << "Error: invalid colors.asphalt_tint\n"; return 1;
+        std::cerr << "Error: invalid colors.asphalt_tint\n";
+        return 1;
     }
     if (!read_color(tbl["colors"]["concrete_tint"].as_array(), cfg.concrete_tint)) {
-        std::cerr << "Error: invalid colors.concrete_tint\n"; return 1;
+        std::cerr << "Error: invalid colors.concrete_tint\n";
+        return 1;
     }
     if (!read_color(tbl["colors"]["metal_tint"].as_array(), cfg.metal_tint)) {
-        std::cerr << "Error: invalid colors.metal_tint\n"; return 1;
+        std::cerr << "Error: invalid colors.metal_tint\n";
+        return 1;
     }
     if (!read_color(tbl["colors"]["white_tint"].as_array(), cfg.white_tint)) {
-        std::cerr << "Error: invalid colors.white_tint\n"; return 1;
+        std::cerr << "Error: invalid colors.white_tint\n";
+        return 1;
     }
     if (!read_color(tbl["colors"]["yellow_tint"].as_array(), cfg.yellow_tint)) {
-        std::cerr << "Error: invalid colors.yellow_tint\n"; return 1;
+        std::cerr << "Error: invalid colors.yellow_tint\n";
+        return 1;
     }
     if (!read_color(tbl["colors"]["black_tint"].as_array(), cfg.black_tint)) {
-        std::cerr << "Error: invalid colors.black_tint\n"; return 1;
+        std::cerr << "Error: invalid colors.black_tint\n";
+        return 1;
     }
 
     // ── Write binary ──────────────────────────────────────────────────
@@ -149,7 +159,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::cout << "Baked " << input_path << " -> " << output_path
-              << " (" << sizeof(RoadConfig) << " bytes)\n";
+    std::cout << "Baked " << input_path << " -> " << output_path << " (" << sizeof(RoadConfig) << " bytes)\n";
     return 0;
 }

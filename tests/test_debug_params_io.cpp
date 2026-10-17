@@ -8,18 +8,16 @@
 #include "scene/CarConfig/CarConfig.h"
 #include "scene/RoadScene/RoadParams.h"
 
-#include <toml++/toml.hpp>
-
+#include <algorithm>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
-
-#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <toml++/toml.hpp>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -44,8 +42,7 @@ struct EnvGuard {
     EnvGuard(const char* n, const char* value) : name(n) {
         const char* cur = std::getenv(n);
         had             = cur != nullptr;
-        if (had)
-            old = cur;
+        if (had) old = cur;
         if (value)
             ::setenv(n, value, 1);
         else
@@ -62,7 +59,10 @@ struct EnvGuard {
 struct PresetFile {
     std::string name;
     explicit PresetFile(std::string n) : name(std::move(n)) {}
-    ~PresetFile() { std::error_code ec; fs::remove(debugio::presets_dir() + name + ".toml", ec); }
+    ~PresetFile() {
+        std::error_code ec;
+        fs::remove(debugio::presets_dir() + name + ".toml", ec);
+    }
     void write_raw(const std::string& body) const {
         fs::create_directories(debugio::presets_dir());
         std::ofstream(debugio::presets_dir() + name + ".toml", std::ios::trunc) << body;
@@ -70,32 +70,102 @@ struct PresetFile {
 };
 
 #define EQF(f) CHECK(a.f == b.f)
-#define EQV3(f) do { CHECK(a.f.x == b.f.x); CHECK(a.f.y == b.f.y); CHECK(a.f.z == b.f.z); } while (0)
+#define EQV3(f)                \
+    do {                       \
+        CHECK(a.f.x == b.f.x); \
+        CHECK(a.f.y == b.f.y); \
+        CHECK(a.f.z == b.f.z); \
+    } while (0)
 
 // Every field save() persists. Float compare is exact: floats go float->double->
 // shortest-round-trip text->double->float, which is lossless.
 void expect_persisted_equal(const DebugParams& a, const DebugParams& b) {
-    EQF(exposure); EQF(bloomThreshold); EQF(bloomIntensity); EQF(brightness); EQF(contrast); EQF(saturation);
-    EQF(temperature); EQF(tint); EQF(autoExposure); EQF(aeKey); EQF(aeSpeed); EQF(aeMin); EQF(aeMax);
-    EQV3(skyHorizonOvercast); EQV3(skyHorizonClear); EQV3(skyZenithOvercast); EQV3(skyZenithClear);
-    EQF(clarity); EQF(sunDiscExpMin); EQF(sunDiscExpMax); EQF(sunDiscStrMin); EQF(sunDiscStrMax);
-    EQV3(sunColor); EQF(sunAmbient); EQF(sunAzimuth); EQF(sunElevation);
-    EQV3(fogColor); EQF(fogDist63); EQF(fogMax);
-    EQF(envGlossExp); EQF(iblDiffuse); EQF(iblSpecular);
-    EQF(ssaoEnabled); EQF(ssaoRadius); EQF(ssaoBias); EQF(ssaoIntensity);
-    EQF(ssrEnabled); EQF(ssrIntensity); EQF(ssrMaxDist); EQF(ssrThickness); EQF(ssrStride);
-    EQF(steerAxisEdit); EQV3(steerEuler);
-    CHECK(a.steerQuat.x == b.steerQuat.x); CHECK(a.steerQuat.y == b.steerQuat.y);
-    CHECK(a.steerQuat.z == b.steerQuat.z); CHECK(a.steerQuat.w == b.steerQuat.w);
-    EQF(shadowBias); EQF(shadowFloor); EQF(shadowLightSize); EQF(shadowHalfExtent); EQF(shadowDepthRange);
-    EQF(depthBiasConst); EQF(depthBiasSlope); EQF(csmShadowFar); EQF(csmLambda);
-    EQF(rainIntensity); EQF(wetPorosity); EQF(wetRoughness); EQF(streakLen); EQF(puddlesEnabled); EQF(rigidBodyChassis);
-    EQF(puddleCoverage); EQF(sprayEnabled); EQF(sprayDensity); EQF(sprayLifetime); EQF(spraySize);
+    EQF(exposure);
+    EQF(bloomThreshold);
+    EQF(bloomIntensity);
+    EQF(brightness);
+    EQF(contrast);
+    EQF(saturation);
+    EQF(temperature);
+    EQF(tint);
+    EQF(autoExposure);
+    EQF(aeKey);
+    EQF(aeSpeed);
+    EQF(aeMin);
+    EQF(aeMax);
+    EQV3(skyHorizonOvercast);
+    EQV3(skyHorizonClear);
+    EQV3(skyZenithOvercast);
+    EQV3(skyZenithClear);
+    EQF(clarity);
+    EQF(sunDiscExpMin);
+    EQF(sunDiscExpMax);
+    EQF(sunDiscStrMin);
+    EQF(sunDiscStrMax);
+    EQV3(sunColor);
+    EQF(sunAmbient);
+    EQF(sunAzimuth);
+    EQF(sunElevation);
+    EQV3(fogColor);
+    EQF(fogDist63);
+    EQF(fogMax);
+    EQF(envGlossExp);
+    EQF(iblDiffuse);
+    EQF(iblSpecular);
+    EQF(ssaoEnabled);
+    EQF(ssaoRadius);
+    EQF(ssaoBias);
+    EQF(ssaoIntensity);
+    EQF(ssrEnabled);
+    EQF(ssrIntensity);
+    EQF(ssrMaxDist);
+    EQF(ssrThickness);
+    EQF(ssrStride);
+    EQF(steerAxisEdit);
+    EQV3(steerEuler);
+    CHECK(a.steerQuat.x == b.steerQuat.x);
+    CHECK(a.steerQuat.y == b.steerQuat.y);
+    CHECK(a.steerQuat.z == b.steerQuat.z);
+    CHECK(a.steerQuat.w == b.steerQuat.w);
+    EQF(shadowBias);
+    EQF(shadowFloor);
+    EQF(shadowLightSize);
+    EQF(shadowHalfExtent);
+    EQF(shadowDepthRange);
+    EQF(depthBiasConst);
+    EQF(depthBiasSlope);
+    EQF(csmShadowFar);
+    EQF(csmLambda);
+    EQF(rainIntensity);
+    EQF(wetPorosity);
+    EQF(wetRoughness);
+    EQF(streakLen);
+    EQF(puddlesEnabled);
+    EQF(rigidBodyChassis);
+    EQF(puddleCoverage);
+    EQF(sprayEnabled);
+    EQF(sprayDensity);
+    EQF(sprayLifetime);
+    EQF(spraySize);
     EQF(sprayOpacity);
-    EQF(carOverride); EQF(carMetalness); EQV3(carPaint); EQF(carRoughnessMul);
-    EQF(ssaaScale); EQF(taaEnabled); EQF(taaHistoryBlend); EQF(motionBlurEnabled); EQF(motionBlurScale);
-    EQF(dofEnabled); EQF(dofFocusDist); EQF(dofFocusRange); EQF(dofMaxCoC);
-    EQF(clearcoatMul); EQF(flakeDensityMul); EQF(clearcoatRoughness); EQF(flakeRoughness); EQF(flakeScale);
+    EQF(carOverride);
+    EQF(carMetalness);
+    EQV3(carPaint);
+    EQF(carRoughnessMul);
+    EQF(ssaaScale);
+    EQF(taaEnabled);
+    EQF(taaHistoryBlend);
+    EQF(motionBlurEnabled);
+    EQF(motionBlurScale);
+    EQF(dofEnabled);
+    EQF(dofFocusDist);
+    EQF(dofFocusRange);
+    EQF(dofMaxCoC);
+    EQF(clearcoatMul);
+    EQF(flakeDensityMul);
+    EQF(clearcoatRoughness);
+    EQF(flakeRoughness);
+    EQF(flakeScale);
     EQF(flakeJitter);
     for (uint32_t i = 0; i < MAT_COUNT; ++i) {
         INFO("material slot " << i);
@@ -114,34 +184,102 @@ void expect_persisted_equal(const DebugParams& a, const DebugParams& b) {
 DebugParams modified() {
     DebugParams p;
     float       n = 0.1237f;
-    auto        f = [&]() { n += 0.3171f; return n; };
-    p.exposure = f(); p.bloomThreshold = f(); p.bloomIntensity = f(); p.brightness = f(); p.contrast = f();
-    p.saturation = f(); p.temperature = f(); p.tint = f(); p.autoExposure = !p.autoExposure;
-    p.aeKey = f(); p.aeSpeed = f(); p.aeMin = f(); p.aeMax = f();
-    p.skyHorizonOvercast = {f(), f(), f()}; p.skyHorizonClear = {f(), f(), f()};
-    p.skyZenithOvercast = {f(), f(), f()}; p.skyZenithClear = {f(), f(), f()};
-    p.clarity = f(); p.sunDiscExpMin = f(); p.sunDiscExpMax = f(); p.sunDiscStrMin = f(); p.sunDiscStrMax = f();
-    p.sunColor = {f(), f(), f()}; p.sunAmbient = f(); p.sunAzimuth = f(); p.sunElevation = f();
-    p.fogColor = {f(), f(), f()}; p.fogDist63 = f(); p.fogMax = f();
-    p.envGlossExp = f(); p.iblDiffuse = f(); p.iblSpecular = f();
-    p.ssaoEnabled = !p.ssaoEnabled; p.ssaoRadius = f(); p.ssaoBias = f(); p.ssaoIntensity = f();
-    p.ssrEnabled = !p.ssrEnabled; p.ssrIntensity = f(); p.ssrMaxDist = f(); p.ssrThickness = f(); p.ssrStride = f();
-    p.steerAxisEdit = !p.steerAxisEdit; p.steerEuler = {f(), f(), f()}; p.steerQuat = {f(), f(), f(), f()};
-    p.shadowBias = f(); p.shadowFloor = f(); p.shadowLightSize = f(); p.shadowHalfExtent = f();
-    p.shadowDepthRange = f(); p.depthBiasConst = f(); p.depthBiasSlope = f(); p.csmShadowFar = f(); p.csmLambda = f();
-    p.rainIntensity = f(); p.wetPorosity = f(); p.wetRoughness = f(); p.streakLen = f();
-    p.puddlesEnabled = !p.puddlesEnabled; p.rigidBodyChassis = !p.rigidBodyChassis; p.puddleCoverage = f(); p.sprayEnabled = !p.sprayEnabled;
-    p.sprayDensity = f(); p.sprayLifetime = f(); p.spraySize = f(); p.sprayOpacity = f();
-    p.carOverride = !p.carOverride; p.carMetalness = f(); p.carPaint = {f(), f(), f()}; p.carRoughnessMul = f();
-    p.ssaaScale = f(); p.taaEnabled = !p.taaEnabled; p.taaHistoryBlend = f();
-    p.motionBlurEnabled = !p.motionBlurEnabled; p.motionBlurScale = f();
-    p.dofEnabled = !p.dofEnabled; p.dofFocusDist = f(); p.dofFocusRange = f(); p.dofMaxCoC = f();
-    p.clearcoatMul = f(); p.flakeDensityMul = f(); p.clearcoatRoughness = f(); p.flakeRoughness = f();
-    p.flakeScale = f(); p.flakeJitter = f();
+    auto        f = [&]() {
+        n += 0.3171f;
+        return n;
+    };
+    p.exposure           = f();
+    p.bloomThreshold     = f();
+    p.bloomIntensity     = f();
+    p.brightness         = f();
+    p.contrast           = f();
+    p.saturation         = f();
+    p.temperature        = f();
+    p.tint               = f();
+    p.autoExposure       = !p.autoExposure;
+    p.aeKey              = f();
+    p.aeSpeed            = f();
+    p.aeMin              = f();
+    p.aeMax              = f();
+    p.skyHorizonOvercast = {f(), f(), f()};
+    p.skyHorizonClear    = {f(), f(), f()};
+    p.skyZenithOvercast  = {f(), f(), f()};
+    p.skyZenithClear     = {f(), f(), f()};
+    p.clarity            = f();
+    p.sunDiscExpMin      = f();
+    p.sunDiscExpMax      = f();
+    p.sunDiscStrMin      = f();
+    p.sunDiscStrMax      = f();
+    p.sunColor           = {f(), f(), f()};
+    p.sunAmbient         = f();
+    p.sunAzimuth         = f();
+    p.sunElevation       = f();
+    p.fogColor           = {f(), f(), f()};
+    p.fogDist63          = f();
+    p.fogMax             = f();
+    p.envGlossExp        = f();
+    p.iblDiffuse         = f();
+    p.iblSpecular        = f();
+    p.ssaoEnabled        = !p.ssaoEnabled;
+    p.ssaoRadius         = f();
+    p.ssaoBias           = f();
+    p.ssaoIntensity      = f();
+    p.ssrEnabled         = !p.ssrEnabled;
+    p.ssrIntensity       = f();
+    p.ssrMaxDist         = f();
+    p.ssrThickness       = f();
+    p.ssrStride          = f();
+    p.steerAxisEdit      = !p.steerAxisEdit;
+    p.steerEuler         = {f(), f(), f()};
+    p.steerQuat          = {f(), f(), f(), f()};
+    p.shadowBias         = f();
+    p.shadowFloor        = f();
+    p.shadowLightSize    = f();
+    p.shadowHalfExtent   = f();
+    p.shadowDepthRange   = f();
+    p.depthBiasConst     = f();
+    p.depthBiasSlope     = f();
+    p.csmShadowFar       = f();
+    p.csmLambda          = f();
+    p.rainIntensity      = f();
+    p.wetPorosity        = f();
+    p.wetRoughness       = f();
+    p.streakLen          = f();
+    p.puddlesEnabled     = !p.puddlesEnabled;
+    p.rigidBodyChassis   = !p.rigidBodyChassis;
+    p.puddleCoverage     = f();
+    p.sprayEnabled       = !p.sprayEnabled;
+    p.sprayDensity       = f();
+    p.sprayLifetime      = f();
+    p.spraySize          = f();
+    p.sprayOpacity       = f();
+    p.carOverride        = !p.carOverride;
+    p.carMetalness       = f();
+    p.carPaint           = {f(), f(), f()};
+    p.carRoughnessMul    = f();
+    p.ssaaScale          = f();
+    p.taaEnabled         = !p.taaEnabled;
+    p.taaHistoryBlend    = f();
+    p.motionBlurEnabled  = !p.motionBlurEnabled;
+    p.motionBlurScale    = f();
+    p.dofEnabled         = !p.dofEnabled;
+    p.dofFocusDist       = f();
+    p.dofFocusRange      = f();
+    p.dofMaxCoC          = f();
+    p.clearcoatMul       = f();
+    p.flakeDensityMul    = f();
+    p.clearcoatRoughness = f();
+    p.flakeRoughness     = f();
+    p.flakeScale         = f();
+    p.flakeJitter        = f();
     for (uint32_t i = 0; i < MAT_COUNT; i += 2) {  // every other slot enabled
-        auto& o = p.matOverrides[i];
-        o.enabled = true; o.metalness = f(); o.roughnessMul = f(); o.color = {f(), f(), f()};
-        o.clearcoat = f(); o.flakeDensity = f();
+        auto& o        = p.matOverrides[i];
+        o.enabled      = true;
+        o.metalness    = f();
+        o.roughnessMul = f();
+        o.color        = {f(), f(), f()};
+        o.clearcoat    = f();
+        o.flakeDensity = f();
     }
     return p;
 }
@@ -179,13 +317,12 @@ TEST_CASE("DebugParamsIO: unknown keys and tables are ignored", "[debugio]") {
     pf.write_raw("[grade]\nexposure = 3.5\nbogus_key = 42\n[totally_unknown]\nx = 1\n");
     DebugParams p;
     const float contrastBefore = p.contrast;
-    REQUIRE(debugio::load(p, pf.name));  // still succeeds
-    CHECK(p.exposure == 3.5f);           // known key applied
-    CHECK(p.contrast == contrastBefore); // absent key keeps in-app value (merge policy)
+    REQUIRE(debugio::load(p, pf.name));   // still succeeds
+    CHECK(p.exposure == 3.5f);            // known key applied
+    CHECK(p.contrast == contrastBefore);  // absent key keeps in-app value (merge policy)
 }
 
-TEST_CASE("DebugParamsIO: typos silently fall back to current values (documents CURRENT behaviour)",
-          "[debugio]") {
+TEST_CASE("DebugParamsIO: typos silently fall back to current values (documents CURRENT behaviour)", "[debugio]") {
     PresetFile pf("swish_test_typo");
     // Misspelled table ([grde]) and misspelled key (expsure): load() returns true and
     // changes nothing; there is no warning or error. A future validating loader will
@@ -202,8 +339,9 @@ TEST_CASE("DebugParamsIO: wrong types and out-of-range values (documents CURRENT
     // - out-of-range: NOT clamped or validated; loaded verbatim.
     // - integer literal for a float key: accepted (toml++ converts).
     // - wrong-size vec3 array: ignored, keeps current value.
-    pf.write_raw("[grade]\nexposure = \"bright\"\ncontrast = -1000000.0\nsaturation = 2\n"
-                 "[sun]\ncolor = [1.0, 2.0]\n");
+    pf.write_raw(
+        "[grade]\nexposure = \"bright\"\ncontrast = -1000000.0\nsaturation = 2\n"
+        "[sun]\ncolor = [1.0, 2.0]\n");
     DebugParams p, defaults;
     REQUIRE(debugio::load(p, pf.name));
     CHECK(p.exposure == defaults.exposure);
@@ -226,10 +364,10 @@ TEST_CASE("DebugParamsIO: fields that are NOT persisted (documents CURRENT behav
     // DebugParams but save() never writes them, so a preset cannot restore them.
     PresetFile  pf("swish_test_unpersisted");
     DebugParams src;
-    src.hazeDist        = 12345.f;
-    src.godrayDensity   = 0.777f;
+    src.hazeDist         = 12345.f;
+    src.godrayDensity    = 0.777f;
     src.cullMainViewDist = 4321.f;
-    src.wheelSpinMul    = 3.f;
+    src.wheelSpinMul     = 3.f;
     REQUIRE(debugio::save(src, pf.name));
     DebugParams dst;
     REQUIRE(debugio::load(dst, pf.name));
@@ -273,13 +411,14 @@ TEST_CASE("Tunables: registry defaults equal the shipped literals (release-neutr
 
 TEST_CASE("Tunables: descriptor table is consistent", "[tunables]") {
     const DebugParams d{};
-    REQUIRE(tunables::all().size() == 39);  // every TUNE_B / TUNE_F row in Tunables.def (groups: ssr, reflection, wet, car_lights, wiper, car, wheels, gauges)
+    REQUIRE(tunables::all().size() == 39);  // every TUNE_B / TUNE_F row in Tunables.def (groups: ssr, reflection, wet,
+                                            // car_lights, wiper, car, wheels, gauges)
     for (const auto& t : tunables::all()) {
         INFO(t.name);
         CHECK(t.in_range(t.def));
         const std::string g = t.group;
-        CHECK((g == "ssr" || g == "reflection" || g == "wet" || g == "car_lights" || g == "wiper" ||
-               g == "car" || g == "wheels" || g == "gauges"));
+        CHECK((g == "ssr" || g == "reflection" || g == "wet" || g == "car_lights" || g == "wiper" || g == "car" ||
+               g == "wheels" || g == "gauges"));
         if (t.kind == tunables::Kind::Float)
             CHECK(t.get_float(d) == t.def);  // struct default generated from the same line
         else
@@ -295,8 +434,7 @@ TEST_CASE("Tunables: descriptor table is consistent", "[tunables]") {
         }
     // UI order pinned: enabled, intensity, max_dist, thickness, stride (TOML keys unchanged).
     const char* keys[] = {"enabled", "intensity", "max_dist", "thickness", "stride"};
-    for (size_t i = 0; i < 5; ++i)
-        CHECK(std::string(tunables::all()[i].key) == keys[i]);
+    for (size_t i = 0; i < 5; ++i) CHECK(std::string(tunables::all()[i].key) == keys[i]);
 }
 
 TEST_CASE("Tunables: registry-driven round trip for every descriptor", "[tunables][debugio]") {
@@ -349,7 +487,7 @@ TEST_CASE("Tunables: rigid-body chassis toggle persists under [car] and defaults
 TEST_CASE("Tunables: saved file keeps the [ssr] table and TOML key names", "[tunables][debugio]") {
     PresetFile pf("swish_test_registry_keys");
     REQUIRE(debugio::save(DebugParams{}, pf.name));
-    const toml::table tbl = toml::parse_file(debugio::presets_dir() + pf.name + ".toml");
+    const toml::table  tbl = toml::parse_file(debugio::presets_dir() + pf.name + ".toml");
     const toml::table* ssr = tbl["ssr"].as_table();
     REQUIRE(ssr != nullptr);
     CHECK(ssr->size() == 5);
@@ -363,7 +501,7 @@ TEST_CASE("Tunables: saved file keeps the [ssr] table and TOML key names", "[tun
 TEST_CASE("Tunables: saved file keeps the [reflection] / [wet] TOML key names", "[tunables][debugio]") {
     PresetFile pf("swish_test_registry_keys2");
     REQUIRE(debugio::save(DebugParams{}, pf.name));
-    const toml::table tbl = toml::parse_file(debugio::presets_dir() + pf.name + ".toml");
+    const toml::table  tbl  = toml::parse_file(debugio::presets_dir() + pf.name + ".toml");
     const toml::table* refl = tbl["reflection"].as_table();
     REQUIRE(refl != nullptr);
     CHECK(refl->size() == 3);
@@ -392,9 +530,14 @@ TEST_CASE("Tunables: lighting.frag release SP_* literals match the registry defa
         WARN("shaders/lighting.frag not found next to the test sources; skipping");
         return;
     }
-    struct Map { const char* field; const char* macro; };
-    const Map maps[] = {{"iblDiffuse", "SP_IBL_DIFFUSE"},   {"iblSpecular", "SP_IBL_SPECULAR"},
-                        {"envGlossExp", "SP_ENV_GLOSS_EXP"}, {"wetPorosity", "SP_WET_POROSITY"},
+    struct Map {
+        const char* field;
+        const char* macro;
+    };
+    const Map maps[] = {{"iblDiffuse", "SP_IBL_DIFFUSE"},
+                        {"iblSpecular", "SP_IBL_SPECULAR"},
+                        {"envGlossExp", "SP_ENV_GLOSS_EXP"},
+                        {"wetPorosity", "SP_WET_POROSITY"},
                         {"wetRoughness", "SP_WET_ROUGHNESS"},
                         // C2: the lit pass's release puddle coverage IS the registry default that SSR now packs too.
                         {"puddleCoverage", "SP_PUDDLE_COVERAGE"}};
@@ -403,16 +546,15 @@ TEST_CASE("Tunables: lighting.frag release SP_* literals match the registry defa
     for (std::string line; std::getline(in, line);) {
         std::istringstream ls(line);
         std::string        define, name, value;
-        if (!(ls >> define >> name >> value) || define != "#define" || name.rfind("SP_", 0) != 0)
-            continue;
-        char* end = nullptr;
-        const float v = std::strtof(value.c_str(), &end);
-        if (end != value.c_str() && *end == '\0')
-            literals.emplace_back(name, v);
+        if (!(ls >> define >> name >> value) || define != "#define" || name.rfind("SP_", 0) != 0) continue;
+        char*       end = nullptr;
+        const float v   = std::strtof(value.c_str(), &end);
+        if (end != value.c_str() && *end == '\0') literals.emplace_back(name, v);
     }
     for (const Map& m : maps) {
         INFO(m.macro);
-        const auto lit = std::find_if(literals.begin(), literals.end(), [&](const auto& l) { return l.first == m.macro; });
+        const auto lit =
+            std::find_if(literals.begin(), literals.end(), [&](const auto& l) { return l.first == m.macro; });
         REQUIRE(lit != literals.end());
         const auto t = std::find_if(tunables::all().begin(), tunables::all().end(),
                                     [&](const tunables::Tunable& x) { return std::string(x.name) == m.field; });
@@ -424,14 +566,15 @@ TEST_CASE("Tunables: lighting.frag release SP_* literals match the registry defa
 TEST_CASE("Tunables: reflection / wet-material load semantics match the old hand-written loader",
           "[tunables][debugio]") {
     PresetFile pf("swish_test_registry_load2");
-    pf.write_raw("[reflection]\nibl_diffuse = 2\nibl_specular = \"x\"\nenv_gloss = 5.0\n"
-                 "[wet]\nporosity = 9.5\nroughness = 0.25\n");
+    pf.write_raw(
+        "[reflection]\nibl_diffuse = 2\nibl_specular = \"x\"\nenv_gloss = 5.0\n"
+        "[wet]\nporosity = 9.5\nroughness = 0.25\n");
     DebugParams p, defaults;
     REQUIRE(debugio::load(p, pf.name));
-    CHECK(p.iblDiffuse == 2.0f);                     // integer literal accepted
-    CHECK(p.iblSpecular == defaults.iblSpecular);    // wrong type: ignored
-    CHECK(p.envGlossExp == defaults.envGlossExp);    // typo'd key: ignored
-    CHECK(p.wetPorosity == 9.5f);                    // above slider max: applied verbatim
+    CHECK(p.iblDiffuse == 2.0f);                   // integer literal accepted
+    CHECK(p.iblSpecular == defaults.iblSpecular);  // wrong type: ignored
+    CHECK(p.envGlossExp == defaults.envGlossExp);  // typo'd key: ignored
+    CHECK(p.wetPorosity == 9.5f);                  // above slider max: applied verbatim
     CHECK(p.wetRoughness == 0.25f);
 }
 
@@ -440,11 +583,11 @@ TEST_CASE("Tunables: ssr load semantics unchanged (typo ignored, out-of-range un
     pf.write_raw("[ssr]\nmax_dst = 1.0\nintensity = 50.0\nstride = \"x\"\nthickness = 7\n");
     DebugParams p, defaults;
     REQUIRE(debugio::load(p, pf.name));
-    CHECK(p.ssrMaxDist == defaults.ssrMaxDist);  // typo: ignored
-    CHECK(p.ssrIntensity == 50.0f);              // above slider max (2.0): applied verbatim
-    CHECK(p.ssrStride == defaults.ssrStride);    // wrong type: ignored
-    CHECK(p.ssrThickness == 7.0f);               // integer literal accepted, below lo (200)
-    CHECK(tunables::count_out_of_range(p) == 2); // opt-in check reports them; load() never clamps
+    CHECK(p.ssrMaxDist == defaults.ssrMaxDist);   // typo: ignored
+    CHECK(p.ssrIntensity == 50.0f);               // above slider max (2.0): applied verbatim
+    CHECK(p.ssrStride == defaults.ssrStride);     // wrong type: ignored
+    CHECK(p.ssrThickness == 7.0f);                // integer literal accepted, below lo (200)
+    CHECK(tunables::count_out_of_range(p) == 2);  // opt-in check reports them; load() never clamps
     CHECK(tunables::count_out_of_range(defaults) == 0);
 }
 
@@ -457,11 +600,24 @@ TEST_CASE("Tunables: `.release =` override rule", "[tunables]") {
     // This build config (debug-UI ON) always takes the debug default.
     static_assert(build_default<float>(1.0f, 2.0f) == 1.0f);
     // Descriptor with an override models it separately from `def`.
-    constexpr tunables::Tunable t{tunables::Kind::Float, nullptr, &DebugParams::ssrStride, "x", "g", "k", "l", "%.0f",
-                                  0, 10.0f, 0.0f, 100.0f, std::optional<float>(20.0f), nullptr};
+    constexpr tunables::Tunable t{tunables::Kind::Float,
+                                  nullptr,
+                                  &DebugParams::ssrStride,
+                                  "x",
+                                  "g",
+                                  "k",
+                                  "l",
+                                  "%.0f",
+                                  0,
+                                  10.0f,
+                                  0.0f,
+                                  100.0f,
+                                  std::optional<float>(20.0f),
+                                  nullptr};
     static_assert(t.release_default() == 20.0f && t.def == 10.0f && t.in_range(t.release_default()));
-    constexpr tunables::Tunable u{tunables::Kind::Float, nullptr, &DebugParams::ssrStride, "x", "g", "k", "l", "%.0f",
-                                  0, 10.0f, 0.0f, 100.0f, std::nullopt, nullptr};
+    constexpr tunables::Tunable u{
+        tunables::Kind::Float, nullptr, &DebugParams::ssrStride, "x", "g", "k", "l", "%.0f", 0, 10.0f, 0.0f, 100.0f,
+        std::nullopt,          nullptr};
     static_assert(u.release_default() == 10.0f);
     SUCCEED();
 }
@@ -491,7 +647,8 @@ TEST_CASE("Tunables: visit dispatches Bool to tag::flag and Float to tag::real (
     CHECK(p.ssrIntensity == 1.25f);
     // A const DebugParams yields const references (the save / dump path cannot mutate).
     const DebugParams& cp = p;
-    tunables::visit(ssr, cp, [](auto, auto& v) { static_assert(std::is_const_v<std::remove_reference_t<decltype(v)>>); });
+    tunables::visit(ssr, cp,
+                    [](auto, auto& v) { static_assert(std::is_const_v<std::remove_reference_t<decltype(v)>>); });
 }
 
 // ── Preset location (owner decision C3): per-user, outside build/, legacy build/ fallback ──
@@ -517,14 +674,18 @@ TEST_CASE("Presets: presets_dir() is per-user and outside the build tree", "[deb
 }
 
 TEST_CASE("Presets: legacy build/ presets stay loadable and listed; the new dir wins", "[debugio][presets]") {
-    const std::string legacyDir = std::string(CONFIG_DIR) + "presets/";
-    const std::string name      = "swish_test_legacy_fallback";
+    const std::string legacyDir  = std::string(CONFIG_DIR) + "presets/";
+    const std::string name       = "swish_test_legacy_fallback";
     const std::string legacyFile = legacyDir + name + ".toml";
     fs::create_directories(legacyDir);
     std::ofstream(legacyFile, std::ios::trunc) << "[grade]\nexposure = 1.25\n";
     struct Cleanup {
         std::string f, g;
-        ~Cleanup() { std::error_code ec; fs::remove(f, ec); fs::remove(g, ec); }
+        ~Cleanup() {
+            std::error_code ec;
+            fs::remove(f, ec);
+            fs::remove(g, ec);
+        }
     } cleanup{legacyFile, debugio::presets_dir() + name + ".toml"};
     REQUIRE(debugio::presets_dir() != legacyDir);  // isolated from the legacy dir by the test env
 

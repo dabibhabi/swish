@@ -19,15 +19,12 @@
 namespace swish::util::debug {
 
 // vec3 -> 3-element TOML array (stored as doubles).
-inline toml::array vec3_to_toml(const glm::vec3& v) {
-    return toml::array{v.x, v.y, v.z};
-}
+inline toml::array vec3_to_toml(const glm::vec3& v) { return toml::array{v.x, v.y, v.z}; }
 
 // Read a 3-element array node into `v`, keeping `v` if the node is absent or malformed.
 inline void read_vec3(toml::node_view<toml::node> n, glm::vec3& v) {
     const toml::array* a = n.as_array();
-    if (!a || a->size() != 3)
-        return;
+    if (!a || a->size() != 3) return;
     v.x = static_cast<float>(a->get(0)->value_or(static_cast<double>(v.x)));
     v.y = static_cast<float>(a->get(1)->value_or(static_cast<double>(v.y)));
     v.z = static_cast<float>(a->get(2)->value_or(static_cast<double>(v.z)));

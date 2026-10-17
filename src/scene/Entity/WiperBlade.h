@@ -63,14 +63,12 @@ struct WiperBlade {
         std::vector<Vec3> pts;
         Mat4              frame(1.f);
         for (const Submesh& s : submeshes) {
-            if (s.rig_part != part)
-                continue;
+            if (s.rig_part != part) continue;
             frame = s.rig_pivot_frame;
             for (uint32_t i = s.indexOffset; i < s.indexOffset + s.indexCount && i < mesh.getIndexCount(); i++)
                 pts.push_back(mesh.getVertices()[mesh.getIndices()[i]].position);
         }
-        if (!pts.empty())
-            out.push_back({frame, wiper_tip_local(frame, pts), part});
+        if (!pts.empty()) out.push_back({frame, wiper_tip_local(frame, pts), part});
     }
     return out;
 }

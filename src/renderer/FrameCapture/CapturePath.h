@@ -29,9 +29,7 @@ static_assert(std::endian::native == std::endian::little, "PFM output below assu
 
 enum class FileKind { Ppm, Pfm };
 
-inline const char* extension(FileKind k) {
-    return k == FileKind::Ppm ? "ppm" : "pfm";
-}
+inline const char* extension(FileKind k) { return k == FileKind::Ppm ? "ppm" : "pfm"; }
 
 // Calendar time broken down (already shifted to the wanted time zone).
 struct Stamp {
@@ -79,8 +77,7 @@ inline Stamp stamp_from_unix_ms(i64 unixMs, i32 tzOffsetMinutes = 0) {
 namespace detail {
 inline void append_padded(std::string& out, i32 v, int width) {
     std::string t = std::to_string(v < 0 ? 0 : v);
-    if (static_cast<int>(t.size()) < width)
-        out.append(static_cast<std::size_t>(width) - t.size(), '0');
+    if (static_cast<int>(t.size()) < width) out.append(static_cast<std::size_t>(width) - t.size(), '0');
     out += t;
 }
 }  // namespace detail
@@ -109,8 +106,7 @@ inline std::string file_name(const Stamp& s, u32 counter, FileKind kind) {
 // dir + '/' + file_name (a trailing '/' on dir is not doubled; an empty dir gives just the name).
 inline std::string full_path(const std::string& dir, const Stamp& s, u32 counter, FileKind kind) {
     const std::string n = file_name(s, counter, kind);
-    if (dir.empty())
-        return n;
+    if (dir.empty()) return n;
     return dir.back() == '/' ? dir + n : dir + "/" + n;
 }
 
@@ -183,17 +179,14 @@ inline f32 half_to_float(u16 h) {
 // Tightly packed RGBA16F texels (u16 halves, 4 per pixel) -> float RGBA.
 inline std::vector<f32> rgba16f_to_float(const u16* halves, std::size_t pixelCount) {
     std::vector<f32> out(pixelCount * 4);
-    for (std::size_t i = 0; i < out.size(); ++i)
-        out[i] = half_to_float(halves[i]);
+    for (std::size_t i = 0; i < out.size(); ++i) out[i] = half_to_float(halves[i]);
     return out;
 }
 
 // Linear [0,1] -> 8-bit sRGB (IEC 61966-2-1 transfer, rounded, clamped). NaN maps to 0.
 inline u8 linear_to_srgb8(f32 v) {
-    if (!(v > 0.0f))
-        return 0;
-    if (v >= 1.0f)
-        return 255;
+    if (!(v > 0.0f)) return 0;
+    if (v >= 1.0f) return 255;
     const f32 e = v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
     return static_cast<u8>(e * 255.0f + 0.5f);
 }
@@ -203,8 +196,7 @@ inline u8 linear_to_srgb8(f32 v) {
 inline std::vector<u8> rgba16f_linear_to_rgba8_srgb(const u16* halves, std::size_t pixelCount) {
     std::vector<u8> out(pixelCount * 4);
     for (std::size_t i = 0; i < pixelCount; ++i) {
-        for (std::size_t c = 0; c < 3; ++c)
-            out[i * 4 + c] = linear_to_srgb8(half_to_float(halves[i * 4 + c]));
+        for (std::size_t c = 0; c < 3; ++c) out[i * 4 + c] = linear_to_srgb8(half_to_float(halves[i * 4 + c]));
         out[i * 4 + 3] = 255;
     }
     return out;

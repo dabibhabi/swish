@@ -20,13 +20,9 @@ enum class CameraMode : uint8_t {
     Count
 };
 
-inline constexpr uint8_t camera_mode_count() {
-    return util::meta::enum_count<CameraMode>();
-}
+inline constexpr uint8_t camera_mode_count() { return util::meta::enum_count<CameraMode>(); }
 
-inline CameraMode next_camera_mode(CameraMode m) {
-    return util::meta::next_enum(m);
-}
+inline CameraMode next_camera_mode(CameraMode m) { return util::meta::next_enum(m); }
 
 inline std::string_view camera_mode_name(CameraMode m) {
     switch (m) {
@@ -53,8 +49,6 @@ inline std::string_view camera_mode_name(CameraMode m) {
 
 // True when the eye is parented to the car (mouse look is relative to heading /
 // look-at, not free FPS yaw).
-inline bool camera_mode_car_attached(CameraMode m) {
-    return m != CameraMode::FreeFly;
-}
+inline bool camera_mode_car_attached(CameraMode m) { return m != CameraMode::FreeFly; }
 
 }  // namespace swish

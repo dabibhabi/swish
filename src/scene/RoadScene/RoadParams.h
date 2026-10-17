@@ -22,12 +22,12 @@ namespace swish::road {
 
 // Mainline cross-section values that config/road.toml bakes into road.bin.
 struct CrossSectionParams {
-    float barrier_ft   = 2.67f;  // [barrier] width_ft
-    float clearance_ft = 3.0f;   // gap between barrier and first EB lane (layout offset)
-    float lane_ft      = 13.0f;  // [road] lane_width_ft
-    float lanes        = 4.0f;   // [road] lane_count (kept float: used in float arithmetic)
+    float barrier_ft     = 2.67f;  // [barrier] width_ft
+    float clearance_ft   = 3.0f;   // gap between barrier and first EB lane (layout offset)
+    float lane_ft        = 13.0f;  // [road] lane_width_ft
+    float lanes          = 4.0f;   // [road] lane_count (kept float: used in float arithmetic)
     float shoulder_eb_ft = 10.0f;  // [road] shoulder_width_eb_ft
-    float marking_y    = 5.0f;   // [markings] y_offset (WU)
+    float marking_y      = 5.0f;   // [markings] y_offset (WU)
 };
 inline constexpr CrossSectionParams kLie{};
 
@@ -53,16 +53,16 @@ inline constexpr ServiceRoadParams kService{};
 // Intro EB exit -> N Marginal. Z: z_far = -introLen; the ramp is fully separated at
 // end_frac * z_far; diverge/decel lengths are real-world feet.
 struct ExitRampParams {
-    float end_frac         = 0.38f;   // earlier in the intro so the gantry is easy to reach
+    float end_frac         = 0.38f;  // earlier in the intro so the gantry is easy to reach
     float diverge_ft       = 671.5f;
     float decel_ft         = 328.5f;
-    float gantry_lead_ft   = 80.0f;   // EXIT ONLY gantry upstream of diverge
+    float gantry_lead_ft   = 80.0f;  // EXIT ONLY gantry upstream of diverge
     float offset_ft        = 40.0f;
     float width_ft         = 14.0f;
     float marginal_gap_ft  = 10.0f;
     float marginal_lane_ft = 12.0f;
     float connect_ft       = 200.0f;
-    float asphalt_y        = 6.0f;    // WU lift (same idea as endless service y)
+    float asphalt_y        = 6.0f;  // WU lift (same idea as endless service y)
 };
 inline constexpr ExitRampParams kExit{};
 

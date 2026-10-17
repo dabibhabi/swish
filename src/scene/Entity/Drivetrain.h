@@ -122,14 +122,12 @@ inline float awd_deliverable_force(float fDemand, const CarParams& p, const Tire
 // cars (frontShareMax > 0) never take this branch, so they are bit-identical.
 inline float ptu_lock_fraction(float fDemand, const CarParams& p, const TireParams& t, const DrivetrainParams& d,
                                AxleLateral lat = AxleLateral{}) {
-    if (d.frontShareMax <= 0.0f)
-        return 0.0f;  // RWD: no PTU
+    if (d.frontShareMax <= 0.0f) return 0.0f;  // RWD: no PTU
     const float    demandR = std::max(fDemand, 0.0f) * (1.0f - d.frontShareBase);
     const float    axOpen  = awd_deliverable_force(fDemand, p, t, d, 0.0f, lat) / p.mass;
     const AxleLoad load    = axle_loads_long(p, t, axOpen);
     const float    capR    = friction_circle_fx_max(p.tireMu, load.rear, lat.rear);
-    if (capR <= 1.0f)
-        return 1.0f;  // no rear grip at all (hydroplaning / airborne) → clamp shut
+    if (capR <= 1.0f) return 1.0f;  // no rear grip at all (hydroplaning / airborne) → clamp shut
     const float u = demandR / capR;
     return std::clamp((u - 1.0f) / std::max(d.lockSpan, 1e-3f), 0.0f, 1.0f);
 }

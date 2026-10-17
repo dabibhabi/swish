@@ -27,16 +27,12 @@ inline float wrap_angle_2pi(float theta) {
 // slip ties spin rate to travel speed: ω = v / r. v is signed (negative in
 // reverse, so θ runs backward); r is the rolling radius in meters and must
 // be > 0 (callers pass the loader-measured per-corner radius).
-inline float wheel_spin_step(float theta, float v, float r, float dt) {
-    return wrap_angle_2pi(theta + (v / r) * dt);
-}
+inline float wheel_spin_step(float theta, float v, float r, float dt) { return wrap_angle_2pi(theta + (v / r) * dt); }
 
 // One spin step from a wheel's angular speed ω (rad/s): θ' = wrap(θ + ω·dt). This is
 // what the visuals integrate from CarEntity's per-corner wheel_omega hook, so a later
 // slip/lockup model (Wheel Phase C) only has to write ω, never θ.
-inline float wheel_spin_advance(float theta, float omega, float dt) {
-    return wrap_angle_2pi(theta + omega * dt);
-}
+inline float wheel_spin_advance(float theta, float omega, float dt) { return wrap_angle_2pi(theta + omega * dt); }
 
 // ── Per-wheel kinematic rolling speed (S1a, tasks/todo.md "Rigged Porsche") ──
 // Car space: nose +X, up +Y, right +Z (metres). Yaw rate ψ̇ is right-positive, so the
@@ -271,9 +267,7 @@ inline CornerSpring suspension_step(CornerSpring s, float x_target_m, float k_n_
 // Named rather than inlined at the call site so the unit contract is stated once and
 // pinned by a test — multiplying by util::units::kWuPerMetre (utils/units/Units.h) here scales by 1000 TWICE and
 // lifts each wheel ~14 m off the car on ordinary road crown.
-inline float suspension_draw_offset_m(float x_m) {
-    return x_m;
-}
+inline float suspension_draw_offset_m(float x_m) { return x_m; }
 
 // Adaptive fixed-h substepping — h_used <= h_target always satisfies the §4
 // stability bound. No persistent accumulator: there is no replay/determinism
@@ -284,8 +278,7 @@ inline CornerSpring suspension_advance(CornerSpring s, float x_target_m, float k
     dt_s          = std::min(dt_s, static_cast<float>(max_substeps) * h_target_s);
     const int   N = std::max(1, static_cast<int>(std::ceil(dt_s / h_target_s)));
     const float h = dt_s / static_cast<float>(N);
-    for (int i = 0; i < N; ++i)
-        s = suspension_step(s, x_target_m, k_n_per_m, c_ns_per_m, m_kg, h, travel_max_m);
+    for (int i = 0; i < N; ++i) s = suspension_step(s, x_target_m, k_n_per_m, c_ns_per_m, m_kg, h, travel_max_m);
     return s;
 }
 

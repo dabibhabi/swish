@@ -9,9 +9,7 @@
 namespace u = swish::util::units;
 
 namespace {
-bool same_bits(float a, float b) {
-    return std::memcmp(&a, &b, sizeof(float)) == 0;
-}
+bool same_bits(float a, float b) { return std::memcmp(&a, &b, sizeof(float)) == 0; }
 }  // namespace
 
 TEST_CASE("Units: 1 m == 1000 WU and 1 ft == 304.8 WU", "[units]") {

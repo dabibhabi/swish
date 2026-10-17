@@ -55,8 +55,7 @@ public:
     void push(const TelemetrySample& s) {
         m_buf[m_head] = s;
         m_head        = (m_head + 1) % m_buf.size();
-        if (m_size < m_buf.size())
-            ++m_size;
+        if (m_size < m_buf.size()) ++m_size;
     }
 
     // i = 0 is the OLDEST retained sample, size()-1 the newest. Precondition: i < size().

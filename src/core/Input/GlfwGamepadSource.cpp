@@ -10,8 +10,7 @@ bool GlfwGamepadSource::connected() const {
 
 InputFrame GlfwGamepadSource::sample(float /*dt*/) {
     GLFWgamepadstate st;
-    if (!connected() || glfwGetGamepadState(m_id, &st) != GLFW_TRUE)
-        return InputFrame{};
+    if (!connected() || glfwGetGamepadState(m_id, &st) != GLFW_TRUE) return InputFrame{};
     GamepadAxes ax;
     ax.left_x        = st.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
     ax.left_y        = st.axes[GLFW_GAMEPAD_AXIS_LEFT_Y];

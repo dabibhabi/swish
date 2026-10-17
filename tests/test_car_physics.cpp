@@ -54,8 +54,7 @@ int count_shifts_holding_speed(GearState start, float vHold, const GearboxParams
     for (float t = 0.0f; t < duration; t += dt) {
         const int before = state.gear;
         state            = gearbox_shift_step(state, vHold, g, rWheel, dt);
-        if (state.gear != before)
-            ++shifts;
+        if (state.gear != before) ++shifts;
     }
     return shifts;
 }
@@ -282,8 +281,7 @@ TEST_CASE(
     REQUIRE(rpmAtTop > 6400.0f);  // genuinely near the power peak, not a token margin
     // The LAST gear really is the Vmax gear (steady_state_top_speed scans all
     // of them, so this is a fact about the ratio set, not an assumption).
-    for (int gear = 0; gear < 6; ++gear)
-        REQUIRE(top_speed_in_gear(gear, p, t, g, kRearWheelRadiusM) < vTop);
+    for (int gear = 0; gear < 6; ++gear) REQUIRE(top_speed_in_gear(gear, p, t, g, kRearWheelRadiusM) < vTop);
     // And the shorter gears are rev-limited, which is what makes them shorter:
     // each one runs into the redline rather than into drag.
     REQUIRE(engine_rpm(top_speed_in_gear(3, p, t, g, kRearWheelRadiusM), 3, g, kRearWheelRadiusM) > 7000.0f);
@@ -338,8 +336,7 @@ TEST_CASE("Gear never skips down while accelerating (monotonic under WOT)", "[ca
     const float vTop = steady_state_top_speed(p, t, g, kRearWheelRadiusM);
     AccelRun    run  = simulate_full_throttle(p, t, g, kRearWheelRadiusM, vTop - 1.0f, 1.0f / 240.0f, 40.0f);
     REQUIRE(run.gearHistory.size() > 100);  // sanity: the run actually happened
-    for (size_t i = 1; i < run.gearHistory.size(); ++i)
-        REQUIRE(run.gearHistory[i] >= run.gearHistory[i - 1]);
+    for (size_t i = 1; i < run.gearHistory.size(); ++i) REQUIRE(run.gearHistory[i] >= run.gearHistory[i - 1]);
     REQUIRE(run.gear.gear == 6);  // reaches top gear before running out of speed
 }
 
@@ -601,8 +598,7 @@ TEST_CASE("No amplitude growth — the property forward Euler fails", "[wheel][s
     const CornerRates r = corner_rates();
     CornerSpring      s{0.03f, 0.f};
     float             late = 0.f;
-    for (int i = 0; i < 240; ++i)
-        s = suspension_step(s, 0.f, r.kRear, r.cRear, r.massRear, 1.f / 240.f, r.travelMax);
+    for (int i = 0; i < 240; ++i) s = suspension_step(s, 0.f, r.kRear, r.cRear, r.massRear, 1.f / 240.f, r.travelMax);
     for (int i = 0; i < 240; ++i) {
         s    = suspension_step(s, 0.f, r.kRear, r.cRear, r.massRear, 1.f / 240.f, r.travelMax);
         late = std::max(late, std::abs(s.x_m));
@@ -637,8 +633,7 @@ TEST_CASE("Stability at the debug-slider ceiling (fn=6Hz, zeta=1.5) stays finite
     float             kCeil, cCeil;
     spring_from_ride_freq(r.massFront, 6.f, 1.5f, kCeil, cCeil);
     CornerSpring s{0.03f, 0.f};
-    for (int i = 0; i < 2400; ++i)
-        s = suspension_step(s, 0.f, kCeil, cCeil, r.massFront, 1.f / 240.f, r.travelMax);
+    for (int i = 0; i < 2400; ++i) s = suspension_step(s, 0.f, kCeil, cCeil, r.massFront, 1.f / 240.f, r.travelMax);
     REQUIRE(std::isfinite(s.x_m));
     REQUIRE(std::abs(s.x_m) <= r.travelMax + 1e-6f);
 }
@@ -680,7 +675,7 @@ TEST_CASE("Adaptive substepping never exceeds the h_target stability bound", "[w
 // symptom was empty wheel arches and wheels detached from the car while driving.
 TEST_CASE("Suspension draw offset stays in meters (no double unit conversion)", "[wheels][suspension]") {
     constexpr float kWorldScale = swish::util::units::kWuPerMetre;  // 1 m = 1000 WU (Units.h)
-    const float     x_m         = 0.0145f;  // measured crown residual across the track
+    const float     x_m         = 0.0145f;                          // measured crown residual across the track
 
     // The helper must be the identity in meters — NOT a world-unit conversion.
     REQUIRE_THAT(suspension_draw_offset_m(x_m), WithinAbs(x_m, 1e-9f));
@@ -702,8 +697,7 @@ TEST_CASE("Anti-roll bar resists roll only — nothing at all in pure heave", "[
     // Both wheels up together (heave / a crest): the bar is untwisted, so it
     // must contribute EXACTLY zero. This is the defining property; a bar that
     // pushed back in heave would just be a stiffer spring.
-    for (float x : {-0.04f, -0.01f, 0.f, 0.01f, 0.04f})
-        REQUIRE(arb_target_shift_m(x, x, arb.frontRatio) == 0.f);
+    for (float x : {-0.04f, -0.01f, 0.f, 0.01f, 0.04f}) REQUIRE(arb_target_shift_m(x, x, arb.frontRatio) == 0.f);
 
     // One wheel up, the other down (roll): equal and opposite corrections, and
     // each OPPOSES its own corner's displacement (that is the "anti" part).
@@ -1030,9 +1024,9 @@ namespace {
 // clamps). Kept here rather than in the harness above because Phase 2's
 // behaviour is a property of the whole loop, not of any single function.
 struct SpinState {
-    float            vx = 0.f;   // m/s, body forward
-    float            vl = 0.f;   // m/s, body rightward
-    float            r  = 0.f;   // rad/s, right-positive
+    float            vx         = 0.f;  // m/s, body forward
+    float            vl         = 0.f;  // m/s, body rightward
+    float            r          = 0.f;  // rad/s, right-positive
     float            headingDeg = 0.f;
     float            worldX = 0.f, worldZ = 0.f;  // WU
     GearState        gear{};
@@ -1049,15 +1043,14 @@ struct SpinInput {
     float filmOverride = -1.f;
 };
 
-constexpr float kBlendSpeedM  = 5.0f;
-constexpr float kWorldPerM    = 1000.0f;
-constexpr float kRestLatM     = 0.05f;
-constexpr float kRestYawRadS  = 0.02f;
+constexpr float kBlendSpeedM = 5.0f;
+constexpr float kWorldPerM   = 1000.0f;
+constexpr float kRestLatM    = 0.05f;
+constexpr float kRestYawRadS = 0.02f;
 
 void spin_step(SpinState& s, const SpinInput& in, const CarParams& base, const TireParams& t, const GearboxParams& g,
                const DrivetrainParams& d, const WetGripParams& wg, float dt) {
-    const float film =
-        (in.filmOverride >= 0.f) ? in.filmOverride : film_over_tread(s.worldX, s.worldZ, in.wetness);
+    const float film  = (in.filmOverride >= 0.f) ? in.filmOverride : film_over_tread(s.worldX, s.worldZ, in.wetness);
     const float vBody = std::sqrt(s.vx * s.vx + s.vl * s.vl);
     s.mu              = effective_mu(in.wetness, vBody, film, wg);
     s.planeFrac       = hydroplane_fraction(vBody, film, wg);
@@ -1067,8 +1060,7 @@ void spin_step(SpinState& s, const SpinInput& in, const CarParams& base, const T
 
     AxleLateral latUse{};
     if (vBody >= kBlendSpeedM)
-        latUse = axle_lateral_use(
-            axle_lateral_forces(s.vx, s.vl, s.r, in.steerRad, p, t, s.lastLong, s.planeFrac));
+        latUse = axle_lateral_use(axle_lateral_forces(s.vx, s.vl, s.r, in.steerRad, p, t, s.lastLong, s.planeFrac));
 
     s.gear           = gearbox_shift_step(s.gear, s.vx, g, kRearWheelRadiusM, dt);
     const float prev = s.vx;
@@ -1076,8 +1068,7 @@ void spin_step(SpinState& s, const SpinInput& in, const CarParams& base, const T
                                &s.lastLong) *
             dt;
     s.vx += body_transport_accel(s.vl, s.r, s.planeFrac) * dt;
-    if (in.brake > 0.f && prev > 0.f && s.vx < 0.f && s.planeFrac <= 0.f)
-        s.vx = 0.f;
+    if (in.brake > 0.f && prev > 0.f && s.vx < 0.f && s.planeFrac <= 0.f) s.vx = 0.f;
 
     if (std::fabs(s.vx) < 0.0005f && in.throttle == 0.f && std::fabs(s.vl) < kRestLatM &&
         std::fabs(s.r) < kRestYawRadS) {
@@ -1085,11 +1076,10 @@ void spin_step(SpinState& s, const SpinInput& in, const CarParams& base, const T
         s.vl = 0.f;
         s.r  = 0.f;
     }
-    if (s.vx == 0.f && s.vl == 0.f && s.r == 0.f)
-        return;
+    if (s.vx == 0.f && s.vl == 0.f && s.r == 0.f) return;
 
-    const float L       = t.a + t.b;
-    const float rKin    = (s.vx / L) * std::tan(in.steerRad);
+    const float L        = t.a + t.b;
+    const float rKin     = (s.vx / L) * std::tan(in.steerRad);
     const float vBodyLat = std::sqrt(s.vx * s.vx + s.vl * s.vl);
     if (vBodyLat < kBlendSpeedM) {
         s.r  = rKin;
@@ -1097,17 +1087,15 @@ void spin_step(SpinState& s, const SpinInput& in, const CarParams& base, const T
     } else {
         const float        vlPrev = std::fabs(s.vl);
         const float        rPrev  = std::fabs(s.r);
-        const BicycleDeriv bd =
-            dynamic_bicycle_deriv(s.vx, s.vl, s.r, in.steerRad, p, t, s.lastLong, s.planeFrac);
+        const BicycleDeriv bd     = dynamic_bicycle_deriv(s.vx, s.vl, s.r, in.steerRad, p, t, s.lastLong, s.planeFrac);
         s.vl += bd.vlDot * dt;
         s.r += bd.rDot * dt;
         const float blend = std::clamp((vBodyLat - kBlendSpeedM) / 3.0f, 0.f, 1.f);
         s.r               = rKin + (s.r - rKin) * blend;
         const float vB    = std::sqrt(s.vx * s.vx + s.vl * s.vl);
-        const float rMax  = rate_limited_bound(yaw_rate_limit(s.vx, vB, p, t, s.planeFrac), rPrev,
-                                               max_yaw_decel(p, t), dt);
-        const float vlMax = rate_limited_bound(sideslip_limit(s.vx, vB, s.planeFrac), vlPrev,
-                                               p.tireMu * p.gravity, dt);
+        const float rMax =
+            rate_limited_bound(yaw_rate_limit(s.vx, vB, p, t, s.planeFrac), rPrev, max_yaw_decel(p, t), dt);
+        const float vlMax = rate_limited_bound(sideslip_limit(s.vx, vB, s.planeFrac), vlPrev, p.tireMu * p.gravity, dt);
         s.r               = std::clamp(s.r, -rMax, rMax);
         s.vl              = std::clamp(s.vl, -vlMax, vlMax);
     }
@@ -1139,16 +1127,15 @@ SpinSummary spin_run(SpinState& s, SpinInput in, float secs, float dt = 1.0f / 1
     const int              steps = static_cast<int>(secs / dt);
     for (int i = 0; i < steps; ++i) {
         spin_step(s, in, base, t, g, d, wg, dt);
-        if (!std::isfinite(s.vx) || !std::isfinite(s.vl) || !std::isfinite(s.r) ||
-            !std::isfinite(s.headingDeg) || !std::isfinite(s.worldX) || !std::isfinite(s.worldZ)) {
+        if (!std::isfinite(s.vx) || !std::isfinite(s.vl) || !std::isfinite(s.r) || !std::isfinite(s.headingDeg) ||
+            !std::isfinite(s.worldX) || !std::isfinite(s.worldZ)) {
             out.finite = false;
             break;
         }
         const float V = std::sqrt(s.vx * s.vx + s.vl * s.vl);
         if (V > 2.0f) {  // beta/yaw-rate are meaningless at a standstill
             out.maxAbsYawRateDeg = std::max(out.maxAbsYawRateDeg, std::fabs(s.r) * 180.f / kEnginePi);
-            out.maxAbsBetaDeg =
-                std::max(out.maxAbsBetaDeg, std::fabs(std::atan2(s.vl, s.vx) * 180.f / kEnginePi));
+            out.maxAbsBetaDeg    = std::max(out.maxAbsBetaDeg, std::fabs(std::atan2(s.vl, s.vx) * 180.f / kEnginePi));
         }
         out.cumYawDeg -= s.r * 180.f / kEnginePi * dt;
         out.minVx        = std::min(out.minVx, s.vx);
@@ -1174,8 +1161,7 @@ void spin_warmup(SpinState& s, float steerRad, float secs, float dt = 1.0f / 120
     const GearboxParams    g;
     const DrivetrainParams d;
     const WetGripParams    wg;
-    for (int i = 0; i < static_cast<int>(secs / dt); ++i)
-        spin_step(s, in, base, t, g, d, wg, dt);
+    for (int i = 0; i < static_cast<int>(secs / dt); ++i) spin_step(s, in, base, t, g, d, wg, dt);
 }
 
 // The deepest puddle cell in a 100 m x 100 m sweep — where a hydroplane can
@@ -1235,8 +1221,8 @@ TEST_CASE("Slip angles are sign-correct at negative vx: steering while moving ba
     // for every combination of motion direction and steer direction.
     for (float vx : {-25.0f, -12.0f, -8.0f, 8.0f, 12.0f, 25.0f}) {
         for (float delta : {-0.20f, -0.05f, 0.05f, 0.20f}) {
-            const float       rKin = (vx / L) * std::tan(delta);
-            const BicycleDeriv d  = dynamic_bicycle_deriv(vx, 0.0f, 0.0f, delta, p, t);
+            const float        rKin = (vx / L) * std::tan(delta);
+            const BicycleDeriv d    = dynamic_bicycle_deriv(vx, 0.0f, 0.0f, delta, p, t);
             REQUIRE(std::isfinite(d.rDot));
             REQUIRE(std::isfinite(d.vlDot));
             REQUIRE(d.rDot * rKin > 0.0f);  // same sign as the kinematic model
@@ -1275,8 +1261,8 @@ TEST_CASE("Reversing above the 5 m/s dynamic threshold steers the correct way (p
         headingDeg -= r * 180.0f / kEnginePi * dt;
     }
     const float rKin = (vx / L) * std::tan(delta);
-    REQUIRE(rKin < 0.0f);  // reversing with right steer ⇒ negative (right-positive) yaw rate
-    REQUIRE(r < 0.0f);     // ...and the dynamic model must agree
+    REQUIRE(rKin < 0.0f);        // reversing with right steer ⇒ negative (right-positive) yaw rate
+    REQUIRE(r < 0.0f);           // ...and the dynamic model must agree
     REQUIRE(headingDeg > 0.0f);  // heading -= deg(r)*dt, so a negative r RAISES heading
 }
 
@@ -1299,7 +1285,7 @@ TEST_CASE("Bicycle model stays finite and bounded across a vx sweep straddling z
                     REQUIRE(std::fabs(d.vlDot + vx * r) <= mu * p.gravity + 1e-3f);
                     // Yaw accel cannot exceed the fully-asymmetric saturated
                     // moment 2*mu*m*g*a*b/(L*Iz).
-                    const float L      = t.a + t.b;
+                    const float L       = t.a + t.b;
                     const float rDotCap = 2.0f * mu * p.mass * p.gravity * t.a * t.b / (L * t.iz);
                     REQUIRE(std::fabs(d.rDot) <= rDotCap + 1e-3f);
                 }
@@ -1315,11 +1301,9 @@ TEST_CASE("hydroplane_fraction gates on BOTH standing water and speed, and agree
     WetGripParams g;
     // No standing water ⇒ never planing, at any speed.
     for (float v : {0.0f, 20.0f, g.vPlane + 50.0f, 100.0f})
-        for (float film : {0.0f, 0.5f, 0.999f})
-            REQUIRE(hydroplane_fraction(v, film, g) == 0.0f);
+        for (float film : {0.0f, 0.5f, 0.999f}) REQUIRE(hydroplane_fraction(v, film, g) == 0.0f);
     // Standing water but at or below vPlane ⇒ still not planing.
-    for (float v : {0.0f, 10.0f, g.vPlane})
-        REQUIRE(hydroplane_fraction(v, 1.5f, g) == 0.0f);
+    for (float v : {0.0f, 10.0f, g.vPlane}) REQUIRE(hydroplane_fraction(v, 1.5f, g) == 0.0f);
     // Fully planing at and past vPlane + planeBand, monotone in between.
     REQUIRE_THAT(hydroplane_fraction(g.vPlane + g.planeBand, 1.5f, g), WithinAbs(1.0f, 1e-6f));
     REQUIRE_THAT(hydroplane_fraction(g.vPlane + g.planeBand + 30.0f, 1.5f, g), WithinAbs(1.0f, 1e-6f));
@@ -1358,7 +1342,7 @@ TEST_CASE("Static-load saturation gives IDENTICALLY zero yaw moment — the satu
     // No amount of relaxing max_yaw_rate() can make a yaw-neutral model diverge.
     CarParams  p;
     TireParams t;
-    p.tireMu   = 0.08f;  // hydroplane grip
+    p.tireMu        = 0.08f;  // hydroplane grip
     const float L   = t.a + t.b;
     const float FzF = p.mass * p.gravity * t.b / L;
     const float FzR = p.mass * p.gravity * t.a / L;
@@ -1402,12 +1386,12 @@ TEST_CASE("axle_lateral_forces with default arguments is bit-identical to the Ph
         for (float vx : {8.0f, 30.0f, -30.0f}) {
             for (float vl : {-5.0f, 0.0f, 5.0f}) {
                 for (float r : {-0.5f, 0.0f, 0.5f}) {
-                    const float sgn    = (vx >= 0.0f) ? 1.0f : -1.0f;
-                    const float delta  = 0.12f;
-                    const float vxs    = std::max(std::fabs(vx), 1.0f);
-                    const float alphaF = (vl + t.a * r) / vxs - sgn * delta;
-                    const float alphaR = (vl - t.b * r) / vxs;
-                    const AxleLateralForces fy = axle_lateral_forces(vx, vl, r, delta, p, t);
+                    const float             sgn    = (vx >= 0.0f) ? 1.0f : -1.0f;
+                    const float             delta  = 0.12f;
+                    const float             vxs    = std::max(std::fabs(vx), 1.0f);
+                    const float             alphaF = (vl + t.a * r) / vxs - sgn * delta;
+                    const float             alphaR = (vl - t.b * r) / vxs;
+                    const AxleLateralForces fy     = axle_lateral_forces(vx, vl, r, delta, p, t);
                     REQUIRE(fy.front == std::clamp(-t.cAlphaFront * alphaF, -mu * FzF, mu * FzF));
                     REQUIRE(fy.rear == std::clamp(-t.cAlphaRear * alphaR, -mu * FzR, mu * FzR));
                     // planeFrac = 0 must also be exactly the default path.
@@ -1527,16 +1511,16 @@ TEST_CASE("Hydroplane spin-out emerges: a car mid-corner on standing water comes
     // ordinary cornering on grip, then the tires lift onto standing water.
     // Nothing else changes — same held steer, same throttle-off coast.
     SpinState s;
-    s.vx        = 40.0f;  // 90 mph, well past vPlane + planeBand
-    s.gear.gear = gear_for_speed(s.vx, GearboxParams{}, kRearWheelRadiusM);
+    s.vx              = 40.0f;  // 90 mph, well past vPlane + planeBand
+    s.gear.gear       = gear_for_speed(s.vx, GearboxParams{}, kRearWheelRadiusM);
     const float steer = 6.0f * kEnginePi / 180.0f;
     spin_warmup(s, steer, 3.0f);
 
     const float rEntry    = s.r;
     const float betaEntry = std::atan2(s.vl, s.vx) * 180.0f / kEnginePi;
     const float vEntry    = std::sqrt(s.vx * s.vx + s.vl * s.vl);
-    REQUIRE(rEntry > 0.1f);                    // genuinely cornering on entry
-    REQUIRE(std::fabs(betaEntry) < 5.0f);      // ...and tracking properly
+    REQUIRE(rEntry > 0.1f);                // genuinely cornering on entry
+    REQUIRE(std::fabs(betaEntry) < 5.0f);  // ...and tracking properly
 
     SpinInput in;
     in.wetness            = 1.0f;
@@ -1555,8 +1539,8 @@ TEST_CASE("Hydroplane spin-out emerges: a car mid-corner on standing water comes
     // Forward speed is traded for lateral speed rather than destroyed: the
     // body-speed magnitude is nearly conserved even as vx collapses.
     const float vExit = std::sqrt(s.vx * s.vx + s.vl * s.vl);
-    REQUIRE(s.vx < 0.25f * vEntry);          // forward component has collapsed...
-    REQUIRE(vExit > 0.80f * vEntry);         // ...but the car is still travelling
+    REQUIRE(s.vx < 0.25f * vEntry);            // forward component has collapsed...
+    REQUIRE(vExit > 0.80f * vEntry);           // ...but the car is still travelling
     REQUIRE(std::fabs(s.vl) > 0.5f * vEntry);  // and most of it is now sideways
     // Bounded, not exploding: nowhere near the kinematic pivot rail.
     REQUIRE(out.maxAbsYawRateDeg < 1000.0f);
@@ -1565,8 +1549,8 @@ TEST_CASE("Hydroplane spin-out emerges: a car mid-corner on standing water comes
 TEST_CASE("The SAME manoeuvre on a dry road just corners — Phase 2 is inert without standing water",
           "[car][wet][spin]") {
     SpinState s;
-    s.vx        = 40.0f;
-    s.gear.gear = gear_for_speed(s.vx, GearboxParams{}, kRearWheelRadiusM);
+    s.vx              = 40.0f;
+    s.gear.gear       = gear_for_speed(s.vx, GearboxParams{}, kRearWheelRadiusM);
     const float steer = 6.0f * kEnginePi / 180.0f;
     spin_warmup(s, steer, 3.0f);
 
@@ -1614,8 +1598,8 @@ TEST_CASE("Skill-based recovery: countersteer + lift arrests a hydroplane slide;
     // vector so sideslip stops growing. Same opening for both runs.
     const auto simulate = [](bool recover) {
         SpinState s;
-        s.vx        = 40.0f;
-        s.gear.gear = gear_for_speed(s.vx, GearboxParams{}, kRearWheelRadiusM);
+        s.vx              = 40.0f;
+        s.gear.gear       = gear_for_speed(s.vx, GearboxParams{}, kRearWheelRadiusM);
         const float steer = 6.0f * kEnginePi / 180.0f;
         spin_warmup(s, steer, 3.0f);
 
@@ -1628,8 +1612,8 @@ TEST_CASE("Skill-based recovery: countersteer + lift arrests a hydroplane slide;
         float                  maxBeta = 0.0f;
         for (int i = 0; i < 120 * 8; ++i) {
             SpinInput in;
-            in.wetness      = 1.0f;
-            in.filmOverride = 1.5f;
+            in.wetness       = 1.0f;
+            in.filmOverride  = 1.5f;
             const float beta = std::atan2(s.vl, s.vx) * 180.0f / kEnginePi;
             const float V    = std::sqrt(s.vx * s.vx + s.vl * s.vl);
             if (recover && std::fabs(beta) > 8.0f)
@@ -1637,15 +1621,14 @@ TEST_CASE("Skill-based recovery: countersteer + lift arrests a hydroplane slide;
             else
                 in.steerRad = steer;
             spin_step(s, in, base, t, g, d, wg, dt);
-            if (V > 2.0f)
-                maxBeta = std::max(maxBeta, std::fabs(beta));
+            if (V > 2.0f) maxBeta = std::max(maxBeta, std::fabs(beta));
         }
         return maxBeta;
     };
     const float held      = simulate(false);
     const float recovered = simulate(true);
-    REQUIRE(held > 60.0f);          // left alone, the car comes right round
-    REQUIRE(recovered < held);      // countersteer genuinely helps...
+    REQUIRE(held > 60.0f);             // left alone, the car comes right round
+    REQUIRE(recovered < held);         // countersteer genuinely helps...
     REQUIRE(recovered < 0.7f * held);  // ...and by a wide margin
 }
 
@@ -1655,8 +1638,8 @@ TEST_CASE("A hydroplane slide drives the forward speed through zero and negative
     // the body-frame forward speed is NEGATIVE; assert we get there and that
     // nothing in the loop breaks when we do.
     SpinState s;
-    s.vx        = 45.0f;
-    s.gear.gear = gear_for_speed(s.vx, GearboxParams{}, kRearWheelRadiusM);
+    s.vx              = 45.0f;
+    s.gear.gear       = gear_for_speed(s.vx, GearboxParams{}, kRearWheelRadiusM);
     const float steer = 12.0f * kEnginePi / 180.0f;
     spin_warmup(s, steer, 3.0f);
 
@@ -1685,17 +1668,17 @@ TEST_CASE("A hydroplane slide drives the forward speed through zero and negative
 
 TEST_CASE("longitudinal_accel's per-axle split sums to the force it returned, and is inert when unused",
           "[car][longitudinal][spin]") {
-    CarParams              p;
-    TireParams             t;
-    GearboxParams          g;
-    DrivetrainParams       d;
+    CarParams        p;
+    TireParams       t;
+    GearboxParams    g;
+    DrivetrainParams d;
     for (float v : {5.0f, 20.0f, 45.0f, 80.0f}) {
         for (int gear : {0, 2, 6}) {
             for (float thr : {0.0f, 0.5f, 1.0f}) {
                 for (float brk : {0.0f, 1.0f}) {
                     AxleLongitudinal split{};
-                    const float withPtr = longitudinal_accel(v, thr, brk, gear, p, t, g, kRearWheelRadiusM, d,
-                                                             AxleLateral{}, &split);
+                    const float      withPtr =
+                        longitudinal_accel(v, thr, brk, gear, p, t, g, kRearWheelRadiusM, d, AxleLateral{}, &split);
                     const float noPtr =
                         longitudinal_accel(v, thr, brk, gear, p, t, g, kRearWheelRadiusM, d, AxleLateral{});
                     REQUIRE(withPtr == noPtr);  // the out-param cannot change the result
@@ -1742,18 +1725,16 @@ TEST_CASE("rate_limited_bound never lets a clamp brake harder than friction can"
     REQUIRE(rate_limited_bound(4.0f, -29.4f, 5.6f, dt) == rate_limited_bound(4.0f, 29.4f, 5.6f, dt));
     // Repeated application converges to the bound rather than sticking above it.
     float cur = 29.4f;
-    for (int i = 0; i < 120 * 12; ++i)
-        cur = std::min(cur, rate_limited_bound(12.0f, cur, 5.6f, dt));
+    for (int i = 0; i < 120 * 12; ++i) cur = std::min(cur, rate_limited_bound(12.0f, cur, 5.6f, dt));
     REQUIRE_THAT(cur, WithinAbs(12.0f, 1e-3f));
 }
 
 TEST_CASE("max_yaw_decel is the fully-asymmetric saturated yaw moment over Iz, and scales with mu",
           "[car][tire][spin]") {
-    CarParams  p;
-    TireParams t;
+    CarParams   p;
+    TireParams  t;
     const float L = t.a + t.b;
-    REQUIRE_THAT(max_yaw_decel(p, t),
-                 WithinAbs(2.0f * p.tireMu * p.mass * p.gravity * t.a * t.b / (L * t.iz), 1e-6f));
+    REQUIRE_THAT(max_yaw_decel(p, t), WithinAbs(2.0f * p.tireMu * p.mass * p.gravity * t.a * t.b / (L * t.iz), 1e-6f));
     CarParams plane = p;
     plane.tireMu    = 0.08f;
     REQUIRE(max_yaw_decel(plane, t) < max_yaw_decel(p, t));
@@ -1766,8 +1747,8 @@ TEST_CASE("Grip returning after a hydroplane slide does not teleport momentum aw
     // the water away in one step. The body speed must decay at a tire-plausible
     // rate, not collapse.
     SpinState s;
-    s.vx        = 40.0f;
-    s.gear.gear = gear_for_speed(s.vx, GearboxParams{}, kRearWheelRadiusM);
+    s.vx              = 40.0f;
+    s.gear.gear       = gear_for_speed(s.vx, GearboxParams{}, kRearWheelRadiusM);
     const float steer = 6.0f * kEnginePi / 180.0f;
     spin_warmup(s, steer, 3.0f);
 
@@ -1781,7 +1762,7 @@ TEST_CASE("Grip returning after a hydroplane slide does not teleport momentum aw
     const float vBefore = std::sqrt(s.vx * s.vx + s.vl * s.vl);
 
     // Water gone, everything else identical. Step ONE frame and measure.
-    SpinInput dry = wet;
+    SpinInput dry    = wet;
     dry.filmOverride = 0.0f;
     const CarParams        base;
     const TireParams       t;

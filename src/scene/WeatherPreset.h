@@ -11,13 +11,9 @@ namespace swish {
 // plus sun/clarity/ambient that roughly match that env. Cycle with G in App.
 enum class WeatherPreset : uint8_t { PartlyCloudy = 0, Cloudy, VeryCloudy, GoldenHour, Count };
 
-inline constexpr uint8_t weather_preset_count() {
-    return util::meta::enum_count<WeatherPreset>();
-}
+inline constexpr uint8_t weather_preset_count() { return util::meta::enum_count<WeatherPreset>(); }
 
-inline WeatherPreset next_weather_preset(WeatherPreset p) {
-    return util::meta::next_enum(p);
-}
+inline WeatherPreset next_weather_preset(WeatherPreset p) { return util::meta::next_enum(p); }
 
 inline std::string_view weather_preset_name(WeatherPreset p) {
     switch (p) {

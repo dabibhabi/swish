@@ -20,14 +20,11 @@ namespace swish::util::container {
 // out[i] = src[i] * k + bias
 inline std::vector<float> affine(const std::vector<float>& src, float k, float bias) {
     std::vector<float> out(src.size());
-    for (size_t i = 0; i < src.size(); ++i)
-        out[i] = src[i] * k + bias;
+    for (size_t i = 0; i < src.size(); ++i) out[i] = src[i] * k + bias;
     return out;
 }
 
 // n copies of v.
-inline std::vector<float> filled(size_t n, float v) {
-    return std::vector<float>(n, v);
-}
+inline std::vector<float> filled(size_t n, float v) { return std::vector<float>(n, v); }
 
 }  // namespace swish::util::container

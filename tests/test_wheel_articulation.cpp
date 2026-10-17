@@ -21,12 +21,8 @@ constexpr float kL = 2.259f;  // wheelbase, m
 constexpr float kT = 1.404f;  // front track, m
 constexpr float kR = 0.320f;  // tyre radius, m
 
-float deg(float d) {
-    return glm::radians(d);
-}
-float cot(float a) {
-    return 1.f / std::tan(a);
-}
+float deg(float d) { return glm::radians(d); }
+float cot(float a) { return 1.f / std::tan(a); }
 }  // namespace
 
 // ── Ackermann (draw-only) ─────────────────────────────────────────────
@@ -163,8 +159,7 @@ TEST_CASE("CarEntity: wheel_omega hook is per wheel, outer faster in a turn", "[
     const auto& w0 = car.get_wheel_omega();
     const float v  = car.get_speed_mps();
     REQUIRE(v > 5.f);
-    for (int c = 0; c < 4; c++)
-        REQUIRE_THAT(w0[static_cast<size_t>(c)], WithinAbs(v / kR, 1e-3f * v / kR));
+    for (int c = 0; c < 4; c++) REQUIRE_THAT(w0[static_cast<size_t>(c)], WithinAbs(v / kR, 1e-3f * v / kR));
 
     f.throttle = 0.3f;
     f.steer    = 0.5f;  // right

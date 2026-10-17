@@ -33,16 +33,11 @@ RigidChassisParams symmetric_params(float k, float c) {
 
 void run(RigidChassis& ch, float seconds, const ChassisInput& in, float ground = 0.f) {
     const int n = static_cast<int>(std::lround(seconds / kH));
-    for (int i = 0; i < n; ++i)
-        ch.step(kH, in, ground);
+    for (int i = 0; i < n; ++i) ch.step(kH, in, ground);
 }
 
-float pitch_of(const RigidChassis& ch) {
-    return util::physics::euler_yxz_from_rotation(ch.body().rotation()).x;
-}
-float roll_of(const RigidChassis& ch) {
-    return util::physics::euler_yxz_from_rotation(ch.body().rotation()).z;
-}
+float pitch_of(const RigidChassis& ch) { return util::physics::euler_yxz_from_rotation(ch.body().rotation()).x; }
+float roll_of(const RigidChassis& ch) { return util::physics::euler_yxz_from_rotation(ch.body().rotation()).z; }
 }  // namespace
 
 TEST_CASE("chassis settles to static equilibrium: sag = m g / 4k per wheel", "[rigidchassis]") {
@@ -78,8 +73,7 @@ TEST_CASE("design ride height from make_chassis_params is the equilibrium (no si
     REQUIRE_THAT(glm::degrees(pitch_of(ch)), WithinAbs(0.f, 0.02f));
     REQUIRE_THAT(glm::degrees(roll_of(ch)), WithinAbs(0.f, 0.02f));
     float sumFn = 0.f;
-    for (const auto& s : ch.corner_state())
-        sumFn += s.fn_n;
+    for (const auto& s : ch.corner_state()) sumFn += s.fn_n;
     REQUIRE_THAT(sumFn, WithinRel(1670.f * 9.81f, 0.005f));
 }
 
@@ -119,8 +113,7 @@ TEST_CASE("tire force stays inside the friction circle", "[rigidchassis]") {
         REQUIRE(std::hypot(s.fx_n, s.fy_n) <= in.mu * s.fn_n * 1.0001f);
     }
     // Sliding right (+Z) is opposed by lateral force toward -Z on every wheel.
-    for (const auto& s : ch.corner_state())
-        REQUIRE(s.fy_n < 0.f);
+    for (const auto& s : ch.corner_state()) REQUIRE(s.fy_n < 0.f);
 }
 
 TEST_CASE("steering a moving chassis yaws it (lateral tire force acts at the patch)", "[rigidchassis]") {

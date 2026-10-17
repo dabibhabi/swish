@@ -136,8 +136,7 @@ struct CorridorAsset {
         "\n  (needs no network and no SUMO — data/osm/ is cached)";
 
     FILE* f = std::fopen(path.c_str(), "rb");
-    if (!f)
-        throw std::runtime_error("CorridorAsset: cannot open " + path + hint);
+    if (!f) throw std::runtime_error("CorridorAsset: cannot open " + path + hint);
 
     CorridorAsset a;
     struct Closer {
@@ -147,8 +146,7 @@ struct CorridorAsset {
 
     if (std::fread(&a.header, sizeof(CorridorHeader), 1, f) != 1)
         throw std::runtime_error("CorridorAsset: short header in " + path + hint);
-    if (a.header.magic != CorridorHeader::MAGIC)
-        throw std::runtime_error("CorridorAsset: bad magic in " + path + hint);
+    if (a.header.magic != CorridorHeader::MAGIC) throw std::runtime_error("CorridorAsset: bad magic in " + path + hint);
     if (a.header.version != CorridorHeader::VERSION)
         throw std::runtime_error("CorridorAsset: version mismatch in " + path + " (expected " +
                                  std::to_string(CorridorHeader::VERSION) + ", got " + std::to_string(a.header.version) +

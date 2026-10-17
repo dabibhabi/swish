@@ -12,8 +12,8 @@
 #ifdef SWISH_DEBUG_UI
 #include "debug/DebugUI.h"
 #include "debug/SceneParamsUniform.h"
-#include "renderer/FrameCapture/FrameCapture.h"  // S3: frame dump (debug)
-#include "renderer/GpuProfiler/GpuProfiler.h"    // S2: GPU timestamp profiler (debug)
+#include "renderer/FrameCapture/FrameCapture.h"        // S3: frame dump (debug)
+#include "renderer/GpuProfiler/GpuProfiler.h"          // S2: GPU timestamp profiler (debug)
 #include "renderer/Passes/PassDeclarationValidator.h"  // S4: pass resource declarations + validator (debug)
 #include "renderer/ShaderHotReload/ShaderHotReload.h"  // S5: shader hot-reload (debug)
 #endif
@@ -149,8 +149,8 @@ public:
     // S2: per-pass GPU timings (plain data; snapshot().supported == false when timestamps are unavailable).
     const GpuProfileSnapshot& gpu_profile() const { return m_gpuProfiler.snapshot(); }
     // S3: request a frame dump (F12). hdr also writes the float scene colour as .pfm. Status/last path for the UI.
-    void                  request_capture(bool hdr) { m_frameCapture.request(hdr); }
-    const CaptureStatus&  capture_status() const { return m_frameCapture.status(); }
+    void                 request_capture(bool hdr) { m_frameCapture.request(hdr); }
+    const CaptureStatus& capture_status() const { return m_frameCapture.status(); }
 #endif
 
     void update_glass_draw_calls(const std::vector<DrawCall>& glassDCs);

@@ -30,10 +30,8 @@ namespace swish::gpuprof {
 // Mask selecting the valid low bits of a timestamp (VkQueueFamilyProperties::timestampValidBits, 0 = unsupported).
 // 64 or more bits means every bit is valid.
 constexpr u64 valid_mask(u32 validBits) {
-    if (validBits == 0)
-        return 0;
-    if (validBits >= 64)
-        return ~u64{0};
+    if (validBits == 0) return 0;
+    if (validBits >= 64) return ~u64{0};
     return (u64{1} << validBits) - 1;
 }
 
@@ -50,27 +48,15 @@ constexpr double ticks_to_ms(u64 ticks, float periodNs) {
 }
 
 // ── slot indexing ─────────────────────────────────────────────────────
-constexpr u32 boundary_count(u32 passCount) {
-    return passCount + 1;
-}
-constexpr u32 ring_slot(u64 frame, u32 ringSize) {
-    return ringSize == 0 ? 0 : static_cast<u32>(frame % ringSize);
-}
+constexpr u32 boundary_count(u32 passCount) { return passCount + 1; }
+constexpr u32 ring_slot(u64 frame, u32 ringSize) { return ringSize == 0 ? 0 : static_cast<u32>(frame % ringSize); }
 // First query index of `slot`'s slice in the pool (pool size = ringSize * boundary_count).
-constexpr u32 slot_base(u32 slot, u32 passCount) {
-    return slot * boundary_count(passCount);
-}
+constexpr u32 slot_base(u32 slot, u32 passCount) { return slot * boundary_count(passCount); }
 // Query index of boundary `b` (0..passCount) of `slot`.
-constexpr u32 query_index(u32 slot, u32 passCount, u32 b) {
-    return slot_base(slot, passCount) + b;
-}
-constexpr u32 pool_query_count(u32 ringSize, u32 passCount) {
-    return ringSize * boundary_count(passCount);
-}
+constexpr u32 query_index(u32 slot, u32 passCount, u32 b) { return slot_base(slot, passCount) + b; }
+constexpr u32 pool_query_count(u32 ringSize, u32 passCount) { return ringSize * boundary_count(passCount); }
 // Frames between recording a slot and reading it back (see "Ring" above).
-constexpr u32 readback_latency_frames(u32 ringSize) {
-    return ringSize;
-}
+constexpr u32 readback_latency_frames(u32 ringSize) { return ringSize; }
 
 // Per-pass milliseconds from N+1 boundary timestamps. `ms` is resized to passCount; returns the total in ms
 // (boundary N minus boundary 0). `ts` must hold passCount + 1 values.
@@ -83,8 +69,7 @@ inline double pass_times_ms(const u64* ts, u32 passCount, u32 validBits, float p
 
 // Exponential smoothing of one displayed value. The first sample seeds the filter (no ramp from zero).
 inline float smooth_ms(float previous, float sample, bool first, float k, float dt) {
-    if (first)
-        return sample;
+    if (first) return sample;
     return util::math::exp_smooth(previous, sample, k, dt);
 }
 

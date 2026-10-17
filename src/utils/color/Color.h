@@ -14,8 +14,6 @@
 namespace swish::util::color {
 
 // `c` must point at four floats (r, g, b, a).
-inline glm::vec4 rgba(const float* c) {
-    return {c[0], c[1], c[2], c[3]};
-}
+inline glm::vec4 rgba(const float* c) { return {c[0], c[1], c[2], c[3]}; }
 
 }  // namespace swish::util::color

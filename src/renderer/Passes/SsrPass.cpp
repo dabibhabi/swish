@@ -51,8 +51,7 @@ protected:
 #define PUSH(m) sp.m =
 #define NOPUSH (void)
 #include "debug/Tunables.def"
-            if (!d.ssrEnabled)
-                sp.intensity = 0.0f;  // derived gate stays hand-written (== enabled ? intensity : 0)
+            if (!d.ssrEnabled) sp.intensity = 0.0f;  // derived gate stays hand-written (== enabled ? intensity : 0)
             sp.wetness = c.state.wetness;
             // sp.puddleCoverage (generated copy above) is d.puddleCoverage in BOTH builds: release uses the
             // DebugParams default 0.501, which lighting.frag's release literal SP_PUDDLE_COVERAGE mirrors (pinned
@@ -80,8 +79,6 @@ protected:
 
 }  // namespace
 
-std::unique_ptr<IRenderPass> make_ssr_pass() {
-    return std::make_unique<SsrPass>();
-}
+std::unique_ptr<IRenderPass> make_ssr_pass() { return std::make_unique<SsrPass>(); }
 
 }  // namespace swish

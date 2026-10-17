@@ -70,8 +70,7 @@ inline VkDescriptorSetLayout make_sampler_layout(VkDevice device, std::span<cons
 inline VkDescriptorSetLayout make_sampler_layout(VkDevice device, uint32_t count,
                                                  VkShaderStageFlags stages = VK_SHADER_STAGE_FRAGMENT_BIT) {
     std::vector<uint32_t> idx(count);
-    for (uint32_t i = 0; i < count; ++i)
-        idx[i] = i;
+    for (uint32_t i = 0; i < count; ++i) idx[i] = i;
     return make_sampler_layout(device, std::span<const uint32_t>(idx), stages);
 }
 
@@ -90,10 +89,8 @@ inline std::vector<VkDescriptorPoolSize> pool_size_list(const PoolSizes& sizes) 
     std::vector<VkDescriptorPoolSize> out;
     if (sizes.combinedImageSamplers)
         out.push_back({VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, sizes.combinedImageSamplers});
-    if (sizes.uniformBuffers)
-        out.push_back({VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, sizes.uniformBuffers});
-    if (sizes.storageBuffers)
-        out.push_back({VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, sizes.storageBuffers});
+    if (sizes.uniformBuffers) out.push_back({VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, sizes.uniformBuffers});
+    if (sizes.storageBuffers) out.push_back({VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, sizes.storageBuffers});
     return out;
 }
 

@@ -77,8 +77,7 @@ public:
             const float       clear   = airflow * m_p.clearRate * s.coverage;
             const float       drain   = m_p.drainRate * s.coverage;
             s.coverage                = std::clamp(s.coverage + (wetting - clear - drain) * d, 0.0f, 1.0f);
-            if (s.coverage < 1e-4f && rain <= 0.0f)
-                s.coverage = 0.0f;  // fully dry: no residual
+            if (s.coverage < 1e-4f && rain <= 0.0f) s.coverage = 0.0f;  // fully dry: no residual
             s.dropSize = s.coverage > 0.0f ? m_p.dropSizeMin + (m_p.dropSizeMax - m_p.dropSizeMin) * s.coverage : 0.0f;
             s.streak   = s.coverage * airflow;
         }
@@ -96,8 +95,7 @@ public:
     }
 
     void reset() {
-        for (auto& kv : m_lens)
-            kv.second = {};
+        for (auto& kv : m_lens) kv.second = {};
     }
 
     const LensWetnessParams& params() const { return m_p; }

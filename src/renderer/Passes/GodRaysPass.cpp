@@ -73,8 +73,6 @@ protected:
 
 }  // namespace
 
-std::unique_ptr<IRenderPass> make_godrays_pass() {
-    return std::make_unique<GodRaysPass>();
-}
+std::unique_ptr<IRenderPass> make_godrays_pass() { return std::make_unique<GodRaysPass>(); }
 
 }  // namespace swish

@@ -12,12 +12,10 @@ namespace swish {
 // framebuffers, sync objects, command buffers). Changing it needs a renderer-wide review.
 static constexpr u32 MAX_FRAMES_IN_FLIGHT = 2;
 
-
 template <u32 N = MAX_FRAMES_IN_FLIGHT>
 [[nodiscard]] constexpr u32 prev_frame(u32 frame) noexcept {
     static_assert(N >= 2, "ring need at least 2 slots");
-    return (frame + (N-1))%N;
-
+    return (frame + (N - 1)) % N;
 }
 
 }  // namespace swish

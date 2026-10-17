@@ -34,9 +34,7 @@ struct BicycleDeriv {
 // μ·Fz), so under a diverging sideslip this clamp is not physics — it is a
 // numerical rail that happens to suppress the divergence. See
 // yaw_rate_limit()/sideslip_limit() below.
-inline float max_yaw_rate(float vx, const CarParams& p) {
-    return p.tireMu * p.gravity / std::max(std::fabs(vx), 1.0f);
-}
+inline float max_yaw_rate(float vx, const CarParams& p) { return p.tireMu * p.gravity / std::max(std::fabs(vx), 1.0f); }
 
 // ── Phase 2: hydroplane-gated release of the quasi-steady clamps ──────────
 // archive/docs/phase-2-hydroplane-spinout.md, as-built §5.
@@ -60,8 +58,7 @@ inline float yaw_pivot_rail(float speed, const TireParams& t) {
 // except when the tire is genuinely planing.
 inline float yaw_rate_limit(float vx, float speed, const CarParams& p, const TireParams& t, float planeFrac) {
     const float qs = max_yaw_rate(vx, p);
-    if (planeFrac <= 0.0f)
-        return qs;
+    if (planeFrac <= 0.0f) return qs;
     return qs + std::clamp(planeFrac, 0.0f, 1.0f) * (yaw_pivot_rail(speed, t) - qs);
 }
 
@@ -74,8 +71,7 @@ inline float yaw_rate_limit(float vx, float speed, const CarParams& p, const Tir
 // for; see the as-built note in archive/docs/phase-2-hydroplane-spinout.md.
 inline float sideslip_limit(float vx, float speed, float planeFrac) {
     const float qs = std::fabs(vx);
-    if (planeFrac <= 0.0f)
-        return qs;
+    if (planeFrac <= 0.0f) return qs;
     return qs + std::clamp(planeFrac, 0.0f, 1.0f) * (std::max(std::fabs(speed), 1.0f) - qs);
 }
 
@@ -260,8 +256,7 @@ inline float steady_state_top_speed(const CarParams& p, const TireParams& t, con
                                     const DrivetrainParams& d     = DrivetrainParams{},
                                     const TorqueCurve&      curve = kTurboS992TorqueCurve) {
     float best = 0.0f;
-    for (int i = 0; i < g.gearCount; ++i)
-        best = std::max(best, top_speed_in_gear(i, p, t, g, rWheelRear, d, curve));
+    for (int i = 0; i < g.gearCount; ++i) best = std::max(best, top_speed_in_gear(i, p, t, g, rWheelRear, d, curve));
     return best;
 }
 

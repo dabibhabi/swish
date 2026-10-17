@@ -29,8 +29,7 @@ void PostProcessManager::rebuild_composite_pipeline() {
     const VkPipeline fresh =
         makeFullscreenPipeline("composite.frag", m_compositeRenderPass, m_compositeLayout, m_swapExtent);
     vkDeviceWaitIdle(m_device);
-    if (m_compositePipeline != VK_NULL_HANDLE)
-        vkDestroyPipeline(m_device, m_compositePipeline, nullptr);
+    if (m_compositePipeline != VK_NULL_HANDLE) vkDestroyPipeline(m_device, m_compositePipeline, nullptr);
     m_compositePipeline = fresh;
 }
 #endif

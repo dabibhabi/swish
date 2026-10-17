@@ -20,9 +20,7 @@ inline bool update_mode() {
     return e && *e && *e != '0';
 }
 
-inline std::string path(const std::string& file) {
-    return std::string(GOLDEN_DIR) + file;
-}
+inline std::string path(const std::string& file) { return std::string(GOLDEN_DIR) + file; }
 
 // FNV-1a 64-bit.
 struct Fnv {
@@ -55,11 +53,9 @@ inline KV read(const std::string& file) {
     std::ifstream f(path(file));
     std::string   line;
     while (std::getline(f, line)) {
-        if (line.empty() || line[0] == '#')
-            continue;
+        if (line.empty() || line[0] == '#') continue;
         const auto sp = line.find(' ');
-        if (sp == std::string::npos)
-            continue;
+        if (sp == std::string::npos) continue;
         kv[line.substr(0, sp)] = line.substr(sp + 1);
     }
     return kv;
@@ -68,8 +64,7 @@ inline KV read(const std::string& file) {
 inline void write(const std::string& file, const KV& kv, const std::string& header) {
     std::ofstream f(path(file), std::ios::trunc);
     f << "# " << header << "\n# Regenerate: SWISH_UPDATE_GOLDENS=1 build/tests/swish_tests \"[golden]\"\n";
-    for (const auto& [k, v] : kv)
-        f << k << ' ' << v << '\n';
+    for (const auto& [k, v] : kv) f << k << ' ' << v << '\n';
 }
 
 }  // namespace golden

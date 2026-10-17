@@ -143,12 +143,8 @@ void MaterialDescriptors::rebuild(VkDevice device, TextureManager& textures) {
             Texture* tex = textures.get_texture(texName);
 
             // Fall back to the 1×1 white "default" if a normal/roughness map is missing.
-            if (!tex) {
-                tex = textures.get_texture("default");
-            }
-            if (!tex) {
-                throw std::runtime_error("MaterialDescriptors::rebuild: missing texture '" + texName + "'");
-            }
+            if (!tex) { tex = textures.get_texture("default"); }
+            if (!tex) { throw std::runtime_error("MaterialDescriptors::rebuild: missing texture '" + texName + "'"); }
 
             VkDescriptorImageInfo imgInfo{};
             imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

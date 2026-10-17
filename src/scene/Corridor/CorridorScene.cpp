@@ -42,8 +42,7 @@ using util::container::filled;
 
 std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al) {
     std::vector<CorridorSegment> out;
-    if (!al.valid())
-        return out;
+    if (!al.valid()) return out;
 
     const CorridorHeader& h    = al.header();
     const Look            look = look_from(load_road_config(CONFIG_DIR "road.bin"));
@@ -52,8 +51,7 @@ std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al
     const double segLen  = static_cast<double>(h.segmentLength);
     const double tileLen = static_cast<double>(h.tileLength);
     const double sp      = static_cast<double>(h.stationSpacing);
-    if (segLen <= 0.0 || tileLen <= 0.0 || sp <= 0.0)
-        return out;
+    if (segLen <= 0.0 || tileLen <= 0.0 || sp <= 0.0) return out;
 
     // Cross-section offsets (lateral from the centreline, +ve = right = EB).
     const float m         = h.medianHalfWidth;
@@ -74,8 +72,7 @@ std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al
     for (int k = 0; k < nSeg; ++k) {
         const double s0 = static_cast<double>(k) * segLen;
         const double s1 = std::min(s0 + segLen, total);
-        if (s1 - s0 < sp)
-            continue;
+        if (s1 - s0 < sp) continue;
 
         CorridorSegment seg;
         seg.startStation = s0;
@@ -114,8 +111,7 @@ std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al
             }
             sl.frames      = build_sweep_frames(cl, tan);
             const size_t n = sl.frames.size();
-            if (n < 2)
-                continue;
+            if (n < 2) continue;
 
             // Dash phase: arc is tile-local (restarting at 0 keeps UV floats
             // small), so the global dash cycle has to be re-derived per tile or

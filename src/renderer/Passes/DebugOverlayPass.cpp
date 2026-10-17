@@ -22,9 +22,7 @@ public:
 
 }  // namespace
 
-std::unique_ptr<IRenderPass> make_debug_overlay_pass() {
-    return std::make_unique<DebugOverlayPass>();
-}
+std::unique_ptr<IRenderPass> make_debug_overlay_pass() { return std::make_unique<DebugOverlayPass>(); }
 
 }  // namespace swish
 

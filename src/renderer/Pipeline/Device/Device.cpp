@@ -194,34 +194,22 @@ void Device::createPipelineCache() {
 
 void Device::savePipelineCache() const {
     size_t size = 0;
-    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, nullptr) != VK_SUCCESS || size == 0)
-        return;
+    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, nullptr) != VK_SUCCESS || size == 0) return;
     std::vector<char> data(size);
-    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, data.data()) != VK_SUCCESS)
-        return;
+    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, data.data()) != VK_SUCCESS) return;
     if (std::ofstream out{kPipelineCachePath, std::ios::binary | std::ios::trunc})
         out.write(data.data(), static_cast<std::streamsize>(size));
 }
 
-VkPhysicalDevice Device::getPhysicalDevice() const {
-    return m_physicalDevice;
-}
+VkPhysicalDevice Device::getPhysicalDevice() const { return m_physicalDevice; }
 
-VkDevice Device::getDevice() const {
-    return m_device;
-}
+VkDevice Device::getDevice() const { return m_device; }
 
-VkQueue Device::getGraphicsQueue() const {
-    return m_graphicsQueue;
-}
+VkQueue Device::getGraphicsQueue() const { return m_graphicsQueue; }
 
-VkQueue Device::getPresentQueue() const {
-    return m_presentQueue;
-}
+VkQueue Device::getPresentQueue() const { return m_presentQueue; }
 
-const QueueFamilyIndices& Device::getQueueFamilies() const {
-    return m_queueFamilies;
-}
+const QueueFamilyIndices& Device::getQueueFamilies() const { return m_queueFamilies; }
 
 QueueFamilyIndices Device::findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) const {
     uint32_t queueFamilyCount = 0;
@@ -232,14 +220,10 @@ QueueFamilyIndices Device::findQueueFamilies(VkPhysicalDevice device, VkSurfaceK
 
     QueueFamilyIndices indices;
     for (uint32_t i = 0; i < queueFamilyCount; i++) {
-        if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-            indices.graphicsFamily = i;
-        }
+        if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) { indices.graphicsFamily = i; }
         VkBool32 presentSupport = false;
         vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
-        if (presentSupport) {
-            indices.presentFamily = i;
-        }
+        if (presentSupport) { indices.presentFamily = i; }
     }
     return indices;
 }
@@ -260,12 +244,10 @@ SwapChainSupportDetails Device::querySwapChainSupport(VkPhysicalDevice device, V
 
 int Device::rateDevice(VkPhysicalDevice device, VkSurfaceKHR surface) const {
     // Must support required extensions (swapchain at minimum)
-    if (!checkDeviceExtensionSupport(device))
-        return 0;
+    if (!checkDeviceExtensionSupport(device)) return 0;
 
     // Must expose both a graphics and a present queue
-    if (!findQueueFamilies(device, surface).isComplete())
-        return 0;
+    if (!findQueueFamilies(device, surface).isComplete()) return 0;
 
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(device, &properties);
@@ -279,11 +261,9 @@ int Device::rateDevice(VkPhysicalDevice device, VkSurfaceKHR surface) const {
 
     // Prefer the vendor that matches the configured backend
 #if defined(SWISH_BACKEND_LINUX)
-    if (properties.vendorID == 0x1002 || properties.vendorID == 0x10DE)
-        score += 500;  // AMD / NVIDIA
+    if (properties.vendorID == 0x1002 || properties.vendorID == 0x10DE) score += 500;  // AMD / NVIDIA
 #elif defined(SWISH_BACKEND_APPLE)
-    if (properties.vendorID == 0x106B)
-        score += 500;  // Apple GPU
+    if (properties.vendorID == 0x106B) score += 500;  // Apple GPU
 #endif
 
     return score;
@@ -295,9 +275,7 @@ bool Device::checkDeviceExtensionSupport(VkPhysicalDevice device) const {
     std::vector<VkExtensionProperties> extensions(extensionCount);
     vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, extensions.data());
     for (const auto& extension : extensions) {
-        if (strcmp(extension.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
-            return true;
-        }
+        if (strcmp(extension.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) { return true; }
     }
     return false;
 }

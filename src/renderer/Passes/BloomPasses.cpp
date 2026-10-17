@@ -80,14 +80,8 @@ private:
 
 }  // namespace
 
-std::unique_ptr<IRenderPass> make_bloom_extract_pass() {
-    return std::make_unique<BloomExtractPass>();
-}
-std::unique_ptr<IRenderPass> make_bloom_blur_h_pass() {
-    return std::make_unique<BloomBlurPass>(true);
-}
-std::unique_ptr<IRenderPass> make_bloom_blur_v_pass() {
-    return std::make_unique<BloomBlurPass>(false);
-}
+std::unique_ptr<IRenderPass> make_bloom_extract_pass() { return std::make_unique<BloomExtractPass>(); }
+std::unique_ptr<IRenderPass> make_bloom_blur_h_pass() { return std::make_unique<BloomBlurPass>(true); }
+std::unique_ptr<IRenderPass> make_bloom_blur_v_pass() { return std::make_unique<BloomBlurPass>(false); }
 
 }  // namespace swish

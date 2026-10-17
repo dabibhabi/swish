@@ -41,8 +41,8 @@ public:
     const char* name() const override { return "Dof"; }
     // Resolves in place over the HDR image using scene depth for the circle of confusion.
     void declare(PassDeclaration& d) const override { d.read({Img::Hdr, Img::HdrDepth}).write({Img::Hdr}); }
-    void        init(const PassInitCtx& ctx) override;
-    void        onResize(const PassInitCtx& ctx) override;
+    void init(const PassInitCtx& ctx) override;
+    void onResize(const PassInitCtx& ctx) override;
     // Resolve this frame when tune.dofEnabled: read HDR + depth, write the blurred output, copy it back into HDR.
     // Leaves HDR in COLOR_ATTACHMENT (as the god-rays pass did) so the downstream barrier/bloom logic is unchanged.
     // invProj is clip->view from this frame's projection (matches the scene depth and the SSR convention); records

@@ -148,8 +148,7 @@ TEST_CASE("PassList.def pins the frame order (release list)", "[renderer]") {
         "Geometry", "Lighting",       "Ssr",         "GodRays",      "SpraySim",   "Rain",       "SprayDraw",
         "Glass",    "WindshieldRain", "HdrFinalize", "BloomExtract", "BloomBlurH", "BloomBlurV", "Composite"};
     REQUIRE(std::size(kRelease) == expectedRelease.size());
-    for (size_t i = 0; i < expectedRelease.size(); ++i)
-        CHECK(expectedRelease[i] == kRelease[i]);
+    for (size_t i = 0; i < expectedRelease.size(); ++i) CHECK(expectedRelease[i] == kRelease[i]);
 
     // Debug builds add SSAO + AO blur + velocity (after lighting), DoF (after god-rays), TAA (after the windshield)
     // and the overlay (last).
@@ -158,8 +157,7 @@ TEST_CASE("PassList.def pins the frame order (release list)", "[renderer]") {
         "SpraySim",   "Rain",       "SprayDraw", "Glass",       "WindshieldRain", "Taa", "HdrFinalize", "BloomExtract",
         "BloomBlurH", "BloomBlurV", "Composite", "DebugOverlay"};
     REQUIRE(std::size(kAll) == expectedAll.size());
-    for (size_t i = 0; i < expectedAll.size(); ++i)
-        CHECK(expectedAll[i] == kAll[i]);
+    for (size_t i = 0; i < expectedAll.size(); ++i) CHECK(expectedAll[i] == kAll[i]);
 }
 
 TEST_CASE("declared sampler inputs are dense and use the bindings.glsl numbers", "[renderer]") {

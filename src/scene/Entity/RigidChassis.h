@@ -142,8 +142,7 @@ public:
         dt            = std::min(dt, kMaxSubsteps * kStepS);
         const int   n = std::max(1, static_cast<int>(std::ceil(dt / kStepS)));
         const float h = dt / static_cast<float>(n);
-        for (int i = 0; i < n; ++i)
-            step(h, in, ground_y_m);
+        for (int i = 0; i < n; ++i) step(h, in, ground_y_m);
     }
 
     // One substep: gravity + contacts + tires into the accumulators, then RigidBody::step.
@@ -163,8 +162,7 @@ public:
             patch[c]               = cog + r * k.hub_body_m - up * k.radius_m;
             s                      = ChassisCornerState{};
             const float pen        = ground_y_m - patch[c].y + k.preload_m;
-            if (pen <= 0.f)
-                continue;
+            if (pen <= 0.f) continue;
             s.pen_m        = pen;
             const float vy = m_body.point_velocity(patch[c]).y;
             s.fn_n         = std::max(0.f, k.k_n_per_m * pen - k.c_ns_per_m * vy);
@@ -175,8 +173,7 @@ public:
         const float cs = std::cos(in.steer_rad), sn = std::sin(in.steer_rad);
         for (int c = 0; c < 4; ++c) {
             ChassisCornerState& s = m_state[c];
-            if (s.fn_n <= 0.f)
-                continue;
+            if (s.fn_n <= 0.f) continue;
             const ChassisCorner& k = m_p.corner[c];
 
             // Wheel heading projected onto the (flat) ground plane; s = f x up is the wheel's right.
@@ -184,8 +181,7 @@ public:
             vec3       f     = r * fBody;
             f.y              = 0.f;
             const float fl   = glm::length(f);
-            if (fl < 1e-4f)
-                continue;  // wheel axis (nearly) vertical: no ground-plane heading
+            if (fl < 1e-4f) continue;  // wheel axis (nearly) vertical: no ground-plane heading
             f /= fl;
             const vec3 sdir = glm::cross(f, up);
 
@@ -220,8 +216,7 @@ public:
         for (int c = 0; c < 4; ++c) {
             const ChassisCorner& k   = m_p.corner[c];
             const float          pen = ground_y_m - (m_body.position() + r * k.hub_body_m).y + k.radius_m + k.preload_m;
-            if (pen > 0.f)
-                e += 0.5f * k.k_n_per_m * pen * pen;
+            if (pen > 0.f) e += 0.5f * k.k_n_per_m * pen * pen;
         }
         return e;
     }

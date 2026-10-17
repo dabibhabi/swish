@@ -23,18 +23,12 @@ using util::debug::vec3_to_toml;
 
 // Per-kind TOML encode / decode: one overload per value-kind tag (utils/meta/Tags.h). A new kind adds one
 // `put` and one `get` here (plus the matching widget / dump in DebugUI.cpp); the loops below never change.
-void put(toml::table& g, const tunables::Tunable& t, tag::flag_t, bool v) {
-    g.insert_or_assign(t.key, v);
-}
+void put(toml::table& g, const tunables::Tunable& t, tag::flag_t, bool v) { g.insert_or_assign(t.key, v); }
 void put(toml::table& g, const tunables::Tunable& t, tag::real_t, float v) {
     g.insert_or_assign(t.key, static_cast<double>(v));
 }
-void get(const toml::node_view<const toml::node>& node, tag::flag_t, bool& v) {
-    v = node.value_or(v);
-}
-void get(const toml::node_view<const toml::node>& node, tag::real_t, float& v) {
-    v = node.value_or(v);
-}
+void get(const toml::node_view<const toml::node>& node, tag::flag_t, bool& v) { v = node.value_or(v); }
+void get(const toml::node_view<const toml::node>& node, tag::real_t, float& v) { v = node.value_or(v); }
 
 // Registry-driven groups (src/debug/Tunables.def: ssr, reflection, wet porosity/roughness/puddles). Same TOML
 // tables/keys and merge semantics as the hand-written groups: absent / wrong-typed keys keep the current value and
@@ -42,8 +36,7 @@ void get(const toml::node_view<const toml::node>& node, tag::real_t, float& v) {
 void save_registry(toml::table& tbl, const DebugParams& p) {
     for (const tunables::Tunable& t : tunables::all()) {
         toml::table* g = tbl.get_as<toml::table>(t.group);
-        if (!g)
-            g = tbl.emplace(t.group, toml::table{}).first->second.as_table();
+        if (!g) g = tbl.emplace(t.group, toml::table{}).first->second.as_table();
         tunables::visit(t, p, [&](auto kind, auto v) { put(*g, t, kind, v); });
     }
 }
@@ -57,13 +50,10 @@ void load_registry(const toml::table& tbl, DebugParams& p) {
 
 // Pre-2026-09-29 preset home, inside the build tree (wiped by `make clean` / a fresh build
 // dir). Kept read-only as a fallback so existing presets stay reachable.
-std::string legacy_presets_dir() {
-    return std::string(CONFIG_DIR) + "presets/";
-}
+std::string legacy_presets_dir() { return std::string(CONFIG_DIR) + "presets/"; }
 
 std::string with_trailing_slash(std::string dir) {
-    if (!dir.empty() && dir.back() != '/')
-        dir += '/';
+    if (!dir.empty() && dir.back() != '/') dir += '/';
     return dir;
 }
 
@@ -72,21 +62,17 @@ std::string with_trailing_slash(std::string dir) {
 std::string resolve_preset_path(const std::string& name) {
     const std::string primary = presets_dir() + name + ".toml";
     std::error_code   ec;
-    if (fs::exists(primary, ec))
-        return primary;
+    if (fs::exists(primary, ec)) return primary;
     const std::string legacy = legacy_presets_dir() + name + ".toml";
-    if (fs::exists(legacy, ec))
-        return legacy;
+    if (fs::exists(legacy, ec)) return legacy;
     return primary;
 }
 
 void collect_preset_names(const std::string& dir, std::vector<std::string>& names) {
     std::error_code ec;
     for (const auto& e : fs::directory_iterator(dir, ec)) {
-        if (ec)
-            break;
-        if (e.is_regular_file() && e.path().extension() == ".toml")
-            names.push_back(e.path().stem().string());
+        if (ec) break;
+        if (e.is_regular_file() && e.path().extension() == ".toml") names.push_back(e.path().stem().string());
     }
 }
 
@@ -99,8 +85,7 @@ void collect_preset_names(const std::string& dir, std::vector<std::string>& name
 //   3. $HOME/.config/swish/presets/
 //   4. legacy CONFIG_DIR/presets/             (only when no home directory is known)
 std::string presets_dir() {
-    if (const char* dir = std::getenv("SWISH_PRESETS_DIR"); dir && *dir)
-        return with_trailing_slash(dir);
+    if (const char* dir = std::getenv("SWISH_PRESETS_DIR"); dir && *dir) return with_trailing_slash(dir);
     if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
         return with_trailing_slash(xdg) + "swish/presets/";
     if (const char* home = std::getenv("HOME"); home && *home)
@@ -202,8 +187,7 @@ bool save(const DebugParams& p, const std::string& name) {
     toml::array mats;
     for (uint32_t i = 0; i < MAT_COUNT; ++i) {
         const MaterialOverride& o = p.matOverrides[i];
-        if (!o.enabled)
-            continue;
+        if (!o.enabled) continue;
         mats.push_back(toml::table{{"slot", static_cast<int64_t>(i)},
                                    {"metalness", o.metalness},
                                    {"roughness_mul", o.roughnessMul},
@@ -216,8 +200,7 @@ bool save(const DebugParams& p, const std::string& name) {
     save_registry(tbl, p);
 
     std::ofstream f(presets_dir() + name + ".toml", std::ios::trunc);
-    if (!f)
-        return false;
+    if (!f) return false;
     f << "# swish debug preset — edit freely; missing keys keep their in-app value\n" << tbl << '\n';
     return static_cast<bool>(f);
 }
@@ -226,9 +209,7 @@ bool load(DebugParams& p, const std::string& name) {
     toml::table tbl;
     try {
         tbl = toml::parse_file(resolve_preset_path(name));
-    } catch (const toml::parse_error&) {
-        return false;
-    }
+    } catch (const toml::parse_error&) { return false; }
 
     p.exposure       = tbl["grade"]["exposure"].value_or(p.exposure);
     p.bloomThreshold = tbl["grade"]["bloom_threshold"].value_or(p.bloomThreshold);
@@ -272,15 +253,12 @@ bool load(DebugParams& p, const std::string& name) {
     // (preserves the merge policy — an older preset without them won't clobber the
     // current table). When present, it fully replaces the override state.
     if (const toml::array* mats = tbl["materials"].as_array()) {
-        for (uint32_t i = 0; i < MAT_COUNT; ++i)
-            p.matOverrides[i] = MaterialOverride{};
+        for (uint32_t i = 0; i < MAT_COUNT; ++i) p.matOverrides[i] = MaterialOverride{};
         for (const toml::node& node : *mats) {
             const toml::table* t = node.as_table();
-            if (!t)
-                continue;
+            if (!t) continue;
             int slot = static_cast<int>((*t)["slot"].value_or(-1));
-            if (slot < 0 || slot >= static_cast<int>(MAT_COUNT))
-                continue;
+            if (slot < 0 || slot >= static_cast<int>(MAT_COUNT)) continue;
             MaterialOverride& o = p.matOverrides[slot];
             o.enabled           = true;
             o.metalness         = (*t)["metalness"].value_or(o.metalness);

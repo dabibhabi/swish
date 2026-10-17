@@ -32,11 +32,9 @@ public:
     // Read the previous frame's average luminance (its 1x1 mip was copied to this frame slot's host buffer), adapt,
     // and publish the exposure the composite uses when tune.autoExposure is on.
     void beginFrame(const FrameUpdate& u) override {
-        if (!u.tune.autoExposure)
-            return;
+        if (!u.tune.autoExposure) return;
         const void* mapped = u.res.pp->get_lum_readback_mapped(u.frameIndex);
-        if (!mapped)
-            return;
+        if (!mapped) return;
         const uint16_t* h = reinterpret_cast<const uint16_t*>(mapped);  // RGBA16F, 4 halfs
         Vec3            avg(glm::unpackHalf1x16(h[0]), glm::unpackHalf1x16(h[1]), glm::unpackHalf1x16(h[2]));
         float           lum  = std::max(glm::dot(avg, Vec3(0.2126f, 0.7152f, 0.0722f)), 1e-4f);
@@ -127,8 +125,6 @@ private:
 
 }  // namespace
 
-std::unique_ptr<IRenderPass> make_hdr_finalize_pass() {
-    return std::make_unique<HdrFinalizePass>();
-}
+std::unique_ptr<IRenderPass> make_hdr_finalize_pass() { return std::make_unique<HdrFinalizePass>(); }
 
 }  // namespace swish

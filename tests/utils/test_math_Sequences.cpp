@@ -29,6 +29,5 @@ TEST_CASE("halton stays in 0 to 1 and the 8-sample TAA window has no repeats", "
         CHECK(um::halton(i, 3) < 1.0f);
     }
     for (uint32_t a = 1; a <= 8; ++a)
-        for (uint32_t b = a + 1; b <= 8; ++b)
-            CHECK(um::halton(a, 2) != um::halton(b, 2));
+        for (uint32_t b = a + 1; b <= 8; ++b) CHECK(um::halton(a, 2) != um::halton(b, 2));
 }

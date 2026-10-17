@@ -18,18 +18,13 @@ void RoadGeometry::set_flat_surface(float y) {
     s_flatSurfaceY = y;
 }
 
-void RoadGeometry::clear_flat_surface() {
-    s_flatSurface = false;
-}
+void RoadGeometry::clear_flat_surface() { s_flatSurface = false; }
 
 float RoadGeometry::road_surface_y(float x) {
-    if (s_flatSurface)
-        return s_flatSurfaceY;
-    if (x >= kEbServiceInner - 200.f && x <= kEbServiceOuter + 200.f)
-        return kServiceY;
+    if (s_flatSurface) return s_flatSurfaceY;
+    if (x >= kEbServiceInner - 200.f && x <= kEbServiceOuter + 200.f) return kServiceY;
     // Past EB mainline/shoulder edge: intro exit ramp + N Marginal (lifted asphalt).
-    if (x >= kEbRoadRight - 50.f && x <= kIntroMarginalOuter + 200.f)
-        return kIntroExitAsphaltY;
+    if (x >= kEbRoadRight - 50.f && x <= kIntroMarginalOuter + 200.f) return kIntroExitAsphaltY;
     float lanes_from_inner = (std::abs(x) - kBarrierRight) / kLaneWidth;
     float clamped          = std::max(0.f, std::min(kLaneCount, lanes_from_inner));
     return kCrownSlope * (kLaneCount - clamped) * kLaneWidth + kMarkingY;
@@ -69,9 +64,7 @@ void RoadGeometry::drivable_bounds(float x, double trueZ, float introLen, float&
     }
 }
 
-float RoadGeometry::ribbon_length(const Ribbon& r) {
-    return util::geometry::polyline_length(r.pts);
-}
+float RoadGeometry::ribbon_length(const Ribbon& r) { return util::geometry::polyline_length(r.pts); }
 
 void RoadGeometry::ribbon_sample(const Ribbon& r, float s, Vec3& pos, Vec3& tan) {
     util::geometry::polyline_sample(r.pts, s, pos, tan);

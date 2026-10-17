@@ -52,9 +52,7 @@ namespace car_profiles {
 
 // 992 Turbo S (AWD, 7-speed PDK): exactly the numbers CarParams / TireParams / GearboxParams /
 // DrivetrainParams and the 992 torque table default to. The goldens pin this one.
-[[nodiscard]] constexpr CarProfile turbo_s_992() {
-    return CarProfile{};
-}
+[[nodiscard]] constexpr CarProfile turbo_s_992() { return CarProfile{}; }
 
 // Plausibility window for a loader measurement; anything outside it (including an unset 0) is ignored.
 inline constexpr float kMinWheelbaseM = 1.8f, kMaxWheelbaseM = 3.2f;

@@ -21,8 +21,7 @@ namespace {
 float settle_over(float x0, float target, float k, float dt, float total_time) {
     float x     = x0;
     int   steps = static_cast<int>(std::lround(total_time / dt));
-    for (int i = 0; i < steps; ++i)
-        x = um::exp_smooth(x, target, k, dt);
+    for (int i = 0; i < steps; ++i) x = um::exp_smooth(x, target, k, dt);
     return x;
 }
 }  // namespace
@@ -48,8 +47,7 @@ TEST_CASE("exp_smooth settles to the same value at very different dt for the sam
 
 TEST_CASE("exp_smooth never overshoots the target", "[smoothing]") {
     float x = 0.0f;
-    for (int i = 0; i < 500; ++i)
-        x = um::exp_smooth(x, 5.0f, 6.0f, 1.0f / 90.0f);
+    for (int i = 0; i < 500; ++i) x = um::exp_smooth(x, 5.0f, 6.0f, 1.0f / 90.0f);
     REQUIRE(x <= 5.0f);
     REQUIRE_THAT(x, WithinAbs(5.0f, 1e-3f));
 }

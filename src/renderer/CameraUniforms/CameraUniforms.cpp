@@ -47,8 +47,7 @@ void CameraUniforms::update(uint32_t frameIndex, const Camera& camera) {
     ubo.sunDir   = m_sunDir;
     ubo.sunColor = m_sunColor;
     ubo.weather  = Vec4(m_clarity, 0.0f, 0.0f, 0.0f);
-    for (uint32_t c = 0; c < NUM_CASCADES; ++c)
-        ubo.cascadeViewProj[c] = m_cascadeVP[c];
+    for (uint32_t c = 0; c < NUM_CASCADES; ++c) ubo.cascadeViewProj[c] = m_cascadeVP[c];
     ubo.cascadeSplits = m_cascadeSplits;
     std::memcpy(m_cameraBuffers[frameIndex].mapped(), &ubo, sizeof(ubo));
 

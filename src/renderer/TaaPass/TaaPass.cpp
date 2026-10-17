@@ -36,8 +36,7 @@ void TaaPass::onResize(const PassInitCtx& ctx) {
 }
 
 void TaaPass::beginFrame(const FrameUpdate& u) {
-    if (!u.camera)
-        return;
+    if (!u.camera) return;
     if (u.tune.taaEnabled) {
         const uint32_t n = (m_frameCounter % 8u) + 1u;
         u.camera->set_jitter(Vec2((util::math::halton(n, 2) - 0.5f) * 2.0f / static_cast<float>(m_extent.width),
@@ -49,8 +48,7 @@ void TaaPass::beginFrame(const FrameUpdate& u) {
 }
 
 void TaaPass::record(const FrameCtx& c) {
-    if (!c.tune.taaEnabled || !c.camera)
-        return;
+    if (!c.tune.taaEnabled || !c.camera) return;
     const Mat4 view     = c.camera->get_view_matrix();
     const Mat4 curInvVP = glm::inverse(c.camera->get_projection_matrix() * view);
     TaaParams  tp;
@@ -75,11 +73,9 @@ void TaaPass::create(const RendererServices& s, const std::array<VkImageView, MA
     m_sync2            = s.synchronization2;
 
     // Classic path only: the render pass + framebuffers are not created when rendering dynamically.
-    if (!m_dynamicRendering)
-        createRenderPass(s.device);
+    if (!m_dynamicRendering) createRenderPass(s.device);
     createImages(s);
-    if (!m_dynamicRendering)
-        createFramebuffers(s.device);
+    if (!m_dynamicRendering) createFramebuffers(s.device);
 
     m_sampler = vkx::make_sampler(s.device);  // linear, clamp-to-edge
 
@@ -90,8 +86,7 @@ void TaaPass::create(const RendererServices& s, const std::array<VkImageView, MA
 
 void TaaPass::resolve(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, const TaaParams& params,
                       const Mat4& prevViewProj, const Mat4& curInvViewProj) {
-    if (!params.enabled)
-        return;
+    if (!params.enabled) return;
 
     const uint32_t writeIdx = frameIndex;  // history read is taa[1-frameIndex] (bound in the set)
 
@@ -184,26 +179,19 @@ void TaaPass::recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrV
     s.graphicsQueue = m_graphicsQueue;
     s.allocator     = m_allocator;
     createImages(s);
-    if (!m_dynamicRendering)
-        createFramebuffers(device);
+    if (!m_dynamicRendering) createFramebuffers(device);
     writeDescriptors(device, hdrViews, depthViews, velocityViews);
     primeHistory(s);
 }
 
 void TaaPass::cleanup(VkDevice device) {
-    if (m_pipeline != VK_NULL_HANDLE)
-        vkDestroyPipeline(device, m_pipeline, nullptr);
-    if (m_pipeLayout != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(device, m_pipeLayout, nullptr);
-    if (m_pool != VK_NULL_HANDLE)
-        vkDestroyDescriptorPool(device, m_pool, nullptr);
-    if (m_setLayout != VK_NULL_HANDLE)
-        vkDestroyDescriptorSetLayout(device, m_setLayout, nullptr);
-    if (m_sampler != VK_NULL_HANDLE)
-        vkDestroySampler(device, m_sampler, nullptr);
+    if (m_pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, m_pipeline, nullptr);
+    if (m_pipeLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, m_pipeLayout, nullptr);
+    if (m_pool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, m_pool, nullptr);
+    if (m_setLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, m_setLayout, nullptr);
+    if (m_sampler != VK_NULL_HANDLE) vkDestroySampler(device, m_sampler, nullptr);
     destroyImagesAndFramebuffers(device);
-    if (m_renderPass != VK_NULL_HANDLE)
-        vkDestroyRenderPass(device, m_renderPass, nullptr);
+    if (m_renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, m_renderPass, nullptr);
     m_pipeline   = VK_NULL_HANDLE;
     m_pipeLayout = VK_NULL_HANDLE;
     m_pool       = VK_NULL_HANDLE;
@@ -346,9 +334,7 @@ void TaaPass::primeHistory(const RendererServices& s) {
     vkFreeCommandBuffers(s.device, s.commandPool, 1, &cmd);
 }
 
-std::unique_ptr<IRenderPass> make_taa_pass() {
-    return std::make_unique<TaaPass>();
-}
+std::unique_ptr<IRenderPass> make_taa_pass() { return std::make_unique<TaaPass>(); }
 
 }  // namespace swish
 

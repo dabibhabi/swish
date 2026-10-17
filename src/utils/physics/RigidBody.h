@@ -166,8 +166,7 @@ private:
     // q advanced by rotating at angular velocity w (world) for time t: exact exponential map, renormalised.
     static quat rotate_by(const quat& q, const vec3& w, float t) {
         const float len = glm::length(w);
-        if (len * t < 1e-12f)
-            return glm::normalize(q);
+        if (len * t < 1e-12f) return glm::normalize(q);
         return glm::normalize(glm::angleAxis(len * t, w / len) * q);
     }
     mat3 inv_inertia_world(const quat& q) const {

@@ -32,8 +32,7 @@ void DofPass::onResize(const PassInitCtx& ctx) {
 }
 
 void DofPass::record(const FrameCtx& c) {
-    if (!c.tune.dofEnabled || !c.camera)
-        return;
+    if (!c.tune.dofEnabled || !c.camera) return;
     DofParams dp;
     dp.enabled         = true;
     dp.focusDist       = c.tune.dofFocusDist;
@@ -63,8 +62,7 @@ void DofPass::create(const RendererServices& s, const std::array<VkImageView, MA
 
 void DofPass::resolve(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, const DofParams& params,
                       const Mat4& invProj) {
-    if (!params.enabled)
-        return;
+    if (!params.enabled) return;
 
     const uint32_t writeIdx = frameIndex;
 
@@ -142,19 +140,13 @@ void DofPass::recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrV
 }
 
 void DofPass::cleanup(VkDevice device) {
-    if (m_pipeline != VK_NULL_HANDLE)
-        vkDestroyPipeline(device, m_pipeline, nullptr);
-    if (m_pipeLayout != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(device, m_pipeLayout, nullptr);
-    if (m_pool != VK_NULL_HANDLE)
-        vkDestroyDescriptorPool(device, m_pool, nullptr);
-    if (m_setLayout != VK_NULL_HANDLE)
-        vkDestroyDescriptorSetLayout(device, m_setLayout, nullptr);
-    if (m_sampler != VK_NULL_HANDLE)
-        vkDestroySampler(device, m_sampler, nullptr);
+    if (m_pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, m_pipeline, nullptr);
+    if (m_pipeLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, m_pipeLayout, nullptr);
+    if (m_pool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, m_pool, nullptr);
+    if (m_setLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, m_setLayout, nullptr);
+    if (m_sampler != VK_NULL_HANDLE) vkDestroySampler(device, m_sampler, nullptr);
     destroyImagesAndFramebuffers(device);
-    if (m_renderPass != VK_NULL_HANDLE)
-        vkDestroyRenderPass(device, m_renderPass, nullptr);
+    if (m_renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, m_renderPass, nullptr);
     m_pipeline   = VK_NULL_HANDLE;
     m_pipeLayout = VK_NULL_HANDLE;
     m_pool       = VK_NULL_HANDLE;
@@ -257,9 +249,7 @@ void DofPass::createPipeline(VkDevice device, VkPipelineCache cache) {
     m_pipeline           = pipeline::create_graphics(device, cache, cfg, m_renderPass, m_extent);
 }
 
-std::unique_ptr<IRenderPass> make_dof_pass() {
-    return std::make_unique<DofPass>();
-}
+std::unique_ptr<IRenderPass> make_dof_pass() { return std::make_unique<DofPass>(); }
 
 }  // namespace swish
 

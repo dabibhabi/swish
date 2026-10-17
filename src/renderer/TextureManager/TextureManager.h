@@ -52,10 +52,10 @@ public:
     void cleanup();
 
 private:
-    VkDevice         m_device;
-    VkCommandPool    m_commandPool;
-    VkQueue          m_graphicsQueue;
-    VmaAllocator     m_allocator;
+    VkDevice      m_device;
+    VkCommandPool m_commandPool;
+    VkQueue       m_graphicsQueue;
+    VmaAllocator  m_allocator;
 
     std::unordered_map<std::string, Texture> m_textures;
     VkSampler                                m_sampler = VK_NULL_HANDLE;

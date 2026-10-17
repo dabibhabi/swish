@@ -39,8 +39,7 @@ Look look_for(WeatherPreset preset) {
 
 void WeatherController::set_preset(WeatherPreset preset) {
     m_preset = preset;
-    if (!m_cameraUniforms)
-        return;
+    if (!m_cameraUniforms) return;
 
     const Look look = look_for(preset);
 
@@ -73,12 +72,9 @@ void WeatherController::set_preset(WeatherPreset preset) {
 }
 
 void WeatherController::maybe_rebake_ibl() {
-    if (!m_ibl)
-        return;
-    if (m_ibl->uses_hdri())
-        return;
-    if (m_sunDir == m_bakedSunDir && m_clarity == m_bakedClarity && m_sunColor == m_bakedSunColor)
-        return;
+    if (!m_ibl) return;
+    if (m_ibl->uses_hdri()) return;
+    if (m_sunDir == m_bakedSunDir && m_clarity == m_bakedClarity && m_sunColor == m_bakedSunColor) return;
 
 #ifdef SWISH_DEBUG_UI
     const DebugParams& d = *m_debug;
@@ -106,8 +102,7 @@ void WeatherController::apply_debug(const DebugParams& d) {
     if (d.showSunGizmo) {
         static const Vec3 kBaseSunDir = glm::normalize(Vec3(0.3f, 0.6f, 0.15f));
         Vec3              dir         = glm::mat3(d.sunGizmoRot) * kBaseSunDir;
-        if (glm::length(dir) > 1e-4f)
-            m_sunDir = glm::normalize(dir);
+        if (glm::length(dir) > 1e-4f) m_sunDir = glm::normalize(dir);
     }
     // Sun colour/ambient/clarity feed the CameraUBO (written by update() right after).
     // Direction stays m_sunDir for now (azimuth/elevation wiring is a later phase).

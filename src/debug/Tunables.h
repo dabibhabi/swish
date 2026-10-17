@@ -40,9 +40,7 @@ struct Tunable {
 };
 
 namespace detail {
-constexpr std::optional<float> rel_f(std::optional<float> r) {
-    return r;
-}
+constexpr std::optional<float> rel_f(std::optional<float> r) { return r; }
 constexpr std::optional<float> rel_f(std::optional<bool> r) {
     return r ? std::optional<float>(*r ? 1.0f : 0.0f) : std::nullopt;
 }
@@ -62,9 +60,7 @@ inline constexpr Tunable kTunables[] = {
 };
 // clang-format on
 
-inline constexpr std::span<const Tunable> all() {
-    return std::span<const Tunable>(kTunables);
-}
+inline constexpr std::span<const Tunable> all() { return std::span<const Tunable>(kTunables); }
 
 // Tag dispatch: the ONE runtime branch on a tunable's value kind. Calls f(tag, value) with
 // tag::flag + bool& (Kind::Bool) or tag::real + float& (Kind::Float); `p` may be const (the
@@ -87,8 +83,7 @@ void visit(const Tunable& t, P& p, F&& f) {
 // Compile-time sanity: every default (and release override) lies in its range.
 constexpr bool defaults_in_range() {
     for (const Tunable& t : kTunables) {
-        if (!t.in_range(t.def) || !t.in_range(t.release_default()))
-            return false;
+        if (!t.in_range(t.def) || !t.in_range(t.release_default())) return false;
     }
     return true;
 }
@@ -100,8 +95,7 @@ static_assert(defaults_in_range(), "Tunables.def: a default lies outside [lo, hi
 inline std::size_t count_out_of_range(const DebugParams& p) {
     std::size_t n = 0;
     for (const Tunable& t : kTunables)
-        if (t.kind == Kind::Float && !t.in_range(t.get_float(p)))
-            ++n;
+        if (t.kind == Kind::Float && !t.in_range(t.get_float(p))) ++n;
     return n;
 }
 

@@ -94,8 +94,7 @@ std::vector<std::string> split(const std::string& s) {
     std::vector<std::string> out;
     std::stringstream        ss(s);
     std::string              t;
-    while (std::getline(ss, t, ','))
-        out.push_back(t);
+    while (std::getline(ss, t, ',')) out.push_back(t);
     return out;
 }
 
@@ -115,8 +114,7 @@ TEST_CASE("Golden trajectory: real CarEntity::update", "[golden][car]") {
         f << "# CarEntity::update golden trajectory (tests/test_golden_car.cpp), dt=1/60, sampled every 0.5 s\n"
           << "# scenario,step,x,y,z,yawDeg,speedWU,latMps,yawRate,gear,mu,planeFrac\n"
           << "# Regenerate: SWISH_UPDATE_GOLDENS=1 build/tests/swish_tests \"[golden]\"\n";
-        for (const auto& l : all)
-            f << l << '\n';
+        for (const auto& l : all) f << l << '\n';
         SUCCEED("golden rewritten");
         return;
     }
@@ -125,8 +123,7 @@ TEST_CASE("Golden trajectory: real CarEntity::update", "[golden][car]") {
     std::vector<std::string> expected;
     std::string              line;
     while (std::getline(f, line))
-        if (!line.empty() && line[0] != '#')
-            expected.push_back(line);
+        if (!line.empty() && line[0] != '#') expected.push_back(line);
 
     REQUIRE(expected.size() == all.size());
     for (size_t i = 0; i < all.size(); ++i) {
@@ -138,8 +135,7 @@ TEST_CASE("Golden trajectory: real CarEntity::update", "[golden][car]") {
         CHECK(a[1] == e[1]);
         CHECK(a[9] == e[9]);  // gear must match exactly
         for (size_t c = 2; c < a.size(); ++c) {
-            if (c == 9)
-                continue;
+            if (c == 9) continue;
             const double av = std::stod(a[c]), ev = std::stod(e[c]);
             CHECK(std::abs(av - ev) <= 1e-3 + 1e-3 * std::abs(ev));
         }
@@ -150,8 +146,7 @@ TEST_CASE("Golden trajectory: sanity invariants of the real update()", "[golden]
     // Independent of the golden file: guards against a corrupted fixture.
     CarEntity car;
     CarEntityTestAccess::set_throttle(car, 1.f);
-    for (int i = 0; i < 600; ++i)
-        car.update(kDt);
+    for (int i = 0; i < 600; ++i) car.update(kDt);
     CHECK(car.get_speed() > 0.f);
     CHECK(std::isfinite(car.get_position().x));
     CHECK(car.get_gear() >= 1);  // shifted out of 1st within 10 s of full throttle

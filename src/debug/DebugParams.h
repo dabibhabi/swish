@@ -1,7 +1,7 @@
 #pragma once
 
-#include "scene/Entity/GaugeNeedles.h"  // kGaugeDefaults (Tunables.def "gauges" defaults)
-#include "scene/SceneTypes.h"   // MaterialOverride, MAT_COUNT, MaterialId
+#include "scene/Entity/GaugeNeedles.h"   // kGaugeDefaults (Tunables.def "gauges" defaults)
+#include "scene/SceneTypes.h"            // MaterialOverride, MAT_COUNT, MaterialId
 #include "utils/input/GamepadMapping.h"  // GamepadConfig defaults (pure header)
 #include "utils/types/Types.h"           // swish::Vec3 / Vec4 (glm aliases)
 
@@ -283,12 +283,12 @@ struct DebugParams {
     // App.cpp, under SWISH_DEBUG_UI), and DebugUI::begin_frame only displays
     // them. Consequently they're excluded from TOML presets, same as the
     // other transient/runtime fields in this struct.
-    bool  showTelemetry     = true;   // master visibility toggle for the Telemetry panel
-    float telemetrySpeedMps = 0.0f;   // CarEntity::get_speed() / kWorldUnitsPerMeter (m/s)
-    int   telemetryGear     = 0;      // CarEntity::get_gear(), 0 = 1st ... 6 = 7th
-    float telemetryRpm      = 0.0f;   // CarEntity::get_engine_rpm()
+    bool  showTelemetry     = true;     // master visibility toggle for the Telemetry panel
+    float telemetrySpeedMps = 0.0f;     // CarEntity::get_speed() / kWorldUnitsPerMeter (m/s)
+    int   telemetryGear     = 0;        // CarEntity::get_gear(), 0 = 1st ... 6 = 7th
+    float telemetryRpm      = 0.0f;     // CarEntity::get_engine_rpm()
     float telemetryRedline  = 7200.0f;  // CarEntity::get_redline_rpm() (active CarProfile's fuel cut)
-    float telemetryMu       = 1.05f;  // CarEntity::get_effective_mu(); matches CarParams::tireMu dry default
+    float telemetryMu       = 1.05f;    // CarEntity::get_effective_mu(); matches CarParams::tireMu dry default
 
     // ── Driving tools (record / replay / gamepad / FFB readout) ──────
     // Debug-only and transient (NOT in Tunables.def / TOML presets: the registry is for converted
@@ -296,11 +296,11 @@ struct DebugParams {
     // recording or replaying, so an untouched panel leaves the drive path exactly as before.
     // The UI writes the control block; App (AppDrivingTools.cpp) consumes the *Requested pulses and
     // writes the readout block once per frame. Deadzone/expo defaults are GamepadConfig's own.
-    int   drvInputSource = 0;  // 0 = Keyboard (CarEntity::handle_input), 1 = Gamepad
-    float drvDeadzone    = GamepadConfig{}.steer_deadzone;
-    float drvExpo        = GamepadConfig{}.steer_expo;
-    bool  drvRecord      = false;  // rising edge starts a fresh clip
-    bool  drvReplay      = false;  // rising edge replays the ring's recorded inputs
+    int   drvInputSource     = 0;  // 0 = Keyboard (CarEntity::handle_input), 1 = Gamepad
+    float drvDeadzone        = GamepadConfig{}.steer_deadzone;
+    float drvExpo            = GamepadConfig{}.steer_expo;
+    bool  drvRecord          = false;  // rising edge starts a fresh clip
+    bool  drvReplay          = false;  // rising edge replays the ring's recorded inputs
     bool  drvExportRequested = false;  // one-shot: App writes build-debug/telemetry/*.csv, then clears
     // Readouts (written by App).
     bool  drvGamepadConnected = false;

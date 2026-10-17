@@ -52,8 +52,8 @@ TEST_CASE("kExit agrees with the generated ramp geometry", "[roadparams]") {
 
     // Dynamic: the mesh RoadScene::generate() emits (via generate_exit_ramp) must reach the same
     // stations and the same N Marginal outer edge that RoadGeometry advertises to the physics.
-    RoadScene s(load_road_config(CONFIG_DIR "road.bin"));
-    const auto d      = s.generate();
+    RoadScene   s(load_road_config(CONFIG_DIR "road.bin"));
+    const auto  d     = s.generate();
     const auto& V     = d.meshData.getVertices();
     const float len   = s.get_road_length();
     const float endZ  = RG::intro_exit_ramp_end_z(len);
@@ -61,8 +61,7 @@ TEST_CASE("kExit agrees with the generated ramp geometry", "[roadparams]") {
 
     bool hasOuterEdge = false, hasEndZ = false, hasDecelZ = false;
     for (const auto& v : V) {
-        if (std::abs(v.position.y - road::kExit.asphalt_y) > 1e-3f)
-            continue;
+        if (std::abs(v.position.y - road::kExit.asphalt_y) > 1e-3f) continue;
         hasOuterEdge |= std::abs(v.position.x - RG::kIntroMarginalOuter) < 1.0f;
         hasEndZ |= std::abs(v.position.z - endZ) < 1.0f;
         hasDecelZ |= std::abs(v.position.z - decel) < 1.0f;

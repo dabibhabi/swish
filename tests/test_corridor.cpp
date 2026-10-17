@@ -60,9 +60,7 @@ struct Plane {
 
 // The corridor's own tangent-plane origin, from the baked asset's provenance
 // fields (route midpoint of the real I-495 chain).
-Plane lie_plane(double psi = 0.0) {
-    return Plane{40.762599, -73.721674, psi};
-}
+Plane lie_plane(double psi = 0.0) { return Plane{40.762599, -73.721674, psi}; }
 
 // Build a synthetic corridor asset on disk: a straight run along -Z with a
 // lane-count taper in the middle. Lets the alignment/driver tests exercise the
@@ -131,12 +129,9 @@ double smoothstep(double t) {
 
 double landmark_weight(double s, const std::vector<double>& marks, double N, double W) {
     double d = 1e300;
-    for (double m : marks)
-        d = std::min(d, std::abs(s - m));
-    if (d <= N)
-        return 1.0;
-    if (d >= N + W)
-        return 0.0;
+    for (double m : marks) d = std::min(d, std::abs(s - m));
+    if (d <= N) return 1.0;
+    if (d >= N + W) return 0.0;
     return smoothstep(1.0 - (d - N) / W);
 }
 
@@ -149,18 +144,15 @@ double scale_at(double w, double radius, double c, double floorR) {
 double total_length(const std::vector<double>& w, const std::vector<double>& radius, double step, double c,
                     double floorR) {
     double t = 0.0;
-    for (size_t i = 0; i < w.size(); ++i)
-        t += step * scale_at(w[i], radius[i], c, floorR);
+    for (size_t i = 0; i < w.size(); ++i) t += step * scale_at(w[i], radius[i], c, floorR);
     return t;
 }
 
 double solve_c(const std::vector<double>& w, const std::vector<double>& radius, double step, double target,
                double floorR) {
     double lo = 0.0, hi = 1.0;
-    if (total_length(w, radius, step, hi, floorR) <= target)
-        return 1.0;
-    if (total_length(w, radius, step, lo, floorR) >= target)
-        return 0.0;
+    if (total_length(w, radius, step, hi, floorR) <= target) return 1.0;
+    if (total_length(w, radius, step, lo, floorR) >= target) return 0.0;
     for (int i = 0; i < 80; ++i) {
         const double mid = 0.5 * (lo + hi);
         if (total_length(w, radius, step, mid, floorR) < target)
@@ -247,8 +239,7 @@ TEST_CASE("tangent plane: the rotation is a rigid motion (lengths preserved)", "
         p.to_engine(a[0], a[1], x0, z0);
         p.to_engine(b[0], b[1], x1, z1);
         const double d = std::hypot(x1 - x0, z1 - z0);
-        if (ref == 0.0)
-            ref = d;
+        if (ref == 0.0) ref = d;
         CHECK(d == Approx(ref).epsilon(1e-9));
     }
 }
@@ -279,8 +270,7 @@ TEST_CASE("compaction: solved c hits the target length", "[corridor][compaction]
     const int                 n    = 5000;  // 50 km of route
     std::vector<double>       w(n), radius(n, 1e18);
     const std::vector<double> marks{8000.0, 25000.0, 41000.0};
-    for (int i = 0; i < n; ++i)
-        w[i] = landmark_weight(i * step, marks, 900.0, 250.0);
+    for (int i = 0; i < n; ++i) w[i] = landmark_weight(i * step, marks, 900.0, 250.0);
 
     for (double targetMi : {16.0, 18.0, 20.0}) {
         const double target = targetMi * kMile;

@@ -47,8 +47,7 @@ namespace swish::util::math {
 // checks directly (settle to the same value over the same wall-clock time
 // at two very different dt's).
 inline float exp_smooth(float x, float target, float k, float dt) {
-    if (k <= 0.0f || dt <= 0.0f)
-        return x;
+    if (k <= 0.0f || dt <= 0.0f) return x;
     float alpha = 1.0f - std::exp(-k * dt);
     return x + (target - x) * alpha;
 }

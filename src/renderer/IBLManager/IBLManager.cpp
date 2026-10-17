@@ -314,8 +314,7 @@ bool IBLManager::loadEquirect(const std::string& path) {
     int    w = 0, h = 0, n = 0;
     float* data = stbi_loadf(path.c_str(), &w, &h, &n, 4);
     if (!data || w <= 0 || h <= 0) {
-        if (data)
-            stbi_image_free(data);
+        if (data) stbi_image_free(data);
         std::cerr << "[IBL] Failed to load HDRI: " << path
                   << (stbi_failure_reason() ? std::string(" (") + stbi_failure_reason() + ")" : "") << std::endl;
         return false;
@@ -368,8 +367,7 @@ void IBLManager::destroyEquirect() {
 bool IBLManager::set_hdri(const std::string& path, float exposure, float yaw_rad) {
     m_hdriExposure = exposure;
     m_hdriYawRad   = yaw_rad;
-    if (!loadEquirect(path))
-        return false;
+    if (!loadEquirect(path)) return false;
     bakeFromHdri();
     std::cout << "[IBL] Weather HDRI: " << path << " (exposure=" << exposure << ", yaw=" << yaw_rad << ")\n";
     return true;
@@ -425,8 +423,7 @@ void IBLManager::bakeConvolutions(VkCommandBuffer cmd) {
 }
 
 void IBLManager::bakeFromHdri() {
-    if (!m_hdriLoaded)
-        return;
+    if (!m_hdriLoaded) return;
 
     vkQueueWaitIdle(m_svc.graphicsQueue);
     VkCommandBuffer cmd = beginOneTime(m_device, m_svc.commandPool);
@@ -454,8 +451,7 @@ void IBLManager::bakeFromHdri() {
 
 void IBLManager::bake(const SkyBakeParams& sky) {
     // HDRI env is static — weather-driven procedural rebakes would overwrite it.
-    if (m_hdriLoaded)
-        return;
+    if (m_hdriLoaded) return;
 
     vkQueueWaitIdle(m_svc.graphicsQueue);
     VkCommandBuffer cmd = beginOneTime(m_device, m_svc.commandPool);
@@ -535,12 +531,9 @@ void IBLManager::cleanup() {
         m_equirectSetLayout = VK_NULL_HANDLE;
     }
 
-    for (auto& fb : m_envFBs)
-        destroyFB(fb);
-    for (auto& fb : m_irrFBs)
-        destroyFB(fb);
-    for (auto& fb : m_prefilterFBs)
-        destroyFB(fb);
+    for (auto& fb : m_envFBs) destroyFB(fb);
+    for (auto& fb : m_irrFBs) destroyFB(fb);
+    for (auto& fb : m_prefilterFBs) destroyFB(fb);
     destroyFB(m_brdfFB);
 
     if (m_cubeRenderPass != VK_NULL_HANDLE) {
@@ -557,12 +550,9 @@ void IBLManager::cleanup() {
     destroyView(m_prefilterCubeView);
     destroyView(m_brdfView);
     destroyEquirect();
-    for (auto& v : m_envFaceViews)
-        destroyView(v);
-    for (auto& v : m_irrFaceViews)
-        destroyView(v);
-    for (auto& v : m_prefilterFaceMipViews)
-        destroyView(v);
+    for (auto& v : m_envFaceViews) destroyView(v);
+    for (auto& v : m_irrFaceViews) destroyView(v);
+    for (auto& v : m_prefilterFaceMipViews) destroyView(v);
 
     if (m_cubeSampler != VK_NULL_HANDLE) {
         vkDestroySampler(m_device, m_cubeSampler, nullptr);

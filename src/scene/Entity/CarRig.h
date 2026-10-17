@@ -56,16 +56,11 @@ inline CarRigTag car_rig_pivot_from_node(std::string_view name) {
         if (name.size() == 10 && name.substr(0, 8) == "Caliper_" && name.substr(8) == kCorner[c])
             return {CarRigRole::Caliper, c, RigPart::None, -1};
     }
-    if (name == "SteeringWheel")
-        return {CarRigRole::SteeringWheel, -1, RigPart::None, -1};
-    if (name == "Needle_RPM")
-        return {CarRigRole::Part, -1, RigPart::NeedleRpm, -1};
-    if (name == "Needle_Speed")
-        return {CarRigRole::Part, -1, RigPart::NeedleSpeed, -1};
-    if (name == "Wiper_Driver")
-        return {CarRigRole::Part, -1, RigPart::WiperDriver, -1};
-    if (name == "Wiper_Passenger")
-        return {CarRigRole::Part, -1, RigPart::WiperPassenger, -1};
+    if (name == "SteeringWheel") return {CarRigRole::SteeringWheel, -1, RigPart::None, -1};
+    if (name == "Needle_RPM") return {CarRigRole::Part, -1, RigPart::NeedleRpm, -1};
+    if (name == "Needle_Speed") return {CarRigRole::Part, -1, RigPart::NeedleSpeed, -1};
+    if (name == "Wiper_Driver") return {CarRigRole::Part, -1, RigPart::WiperDriver, -1};
+    if (name == "Wiper_Passenger") return {CarRigRole::Part, -1, RigPart::WiperPassenger, -1};
     return {};
 }
 
@@ -81,8 +76,7 @@ inline bool car_rig_detect(const std::vector<std::string_view>& names) {
     bool seen[4] = {false, false, false, false};
     for (const auto n : names) {
         const CarRigTag t = car_rig_pivot_from_node(n);
-        if (t.role == CarRigRole::Wheel)
-            seen[t.corner] = true;
+        if (t.role == CarRigRole::Wheel) seen[t.corner] = true;
     }
     return seen[0] && seen[1] && seen[2] && seen[3];
 }
@@ -123,8 +117,7 @@ inline Mat4 norm_matrix_y90(const Mat4& M) {
 inline Mat4 normalize_pivot_frame(const Mat4& authored, float ground_y) {
     Mat4 F = norm_matrix_y90(authored);
     F[3].y -= ground_y;
-    for (int c = 0; c < 3; c++)
-        F[c] = Vec4(glm::normalize(Vec3(F[c])), 0.f);
+    for (int c = 0; c < 3; c++) F[c] = Vec4(glm::normalize(Vec3(F[c])), 0.f);
     return F;
 }
 
@@ -177,8 +170,7 @@ inline std::optional<WheelFrame> car_rig_wheel_frame(const Mat4& pivot, int corn
     wf.radius    = wf.frame[3].y;  // grounded hub height = rolling radius (m)
     const Vec3 a = Vec3(wf.frame[0]);
     wf.spin_sign = a.z > 0.f ? -1.f : 1.f;
-    if (std::abs(a.z) < 0.9f || wf.radius < 0.25f || wf.radius > 0.45f)
-        return std::nullopt;
+    if (std::abs(a.z) < 0.9f || wf.radius < 0.25f || wf.radius > 0.45f) return std::nullopt;
     return wf;
 }
 

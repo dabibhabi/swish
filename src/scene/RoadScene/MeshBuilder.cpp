@@ -35,8 +35,7 @@ void MeshBuilder::push_quad(const Vertex& v0, const Vertex& v1, const Vertex& v2
     m_mesh.addVertex(v1);
     m_mesh.addVertex(v2);
     m_mesh.addVertex(v3);
-    for (const uint32_t k : kQuadIndices[static_cast<size_t>(winding)])
-        m_mesh.addIndex(base + k);
+    for (const uint32_t k : kQuadIndices[static_cast<size_t>(winding)]) m_mesh.addIndex(base + k);
 }
 
 void MeshBuilder::add_quad(const Vertex& v0, const Vertex& v1, const Vertex& v2, const Vertex& v3, QuadWinding winding,
@@ -57,8 +56,7 @@ void MeshBuilder::addZFace(float x0, float x1, float y0, float y1, float z, floa
 
 bool MeshBuilder::pushBatchDraw(uint32_t indexOffset, const Vec4& color, MaterialId material) {
     const uint32_t count = m_mesh.getIndexCount() - indexOffset;
-    if (count == 0)
-        return false;
+    if (count == 0) return false;
     pushDrawCallRange(indexOffset, count, color, material);
     return true;
 }
@@ -153,8 +151,7 @@ void MeshBuilder::addSlopedQuad(float leftX, float rightX, float yLeft, float yR
 void MeshBuilder::emit_ribbon(const std::vector<Vec3>& centerline, float halfWidth, const Vec4& color,
                               MaterialId material, float tileSize) {
     const size_t n = centerline.size();
-    if (n < 2)
-        return;
+    if (n < 2) return;
 
     const Vec3         up(0.0f, 1.0f, 0.0f);
     std::vector<Vec3>  L(n), R(n);    // left / right edge points
@@ -165,14 +162,12 @@ void MeshBuilder::emit_ribbon(const std::vector<Vec3>& centerline, float halfWid
                        : (i == n - 1) ? centerline[n - 1] - centerline[n - 2]
                                       : centerline[i + 1] - centerline[i - 1];
         tangent.y    = 0.0f;  // keep the lateral offset horizontal even on a graded centreline
-        if (glm::length(tangent) < 1e-4f)
-            tangent = Vec3(0.0f, 0.0f, -1.0f);
+        if (glm::length(tangent) < 1e-4f) tangent = Vec3(0.0f, 0.0f, -1.0f);
         tangent    = glm::normalize(tangent);
         Vec3 right = glm::normalize(glm::cross(tangent, up));  // +X-ish for −Z travel
         L[i]       = centerline[i] - right * halfWidth;
         R[i]       = centerline[i] + right * halfWidth;
-        if (i > 0)
-            arc[i] = arc[i - 1] + glm::length(centerline[i] - centerline[i - 1]);
+        if (i > 0) arc[i] = arc[i - 1] + glm::length(centerline[i] - centerline[i - 1]);
     }
 
     const float uR = (tileSize > 0.0f) ? (2.0f * halfWidth / tileSize) : 1.0f;
@@ -200,8 +195,7 @@ std::vector<SweepFrame> build_sweep_frames(const std::vector<Vec3>& centerline, 
     for (size_t i = 0; i < n; ++i) {
         Vec3 t = tangents[i];
         t.y    = 0.0f;  // keep the lateral offset horizontal (same rule as emit_ribbon)
-        if (glm::length(t) < 1e-6f)
-            t = Vec3(0.0f, 0.0f, -1.0f);
+        if (glm::length(t) < 1e-6f) t = Vec3(0.0f, 0.0f, -1.0f);
         t             = glm::normalize(t);
         out[i].center = centerline[i];
         out[i].right  = glm::normalize(glm::cross(t, up));  // +X-ish for −Z travel
@@ -214,8 +208,7 @@ bool MeshBuilder::emit_sweep_band(const std::vector<SweepFrame>& f, const std::v
                                   const std::vector<float>& latR, float y, const Vec4& color, MaterialId material,
                                   float tileSize) {
     const size_t n = f.size();
-    if (n < 2 || latL.size() < n || latR.size() < n)
-        return false;
+    if (n < 2 || latL.size() < n || latR.size() < n) return false;
 
     const uint32_t idx0 = m_mesh.getIndexCount();
     const Vec3     up(0.0f, 1.0f, 0.0f);
@@ -224,8 +217,7 @@ bool MeshBuilder::emit_sweep_band(const std::vector<SweepFrame>& f, const std::v
         // A zero-width slice (e.g. a shoulder band where the taper has closed
         // it) would emit degenerate triangles; skip it rather than ship
         // zero-area geometry that still costs a vertex fetch.
-        if (latR[i] - latL[i] < 1e-3f && latR[i + 1] - latL[i + 1] < 1e-3f)
-            continue;
+        if (latR[i] - latL[i] < 1e-3f && latR[i + 1] - latL[i + 1] < 1e-3f) continue;
 
         const Vec3 aL = f[i].center + f[i].right * latL[i] + up * y;
         const Vec3 aR = f[i].center + f[i].right * latR[i] + up * y;
@@ -254,8 +246,7 @@ bool MeshBuilder::emit_sweep_band(const std::vector<SweepFrame>& f, const std::v
 bool MeshBuilder::emit_sweep_wall(const std::vector<SweepFrame>& f, float lateral, float yBase, float height,
                                   bool facingRight, const Vec4& color, MaterialId material, float tileSize) {
     const size_t n = f.size();
-    if (n < 2 || height <= 0.0f)
-        return false;
+    if (n < 2 || height <= 0.0f) return false;
 
     const uint32_t idx0 = m_mesh.getIndexCount();
     const Vec3     up(0.0f, 1.0f, 0.0f);
@@ -282,14 +273,12 @@ bool MeshBuilder::emit_sweep_wall(const std::vector<SweepFrame>& f, float latera
 void MeshBuilder::emit_sweep_dashes(const std::vector<SweepFrame>& f, float latL, float latR, float y, float dashLen,
                                     float gapLen, float phase, const Vec4& color, MaterialId material, float tileSize) {
     const size_t n = f.size();
-    if (n < 2 || dashLen <= 0.0f || gapLen < 0.0f)
-        return;
+    if (n < 2 || dashLen <= 0.0f || gapLen < 0.0f) return;
 
     const float cycle = dashLen + gapLen;
     const float arc0  = f.front().arc;
     const float arc1  = f.back().arc;
-    if (cycle <= 0.0f)
-        return;
+    if (cycle <= 0.0f) return;
 
     // First dash start at or after arc0, on the global cycle set by `phase`.
     const float    k    = std::ceil((arc0 - phase) / cycle);
@@ -299,8 +288,7 @@ void MeshBuilder::emit_sweep_dashes(const std::vector<SweepFrame>& f, float latL
     // Interpolate a frame at an arbitrary arc length inside this tile.
     auto frame_at = [&](float s) {
         size_t i = 0;
-        while (i + 2 < n && f[i + 1].arc < s)
-            ++i;
+        while (i + 2 < n && f[i + 1].arc < s) ++i;
         const float seg = f[i + 1].arc - f[i].arc;
         const float u   = (seg > 1e-6f) ? std::clamp((s - f[i].arc) / seg, 0.0f, 1.0f) : 0.0f;
         SweepFrame  out;

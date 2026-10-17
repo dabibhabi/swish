@@ -48,159 +48,71 @@ RoadScene::RoadScene(const RoadConfig& cfg)
 // Getters + Setters
 // ══════════════════════════════════════════════════════════════════════
 
-float RoadScene::get_road_length() const {
-    return m_road_length;
-}
-void RoadScene::set_road_length(float length) {
-    m_road_length = length;
-}
+float RoadScene::get_road_length() const { return m_road_length; }
+void  RoadScene::set_road_length(float length) { m_road_length = length; }
 
-float RoadScene::get_lane_width() const {
-    return m_lane_width;
-}
-void RoadScene::set_lane_width(float width) {
-    m_lane_width = width;
-}
+float RoadScene::get_lane_width() const { return m_lane_width; }
+void  RoadScene::set_lane_width(float width) { m_lane_width = width; }
 
-int RoadScene::get_lane_count() const {
-    return m_lane_count;
-}
-void RoadScene::set_lane_count(int count) {
-    m_lane_count = count;
-}
+int  RoadScene::get_lane_count() const { return m_lane_count; }
+void RoadScene::set_lane_count(int count) { m_lane_count = count; }
 
-float RoadScene::get_shoulder_width_wb() const {
-    return m_shoulder_width_wb;
-}
-void RoadScene::set_shoulder_width_wb(float width) {
-    m_shoulder_width_wb = width;
-}
+float RoadScene::get_shoulder_width_wb() const { return m_shoulder_width_wb; }
+void  RoadScene::set_shoulder_width_wb(float width) { m_shoulder_width_wb = width; }
 
-float RoadScene::get_shoulder_width_eb() const {
-    return m_shoulder_width_eb;
-}
-void RoadScene::set_shoulder_width_eb(float width) {
-    m_shoulder_width_eb = width;
-}
+float RoadScene::get_shoulder_width_eb() const { return m_shoulder_width_eb; }
+void  RoadScene::set_shoulder_width_eb(float width) { m_shoulder_width_eb = width; }
 
-float RoadScene::get_grass_extent() const {
-    return m_grass_extent;
-}
-void RoadScene::set_grass_extent(float extent) {
-    m_grass_extent = extent;
-}
+float RoadScene::get_grass_extent() const { return m_grass_extent; }
+void  RoadScene::set_grass_extent(float extent) { m_grass_extent = extent; }
 
-float RoadScene::get_barrier_width() const {
-    return m_barrier_width;
-}
-void RoadScene::set_barrier_width(float width) {
-    m_barrier_width = width;
-}
+float RoadScene::get_barrier_width() const { return m_barrier_width; }
+void  RoadScene::set_barrier_width(float width) { m_barrier_width = width; }
 
-float RoadScene::get_barrier_height() const {
-    return m_barrier_height;
-}
-void RoadScene::set_barrier_height(float height) {
-    m_barrier_height = height;
-}
+float RoadScene::get_barrier_height() const { return m_barrier_height; }
+void  RoadScene::set_barrier_height(float height) { m_barrier_height = height; }
 
-float RoadScene::get_rail_width() const {
-    return m_rail_width;
-}
-void RoadScene::set_rail_width(float width) {
-    m_rail_width = width;
-}
+float RoadScene::get_rail_width() const { return m_rail_width; }
+void  RoadScene::set_rail_width(float width) { m_rail_width = width; }
 
-float RoadScene::get_rail_height() const {
-    return m_rail_height;
-}
-void RoadScene::set_rail_height(float height) {
-    m_rail_height = height;
-}
+float RoadScene::get_rail_height() const { return m_rail_height; }
+void  RoadScene::set_rail_height(float height) { m_rail_height = height; }
 
-float RoadScene::get_asphalt_tile() const {
-    return m_asphalt_tile;
-}
-void RoadScene::set_asphalt_tile(float tile) {
-    m_asphalt_tile = tile;
-}
+float RoadScene::get_asphalt_tile() const { return m_asphalt_tile; }
+void  RoadScene::set_asphalt_tile(float tile) { m_asphalt_tile = tile; }
 
-float RoadScene::get_grass_tile() const {
-    return m_grass_tile;
-}
-void RoadScene::set_grass_tile(float tile) {
-    m_grass_tile = tile;
-}
+float RoadScene::get_grass_tile() const { return m_grass_tile; }
+void  RoadScene::set_grass_tile(float tile) { m_grass_tile = tile; }
 
-float RoadScene::get_concrete_tile() const {
-    return m_concrete_tile;
-}
-void RoadScene::set_concrete_tile(float tile) {
-    m_concrete_tile = tile;
-}
+float RoadScene::get_concrete_tile() const { return m_concrete_tile; }
+void  RoadScene::set_concrete_tile(float tile) { m_concrete_tile = tile; }
 
-float RoadScene::get_metal_tile() const {
-    return m_metal_tile;
-}
-void RoadScene::set_metal_tile(float tile) {
-    m_metal_tile = tile;
-}
+float RoadScene::get_metal_tile() const { return m_metal_tile; }
+void  RoadScene::set_metal_tile(float tile) { m_metal_tile = tile; }
 
-float RoadScene::get_marking_y_offset() const {
-    return m_marking_y_offset;
-}
-void RoadScene::set_marking_y_offset(float offset) {
-    m_marking_y_offset = offset;
-}
+float RoadScene::get_marking_y_offset() const { return m_marking_y_offset; }
+void  RoadScene::set_marking_y_offset(float offset) { m_marking_y_offset = offset; }
 
-float RoadScene::get_dash_length() const {
-    return m_dash_length;
-}
-void RoadScene::set_dash_length(float length) {
-    m_dash_length = length;
-}
+float RoadScene::get_dash_length() const { return m_dash_length; }
+void  RoadScene::set_dash_length(float length) { m_dash_length = length; }
 
-float RoadScene::get_dash_gap() const {
-    return m_dash_gap;
-}
-void RoadScene::set_dash_gap(float gap) {
-    m_dash_gap = gap;
-}
+float RoadScene::get_dash_gap() const { return m_dash_gap; }
+void  RoadScene::set_dash_gap(float gap) { m_dash_gap = gap; }
 
-const Vec4& RoadScene::get_shoulder_tint() const {
-    return m_shoulder_tint;
-}
-void RoadScene::set_shoulder_tint(const Vec4& tint) {
-    m_shoulder_tint = tint;
-}
+const Vec4& RoadScene::get_shoulder_tint() const { return m_shoulder_tint; }
+void        RoadScene::set_shoulder_tint(const Vec4& tint) { m_shoulder_tint = tint; }
 
-const Vec4& RoadScene::get_barrier_tint() const {
-    return m_barrier_tint;
-}
-void RoadScene::set_barrier_tint(const Vec4& tint) {
-    m_barrier_tint = tint;
-}
+const Vec4& RoadScene::get_barrier_tint() const { return m_barrier_tint; }
+void        RoadScene::set_barrier_tint(const Vec4& tint) { m_barrier_tint = tint; }
 
-const Vec4& RoadScene::get_rail_tint() const {
-    return m_rail_tint;
-}
-void RoadScene::set_rail_tint(const Vec4& tint) {
-    m_rail_tint = tint;
-}
+const Vec4& RoadScene::get_rail_tint() const { return m_rail_tint; }
+void        RoadScene::set_rail_tint(const Vec4& tint) { m_rail_tint = tint; }
 
-const Vec4& RoadScene::get_white_marking() const {
-    return m_white_marking;
-}
-void RoadScene::set_white_marking(const Vec4& color) {
-    m_white_marking = color;
-}
+const Vec4& RoadScene::get_white_marking() const { return m_white_marking; }
+void        RoadScene::set_white_marking(const Vec4& color) { m_white_marking = color; }
 
-const Vec4& RoadScene::get_yellow_marking() const {
-    return m_yellow_marking;
-}
-void RoadScene::set_yellow_marking(const Vec4& color) {
-    m_yellow_marking = color;
-}
+const Vec4& RoadScene::get_yellow_marking() const { return m_yellow_marking; }
+void        RoadScene::set_yellow_marking(const Vec4& color) { m_yellow_marking = color; }
 
 // ══════════════════════════════════════════════════════════════════════
 // Road-element registry — the two ordered tables generate()/generate_chunk() walk
@@ -229,10 +141,8 @@ std::span<const RoadScene::Element> RoadScene::intro_elements() {
         {"sound_barriers", &layout_gen<&RoadScene::generate_sound_barriers>},
         {"exit_ramp", &layout_gen<&RoadScene::generate_exit_ramp>},
         {"marginal_trees", &layout_gen<&RoadScene::generate_marginal_trees>},
-        {"street_lamps",
-         [](const RoadScene& s, const GenCtx& c) {
-             s.generate_street_lamps(c.b, c.layout, c.lights, c.z_near, c.z_far);
-         }},
+        {"street_lamps", [](const RoadScene& s,
+                            const GenCtx& c) { s.generate_street_lamps(c.b, c.layout, c.lights, c.z_near, c.z_far); }},
     };
     return table;
 }
@@ -265,25 +175,21 @@ std::span<const RoadScene::Element> RoadScene::chunk_elements() {
         {"ambient_occlusion", &layout_gen<&RoadScene::generate_ambient_occlusion>},
         {"sound_barriers", &layout_gen<&RoadScene::generate_sound_barriers>},
         {"service_roads", &layout_gen<&RoadScene::generate_service_roads>},  // continuous frontage roads, both sides
-        {"street_lamps",
-         [](const RoadScene& s, const GenCtx& c) {
-             s.generate_street_lamps(c.b, c.layout, c.lights, c.z_near, c.z_far);
-         }},
+        {"street_lamps", [](const RoadScene& s,
+                            const GenCtx& c) { s.generate_street_lamps(c.b, c.layout, c.lights, c.z_near, c.z_far); }},
     };
     return table;
 }
 
 std::vector<std::string_view> RoadScene::intro_element_names() {
     std::vector<std::string_view> names;
-    for (const Element& e : intro_elements())
-        names.push_back(e.name);
+    for (const Element& e : intro_elements()) names.push_back(e.name);
     return names;
 }
 
 std::vector<std::string_view> RoadScene::chunk_element_names() {
     std::vector<std::string_view> names;
-    for (const Element& e : chunk_elements())
-        names.push_back(e.name);
+    for (const Element& e : chunk_elements()) names.push_back(e.name);
     return names;
 }
 
@@ -298,8 +204,7 @@ RoadScene::SceneData RoadScene::generate() const {
     // Degenerate configs (no lanes or zero length) produce no geometry.
     // Without this guard, length/lane-independent features (barrier, grass)
     // would still emit vertices for an empty road.
-    if (m_lane_count <= 0 || m_road_length <= 0.0f)
-        return scene;
+    if (m_lane_count <= 0 || m_road_length <= 0.0f) return scene;
 
     float z_near = 0.0f;
     float z_far  = -m_road_length;
@@ -311,8 +216,7 @@ RoadScene::SceneData RoadScene::generate() const {
     };
 
     const GenCtx ctx{builder, layout, z_near, z_far, {m_dash_length, m_dash_gap}, scene.lights, 0.0f};
-    for (const Element& e : intro_elements())
-        e.fn(*this, ctx);
+    for (const Element& e : intro_elements()) e.fn(*this, ctx);
 
     return scene;
 }
@@ -325,8 +229,7 @@ RoadScene::SceneData RoadScene::generate_chunk(float chunkLen) const {
     SceneData   scene;
     MeshBuilder builder(scene.meshData, scene.drawCalls);
 
-    if (m_lane_count <= 0 || chunkLen <= 0.0f)
-        return scene;
+    if (m_lane_count <= 0 || chunkLen <= 0.0f) return scene;
 
     const float z_near = 0.0f;
     const float z_far  = -chunkLen;
@@ -350,8 +253,7 @@ RoadScene::SceneData RoadScene::generate_chunk(float chunkLen) const {
     // Continuous-span cross-section (tiles seamlessly: chunkLen is a tile-size
     // multiple, so surface UVs land on integers at the seam).
     const GenCtx ctx{builder, layout, z_near, z_far, dash, discardLights, chunkLen};
-    for (const Element& e : chunk_elements())
-        e.fn(*this, ctx);
+    for (const Element& e : chunk_elements()) e.fn(*this, ctx);
 
     return scene;
 }

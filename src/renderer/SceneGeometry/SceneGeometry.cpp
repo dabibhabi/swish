@@ -67,16 +67,14 @@ void uploadTwoViaStaging(const RendererServices& s, VkBufferUsageFlags vertUsage
 // Unbounded draws (negative radius — the car, loaded models) are never culled.
 bool isCulled(const DrawCall& dc, const CullParams& cull, const Vec3& originOffset) {
     const float r = dc.boundsRadius;
-    if (r < 0.0f)
-        return false;
+    if (r < 0.0f) return false;
 
     // Center in render-frame world space: model translation (identity for the
     // authored road) plus the per-batch originOffset (chunk-slot / rebase shift),
     // matching how record_* place the geometry. No scale, so `r` needs none.
     const Vec3  c = Vec3(dc.model * Vec4(dc.boundsCenter, 1.0f)) + originOffset;
     const float d = glm::length(c - cull.cameraPos);
-    if (d - r > cull.maxDistance)
-        return true;
+    if (d - r > cull.maxDistance) return true;
 
     // Planes point inward; the sphere is outside when its signed distance is < -r.
     return cull.useFrustum && util::geometry::sphere_outside_frustum(cull.planes, c, r);
@@ -94,8 +92,7 @@ void SceneGeometry::upload(const RendererServices& s, const MeshData& mesh, cons
     cleanup(s.device);
     m_drawCalls = draws;
 
-    if (mesh.empty())
-        return;
+    if (mesh.empty()) return;
 
     uploadTwoViaStaging(s, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, sizeof(Vertex) * mesh.getVertices().size(),
                         mesh.getVertices().data(), m_vertexBuffer, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
@@ -106,8 +103,7 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
                                  const MaterialOverride* overrides, const CullParams& cull, Vec3 originOffset,
                                  CullStats* stats, const PaintTuning& paint, float flakeScale,
                                  float flakeJitter) const {
-    if (!has_geometry())
-        return;
+    if (!has_geometry()) return;
 
     // Camera-relative rebase (double precision): add the per-batch originOffset (chunk-slot
     // instance / intro rebase shift), then subtract the camera position, so basic.vert renders
@@ -125,12 +121,9 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
 
     for (const auto& dc : m_drawCalls) {
         const bool cullable = dc.boundsRadius >= 0.0f;
-        if (stats && cullable)
-            ++stats->total;
-        if (cull.enabled && cullable && isCulled(dc, cull, originOffset))
-            continue;
-        if (stats && cullable)
-            ++stats->submitted;
+        if (stats && cullable) ++stats->total;
+        if (cull.enabled && cullable && isCulled(dc, cull, originOffset)) continue;
+        if (stats && cullable) ++stats->submitted;
 
         VkDescriptorSet matSet = materials.get_set(dc.material);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &matSet, 0, nullptr);
@@ -185,8 +178,7 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
 
 void SceneGeometry::record_depth(VkCommandBuffer cmd, const DepthOnlyPipeline& pipe, const CullParams& cull,
                                  Vec3 originOffset, CullStats* stats) const {
-    if (!has_geometry())
-        return;
+    if (!has_geometry()) return;
 
     VkBuffer     vbs[] = {m_vertexBuffer.handle()};
     VkDeviceSize off[] = {0};
@@ -200,12 +192,9 @@ void SceneGeometry::record_depth(VkCommandBuffer cmd, const DepthOnlyPipeline& p
     // origin rebase, so plain float32 here stays precise for the shadow projection).
     for (const auto& dc : m_drawCalls) {
         const bool cullable = dc.boundsRadius >= 0.0f;
-        if (stats && cullable)
-            ++stats->total;
-        if (cull.enabled && cullable && isCulled(dc, cull, originOffset))
-            continue;
-        if (stats && cullable)
-            ++stats->submitted;
+        if (stats && cullable) ++stats->total;
+        if (cull.enabled && cullable && isCulled(dc, cull, originOffset)) continue;
+        if (stats && cullable) ++stats->submitted;
 
         Mat4 model = dc.model;
         model[3]   = Vec4(Vec3(model[3]) + originOffset, model[3].w);

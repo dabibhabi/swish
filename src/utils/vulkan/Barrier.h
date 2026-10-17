@@ -168,8 +168,7 @@ inline constexpr BarrierMasks kAfterTransferUndefToXferDst =
 // Pure lookup. `.valid == false` means the pair is unsupported: add a row, do not guess.
 constexpr BarrierMasks barrier_masks(VkImageLayout oldLayout, VkImageLayout newLayout) {
     for (const auto& r : detail::kTable)
-        if (r.oldLayout == oldLayout && r.newLayout == newLayout)
-            return r.m;
+        if (r.oldLayout == oldLayout && r.newLayout == newLayout) return r.m;
     return BarrierMasks{};
 }
 

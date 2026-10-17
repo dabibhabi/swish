@@ -81,8 +81,7 @@ TEST_CASE("torque-free spin of an asymmetric body conserves angular momentum", "
 TEST_CASE("spin about a principal axis stays a pure spin", "[rigidbody]") {
     up::RigidBody b = make_body();
     b.set_angular_velocity(vec3(0.f, 3.f, 0.f));  // yaw axis
-    for (int i = 0; i < 240; ++i)
-        b.step(kH);
+    for (int i = 0; i < 240; ++i) b.step(kH);
     REQUIRE_THAT(b.angular_velocity().y, WithinAbs(3.f, 1e-4f));
     REQUIRE_THAT(b.angular_velocity().x, WithinAbs(0.f, 1e-4f));
     REQUIRE_THAT(b.angular_velocity().z, WithinAbs(0.f, 1e-4f));

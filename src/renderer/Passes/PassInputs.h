@@ -26,8 +26,7 @@ struct SamplerInput {
 template <std::size_t N>
 constexpr std::array<uint32_t, N> binding_numbers(const std::array<SamplerInput, N>& in) {
     std::array<uint32_t, N> out{};
-    for (std::size_t i = 0; i < N; ++i)
-        out[i] = in[i].binding;
+    for (std::size_t i = 0; i < N; ++i) out[i] = in[i].binding;
     return out;
 }
 
@@ -37,8 +36,7 @@ template <std::size_t N>
 constexpr bool bindings_dense(const std::array<SamplerInput, N>& in) {
     std::array<bool, N> seen{};
     for (const SamplerInput& s : in) {
-        if (s.binding >= N || seen[s.binding])
-            return false;
+        if (s.binding >= N || seen[s.binding]) return false;
         seen[s.binding] = true;
     }
     return true;

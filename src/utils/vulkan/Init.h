@@ -51,20 +51,10 @@ inline VkSamplerCreateInfo makeSamplerCreateInfo() {
     return info;
 }
 
-inline bool is_success(VkResult r) {
-    return r == VK_SUCCESS;
-}
-inline bool is_out_of_date(VkResult r) {
-    return r == VK_ERROR_OUT_OF_DATE_KHR;
-}
-inline bool is_suboptimal(VkResult r) {
-    return r == VK_SUBOPTIMAL_KHR;
-}
-inline bool is_presentable(VkResult r) {
-    return is_success(r) || is_suboptimal(r);
-}
-inline bool swapchain_needs_recreation(VkResult r) {
-    return is_out_of_date(r) || is_suboptimal(r);
-}
+inline bool is_success(VkResult r) { return r == VK_SUCCESS; }
+inline bool is_out_of_date(VkResult r) { return r == VK_ERROR_OUT_OF_DATE_KHR; }
+inline bool is_suboptimal(VkResult r) { return r == VK_SUBOPTIMAL_KHR; }
+inline bool is_presentable(VkResult r) { return is_success(r) || is_suboptimal(r); }
+inline bool swapchain_needs_recreation(VkResult r) { return is_out_of_date(r) || is_suboptimal(r); }
 
 }  // namespace swish::vkx

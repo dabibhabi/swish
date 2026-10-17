@@ -60,14 +60,10 @@ protected:
 
 }  // namespace
 
-std::unique_ptr<IRenderPass> make_composite_pass() {
-    return std::make_unique<CompositePass>();
-}
+std::unique_ptr<IRenderPass> make_composite_pass() { return std::make_unique<CompositePass>(); }
 
 #ifdef SWISH_DEBUG_UI
-void rebuild_composite_pass(PostProcessManager& pm) {
-    CompositePass::rebuild(pm);
-}
+void rebuild_composite_pass(PostProcessManager& pm) { CompositePass::rebuild(pm); }
 #endif
 
 }  // namespace swish

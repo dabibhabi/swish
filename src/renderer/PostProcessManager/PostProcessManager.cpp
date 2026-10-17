@@ -57,18 +57,12 @@ void PostProcessManager::cleanup() {
         vkDestroyRenderPass(m_device, m_shadowRenderPass, nullptr);
         m_shadowRenderPass = VK_NULL_HANDLE;
     }
-    if (m_gbufferRenderPass != VK_NULL_HANDLE)
-        vkDestroyRenderPass(m_device, m_gbufferRenderPass, nullptr);
-    if (m_lightingRenderPass != VK_NULL_HANDLE)
-        vkDestroyRenderPass(m_device, m_lightingRenderPass, nullptr);
-    if (m_hdrRenderPass != VK_NULL_HANDLE)
-        vkDestroyRenderPass(m_device, m_hdrRenderPass, nullptr);
-    if (m_bloomRenderPass != VK_NULL_HANDLE)
-        vkDestroyRenderPass(m_device, m_bloomRenderPass, nullptr);
-    if (m_aoRenderPass != VK_NULL_HANDLE)
-        vkDestroyRenderPass(m_device, m_aoRenderPass, nullptr);
-    if (m_compositeRenderPass != VK_NULL_HANDLE)
-        vkDestroyRenderPass(m_device, m_compositeRenderPass, nullptr);
+    if (m_gbufferRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(m_device, m_gbufferRenderPass, nullptr);
+    if (m_lightingRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(m_device, m_lightingRenderPass, nullptr);
+    if (m_hdrRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(m_device, m_hdrRenderPass, nullptr);
+    if (m_bloomRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(m_device, m_bloomRenderPass, nullptr);
+    if (m_aoRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(m_device, m_aoRenderPass, nullptr);
+    if (m_compositeRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(m_device, m_compositeRenderPass, nullptr);
     m_gbufferRenderPass = m_lightingRenderPass = VK_NULL_HANDLE;
     m_hdrRenderPass = m_bloomRenderPass = m_aoRenderPass = m_compositeRenderPass = VK_NULL_HANDLE;
 }
@@ -222,10 +216,8 @@ VkExtent2D PostProcessManager::scaleExtent(VkExtent2D swap) const {
     out.width  = static_cast<uint32_t>(static_cast<float>(swap.width) * scale);
     out.height = static_cast<uint32_t>(static_cast<float>(swap.height) * scale);
     // Guard against zero (minimized window) exactly like the swap extent would be.
-    if (out.width == 0)
-        out.width = swap.width;
-    if (out.height == 0)
-        out.height = swap.height;
+    if (out.width == 0) out.width = swap.width;
+    if (out.height == 0) out.height = swap.height;
     return out;
 }
 

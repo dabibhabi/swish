@@ -20,8 +20,7 @@ glm::mat4 test_vp() {
 TEST_CASE("extract_frustum_planes returns unit-length normals", "[frustum]") {
     glm::vec4 planes[6];
     ug::extract_frustum_planes(test_vp(), planes);
-    for (const glm::vec4& p : planes)
-        CHECK_THAT(glm::length(glm::vec3(p)), WithinAbs(1.0f, 1e-5f));
+    for (const glm::vec4& p : planes) CHECK_THAT(glm::length(glm::vec3(p)), WithinAbs(1.0f, 1e-5f));
 }
 
 TEST_CASE("sphere_outside_frustum: inside behind beyond far and off to the side", "[frustum]") {

@@ -1,6 +1,7 @@
-#include <catch2/catch_test_macros.hpp>
-#include "scene/RoadScene/RoadScene.h"
 #include "scene/RoadScene/RoadConfig.h"
+#include "scene/RoadScene/RoadScene.h"
+
+#include <catch2/catch_test_macros.hpp>
 
 using namespace swish;
 
@@ -11,25 +12,25 @@ static RoadConfig make_test_config() {
     cfg.magic   = RoadConfig::MAGIC;
     cfg.version = RoadConfig::VERSION;
 
-    cfg.road_length        = 500000.0f;  // > 1 lamp spacing (500ft * kFt = ~152400)
-    cfg.lane_width         = 120.0f;
-    cfg.lane_count         = 3;
-    cfg.shoulder_width_wb  = 120.0f;
-    cfg.shoulder_width_eb  = 120.0f;
-    cfg.grass_extent       = 300.0f;
-    cfg.barrier_width      = 10.0f;
-    cfg.barrier_height     = 40.0f;
-    cfg.rail_width         = 4.0f;
-    cfg.rail_height        = 30.0f;
-    cfg.curb_height        = 6.0f;
-    cfg.curb_width         = 6.0f;
-    cfg.asphalt_tile       = 200.0f;
-    cfg.grass_tile         = 200.0f;
-    cfg.concrete_tile      = 200.0f;
-    cfg.metal_tile         = 200.0f;
-    cfg.marking_y_offset   = 1.0f;
-    cfg.dash_length        = 40.0f;
-    cfg.dash_gap           = 120.0f;
+    cfg.road_length       = 500000.0f;  // > 1 lamp spacing (500ft * kFt = ~152400)
+    cfg.lane_width        = 120.0f;
+    cfg.lane_count        = 3;
+    cfg.shoulder_width_wb = 120.0f;
+    cfg.shoulder_width_eb = 120.0f;
+    cfg.grass_extent      = 300.0f;
+    cfg.barrier_width     = 10.0f;
+    cfg.barrier_height    = 40.0f;
+    cfg.rail_width        = 4.0f;
+    cfg.rail_height       = 30.0f;
+    cfg.curb_height       = 6.0f;
+    cfg.curb_width        = 6.0f;
+    cfg.asphalt_tile      = 200.0f;
+    cfg.grass_tile        = 200.0f;
+    cfg.concrete_tile     = 200.0f;
+    cfg.metal_tile        = 200.0f;
+    cfg.marking_y_offset  = 1.0f;
+    cfg.dash_length       = 40.0f;
+    cfg.dash_gap          = 120.0f;
 
     // Colors: white with full alpha
     for (int i = 0; i < 4; ++i) {
@@ -55,19 +56,19 @@ static RoadConfig make_test_config() {
 
 TEST_CASE("RoadScene generate produces non-empty vertex buffer", "[roadscene]") {
     RoadScene scene(make_test_config());
-    auto data = scene.generate();
+    auto      data = scene.generate();
     REQUIRE(data.meshData.getVertexCount() > 0);
 }
 
 TEST_CASE("RoadScene generate produces non-empty index buffer", "[roadscene]") {
     RoadScene scene(make_test_config());
-    auto data = scene.generate();
+    auto      data = scene.generate();
     REQUIRE(data.meshData.getIndexCount() > 0);
 }
 
 TEST_CASE("RoadScene generate produces draw calls", "[roadscene]") {
     RoadScene scene(make_test_config());
-    auto data = scene.generate();
+    auto      data = scene.generate();
     REQUIRE(data.drawCalls.size() > 0);
 }
 
@@ -75,8 +76,8 @@ TEST_CASE("RoadScene generate produces draw calls", "[roadscene]") {
 
 TEST_CASE("RoadScene all DrawCall index ranges are in-bounds", "[roadscene]") {
     RoadScene scene(make_test_config());
-    auto     data        = scene.generate();
-    uint32_t index_count = data.meshData.getIndexCount();
+    auto      data        = scene.generate();
+    uint32_t  index_count = data.meshData.getIndexCount();
     for (const auto& dc : data.drawCalls) {
         REQUIRE(dc.indexOffset < index_count);
         REQUIRE(dc.indexOffset + dc.indexCount <= index_count);
@@ -85,18 +86,14 @@ TEST_CASE("RoadScene all DrawCall index ranges are in-bounds", "[roadscene]") {
 
 TEST_CASE("RoadScene DrawCall index counts are multiples of 3", "[roadscene]") {
     RoadScene scene(make_test_config());
-    auto data = scene.generate();
-    for (const auto& dc : data.drawCalls) {
-        REQUIRE(dc.indexCount % 3 == 0);
-    }
+    auto      data = scene.generate();
+    for (const auto& dc : data.drawCalls) { REQUIRE(dc.indexCount % 3 == 0); }
 }
 
 TEST_CASE("RoadScene DrawCall material IDs are within valid range", "[roadscene]") {
     RoadScene scene(make_test_config());
-    auto data = scene.generate();
-    for (const auto& dc : data.drawCalls) {
-        REQUIRE(dc.material < MAT_COUNT);
-    }
+    auto      data = scene.generate();
+    for (const auto& dc : data.drawCalls) { REQUIRE(dc.material < MAT_COUNT); }
 }
 
 // ── Scaling behavior ──────────────────────────────────────────────────
@@ -109,22 +106,22 @@ TEST_CASE("RoadScene wider road produces more geometry", "[roadscene]") {
 
     RoadScene narrow(narrow_cfg);
     RoadScene wide(wide_cfg);
-    auto n = narrow.generate();
-    auto w = wide.generate();
+    auto      n = narrow.generate();
+    auto      w = wide.generate();
 
     REQUIRE(w.meshData.getVertexCount() > n.meshData.getVertexCount());
 }
 
 TEST_CASE("RoadScene longer road produces more geometry", "[roadscene]") {
-    RoadConfig short_cfg = make_test_config();
-    RoadConfig long_cfg  = make_test_config();
+    RoadConfig short_cfg  = make_test_config();
+    RoadConfig long_cfg   = make_test_config();
     short_cfg.road_length = 1000.0f;
     long_cfg.road_length  = 10000.0f;
 
     RoadScene shorter(short_cfg);
     RoadScene longer(long_cfg);
-    auto s = shorter.generate();
-    auto l = longer.generate();
+    auto      s = shorter.generate();
+    auto      l = longer.generate();
 
     REQUIRE(l.meshData.getVertexCount() > s.meshData.getVertexCount());
 }
@@ -133,7 +130,7 @@ TEST_CASE("RoadScene longer road produces more geometry", "[roadscene]") {
 
 TEST_CASE("RoadScene generates street lamps", "[roadscene]") {
     RoadScene scene(make_test_config());
-    auto data = scene.generate();
+    auto      data = scene.generate();
     REQUIRE(data.lights.size() > 0);
 }
 
@@ -155,14 +152,14 @@ TEST_CASE("RoadScene longer road generates more lamps", "[roadscene]") {
 TEST_CASE("MeshBuilder dashed lines respect dash+gap cycle", "[roadscene][meshbuilder]") {
     // With a very short road and known dash/gap, we can bound how many quads
     // are added. Each dash = 1 quad = 4 vertices.
-    RoadConfig cfg       = make_test_config();
-    cfg.road_length      = 500.0f;
-    cfg.dash_length      = 100.0f;
-    cfg.dash_gap         = 400.0f;
+    RoadConfig cfg  = make_test_config();
+    cfg.road_length = 500.0f;
+    cfg.dash_length = 100.0f;
+    cfg.dash_gap    = 400.0f;
     // lane_count = 3 (from make_test_config)
 
     RoadScene scene(cfg);
-    auto data = scene.generate();
+    auto      data = scene.generate();
     // The road is 500 units. dash=100, gap=400, cycle=500 → exactly 1 dash fits.
     // With 2 dashed marking lines (per lane separator), baseline is at least 1 group.
     REQUIRE(data.meshData.getVertexCount() > 0);
@@ -194,20 +191,20 @@ TEST_CASE("RoadScene set_road_length affects get_road_length", "[roadscene]") {
 // ── Degenerate input ──────────────────────────────────────────────────
 
 TEST_CASE("RoadScene zero-lane config produces no geometry", "[RoadScene]") {
-    RoadConfig cfg        = make_test_config();
-    cfg.lane_count        = 0;
-    cfg.road_length       = 1000.f;
+    RoadConfig cfg  = make_test_config();
+    cfg.lane_count  = 0;
+    cfg.road_length = 1000.f;
     RoadScene scene(cfg);
-    auto data = scene.generate();
+    auto      data = scene.generate();
     REQUIRE(data.meshData.getIndexCount() == 0);
 }
 
 TEST_CASE("RoadScene zero-length config produces no geometry", "[RoadScene]") {
-    RoadConfig cfg        = make_test_config();
-    cfg.lane_count        = 2;
-    cfg.road_length       = 0.f;
+    RoadConfig cfg  = make_test_config();
+    cfg.lane_count  = 2;
+    cfg.road_length = 0.f;
     RoadScene scene(cfg);
-    auto data = scene.generate();
+    auto      data = scene.generate();
     REQUIRE(data.meshData.getVertexCount() == 0);
 }
 
@@ -218,16 +215,14 @@ TEST_CASE("RoadScene zero-length config produces no geometry", "[RoadScene]") {
 
 TEST_CASE("RoadScene registry order matches the recorded draw order", "[RoadScene][registry]") {
     const std::vector<std::string_view> intro = {
-        "grass",           "road_surfaces", "shoulders",      "jersey_barrier",
-        "guardrail",       "solid_markings", "dashed_markings", "curbs",
-        "rumble_strips",   "dirt_strips",   "ambient_occlusion", "hov_diamonds",
-        "sign_posts",      "overpass",      "sound_barriers", "exit_ramp",
-        "marginal_trees",  "street_lamps",
+        "grass",           "road_surfaces", "shoulders",      "jersey_barrier", "guardrail",         "solid_markings",
+        "dashed_markings", "curbs",         "rumble_strips",  "dirt_strips",    "ambient_occlusion", "hov_diamonds",
+        "sign_posts",      "overpass",      "sound_barriers", "exit_ramp",      "marginal_trees",    "street_lamps",
     };
     const std::vector<std::string_view> chunk = {
-        "grass",         "road_surfaces", "shoulders",         "median_barrier_gapped",
-        "guardrail",     "solid_markings", "dashed_markings",  "curbs",
-        "rumble_strips", "dirt_strips",   "ambient_occlusion", "sound_barriers",
+        "grass",         "road_surfaces",  "shoulders",         "median_barrier_gapped",
+        "guardrail",     "solid_markings", "dashed_markings",   "curbs",
+        "rumble_strips", "dirt_strips",    "ambient_occlusion", "sound_barriers",
         "service_roads", "street_lamps",
     };
     REQUIRE(RoadScene::intro_element_names() == intro);

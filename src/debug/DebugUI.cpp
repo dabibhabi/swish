@@ -40,8 +40,7 @@ namespace swish {
 // ══════════════════════════════════════════════════════════════════════
 
 void DebugUI::init(const DebugUIInitInfo& info) {
-    if (m_init)
-        return;
+    if (m_init) return;
 
     m_device = info.device;
     m_extent = info.extent;
@@ -176,8 +175,7 @@ void DebugUI::createFramebuffers(const std::vector<VkImageView>& views, VkExtent
 
 void DebugUI::destroyFramebuffers() {
     for (auto& fb : m_framebuffers) {
-        if (fb != VK_NULL_HANDLE)
-            vkDestroyFramebuffer(m_device, fb, nullptr);
+        if (fb != VK_NULL_HANDLE) vkDestroyFramebuffer(m_device, fb, nullptr);
     }
     m_framebuffers.clear();
 }
@@ -258,10 +256,8 @@ const char* materialName(int i) {
             break;
     }
     const auto u = static_cast<uint32_t>(i);  // MaterialId is uint32_t; avoids -Wsign-compare
-    if (u >= MAT_SIGN_0 && u <= MAT_SIGN_7)
-        return "sign";
-    if (u >= MAT_CAR_0 && u <= MAT_CAR_LAST)
-        return "car";
+    if (u >= MAT_SIGN_0 && u <= MAT_SIGN_7) return "sign";
+    if (u >= MAT_CAR_0 && u <= MAT_CAR_LAST) return "car";
     return "?";
 }
 
@@ -273,24 +269,17 @@ const char* gearLabel(int gear) {
 
 // Per-kind ImGui widget and printf-dump text: one overload per value-kind tag (utils/meta/Tags.h). A new kind
 // adds one `widget` and one `dump` here (plus put/get in DebugParamsIO.cpp); the group loops never change.
-void widget(const tunables::Tunable& t, tag::flag_t, bool& v) {
-    ImGui::Checkbox(t.label, &v);
-}
+void widget(const tunables::Tunable& t, tag::flag_t, bool& v) { ImGui::Checkbox(t.label, &v); }
 void widget(const tunables::Tunable& t, tag::real_t, float& v) {
     ImGui::SliderFloat(t.label, &v, t.lo, t.hi, t.sliderFmt);
 }
-void dump(const tunables::Tunable&, tag::flag_t, bool v) {
-    std::printf("%d", v ? 1 : 0);
-}
-void dump(const tunables::Tunable& t, tag::real_t, float v) {
-    std::printf("%.*f", t.dumpPrec, static_cast<double>(v));
-}
+void dump(const tunables::Tunable&, tag::flag_t, bool v) { std::printf("%d", v ? 1 : 0); }
+void dump(const tunables::Tunable& t, tag::real_t, float v) { std::printf("%.*f", t.dumpPrec, static_cast<double>(v)); }
 
 // Registry-driven controls / dump for one Tunables.def group (declaration order).
 void draw_tunable_group(DebugParams& p, std::string_view group) {
     for (const tunables::Tunable& t : tunables::all()) {
-        if (group != t.group)
-            continue;
+        if (group != t.group) continue;
         tunables::visit(t, p, [&](auto kind, auto& v) { widget(t, kind, v); });
     }
 }
@@ -298,8 +287,7 @@ void draw_tunable_group(DebugParams& p, std::string_view group) {
 void dump_tunable_group(const DebugParams& p, std::string_view group) {
     bool first = true;
     for (const tunables::Tunable& t : tunables::all()) {
-        if (group != t.group)
-            continue;
+        if (group != t.group) continue;
         std::printf("%s%s=", first ? "" : " ", t.name);
         tunables::visit(t, p, [&](auto kind, auto v) { dump(t, kind, v); });
         first = false;
@@ -392,11 +380,9 @@ void draw_render_tools(const RenderToolsView& t) {
         const bool busy = t.capture && (t.capture->state == CaptureStatus::State::Requested ||
                                         t.capture->state == CaptureStatus::State::InFlight);
         ImGui::BeginDisabled(busy || !t.requestCapture);
-        if (ImGui::Button("Capture LDR (F12)") && t.requestCapture)
-            t.requestCapture(false);
+        if (ImGui::Button("Capture LDR (F12)") && t.requestCapture) t.requestCapture(false);
         ImGui::SameLine();
-        if (ImGui::Button("Capture HDR (Shift+F12)") && t.requestCapture)
-            t.requestCapture(true);
+        if (ImGui::Button("Capture HDR (Shift+F12)") && t.requestCapture) t.requestCapture(true);
         ImGui::EndDisabled();
         if (t.capture) {
             const char* state = "idle";
@@ -418,20 +404,16 @@ void draw_render_tools(const RenderToolsView& t) {
                     break;
             }
             ImGui::Text("State: %s (%u saved)", state, t.capture->savedCount);
-            if (!t.capture->message.empty())
-                ImGui::TextWrapped("%s", t.capture->message.c_str());
-            if (!t.capture->lastPath.empty())
-                ImGui::TextWrapped("Last LDR: %s", t.capture->lastPath.c_str());
-            if (!t.capture->lastHdrPath.empty())
-                ImGui::TextWrapped("Last HDR: %s", t.capture->lastHdrPath.c_str());
+            if (!t.capture->message.empty()) ImGui::TextWrapped("%s", t.capture->message.c_str());
+            if (!t.capture->lastPath.empty()) ImGui::TextWrapped("Last LDR: %s", t.capture->lastPath.c_str());
+            if (!t.capture->lastHdrPath.empty()) ImGui::TextWrapped("Last HDR: %s", t.capture->lastHdrPath.c_str());
         }
     }
 
     if (t.hotReload) {
         ImGui::SeparatorText("Shader hot-reload");
         bool enabled = t.hotReload->enabled();
-        if (ImGui::Checkbox("Enabled##hotreload", &enabled) && t.setHotReloadEnabled)
-            t.setHotReloadEnabled(enabled);
+        if (ImGui::Checkbox("Enabled##hotreload", &enabled) && t.setHotReloadEnabled) t.setHotReloadEnabled(enabled);
         const ShaderHotReload::Status& st = t.hotReload->status();
         ImGui::Text("Reloads: %u  failures: %u  rebuilds: %u  need restart: %u", st.reloads, st.compileFailures,
                     st.rebuilds, st.unhooked);
@@ -445,8 +427,7 @@ void draw_render_tools(const RenderToolsView& t) {
 
     if (t.declWarnings) {
         ImGui::SeparatorText("Pass declarations");
-        if (t.decls)
-            ImGui::TextDisabled("%zu passes checked", t.decls->size());
+        if (t.decls) ImGui::TextDisabled("%zu passes checked", t.decls->size());
         if (t.declWarnings->empty()) {
             ImGui::TextDisabled("no warnings");
         } else {
@@ -463,8 +444,7 @@ void draw_render_tools(const RenderToolsView& t) {
 // ══════════════════════════════════════════════════════════════════════
 
 void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
-    if (!m_init)
-        return;
+    if (!m_init) return;
 
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
@@ -516,12 +496,12 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
                 // RPM vs the active profile's redline (CarProfile torque curve: WOT torque is EXACTLY 0
                 // there; 7200 for the 992 Turbo S, 6800 for the 993 RS). Progress bar colored
                 // green -> amber -> red as it nears the limiter.
-                const float kRedlineRpm = p.telemetryRedline;
-                const float     rpmFrac     = glm::clamp(p.telemetryRpm / kRedlineRpm, 0.0f, 1.0f);
-                const ImVec4    rpmColor    = rpmFrac > 0.9f   ? ImVec4(0.90f, 0.15f, 0.15f, 1.0f)   // red
-                                              : rpmFrac > 0.7f ? ImVec4(0.95f, 0.75f, 0.10f, 1.0f)   // amber
-                                                               : ImVec4(0.20f, 0.75f, 0.30f, 1.0f);  // green
-                char            rpmLabel[32];
+                const float  kRedlineRpm = p.telemetryRedline;
+                const float  rpmFrac     = glm::clamp(p.telemetryRpm / kRedlineRpm, 0.0f, 1.0f);
+                const ImVec4 rpmColor    = rpmFrac > 0.9f   ? ImVec4(0.90f, 0.15f, 0.15f, 1.0f)   // red
+                                           : rpmFrac > 0.7f ? ImVec4(0.95f, 0.75f, 0.10f, 1.0f)   // amber
+                                                            : ImVec4(0.20f, 0.75f, 0.30f, 1.0f);  // green
+                char         rpmLabel[32];
                 std::snprintf(rpmLabel, sizeof(rpmLabel), "%.0f / %.0f rpm", p.telemetryRpm, kRedlineRpm);
                 ImGui::PushStyleColor(ImGuiCol_PlotHistogram, rpmColor);
                 ImGui::ProgressBar(rpmFrac, ImVec2(-1.0f, 0.0f), rpmLabel);
@@ -652,10 +632,8 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
                 ImGui::ProgressBar(static_cast<float>(p.drvReplayPos) / static_cast<float>(p.drvReplaySize),
                                    ImVec2(-1.0f, 0.0f), replayLabel);
             }
-            if (ImGui::Button("Export CSV"))
-                p.drvExportRequested = true;
-            if (p.drvStatus[0])
-                ImGui::TextDisabled("%s", p.drvStatus);
+            if (ImGui::Button("Export CSV")) p.drvExportRequested = true;
+            if (p.drvStatus[0]) ImGui::TextDisabled("%s", p.drvStatus);
 
             ImGui::SeparatorText("Force feedback (readout only)");
             ImGui::Text("SAT target: %+.2f N*m  (normalized %+.3f)", p.drvFfbTorqueNm, p.drvFfbNormalized);
@@ -664,20 +642,15 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
         }
 
         // ── Preset buttons row ────────────────────────────────────────
-        if (ImGui::Button("Reset"))
-            presetReset(p);
+        if (ImGui::Button("Reset")) presetReset(p);
         ImGui::SameLine();
-        if (ImGui::Button("Overcast-LIE"))
-            presetOvercastLIE(p);
+        if (ImGui::Button("Overcast-LIE")) presetOvercastLIE(p);
         ImGui::SameLine();
-        if (ImGui::Button("Clear"))
-            presetClear(p);
+        if (ImGui::Button("Clear")) presetClear(p);
         ImGui::SameLine();
-        if (ImGui::Button("Clear+Rain"))
-            presetClearRain(p);
+        if (ImGui::Button("Clear+Rain")) presetClearRain(p);
         ImGui::SameLine();
-        if (ImGui::Button("Print values"))
-            printValues(p);
+        if (ImGui::Button("Print values")) printValues(p);
 
         // ── Named disk presets (toml save/load) ───────────────────────
         // Persist the current look to <presets_dir>/<name>.toml (per-user, outside build/;
@@ -699,8 +672,7 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
                 std::snprintf(status, sizeof(status), ok ? "loaded '%s.toml'" : "not found '%s'", nameBuf);
             }
             ImGui::SameLine();
-            if (ImGui::Button("Refresh"))
-                onDisk = debugio::list_presets();
+            if (ImGui::Button("Refresh")) onDisk = debugio::list_presets();
 
             if (!onDisk.empty() && ImGui::BeginCombo("On disk", nameBuf)) {
                 for (const std::string& n : onDisk) {
@@ -712,8 +684,7 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
                 }
                 ImGui::EndCombo();
             }
-            if (status[0])
-                ImGui::TextDisabled("%s", status);
+            if (status[0]) ImGui::TextDisabled("%s", status);
         }
 
         // ── Image / Grade ─────────────────────────────────────────────
@@ -756,8 +727,7 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::SliderFloat("Azimuth", &p.sunAzimuth, -kPi, kPi);
             ImGui::SliderFloat("Elevation", &p.sunElevation, 0.0f, kPi * 0.5f);
             ImGui::Checkbox("Sun gizmo (drag to orient)", &p.showSunGizmo);
-            if (p.showSunGizmo && ImGui::Button("Reset gizmo"))
-                p.sunGizmoRot = glm::mat4(1.0f);
+            if (p.showSunGizmo && ImGui::Button("Reset gizmo")) p.sunGizmoRot = glm::mat4(1.0f);
         }
 
         // ── Steering (pose / fix the wheel rotation) ──────────────────
@@ -766,8 +736,7 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             if (ImGui::SliderFloat("Angle (deg)", &p.steerAngleDeg, -p.steerMaxDeg, p.steerMaxDeg))
                 p.steerOverride = true;  // moving the slider takes control of the wheel
             ImGui::SameLine();
-            if (ImGui::Button("Center"))
-                p.steerAngleDeg = 0.0f;
+            if (ImGui::Button("Center")) p.steerAngleDeg = 0.0f;
             ImGui::Checkbox("Wheel gizmo (drag to turn)", &p.showSteerGizmo);
             ImGui::TextDisabled("edit mode only; overrides the sim while on");
 
@@ -817,13 +786,11 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             // Display distance in metres; store in world units (1 m = 1000 WU).
             namespace uu = util::units;
             float distM  = uu::to_m(p.fogDist63);
-            if (ImGui::SliderFloat("Dist @63% (m)", &distM, 1.0f, 5000.0f, "%.0f"))
-                p.fogDist63 = uu::m(distM);
+            if (ImGui::SliderFloat("Dist @63% (m)", &distM, 1.0f, 5000.0f, "%.0f")) p.fogDist63 = uu::m(distM);
             ImGui::SliderFloat("Fog max", &p.fogMax, 0.0f, 1.0f);
             // Always-on aerial haze (dry days too) — dissolves distance into the sky.
             float hazeM = uu::to_m(p.hazeDist);
-            if (ImGui::SliderFloat("Haze dist (m)", &hazeM, 100.0f, 5000.0f, "%.0f"))
-                p.hazeDist = uu::m(hazeM);
+            if (ImGui::SliderFloat("Haze dist (m)", &hazeM, 100.0f, 5000.0f, "%.0f")) p.hazeDist = uu::m(hazeM);
             ImGui::SliderFloat("Haze max", &p.hazeMax, 0.0f, 1.0f);
         }
 
@@ -947,10 +914,8 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
 
         // ── Materials (per-submesh / per-material-slot editor) ────────
         if (ImGui::CollapsingHeader("Materials")) {
-            if (p.matEditSlot < 0)
-                p.matEditSlot = 0;
-            if (p.matEditSlot >= static_cast<int>(MAT_COUNT))
-                p.matEditSlot = static_cast<int>(MAT_COUNT) - 1;
+            if (p.matEditSlot < 0) p.matEditSlot = 0;
+            if (p.matEditSlot >= static_cast<int>(MAT_COUNT)) p.matEditSlot = static_cast<int>(MAT_COUNT) - 1;
             ImGui::SliderInt("Slot", &p.matEditSlot, 0, static_cast<int>(MAT_COUNT) - 1);
             ImGui::SameLine();
             ImGui::TextDisabled("%s", materialName(p.matEditSlot));
@@ -962,26 +927,22 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::ColorEdit3("Color##mat", &o.color.x);
             ImGui::SliderFloat("Clearcoat##mat", &o.clearcoat, 0.0f, 1.0f);
             ImGui::SliderFloat("Flake density##mat", &o.flakeDensity, 0.0f, 1.0f);
-            if (ImGui::Button("Clear this slot"))
-                o = MaterialOverride{};
+            if (ImGui::Button("Clear this slot")) o = MaterialOverride{};
             ImGui::SameLine();
             if (ImGui::Button("Clear all")) {
-                for (uint32_t i = 0; i < MAT_COUNT; ++i)
-                    p.matOverrides[i] = MaterialOverride{};
+                for (uint32_t i = 0; i < MAT_COUNT; ++i) p.matOverrides[i] = MaterialOverride{};
             }
             // Count how many slots are currently overridden (quick status).
             int active = 0;
             for (uint32_t i = 0; i < MAT_COUNT; ++i)
-                if (p.matOverrides[i].enabled)
-                    ++active;
+                if (p.matOverrides[i].enabled) ++active;
             ImGui::TextDisabled("%d slot(s) overridden", active);
         }
 
         // ── Quality ───────────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Quality")) {
             ImGui::SliderFloat("SSAA scale", &p.ssaaScale, 1.0f, 2.0f);
-            if (ImGui::Button("Apply SSAA"))
-                p.ssaaApplyRequested = true;
+            if (ImGui::Button("Apply SSAA")) p.ssaaApplyRequested = true;
             ImGui::Separator();
             ImGui::TextDisabled("TAA (alternative to SSAA — drop SSAA to 1.0 to compare)");
             ImGui::Checkbox("TAA##taa", &p.taaEnabled);
@@ -1004,8 +965,7 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
         }
 
         // ── Render tools (GPU profiler / capture / hot-reload / pass declarations) ──
-        if (ImGui::CollapsingHeader("Render tools"))
-            draw_render_tools(m_tools);
+        if (ImGui::CollapsingHeader("Render tools")) draw_render_tools(m_tools);
 
         ImGui::End();
     }
@@ -1051,8 +1011,7 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             float     angle  = std::acos(glm::clamp((trace - 1.0f) * 0.5f, -1.0f, 1.0f));  // magnitude
             glm::vec3 axis   = glm::vec3(d[1][2] - d[2][1], d[2][0] - d[0][2], d[0][1] - d[1][0]);
             glm::vec3 wheelZ = glm::normalize(glm::vec3(p.steerPivotWorld[2]));
-            if (glm::dot(axis, wheelZ) < 0.0f)
-                angle = -angle;
+            if (glm::dot(axis, wheelZ) < 0.0f) angle = -angle;
             p.steerAngleDeg = glm::clamp(p.steerAngleDeg - glm::degrees(angle), -p.steerMaxDeg, p.steerMaxDeg);
             p.steerOverride = true;
         }
@@ -1066,8 +1025,7 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
 // ══════════════════════════════════════════════════════════════════════
 
 void DebugUI::record(VkCommandBuffer cmd, uint32_t imageIndex, VkExtent2D extent) {
-    if (!m_init)
-        return;
+    if (!m_init) return;
 
     VkRenderPassBeginInfo rp{};
     rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -1089,8 +1047,7 @@ void DebugUI::record(VkCommandBuffer cmd, uint32_t imageIndex, VkExtent2D extent
 // ══════════════════════════════════════════════════════════════════════
 
 void DebugUI::recreate(VkFormat fmt, const std::vector<VkImageView>& views, VkExtent2D extent) {
-    if (!m_init)
-        return;
+    if (!m_init) return;
     (void)fmt;  // format assumed unchanged; render pass is reused as-is.
     destroyFramebuffers();
     createFramebuffers(views, extent);
@@ -1101,8 +1058,7 @@ void DebugUI::recreate(VkFormat fmt, const std::vector<VkImageView>& views, VkEx
 // ══════════════════════════════════════════════════════════════════════
 
 void DebugUI::cleanup() {
-    if (!m_init)
-        return;
+    if (!m_init) return;
 
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();

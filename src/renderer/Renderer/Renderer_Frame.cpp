@@ -61,8 +61,7 @@ void Renderer::drawFrame(float deltaTime) {
             recreateSwapchain();
             return std::nullopt;
         }
-        if (!vkx::is_presentable(r))
-            throw std::runtime_error("failed to acquire swap chain image!");
+        if (!vkx::is_presentable(r)) throw std::runtime_error("failed to acquire swap chain image!");
         return idx;
     };
 
@@ -107,8 +106,7 @@ void Renderer::drawFrame(float deltaTime) {
     };
 
     auto imageIndex = acquireImage();
-    if (!imageIndex)
-        return;
+    if (!imageIndex) return;
 
     m_syncObjects->resetFence(m_device->getDevice(), m_currentFrame);
     m_commandManager->resetBuffer(m_currentFrame);

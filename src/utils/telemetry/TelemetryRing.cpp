@@ -25,8 +25,7 @@ void put(std::string& line, float v) {
 }
 
 bool parse_float(const std::string& tok, float& out) {
-    if (tok.empty())
-        return false;
+    if (tok.empty()) return false;
     char* end = nullptr;
     out       = std::strtof(tok.c_str(), &end);
     return end == tok.c_str() + tok.size();
@@ -51,10 +50,8 @@ void write_csv(const TelemetryRing& ring, std::ostream& os) {
         put(line, s.throttle);
         put(line, s.brake);
         put(line, s.mu);
-        for (float w : s.wheel_spin)
-            put(line, w);
-        for (float v : s.susp)
-            put(line, v);
+        for (float w : s.wheel_spin) put(line, w);
+        for (float v : s.susp) put(line, v);
         put(line, s.input.steer);
         put(line, s.input.throttle);
         put(line, s.input.brake);
@@ -65,8 +62,7 @@ void write_csv(const TelemetryRing& ring, std::ostream& os) {
 
 bool write_csv(const TelemetryRing& ring, const std::filesystem::path& path) {
     std::ofstream f(path);
-    if (!f)
-        return false;
+    if (!f) return false;
     write_csv(ring, f);
     return static_cast<bool>(f);
 }
@@ -74,34 +70,26 @@ bool write_csv(const TelemetryRing& ring, const std::filesystem::path& path) {
 bool read_csv(std::istream& is, TelemetryRing& out) {
     out.clear();
     std::string line;
-    if (!std::getline(is, line))
-        return false;
-    if (!line.empty() && line.back() == '\r')
-        line.pop_back();
-    if (line != kHeader)
-        return false;
+    if (!std::getline(is, line)) return false;
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (line != kHeader) return false;
 
     while (std::getline(is, line)) {
-        if (!line.empty() && line.back() == '\r')
-            line.pop_back();
-        if (line.empty())
-            continue;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty()) continue;
         std::vector<std::string> tok;
         std::size_t              pos = 0;
         while (true) {
             const std::size_t c = line.find(',', pos);
             tok.push_back(line.substr(pos, c == std::string::npos ? std::string::npos : c - pos));
-            if (c == std::string::npos)
-                break;
+            if (c == std::string::npos) break;
             pos = c + 1;
         }
-        if (static_cast<int>(tok.size()) != kColumns)
-            return false;
+        if (static_cast<int>(tok.size()) != kColumns) return false;
 
         float v[kColumns]{};
         for (int i = 0; i < kColumns; ++i)
-            if (!parse_float(tok[static_cast<std::size_t>(i)], v[i]))
-                return false;
+            if (!parse_float(tok[static_cast<std::size_t>(i)], v[i])) return false;
 
         TelemetrySample s;
         s.t         = v[0];
@@ -129,9 +117,7 @@ bool read_csv(std::istream& is, TelemetryRing& out) {
     return true;
 }
 
-std::filesystem::path telemetry_default_dir() {
-    return std::filesystem::path("build-debug") / "telemetry";
-}
+std::filesystem::path telemetry_default_dir() { return std::filesystem::path("build-debug") / "telemetry"; }
 
 std::filesystem::path make_timestamped_csv_path() {
     const std::filesystem::path dir = telemetry_default_dir();

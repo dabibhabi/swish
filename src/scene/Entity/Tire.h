@@ -66,9 +66,7 @@ inline float friction_circle_fx_max(float mu, float fz, float fy) {
 // separately because Phase 2 closes the coupling in this direction and a call
 // reading `friction_circle_fx_max(mu, fz, someLongitudinalForce)` would look
 // like a units/argument bug (see axle_lateral_forces).
-inline float friction_circle_fy_max(float mu, float fz, float fx) {
-    return friction_circle_fx_max(mu, fz, fx);
-}
+inline float friction_circle_fy_max(float mu, float fz, float fx) { return friction_circle_fx_max(mu, fz, fx); }
 
 // Signed longitudinal tire force in use at each axle (N, positive = driving
 // the car forward). The mirror image of AxleLateral, and the input Phase 2

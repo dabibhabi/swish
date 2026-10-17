@@ -23,8 +23,7 @@ namespace swish::util::geometry {
 
 inline float polyline_length(std::span<const glm::vec3> pts) {
     float len = 0.0f;
-    for (size_t i = 1; i < pts.size(); ++i)
-        len += glm::length(pts[i] - pts[i - 1]);
+    for (size_t i = 1; i < pts.size(); ++i) len += glm::length(pts[i] - pts[i - 1]);
     return len;
 }
 

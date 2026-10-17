@@ -12,9 +12,7 @@ namespace {
 const CarParams  kCar{};
 const TireParams kTire{};
 
-CarSlipVisuals eval(const SlipInputs& in) {
-    return compute_slip_visuals(in, kCar, kTire);
-}
+CarSlipVisuals eval(const SlipInputs& in) { return compute_slip_visuals(in, kCar, kTire); }
 }  // namespace
 
 TEST_CASE("slip visuals: identity at rest and in pure rolling", "[slip]") {

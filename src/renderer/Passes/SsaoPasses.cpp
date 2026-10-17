@@ -73,12 +73,8 @@ protected:
 
 }  // namespace
 
-std::unique_ptr<IRenderPass> make_ssao_pass() {
-    return std::make_unique<SsaoPass>();
-}
-std::unique_ptr<IRenderPass> make_ao_blur_pass() {
-    return std::make_unique<AoBlurPass>();
-}
+std::unique_ptr<IRenderPass> make_ssao_pass() { return std::make_unique<SsaoPass>(); }
+std::unique_ptr<IRenderPass> make_ao_blur_pass() { return std::make_unique<AoBlurPass>(); }
 
 }  // namespace swish
 

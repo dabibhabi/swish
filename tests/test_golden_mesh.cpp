@@ -30,27 +30,27 @@ constexpr bool kHashesComparable = false;
 // test_road_scene.cpp so that file can evolve without invalidating goldens.
 RoadConfig golden_config() {
     RoadConfig cfg{};
-    cfg.magic              = RoadConfig::MAGIC;
-    cfg.version            = RoadConfig::VERSION;
-    cfg.road_length        = 500000.0f;
-    cfg.lane_width         = 120.0f;
-    cfg.lane_count         = 3;
-    cfg.shoulder_width_wb  = 120.0f;
-    cfg.shoulder_width_eb  = 120.0f;
-    cfg.grass_extent       = 300.0f;
-    cfg.barrier_width      = 10.0f;
-    cfg.barrier_height     = 40.0f;
-    cfg.rail_width         = 4.0f;
-    cfg.rail_height        = 30.0f;
-    cfg.curb_height        = 6.0f;
-    cfg.curb_width         = 6.0f;
-    cfg.asphalt_tile       = 200.0f;
-    cfg.grass_tile         = 200.0f;
-    cfg.concrete_tile      = 200.0f;
-    cfg.metal_tile         = 200.0f;
-    cfg.marking_y_offset   = 1.0f;
-    cfg.dash_length        = 40.0f;
-    cfg.dash_gap           = 120.0f;
+    cfg.magic             = RoadConfig::MAGIC;
+    cfg.version           = RoadConfig::VERSION;
+    cfg.road_length       = 500000.0f;
+    cfg.lane_width        = 120.0f;
+    cfg.lane_count        = 3;
+    cfg.shoulder_width_wb = 120.0f;
+    cfg.shoulder_width_eb = 120.0f;
+    cfg.grass_extent      = 300.0f;
+    cfg.barrier_width     = 10.0f;
+    cfg.barrier_height    = 40.0f;
+    cfg.rail_width        = 4.0f;
+    cfg.rail_height       = 30.0f;
+    cfg.curb_height       = 6.0f;
+    cfg.curb_width        = 6.0f;
+    cfg.asphalt_tile      = 200.0f;
+    cfg.grass_tile        = 200.0f;
+    cfg.concrete_tile     = 200.0f;
+    cfg.metal_tile        = 200.0f;
+    cfg.marking_y_offset  = 1.0f;
+    cfg.dash_length       = 40.0f;
+    cfg.dash_gap          = 120.0f;
     for (int i = 0; i < 4; ++i) {
         cfg.shoulder_tint[i]  = 1.0f;
         cfg.barrier_tint[i]   = 1.0f;
@@ -70,42 +70,48 @@ RoadConfig golden_config() {
 }
 
 void summarize(const std::string& p, const RoadScene::SceneData& d, golden::KV& kv) {
-    const auto& V = d.meshData.getVertices();
-    const auto& I = d.meshData.getIndices();
+    const auto& V        = d.meshData.getVertices();
+    const auto& I        = d.meshData.getIndices();
     kv[p + ".vertices"]  = std::to_string(V.size());
     kv[p + ".indices"]   = std::to_string(I.size());
     kv[p + ".drawcalls"] = std::to_string(d.drawCalls.size());
     kv[p + ".lights"]    = std::to_string(d.lights.size());
 
     golden::Fnv hv, hi, hd, hl;
-    float       lo[3] = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
-                         std::numeric_limits<float>::max()};
+    float       lo[3]  = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+                          std::numeric_limits<float>::max()};
     float       hiB[3] = {std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest(),
                           std::numeric_limits<float>::lowest()};
     for (const auto& v : V) {
-        hv.q(v.position.x); hv.q(v.position.y); hv.q(v.position.z);
-        hv.q(v.normal.x);   hv.q(v.normal.y);   hv.q(v.normal.z);
-        hv.q(v.uv.x);       hv.q(v.uv.y);
+        hv.q(v.position.x);
+        hv.q(v.position.y);
+        hv.q(v.position.z);
+        hv.q(v.normal.x);
+        hv.q(v.normal.y);
+        hv.q(v.normal.z);
+        hv.q(v.uv.x);
+        hv.q(v.uv.y);
         for (int k = 0; k < 3; ++k) {
             lo[k]  = std::min(lo[k], v.position[k]);
             hiB[k] = std::max(hiB[k], v.position[k]);
         }
     }
-    for (uint32_t i : I)
-        hi.u32(i);
+    for (uint32_t i : I) hi.u32(i);
     std::map<int, uint64_t> perMat;
     for (const auto& dc : d.drawCalls) {
         hd.u32(dc.indexOffset);
         hd.u32(dc.indexCount);
         hd.u32(static_cast<uint32_t>(dc.material));
-        for (int k = 0; k < 4; ++k)
-            hd.q(dc.color[k]);
+        for (int k = 0; k < 4; ++k) hd.q(dc.color[k]);
         hd.q(dc.boundsRadius);
         perMat[static_cast<int>(dc.material)] += dc.indexCount;
     }
     for (const auto& l : d.lights) {
-        hl.q(l.position.x); hl.q(l.position.y); hl.q(l.position.z);
-        hl.q(l.intensity);  hl.q(l.radius);
+        hl.q(l.position.x);
+        hl.q(l.position.y);
+        hl.q(l.position.z);
+        hl.q(l.intensity);
+        hl.q(l.radius);
     }
     kv[p + ".vertex_hash"]   = golden::hex(hv.h);
     kv[p + ".index_hash"]    = golden::hex(hi.h);
@@ -113,11 +119,9 @@ void summarize(const std::string& p, const RoadScene::SceneData& d, golden::KV& 
     kv[p + ".light_hash"]    = golden::hex(hl.h);
 
     std::ostringstream b, m;
-    for (int k = 0; k < 3; ++k)
-        b << (k ? " " : "") << std::lround(lo[k] * 100.0) << ' ' << std::lround(hiB[k] * 100.0);
+    for (int k = 0; k < 3; ++k) b << (k ? " " : "") << std::lround(lo[k] * 100.0) << ' ' << std::lround(hiB[k] * 100.0);
     kv[p + ".bounds_x100"] = b.str();
-    for (auto& [mat, n] : perMat)
-        m << mat << ':' << n << ' ';
+    for (auto& [mat, n] : perMat) m << mat << ':' << n << ' ';
     kv[p + ".material_index_counts"] = m.str();
 }
 

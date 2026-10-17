@@ -197,8 +197,7 @@ void CarEntity::update(float dt) {
         // Suppressed while planing: mid-spin the forward component legitimately
         // crosses zero under the transport term, and pinning it at 0 there would
         // teleport the car's momentum away.
-        if (m_brake > 0.f && prev > 0.f && v_mps < 0.f && m_plane_frac <= 0.f)
-            v_mps = 0.f;
+        if (m_brake > 0.f && prev > 0.f && v_mps < 0.f && m_plane_frac <= 0.f) v_mps = 0.f;
     }
 
     m_forward_speed = v_mps * kWorldUnitsPerMeter;
@@ -206,8 +205,7 @@ void CarEntity::update(float dt) {
     // Finite/NaN guard. Forward top speed stays emergent; the reverse cap now
     // lives on the m_reverse branch above (a spin's negative speed is real
     // motion, not a reverse-gear command).
-    if (!std::isfinite(m_forward_speed))
-        m_forward_speed = 0.f;
+    if (!std::isfinite(m_forward_speed)) m_forward_speed = 0.f;
 
     // Dead-stop below threshold while coasting (no throttle / reverse input).
     // Also resets the gearbox to 1st, matching a real automatic's behavior at
@@ -237,8 +235,7 @@ void CarEntity::update(float dt) {
     // Truly at rest? Nothing left to integrate. The lateral terms matter for
     // Phase 2: a spin's forward component crosses zero while the car is still
     // sliding and rotating, and returning here would freeze it mid-spin.
-    if (m_forward_speed == 0.f && m_lateral_velocity == 0.f && m_yaw_rate == 0.f)
-        return;
+    if (m_forward_speed == 0.f && m_lateral_velocity == 0.f && m_yaw_rate == 0.f) return;
 
     // ── Lateral / yaw dynamics (dynamic bicycle + saturating tires, P0 #4) ──
     // Below ~5 m/s the kinematic model is used (the dynamic model's 1/vx is
@@ -321,8 +318,7 @@ void CarEntity::update(float dt) {
 // ── Rigid-body chassis (stub) ─────────────────────────────────────────
 // Alternative to the bicycle model above; see RigidChassis.h for the design note and TODO(stub) list.
 void CarEntity::set_physics_model(PhysicsModel model) {
-    if (model == m_physics_model)
-        return;
+    if (model == m_physics_model) return;
     m_physics_model = model;
     m_rigid_ready   = false;  // re-seed from the entity pose on the next RigidBody step
     if (model == PhysicsModel::Bicycle) {
@@ -370,14 +366,12 @@ void CarEntity::init_rigid_body() {
 }
 
 void CarEntity::update_rigid_body(float dt) {
-    if (!m_rigid_ready)
-        init_rigid_body();
+    if (!m_rigid_ready) init_rigid_body();
     util::physics::RigidBody& b = m_rigid.body();
 
     // The entity may have been moved under us (corridor origin rebase, teleport): follow it.
     const Vec3 shift = m_position - m_rigid_last_pos;
-    if (shift != Vec3(0.f))
-        b.set_position(b.position() + shift / kWorldUnitsPerMeter);
+    if (shift != Vec3(0.f)) b.set_position(b.position() + shift / kWorldUnitsPerMeter);
 
     const vec3 up(0.f, 1.f, 0.f);
     vec3       fwd   = b.rotation() * vec3(1.f, 0.f, 0.f);
@@ -452,8 +446,7 @@ void CarEntity::update_rigid_body(float dt) {
     m_forward_speed    = glm::dot(vN, fwdN) * kWorldUnitsPerMeter;
     m_lateral_velocity = glm::dot(vN, glm::cross(fwdN, up));
     m_yaw_rate         = -b.angular_velocity().y;
-    if (!std::isfinite(m_forward_speed))
-        m_forward_speed = 0.f;
+    if (!std::isfinite(m_forward_speed)) m_forward_speed = 0.f;
 
     // Wheel spin (kinematic rolling, per wheel), same as the bicycle path.
     advance_wheel_spin(dt);
@@ -466,12 +459,10 @@ void CarEntity::update_rigid_body(float dt) {
 // convention: cot δ_w = cot δ − z_w / L), with L and the front track t from the
 // loader-measured rig geometry (CarRig.h), z_w = ±t/2 by the hub's side.
 float CarEntity::get_wheel_steer_rad(int c) const {
-    if (!m_wheels_valid || !m_wheel_steer_on || c < 0 || c > 1)
-        return 0.f;  // 0 FL, 1 FR steer; the rears never do
+    if (!m_wheels_valid || !m_wheel_steer_on || c < 0 || c > 1) return 0.f;  // 0 FL, 1 FR steer; the rears never do
     const float delta = glm::radians(std::clamp(m_steering_angle, -m_profile.steerLockDeg, m_profile.steerLockDeg));
     const CarRigGeometry g = m_rig_geometry ? *m_rig_geometry : measure_car_rig_geometry(m_wheel_frames, false);
-    if (g.wheelbase_m <= 0.f)
-        return delta;
+    if (g.wheelbase_m <= 0.f) return delta;
     const float halfTrack = 0.5f * g.track_front_m;
     const float zw        = m_wheel_frames[static_cast<size_t>(c)].frame[3].z >= 0.f ? halfTrack : -halfTrack;
     return ackermann_wheel_angle(delta, zw, g.wheelbase_m, m_ackermann);
@@ -481,8 +472,7 @@ float CarEntity::get_wheel_steer_rad(int c) const {
 // The lever arms are car-space hub positions relative to the entity origin, the point
 // update() moves at (v_x, v_l) and rotates about (WheelKinematics.h::wheel_rolling_speed).
 void CarEntity::advance_wheel_spin(float dt) {
-    if (!m_wheels_valid)
-        return;
+    if (!m_wheels_valid) return;
     const float vx = m_forward_speed / kWorldUnitsPerMeter;
     for (int c = 0; c < 4; c++) {
         const WheelFrame& wf = m_wheel_frames[static_cast<size_t>(c)];
@@ -490,8 +480,7 @@ void CarEntity::advance_wheel_spin(float dt) {
                                                    get_wheel_steer_rad(c));
         m_wheel_omega[static_cast<size_t>(c)] = v / wf.radius;
     }
-    if (!m_wheel_spin_on)
-        return;
+    if (!m_wheel_spin_on) return;
     for (size_t c = 0; c < 4; c++)
         m_wheel_spin[c] = wheel_spin_advance(m_wheel_spin[c], m_wheel_omega[c] * m_wheel_spin_mul, dt);
 }
@@ -503,8 +492,7 @@ void CarEntity::advance_wheel_spin(float dt) {
 // the entity transform is never written here (§8); the resulting offset is
 // consumed solely as a local draw-matrix translation in get_draw_calls (§7).
 void CarEntity::update_wheel_visuals(float dt) {
-    if (!m_wheels_valid)
-        return;
+    if (!m_wheels_valid) return;
 
     // Chassis/tyre numbers from the active CarProfile, like update(); the
     // suspension/ARB params are local defaults. Debug sliders (spec
@@ -588,8 +576,7 @@ std::vector<DrawCall> CarEntity::get_windshield_draw_calls() const {
     std::vector<DrawCall> result;
 
     for (const auto& s : get_glass_submeshes()) {
-        if (!s.is_windshield)
-            continue;
+        if (!s.is_windshield) continue;
         DrawCall dc{};
         dc.indexOffset = s.indexOffset;
         dc.indexCount  = s.indexCount;
@@ -604,8 +591,7 @@ std::vector<DrawCall> CarEntity::get_windshield_draw_calls() const {
 Mat4 CarEntity::get_steering_wheel_pivot_world() const {
     const Mat4 car_model = get_model_matrix();
     for (const auto& s : get_submeshes()) {
-        if (s.is_steering_wheel)
-            return car_model * s.sw_pivot_frame;
+        if (s.is_steering_wheel) return car_model * s.sw_pivot_frame;
     }
     return car_model;
 }
@@ -745,14 +731,12 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
         // frame" for every draw rather than mis-pairing indices against the old count.
         m_lastExposedPrevModels.clear();
         m_lastExposedPrevModels.reserve(result.size());
-        for (const auto& dc : result)
-            m_lastExposedPrevModels.push_back(dc.model);
+        for (const auto& dc : result) m_lastExposedPrevModels.push_back(dc.model);
     } else {
         m_lastExposedPrevModels = m_rollingPrevModels;
     }
     m_rollingPrevModels.resize(result.size());
-    for (size_t i = 0; i < result.size(); ++i)
-        m_rollingPrevModels[i] = result[i].model;
+    for (size_t i = 0; i < result.size(); ++i) m_rollingPrevModels[i] = result[i].model;
 #endif
 
     return result;

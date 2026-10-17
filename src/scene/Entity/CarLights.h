@@ -60,12 +60,10 @@ struct CarLightParams {
 
 // Node name -> lamp kind, exact match on the rig's `_Lamp` nodes only.
 inline std::optional<CarLightKind> car_light_kind_from_node(std::string_view name) {
-    if (name == "Headlight_L_Lamp" || name == "Headlight_R_Lamp")
-        return CarLightKind::Headlight;
+    if (name == "Headlight_L_Lamp" || name == "Headlight_R_Lamp") return CarLightKind::Headlight;
     if (name == "TailLight_L_Lamp" || name == "TailLight_R_Lamp" || name == "RearLightBar_Lamp")
         return CarLightKind::TailLight;
-    if (name == "BrakeLight_L_Lamp" || name == "BrakeLight_R_Lamp")
-        return CarLightKind::BrakeLight;
+    if (name == "BrakeLight_L_Lamp" || name == "BrakeLight_R_Lamp") return CarLightKind::BrakeLight;
     return std::nullopt;
 }
 
@@ -85,8 +83,7 @@ inline std::vector<SpotLightDesc> car_spot_lights(const std::vector<CarLightAnch
         s.direction = glm::normalize(basis * a.direction);
         switch (a.kind) {
             case CarLightKind::Headlight:
-                if (!state.headlights)
-                    continue;
+                if (!state.headlights) continue;
                 s.color     = p.headColor;
                 s.intensity = p.headIntensity;
                 s.range     = util::units::m(p.headRangeM);
@@ -94,8 +91,7 @@ inline std::vector<SpotLightDesc> car_spot_lights(const std::vector<CarLightAnch
                 s.cosOuter  = cosDeg(p.headOuterDeg);
                 break;
             case CarLightKind::TailLight:
-                if (!state.tail)
-                    continue;
+                if (!state.tail) continue;
                 s.color     = p.tailColor;
                 s.intensity = p.tailIntensity;
                 s.range     = util::units::m(p.tailRangeM);
@@ -103,8 +99,7 @@ inline std::vector<SpotLightDesc> car_spot_lights(const std::vector<CarLightAnch
                 s.cosOuter  = cosDeg(p.tailOuterDeg);
                 break;
             case CarLightKind::BrakeLight:
-                if (state.brake <= 0.f)
-                    continue;
+                if (state.brake <= 0.f) continue;
                 s.color     = p.tailColor;
                 s.intensity = p.brakeIntensity * state.brake;
                 s.range     = util::units::m(p.tailRangeM);
@@ -112,8 +107,7 @@ inline std::vector<SpotLightDesc> car_spot_lights(const std::vector<CarLightAnch
                 s.cosOuter  = cosDeg(p.tailOuterDeg);
                 break;
         }
-        if (s.intensity <= 0.f)
-            continue;
+        if (s.intensity <= 0.f) continue;
         out.push_back(s);
     }
     return out;

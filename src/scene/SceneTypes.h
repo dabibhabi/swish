@@ -241,8 +241,7 @@ public:
     // vector getter this cannot add/remove vertices, so the indices stay valid.
     template <class F>
     void forEachVertex(F&& fn) {
-        for (Vertex& v : m_vertices)
-            fn(v);
+        for (Vertex& v : m_vertices) fn(v);
     }
 
     bool empty() const { return m_vertices.empty() || m_indices.empty(); }

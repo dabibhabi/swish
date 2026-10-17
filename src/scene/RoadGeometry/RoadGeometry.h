@@ -35,12 +35,11 @@ public:
     // ── Road cross-section constants (values live in RoadParams.h) ────
     static constexpr float kFt           = util::units::kWuPerFt;
     static constexpr float kBarrierRight = (road::kLie.barrier_ft + road::kLie.clearance_ft) * kFt;  // ~1728 WU
-    static constexpr float kLaneWidth    = road::kLie.lane_ft * kFt;                                  // ~3962 WU
+    static constexpr float kLaneWidth    = road::kLie.lane_ft * kFt;                                 // ~3962 WU
     static constexpr float kLaneCount    = road::kLie.lanes;
     static constexpr float kCrownSlope   = road::kCrownSlope;
     static constexpr float kMarkingY     = road::kLie.marking_y;
-    static constexpr float kEbRoadRight =
-        kBarrierRight + kLaneCount * kLaneWidth + road::kLie.shoulder_eb_ft * kFt;
+    static constexpr float kEbRoadRight  = kBarrierRight + kLaneCount * kLaneWidth + road::kLie.shoulder_eb_ft * kFt;
 
     // EB frontage ("marginal") road X window + surface lift (RoadParams.h kService).
     static constexpr float kEbServiceInner = kEbRoadRight + road::kService.inner_ft * kFt;

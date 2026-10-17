@@ -71,8 +71,7 @@ inline float wheel_spray_rate(const WheelSprayInput& w, float wetness, float sta
     const float wet      = std::clamp(wetness, 0.0f, 1.0f);
     const float standing = std::clamp(standingWater, 0.0f, 1.0f);
     const float speed    = glm::length(w.vel);
-    if (wet <= 0.0f || speed <= p.minSpeed)
-        return 0.0f;
+    if (wet <= 0.0f || speed <= p.minSpeed) return 0.0f;
     const float speedGate = std::clamp((speed - p.minSpeed) / std::max(p.refSpeed - p.minSpeed, 1.0f), 0.0f, 1.0f);
     const float slip      = std::clamp(w.slipSprayMul, 0.0f, p.maxSlipMul);
     return std::clamp(speedGate * wet * (p.standingBase + (1.0f - p.standingBase) * standing) * slip, 0.0f, 1.0f);
@@ -84,8 +83,7 @@ inline WheelSprayResult compute_wheel_spray(const std::array<WheelSprayInput, kM
     const float      standing = std::clamp(standingWater, 0.0f, 1.0f);
     for (const WheelSprayInput& w : wheels) {
         const float rate = wheel_spray_rate(w, wetness, standingWater, p);
-        if (rate <= 0.0f)
-            continue;
+        if (rate <= 0.0f) continue;
         SprayEmitter& e = out.emitters[out.count++];
         e.pos           = w.pos;
         e.vel           = w.vel;

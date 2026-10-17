@@ -98,7 +98,6 @@ TEST_CASE("smooth_ms seeds with the first sample then eases toward new ones", "[
     REQUIRE(next < 8.0f);
     // Converges: many steps land on the target.
     float v = 4.0f;
-    for (int i = 0; i < 600; ++i)
-        v = gp::smooth_ms(v, 8.0f, false, 6.0f, 0.016f);
+    for (int i = 0; i < 600; ++i) v = gp::smooth_ms(v, 8.0f, false, 6.0f, 0.016f);
     REQUIRE_THAT(v, WithinAbs(8.0, 1e-3));
 }

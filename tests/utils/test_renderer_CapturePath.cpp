@@ -92,8 +92,7 @@ TEST_CASE("encode_pfm writes the header, drops alpha and flips rows bottom-to-to
     f32 got[6];
     std::memcpy(got, out.data() + header.size(), sizeof got);
     const f32 expect[6] = {4, 5, 6, 1, 2, 3};  // bottom row first
-    for (int i = 0; i < 6; ++i)
-        REQUIRE(got[i] == expect[i]);
+    for (int i = 0; i < 6; ++i) REQUIRE(got[i] == expect[i]);
 }
 
 TEST_CASE("encode_pfm accepts 3-channel input", "[capture]") {

@@ -27,8 +27,7 @@ constexpr double kRebaseQuantum = 1000.0;
 // so the unit tests can link them without dragging in Vulkan and GLFW.
 
 void CorridorDriver::place_at_start(CarEntity& car) {
-    if (!m_al || !m_al->valid())
-        return;
+    if (!m_al || !m_al->valid()) return;
 
     // Baked, not hardcoded: station 0 is the tunnel portal's tight loop ramp,
     // so the baker picks the first station past it where the road straightens.
@@ -56,8 +55,7 @@ void CorridorDriver::update(CarEntity& car, Renderer& renderer, float deltaTime,
 #ifndef SWISH_DEBUG_UI
     (void)deltaTime;
 #endif
-    if (!m_al || !m_al->valid())
-        return;
+    if (!m_al || !m_al->valid()) return;
 
     using RG = RoadGeometry;
     Vec3 pos = car.get_position();
@@ -95,8 +93,7 @@ void CorridorDriver::update(CarEntity& car, Renderer& renderer, float deltaTime,
         // that is the U-turn (spec decision #7), and the only place the median
         // barrier isn't built. Elsewhere the commitment is what stops a
         // long-frame lateral jump from teleporting through the barrier.
-        if (m_al->in_turnaround(sClamped))
-            m_side = (m_lateral >= 0.0f) ? +1 : -1;
+        if (m_al->in_turnaround(sClamped)) m_side = (m_lateral >= 0.0f) ? +1 : -1;
 
         float minLat = 0.0f, maxLat = 0.0f;
         carriageway_bounds(sClamped, m_side, minLat, maxLat);
@@ -132,8 +129,7 @@ void CorridorDriver::update(CarEntity& car, Renderer& renderer, float deltaTime,
         const double dz = cz - static_cast<double>(camPos.z);
         const double r  = static_cast<double>(p.boundsRadius);
         const double d  = std::sqrt(dx * dx + dz * dz) - r;
-        if (d > 0.0 && d * d > reachSq)
-            continue;
+        if (d > 0.0 && d * d > reachSq) continue;
         CorridorInstance inst;
         inst.segment = static_cast<uint32_t>(i);
         inst.offset  = Vec3(static_cast<float>(p.originX), 0.0f, static_cast<float>(p.originZ + m_originShift));

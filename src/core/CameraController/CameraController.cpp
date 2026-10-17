@@ -51,8 +51,7 @@ void look_at_with_offset(Camera& cam, const Vec3& eye, const Vec3& target, float
     cam.set_position(eye);
     Vec3  to     = target - eye;
     float len_sq = glm::dot(to, to);
-    if (len_sq < 1e-8f)
-        return;
+    if (len_sq < 1e-8f) return;
     Vec3  dir   = to * (1.0f / std::sqrt(len_sq));
     float yaw   = glm::degrees(std::atan2(dir.z, dir.x));
     float pitch = glm::degrees(std::asin(std::clamp(dir.y, -1.0f, 1.0f)));
@@ -79,8 +78,7 @@ void CameraController::set_mode(CameraMode mode) {
 }
 
 bool CameraController::mouse_look(float x_offset, float y_offset) {
-    if (!camera_mode_car_attached(m_mode))
-        return false;
+    if (!camera_mode_car_attached(m_mode)) return false;
     // Mouse look relative to the car-attached framing. Helicopter: orbit
     // around the car (yaw = azimuth, pitch = elevation bias) — never free-look
     // away so the car stays framed while driving.

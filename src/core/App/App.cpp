@@ -41,8 +41,7 @@ void App::set_rain_level(int level) {
     m_renderer->set_rain_intensity(rain);
     // Drive the interior cabin wash from the same rain level so the cockpit
     // reads light gray as rain rises (off → light → heavy).
-    if (m_car)
-        m_car->set_rain_intensity(rain);
+    if (m_car) m_car->set_rain_intensity(rain);
 #ifdef SWISH_DEBUG_UI
     // apply_debug_params copies the panel's rain slider into the renderer every
     // frame; keep the slider in step so the R key is not overwritten next frame.
@@ -52,8 +51,7 @@ void App::set_rain_level(int level) {
     // rain falling reads wrong — so rain switches a clear-day preset to Cloudy.
     // Going through set_weather_preset keeps m_weather_preset (the G-key cycle)
     // in step with what the renderer shows.
-    if (const WeatherPreset p = preset_for_rain(m_weather_preset, rain); p != m_weather_preset)
-        set_weather_preset(p);
+    if (const WeatherPreset p = preset_for_rain(m_weather_preset, rain); p != m_weather_preset) set_weather_preset(p);
 }
 
 void App::set_weather_preset(WeatherPreset preset) {
@@ -131,8 +129,7 @@ void App::poll_events() {
 
 // Drive the car (arrow keys), then hand its draw state to the renderer.
 void App::update_car(float dt, bool debug_edit) {
-    if (!m_car)
-        return;
+    if (!m_car) return;
 
     step_car_simulation(dt, debug_edit);
 #ifdef SWISH_DEBUG_UI
@@ -163,8 +160,7 @@ void App::update_wiper(float dt) {
     frame.active   = wiper_active(m_wiper);
     frame.carModel = m_car->get_model_matrix();
     for (const WiperBlade& b : m_car->get_wiper_blades()) {
-        if (frame.bladeCount < frame.blades.size())
-            frame.blades[frame.bladeCount++] = b;
+        if (frame.bladeCount < frame.blades.size()) frame.blades[frame.bladeCount++] = b;
     }
     m_renderer->set_wiper(frame);
 }
@@ -299,8 +295,7 @@ void App::sync_wheel_fx_with_debug_panel(float dt) {
             one[0].slipSprayMul             = slip.wheel[static_cast<std::size_t>(c)].sprayBoost;
             const float            standing = puddle_amount(one[0].pos.x, one[0].pos.z, cover);
             const WheelSprayResult r        = compute_wheel_spray(one, wetness, standing);
-            if (r.count > 0)
-                emitters[count++] = r.emitters[0];
+            if (r.count > 0) emitters[count++] = r.emitters[0];
         }
         m_renderer->set_spray_emitters(emitters.data(), count);
         m_wheel_spray_active = true;
@@ -313,8 +308,7 @@ void App::sync_wheel_fx_with_debug_panel(float dt) {
     static constexpr const char* kLensNames[4] = {"Headlight_L_Lens", "Headlight_R_Lens", "TailLight_L_Lens",
                                                   "TailLight_R_Lens"};
     if (!m_lens_wetness_ready) {
-        for (const char* n : kLensNames)
-            m_lens_wetness.add_lens(n);
+        for (const char* n : kLensNames) m_lens_wetness.add_lens(n);
         m_lens_wetness_ready = true;
     }
     LensWetnessParams lp = m_lens_wetness.params();

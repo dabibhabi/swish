@@ -25,8 +25,7 @@ std::string capture_dir() {
 
 bool write_file(const std::string& path, const std::vector<u8>& bytes) {
     std::ofstream f(path, std::ios::binary | std::ios::trunc);
-    if (!f)
-        return false;
+    if (!f) return false;
     f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
     return static_cast<bool>(f);
 }
@@ -50,15 +49,11 @@ SwapKind swap_kind_for(VkFormat f) {
     }
 }
 
-VkDeviceSize bytes_per_pixel(SwapKind k) {
-    return k == SwapKind::Rgba16F ? 8 : 4;
-}
+VkDeviceSize bytes_per_pixel(SwapKind k) { return k == SwapKind::Rgba16F ? 8 : 4; }
 
 }  // namespace
 
-void FrameCapture::init(VmaAllocator allocator) {
-    m_allocator = allocator;
-}
+void FrameCapture::init(VmaAllocator allocator) { m_allocator = allocator; }
 
 void FrameCapture::cleanup() {
     m_ldrBuffer.reset();
@@ -67,8 +62,7 @@ void FrameCapture::cleanup() {
 }
 
 void FrameCapture::request(bool hdr) {
-    if (busy())
-        return;
+    if (busy()) return;
     m_wantHdr        = hdr;
     m_status.state   = CaptureStatus::State::Requested;
     m_status.message = hdr ? "capture requested (LDR + HDR)" : "capture requested";
@@ -88,8 +82,7 @@ GpuBuffer FrameCapture::make_readback_buffer(VkDeviceSize size) const {
 
 void FrameCapture::record(VkCommandBuffer cmd, u32 frameIndex, VkImage swapImage, VkFormat swapFormat,
                           VkExtent2D swapExtent, bool swapHasTransferSrc, VkImage hdrImage, VkExtent2D hdrExtent) {
-    if (m_status.state != CaptureStatus::State::Requested)
-        return;
+    if (m_status.state != CaptureStatus::State::Requested) return;
 
     const SwapKind kind = swap_kind_for(swapFormat);
     if (!swapHasTransferSrc || kind == SwapKind::Unsupported || swapExtent.width == 0 || swapExtent.height == 0) {
@@ -102,8 +95,7 @@ void FrameCapture::record(VkCommandBuffer cmd, u32 frameIndex, VkImage swapImage
     m_ldrBuffer =
         make_readback_buffer(static_cast<VkDeviceSize>(swapExtent.width) * swapExtent.height * bytes_per_pixel(kind));
     m_hasHdr = m_wantHdr && hdrImage != VK_NULL_HANDLE && hdrExtent.width > 0 && hdrExtent.height > 0;
-    if (m_hasHdr)
-        m_hdrBuffer = make_readback_buffer(static_cast<VkDeviceSize>(hdrExtent.width) * hdrExtent.height * 8);
+    if (m_hasHdr) m_hdrBuffer = make_readback_buffer(static_cast<VkDeviceSize>(hdrExtent.width) * hdrExtent.height * 8);
     if (!m_ldrBuffer || (m_hasHdr && !m_hdrBuffer) || !m_ldrBuffer.mapped()) {
         m_ldrBuffer.reset();
         m_hdrBuffer.reset();
@@ -150,8 +142,7 @@ void FrameCapture::record(VkCommandBuffer cmd, u32 frameIndex, VkImage swapImage
 
 void FrameCapture::collect(u32 frameIndex) {
     // The fence of `frameIndex` was just waited: if that slot recorded the copy, it is complete and visible.
-    if (m_status.state != CaptureStatus::State::InFlight || frameIndex != m_slot)
-        return;
+    if (m_status.state != CaptureStatus::State::InFlight || frameIndex != m_slot) return;
 
     auto fail = [&](const std::string& why) {
         m_status.state   = CaptureStatus::State::Failed;
@@ -162,8 +153,7 @@ void FrameCapture::collect(u32 frameIndex) {
     };
 
     const SwapKind kind = swap_kind_for(m_swapFormat);
-    if (kind == SwapKind::Unsupported)
-        return fail("unsupported swapchain format");
+    if (kind == SwapKind::Unsupported) return fail("unsupported swapchain format");
 
     // Name from the wall clock (local time); same-millisecond requests get a counter suffix.
     const i64 nowMs =
@@ -179,8 +169,7 @@ void FrameCapture::collect(u32 frameIndex) {
     const std::string dir = capture_dir();
     std::error_code   ec;
     std::filesystem::create_directories(dir, ec);
-    if (ec)
-        return fail("cannot create " + dir + ": " + ec.message());
+    if (ec) return fail("cannot create " + dir + ": " + ec.message());
 
     vmaInvalidateAllocation(m_allocator, m_ldrBuffer.allocation(), 0, VK_WHOLE_SIZE);
     const std::size_t pixels = static_cast<std::size_t>(m_swapExtent.width) * m_swapExtent.height;
@@ -193,8 +182,7 @@ void FrameCapture::collect(u32 frameIndex) {
                                   kind == SwapKind::Bgra8 ? capture::PixelOrder::Bgra : capture::PixelOrder::Rgba);
     }
     const std::string ppmPath = capture::full_path(dir, stamp, m_sameMsCount, capture::FileKind::Ppm);
-    if (!write_file(ppmPath, ppm))
-        return fail("cannot write " + ppmPath);
+    if (!write_file(ppmPath, ppm)) return fail("cannot write " + ppmPath);
 
     if (m_hasHdr) {
         vmaInvalidateAllocation(m_allocator, m_hdrBuffer.allocation(), 0, VK_WHOLE_SIZE);
@@ -202,8 +190,7 @@ void FrameCapture::collect(u32 frameIndex) {
                                                       static_cast<std::size_t>(m_hdrExtent.width) * m_hdrExtent.height);
         const auto pfm    = capture::encode_pfm(texels.data(), m_hdrExtent.width, m_hdrExtent.height, 4);
         const std::string pfmPath = capture::full_path(dir, stamp, m_sameMsCount, capture::FileKind::Pfm);
-        if (!write_file(pfmPath, pfm))
-            return fail("cannot write " + pfmPath);
+        if (!write_file(pfmPath, pfm)) return fail("cannot write " + pfmPath);
         m_status.lastHdrPath = pfmPath;
     }
 

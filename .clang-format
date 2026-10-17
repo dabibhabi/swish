@@ -39,12 +39,13 @@ AlignEscapedNewlines: Left
 AlignOperands: true
 AlignTrailingComments: true
 
-# Allow short blocks on a single line
-AllowShortBlocksOnASingleLine: false
+# Allow short blocks on a single line (house style: "truncated" one-liners, e.g.
+# `if (!app) return;` and `void f() { g(); }`, as in src/core/App/AppInput.cpp)
+AllowShortBlocksOnASingleLine: Always
 AllowShortCaseLabelsOnASingleLine: false
-AllowShortFunctionsOnASingleLine: Inline
-AllowShortIfStatementsOnASingleLine: false
-AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
 
 # Pointers and references
 DerivePointerAlignment: false

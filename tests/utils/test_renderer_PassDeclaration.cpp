@@ -89,8 +89,7 @@ TEST_CASE("the default allowlist does not hide ordinary images", "[renderer][dec
 }
 
 TEST_CASE("img_name covers every image", "[renderer][declare]") {
-    for (std::size_t i = 0; i < kImgCount; ++i)
-        CHECK(std::string(img_name(static_cast<Img>(i))) != "?");
+    for (std::size_t i = 0; i < kImgCount; ++i) CHECK(std::string(img_name(static_cast<Img>(i))) != "?");
 }
 
 TEST_CASE("the shipped release chain is warning-free; a reorder is caught", "[renderer][declare]") {
@@ -125,8 +124,7 @@ TEST_CASE("the shipped release chain is warning-free; a reorder is caught", "[re
 #undef PASS_DEBUG
     };
     REQUIRE(std::size(kRelease) == chain.size());
-    for (std::size_t i = 0; i < chain.size(); ++i)
-        CHECK(chain[i].name == kRelease[i]);
+    for (std::size_t i = 0; i < chain.size(); ++i) CHECK(chain[i].name == kRelease[i]);
 
     // Debug list (PASS_DEBUG entries included): SSAO/AO blur/velocity after lighting, DoF after god-rays, TAA after
     // the windshield, luminance pyramid in HdrFinalize, the overlay last (declares nothing).

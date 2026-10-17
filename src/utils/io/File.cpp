@@ -7,9 +7,7 @@ namespace swish::util::io {
 
 std::vector<char> read_binary(const std::string& filepath) {
     std::ifstream file(filepath, std::ios::ate | std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("failed to open file: " + filepath);
-    }
+    if (!file.is_open()) { throw std::runtime_error("failed to open file: " + filepath); }
 
     size_t            fileSize = static_cast<size_t>(file.tellg());
     std::vector<char> buffer(fileSize);

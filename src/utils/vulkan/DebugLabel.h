@@ -35,7 +35,7 @@ namespace swish::vkx {
 struct DebugLabelFns {
     PFN_vkCmdBeginDebugUtilsLabelEXT begin = nullptr;
     PFN_vkCmdEndDebugUtilsLabelEXT   end   = nullptr;
-    [[nodiscard]] bool available() const { return begin != nullptr && end != nullptr; }
+    [[nodiscard]] bool               available() const { return begin != nullptr && end != nullptr; }
 };
 
 #ifdef SWISH_DEBUG_UI
@@ -44,8 +44,8 @@ inline DebugLabelFns load_debug_label_fns(VkInstance instance) {
     DebugLabelFns f;
     f.begin = reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(
         vkGetInstanceProcAddr(instance, "vkCmdBeginDebugUtilsLabelEXT"));
-    f.end = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(
-        vkGetInstanceProcAddr(instance, "vkCmdEndDebugUtilsLabelEXT"));
+    f.end =
+        reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(vkGetInstanceProcAddr(instance, "vkCmdEndDebugUtilsLabelEXT"));
     return f;
 }
 
@@ -66,8 +66,7 @@ public:
         }
     }
     ~ScopedLabel() {
-        if (m_end)
-            m_end(m_cmd);
+        if (m_end) m_end(m_cmd);
     }
     ScopedLabel(const ScopedLabel&)            = delete;
     ScopedLabel& operator=(const ScopedLabel&) = delete;
@@ -79,9 +78,7 @@ private:
 
 #else  // release: no function-pointer lookup, no label calls, empty object
 
-inline DebugLabelFns load_debug_label_fns(VkInstance) {
-    return {};
-}
+inline DebugLabelFns load_debug_label_fns(VkInstance) { return {}; }
 
 class ScopedLabel {
 public:

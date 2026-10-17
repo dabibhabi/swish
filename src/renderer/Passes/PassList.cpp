@@ -21,8 +21,7 @@ namespace swish {
 PassRegistry make_pass_registry(IRenderPass* geometry) {
     PassRegistry r;
 #define PRODUCER(Name) \
-    if (geometry)      \
-        r.add_borrowed(geometry);
+    if (geometry) r.add_borrowed(geometry);
 #define PASS(Name, Factory) r.add(Factory());
 #ifdef SWISH_DEBUG_UI
 #define PASS_DEBUG(Name, Factory) r.add(Factory());
@@ -49,8 +48,7 @@ std::vector<NamedDeclaration> collect_pass_declarations(const IRenderPass* geome
         out.push_back(std::move(nd));
     };
 #define PRODUCER(Name) \
-    if (geometry)      \
-        add(*geometry);
+    if (geometry) add(*geometry);
 #define PASS(Name, Factory) add(*Factory());
 #ifdef SWISH_DEBUG_UI
 #define PASS_DEBUG(Name, Factory) add(*Factory());
