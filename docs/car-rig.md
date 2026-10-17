@@ -8,9 +8,9 @@ owner: docs-scribe
 
 How a car GLB tells Swish where its wheels, calipers, steering wheel, dial needles and wipers are, and how each
 part moves. The reference car is the rigged 1995 911 Carrera RS (993),
-[`assets/blend/porsche_rigged.glb`](../assets/blend/porsche_rigged.glb). Run it with
-`SWISH_CAR=<abs path>/assets/blend/porsche_rigged.glb make debug`. It is not yet the default car
-(see [Known limits](#known-limits)).
+[`assets/blend/porsche_rigged.glb`](../assets/blend/porsche_rigged.glb). It is the default car, so no
+`SWISH_CAR` is needed. `SWISH_CAR=Porsche/porsche.glb` still loads the old shipped Porsche.
+Known limits are listed [below](#known-limits).
 
 | Code | Role |
 |---|---|

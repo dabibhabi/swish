@@ -174,11 +174,11 @@ void App::init_scenes() {
     m_sceneManager->set_active_scene(0);
 }
 
-// Load the car (Porsche unless SWISH_CAR names another GLB) and upload it.
+// Load the car (the rigged 993 Carrera RS unless SWISH_CAR names another GLB) and upload it.
 void App::load_car() {
-    // SWISH_CAR=Charger/test_car.glb (relative to assets/) or an absolute path
-    // swaps in a test vehicle; unset → the shipped Porsche, unchanged.
-    std::string car_path = std::string(ASSET_DIR) + "Porsche/porsche.glb";
+    // SWISH_CAR=Charger/test_car.glb or SWISH_CAR=Porsche/porsche.glb (relative to assets/) or an
+    // absolute path swaps in another vehicle; unset → the rigged Porsche (blend/porsche_rigged.glb).
+    std::string car_path = std::string(ASSET_DIR) + "blend/porsche_rigged.glb";
     if (const char* override_path = std::getenv("SWISH_CAR"); override_path && *override_path)
         car_path = override_path[0] == '/' ? override_path : std::string(ASSET_DIR) + override_path;
     auto car_entity = m_modelManager->load_car(car_path);
