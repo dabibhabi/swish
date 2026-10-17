@@ -8,9 +8,10 @@ All notable changes to Swish are documented here.
 
 Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest month first.
 
-### 2026-10 (16 entries)
+### 2026-10 (17 entries)
 
 - 2026-10-17 — [Rigged 993 Carrera RS is now the default car](docs/changelog/2026-10.md#2026-10-17--rigged-993-carrera-rs-is-now-the-default-car)
+- 2026-10-16 — [Realism learning plan: course doc, stub headers, hidden learning tests; clearcoat docs corrected](docs/changelog/2026-10.md#2026-10-16--realism-learning-plan-course-doc-stub-headers-hidden-learning-tests-clearcoat-docs-corrected)
 - 2026-10-12 — [Rigged 993 Carrera RS: named-rig loader, per-car physics, wheels, wipers, needles](docs/changelog/2026-10.md#2026-10-12--rigged-993-carrera-rs-named-rig-loader-per-car-physics-wheels-wipers-needles)
 - 2026-10-11 — [Merged everything into `debug-ui`: upstream fixes, Ch01 work, rigged Porsche asset](docs/changelog/2026-10.md#2026-10-11--merged-everything-into-debug-ui-upstream-fixes-ch01-work-rigged-porsche-asset)
 - 2026-10-11 — [Replaced `#define private public` in the golden car test with a friend test accessor](docs/changelog/2026-10.md#2026-10-11--replaced-define-private-public-in-the-golden-car-test-with-a-friend-test-accessor)

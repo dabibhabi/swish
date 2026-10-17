@@ -63,6 +63,7 @@ Finished plans, shipped specs, resolved investigations, old notes, research surv
 | [debug-ui.md](debug-ui.md) | The in-engine live-tuning UI (`make debug`) — DebugParams, `Tunables.def`, set-4 UBO, gizmos, TOML presets (`$SWISH_PRESETS_DIR` or `~/.config/swish/presets/`), and the release-safety strategy |
 | [concepts.md](concepts.md) | Study aid — OOP/OOD patterns and GPU concepts, each mapped to the file in this repo where it lives |
 | [learning-path.md](learning-path.md) | Study map — graphics algorithms, GPU methods, and the math (ODEs, SH, splines, volumetrics) behind rain · car · road · light, with resources and questions |
+| [realism-learning-plan.md](realism-learning-plan.md) | Self-paced course (you write the code): tuning workflow, patterns/OOP, the realism math, photoreal lighting, a realistic windshield wipe, GPU particle rain; exercises with answers, plus stub headers and hidden `[learning]` tests to fill in |
 | [data-types.md](data-types.md) | Every data struct (DTO) and UBO, with exact layouts and std140 rules |
 | [car_system.md](car_system.md) | GLB loading and car-mesh normalization algorithm |
 | [car-rig.md](car-rig.md) | The named-node car rig as built (2026-10-12): `Wheel_*` / `Caliper_*` / `SteeringWheel` / `Needle_*` / `Wiper_*` convention, how to rig and export a car in Blender, wheel spin + Ackermann, wiper motion + rain clear, dial calibration, `config/car.toml` keys, `CarProfile` (992 / 993 RS) |

@@ -13,6 +13,7 @@ add_executable(swish_tests
     test_car_physics.cpp
     test_slip_visuals.cpp
     test_rain.cpp
+    test_rain_particle.cpp
     test_wheel_spray.cpp
     test_lens_wetness.cpp
     test_corridor.cpp
@@ -22,6 +23,7 @@ add_executable(swish_tests
     test_car_lights.cpp
     test_car_rig.cpp
     test_wiper.cpp
+    test_wiper_wipe.cpp
     test_rigid_chassis.cpp
     test_input.cpp
     test_bench.cpp

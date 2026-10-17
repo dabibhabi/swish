@@ -592,7 +592,25 @@ distant headlights would need a separate scatter-style pass.
 - **Parallax-corrected cubemap probes.** Only the single sky-baked IBL cube exists; no local probes.
 - **Froxel volumetrics.** God-rays are the screen-space stand-in; the froxel grid (`C4`) is planned.
 - **Per-object motion vectors.** See the TAA section — motion comes from depth reprojection.
-- **Clearcoat / flake car paint.** The GGX base has no second lobe and no flake term.
+
+Clearcoat + flake car paint used to be listed here; it shipped on 2026-08-23 (see the next section).
+
+---
+
+## Clearcoat + flake car paint (built 2026-08-23)
+
+**Files:** [shaders/gbuffer.frag](../shaders/gbuffer.frag) (writes `outClearcoatFlake`),
+[shaders/lighting.frag](../shaders/lighting.frag) (the clearcoat and flake lobes),
+[shaders/common/oct.glsl](../shaders/common/oct.glsl) (normal packing),
+[ADR 0001](adr/0001-separate-clearcoat-and-velocity-gbuffer-targets.md) (why it has its own G-buffer target).
+
+A second, tight GGX specular lobe (dielectric $F_0 = 0.04$, roughness `SP_CLEARCOAT_ROUGHNESS` = 0.045) sits over the
+base coat, for the sun and for IBL, scaled by a per-material clearcoat strength. Flake sparkle is procedural: world
+space is cut into cells, a cell sparkles with probability `flakeDensity`, and a sparkling cell jitters the normal
+used by a broader flake lobe (`SP_FLAKE_ROUGHNESS` = 0.12). The G-buffer target packs the flake normal
+(octahedral, RG), the clearcoat strength (B) and the flake mask (A); it is always on, so it ships in release. Debug
+builds tune it under the "Clearcoat / Flake" and "Materials" panels. Full write-up: changelog entry 2026-08-23
+"Clearcoat + flake car paint BRDF" in [changelog/2026-08.md](changelog/2026-08.md).
 
 ---
 
