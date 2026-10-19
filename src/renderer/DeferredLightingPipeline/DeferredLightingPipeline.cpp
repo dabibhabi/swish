@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "DeferredLightingPipeline.h"
 
 #include "renderer/Pipeline/Pipeline.h"
@@ -77,8 +78,8 @@ void DeferredLightingPipeline::bind_and_record(VkCommandBuffer cmd, VkDescriptor
 
 void DeferredLightingPipeline::buildPipeline(VkDevice device, VkRenderPass renderPass, VkExtent2D extent) {
     PipelineConfig cfg{};
-    cfg.vertShaderPath   = std::string(SHADER_DIR) + "fullscreen.vert.spv";
-    cfg.fragShaderPath   = std::string(SHADER_DIR) + "lighting.frag.spv";
+    cfg.vertShaderPath   = util::paths::shader_dir() + "fullscreen.vert.spv";
+    cfg.fragShaderPath   = util::paths::shader_dir() + "lighting.frag.spv";
     cfg.noVertexInput    = true;
     cfg.enableDepthTest  = false;
     cfg.enableDepthWrite = false;

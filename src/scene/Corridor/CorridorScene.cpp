@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "CorridorScene.h"
 
 #include "scene/RoadScene/RoadConfig.h"
@@ -45,7 +46,7 @@ std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al
     if (!al.valid()) return out;
 
     const CorridorHeader& h    = al.header();
-    const Look            look = look_from(load_road_config(CONFIG_DIR "road.bin"));
+    const Look            look = look_from(load_road_config(util::paths::config_dir() + "road.bin"));
 
     const double total   = h.totalLength;
     const double segLen  = static_cast<double>(h.segmentLength);

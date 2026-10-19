@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "DebugParamsIO.h"
 
 #ifdef SWISH_DEBUG_UI
@@ -50,7 +51,7 @@ void load_registry(const toml::table& tbl, DebugParams& p) {
 
 // Pre-2026-09-29 preset home, inside the build tree (wiped by `make clean` / a fresh build
 // dir). Kept read-only as a fallback so existing presets stay reachable.
-std::string legacy_presets_dir() { return std::string(CONFIG_DIR) + "presets/"; }
+std::string legacy_presets_dir() { return util::paths::config_dir() + "presets/"; }
 
 std::string with_trailing_slash(std::string dir) {
     if (!dir.empty() && dir.back() != '/') dir += '/';

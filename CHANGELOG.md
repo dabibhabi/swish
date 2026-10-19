@@ -8,8 +8,9 @@ All notable changes to Swish are documented here.
 
 Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest month first.
 
-### 2026-10 (17 entries)
+### 2026-10 (18 entries)
 
+- 2026-10-19 — [Made asset paths relocatable and added a macOS test-bundle script for friends](docs/changelog/2026-10.md#2026-10-19--made-asset-paths-relocatable-and-added-a-macos-test-bundle-script-for-friends)
 - 2026-10-17 — [Rigged 993 Carrera RS is now the default car](docs/changelog/2026-10.md#2026-10-17--rigged-993-carrera-rs-is-now-the-default-car)
 - 2026-10-16 — [Realism learning plan: course doc, stub headers, hidden learning tests; clearcoat docs corrected](docs/changelog/2026-10.md#2026-10-16--realism-learning-plan-course-doc-stub-headers-hidden-learning-tests-clearcoat-docs-corrected)
 - 2026-10-12 — [Rigged 993 Carrera RS: named-rig loader, per-car physics, wheels, wipers, needles](docs/changelog/2026-10.md#2026-10-12--rigged-993-carrera-rs-named-rig-loader-per-car-physics-wheels-wipers-needles)

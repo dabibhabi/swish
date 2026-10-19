@@ -80,6 +80,7 @@ if(SWISH_DEBUG_UI)
         test_debug_params_io.cpp
         utils/test_debug_TomlGlm.cpp
         ${CMAKE_SOURCE_DIR}/src/debug/DebugParamsIO.cpp
+        ${CMAKE_SOURCE_DIR}/src/utils/io/AppPaths.cpp   # legacy presets dir = config_dir()
     )
     target_include_directories(swish_debug_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
     target_link_libraries(swish_debug_tests PRIVATE Catch2::Catch2WithMain swish_utils swish_warnings tomlplusplus::tomlplusplus)

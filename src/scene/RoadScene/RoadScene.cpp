@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "RoadScene.h"
 
 #include "utils/color/Color.h"
@@ -8,7 +9,7 @@ namespace swish {
 // RoadScene constructors
 // ══════════════════════════════════════════════════════════════════════
 
-RoadScene::RoadScene() : RoadScene(load_road_config(CONFIG_DIR "road.bin")) {}
+RoadScene::RoadScene() : RoadScene(load_road_config(util::paths::config_dir() + "road.bin")) {}
 
 RoadScene::RoadScene(const RoadConfig& cfg)
     : m_road_length(cfg.road_length),

@@ -1,5 +1,6 @@
 // PostProcessManager: fullscreen post-process pipelines.
 
+#include "utils/io/AppPaths.h"
 #include "PostProcessManager.h"
 #include "renderer/Pipeline/Pipeline.h"
 
@@ -12,8 +13,8 @@ namespace swish {
 VkPipeline PostProcessManager::makeFullscreenPipeline(const std::string& fragShader, VkRenderPass rp,
                                                       VkPipelineLayout layout, VkExtent2D ext) const {
     PipelineConfig cfg{};
-    cfg.vertShaderPath   = std::string(SHADER_DIR) + "/fullscreen.vert.spv";
-    cfg.fragShaderPath   = std::string(SHADER_DIR) + "/" + fragShader + ".spv";
+    cfg.vertShaderPath   = util::paths::shader_dir() + "/fullscreen.vert.spv";
+    cfg.fragShaderPath   = util::paths::shader_dir() + "/" + fragShader + ".spv";
     cfg.noVertexInput    = true;
     cfg.enableDepthTest  = false;
     cfg.enableDepthWrite = false;

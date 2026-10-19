@@ -18,6 +18,8 @@ add_executable(swish_utils_tests
     test_meta_EnumCycle.cpp
     test_meta_Tags.cpp
     test_io_File.cpp
+    test_io_AppPaths.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/io/AppPaths.cpp
     test_vulkan_Check.cpp
     test_vulkan_Init.cpp
     test_vulkan_PushConstants.cpp

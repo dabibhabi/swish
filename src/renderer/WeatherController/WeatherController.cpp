@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "WeatherController.h"
 
 #include "debug/DebugParams.h"
@@ -49,7 +50,7 @@ void WeatherController::set_preset(WeatherPreset preset) {
     m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(m_sunColor, look.ambient), m_clarity);
 
     if (m_ibl) {
-        const std::string path = std::string(ASSET_DIR) + "Sky/" + std::string(weather_preset_hdri_file(preset));
+        const std::string path = util::paths::asset_dir() + "Sky/" + std::string(weather_preset_hdri_file(preset));
         if (!m_ibl->set_hdri(path, look.hdriExposure, look.hdriYaw)) {
             // Missing asset -> procedural bake with the sun/clarity we just set.
             m_bakedSunDir   = Vec3(1e9f);

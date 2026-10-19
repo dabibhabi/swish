@@ -221,6 +221,7 @@ file(GLOB SWISH_ROAD_SCENE_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/sce
 list(SORT SWISH_ROAD_SCENE_SOURCES)
 add_library(swish_scene_core STATIC
     ${CMAKE_SOURCE_DIR}/src/scene/Camera/Camera.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/io/AppPaths.cpp   # config_dir() for RoadScene's default ctor
     ${SWISH_ROAD_SCENE_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorAlignment.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorBounds.cpp

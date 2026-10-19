@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "GlassPass.h"
 
 #include "renderer/CameraUniforms/CameraUniforms.h"
@@ -153,8 +154,8 @@ void GlassPass::createPipeline(VkDevice device, VkPipelineCache cache, VkDescrip
     auto attrs   = Vertex::getAttributeDescriptions();
 
     PipelineConfig cfg{};
-    cfg.vertShaderPath   = std::string(SHADER_DIR) + "glass.vert.spv";
-    cfg.fragShaderPath   = std::string(SHADER_DIR) + "glass.frag.spv";
+    cfg.vertShaderPath   = util::paths::shader_dir() + "glass.vert.spv";
+    cfg.fragShaderPath   = util::paths::shader_dir() + "glass.frag.spv";
     cfg.vertexBindings   = {binding};
     cfg.vertexAttributes = {attrs[0], attrs[1], attrs[2], attrs[3]};
     cfg.cullMode         = VK_CULL_MODE_NONE;  // glass is double-sided

@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "RainSystem.h"
 
 #include "RainPhysics.h"
@@ -400,8 +401,8 @@ void RainSystem::createPipeline(VkDevice device, VkPipelineCache cache, VkDescri
     attrs[2].offset   = offsetof(RainInstance, seed);
 
     PipelineConfig cfg{};
-    cfg.vertShaderPath   = std::string(SHADER_DIR) + "rain.vert.spv";
-    cfg.fragShaderPath   = std::string(SHADER_DIR) + "rain.frag.spv";
+    cfg.vertShaderPath   = util::paths::shader_dir() + "rain.vert.spv";
+    cfg.fragShaderPath   = util::paths::shader_dir() + "rain.frag.spv";
     cfg.vertexBindings   = {bindings[0], bindings[1]};
     cfg.vertexAttributes = {attrs[0], attrs[1], attrs[2]};
     cfg.cullMode         = VK_CULL_MODE_NONE;

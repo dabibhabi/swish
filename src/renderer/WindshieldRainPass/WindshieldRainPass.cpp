@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "WindshieldRainPass.h"
 
 #include "renderer/CameraUniforms/CameraUniforms.h"
@@ -669,8 +670,8 @@ void WindshieldRainPass::createPipeline(VkDevice device, VkPipelineCache cache, 
     auto attrs   = Vertex::getAttributeDescriptions();
 
     PipelineConfig cfg{};
-    cfg.vertShaderPath   = std::string(SHADER_DIR) + "windshield_rain.vert.spv";
-    cfg.fragShaderPath   = std::string(SHADER_DIR) + "windshield_rain.frag.spv";
+    cfg.vertShaderPath   = util::paths::shader_dir() + "windshield_rain.vert.spv";
+    cfg.fragShaderPath   = util::paths::shader_dir() + "windshield_rain.frag.spv";
     cfg.vertexBindings   = {binding};
     cfg.vertexAttributes = {attrs[0], attrs[1], attrs[2], attrs[3]};
     // The cockpit camera looks at the windshield's cabin-facing face, whose
@@ -692,8 +693,8 @@ void WindshieldRainPass::createWetnessPipeline(VkDevice device, VkPipelineCache 
     m_wetPipeLayout = pipeline::create_layout(device, {m_wetSetLayout}, {pcRange});
 
     PipelineConfig cfg{};
-    cfg.vertShaderPath   = std::string(SHADER_DIR) + "fullscreen.vert.spv";
-    cfg.fragShaderPath   = std::string(SHADER_DIR) + "windshield_wetness.frag.spv";
+    cfg.vertShaderPath   = util::paths::shader_dir() + "fullscreen.vert.spv";
+    cfg.fragShaderPath   = util::paths::shader_dir() + "windshield_wetness.frag.spv";
     cfg.noVertexInput    = true;
     cfg.cullMode         = VK_CULL_MODE_NONE;
     cfg.enableDepthTest  = false;

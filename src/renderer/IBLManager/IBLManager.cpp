@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "IBLManager.h"
 
 #include "renderer/Pipeline/Pipeline.h"
@@ -294,8 +295,8 @@ void IBLManager::createPipelines() {
 
     auto makePipe = [&](const std::string& frag, VkPipelineLayout layout, VkRenderPass rp, uint32_t dim) -> VkPipeline {
         PipelineConfig cfg{};
-        cfg.vertShaderPath   = std::string(SHADER_DIR) + "fullscreen.vert.spv";
-        cfg.fragShaderPath   = std::string(SHADER_DIR) + frag + ".spv";
+        cfg.vertShaderPath   = util::paths::shader_dir() + "fullscreen.vert.spv";
+        cfg.fragShaderPath   = util::paths::shader_dir() + frag + ".spv";
         cfg.noVertexInput    = true;
         cfg.enableDepthTest  = false;
         cfg.enableDepthWrite = false;

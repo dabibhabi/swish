@@ -5,7 +5,7 @@
 // Units     : bytes.
 // Complexity: O(file size), one allocation; implemented in File.cpp (pulls <fstream>).
 // Errors    : throws std::runtime_error if the file cannot be opened or a read is short.
-// Example   : auto spv = swish::util::io::read_binary(std::string(SHADER_DIR) + "taa.frag.spv");
+// Example   : auto spv = swish::util::io::read_binary(swish::util::paths::shader_dir() + "taa.frag.spv");
 // See also  : renderer/Pipeline/Pipeline.cpp, renderer/DepthOnlyPipeline/DepthOnlyPipeline.cpp,
 //             vulkan/ShaderModule.h (consumes the byte vector)
 // Test      : tests/utils/test_io_File.cpp

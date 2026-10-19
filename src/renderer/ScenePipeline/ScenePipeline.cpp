@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "ScenePipeline.h"
 
 #include "renderer/Pipeline/Pipeline.h"
@@ -19,8 +20,8 @@ void ScenePipeline::init(VkDevice device, const Config& cfg) {
     auto attributes = Vertex::getAttributeDescriptions();
 
     PipelineConfig config{};
-    config.vertShaderPath       = std::string(SHADER_DIR) + "basic.vert.spv";
-    config.fragShaderPath       = std::string(SHADER_DIR) + "gbuffer.frag.spv";
+    config.vertShaderPath       = util::paths::shader_dir() + "basic.vert.spv";
+    config.fragShaderPath       = util::paths::shader_dir() + "gbuffer.frag.spv";
     config.cullMode             = VK_CULL_MODE_BACK_BIT;
     config.colorAttachmentCount = 4;  // albedo, normal, material, clearcoat+flake
     config.vertexBindings.push_back(binding);

@@ -1,4 +1,5 @@
 // App startup: init() and its named steps (window/renderer, textures, scene, car).
+#include "utils/io/AppPaths.h"
 #include "App.h"
 #include "core/Window/Window.h"
 #include "renderer/Renderer/Renderer.h"
@@ -91,7 +92,7 @@ void App::init_window_and_renderer() {
 void App::init_textures() {
     m_textureManager = std::make_unique<TextureManager>(m_renderer->services());
 
-    m_textureManager->load_directory(TEXTURE_DIR);
+    m_textureManager->load_directory(util::paths::texture_dir());
 
     // Register default textures (1x1 pixels for flat-colored surfaces)
     m_textureManager->register_from_pixels("default", {255, 255, 255, 255}, 1, 1);
@@ -118,7 +119,7 @@ void App::build_road_scene(Renderer& renderer) {
     // A missing or stale asset throws rather than silently falling back to
     // the retired fictional road — shipping a fake corridor while claiming
     // it is the real LIE is the one outcome worse than not booting.
-    m_corridor_alignment.load(std::string(ASSET_DIR) + "corridor/lie_corridor.bin");
+    m_corridor_alignment.load(util::paths::asset_dir() + "corridor/lie_corridor.bin");
     m_corridor.set_alignment(&m_corridor_alignment);
 
     const CorridorHeader& ch = m_corridor_alignment.header();
@@ -178,9 +179,9 @@ void App::init_scenes() {
 void App::load_car() {
     // SWISH_CAR=Charger/test_car.glb or SWISH_CAR=Porsche/porsche.glb (relative to assets/) or an
     // absolute path swaps in another vehicle; unset → the rigged Porsche (blend/porsche_rigged.glb).
-    std::string car_path = std::string(ASSET_DIR) + "blend/porsche_rigged.glb";
+    std::string car_path = util::paths::asset_dir() + "blend/porsche_rigged.glb";
     if (const char* override_path = std::getenv("SWISH_CAR"); override_path && *override_path)
-        car_path = override_path[0] == '/' ? override_path : std::string(ASSET_DIR) + override_path;
+        car_path = override_path[0] == '/' ? override_path : util::paths::asset_dir() + override_path;
     auto car_entity = m_modelManager->load_car(car_path);
 
     // A named-rig car (porsche_rigged.glb, the 993 Carrera RS) drives with its own physics profile,
@@ -191,7 +192,7 @@ void App::load_car() {
     // Car visual config (config/car.toml): the release values; debug seeds its sliders from them.
     // [gauges] is the dial-needle calibration (only Needle_* submeshes read it); [wipers] drives
     // the wiper cycle for every car (rigged blades and the shader's clear region).
-    const CarConfig car_cfg = CarConfig::load(std::string(CONFIG_DIR) + "car.toml");
+    const CarConfig car_cfg = CarConfig::load(util::paths::config_dir() + "car.toml");
     car_entity->set_ackermann(car_cfg.wheels.ackermann);
     car_entity->set_gauge_params(car_cfg.gauges);
     m_wiper_params = car_cfg.wipers;

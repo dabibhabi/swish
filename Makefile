@@ -19,7 +19,7 @@ CHECK_ARGS ?=
 .DEFAULT_GOAL := help
 
 .PHONY: help rules feature-rules build run swish debug debug-build clean clean-debug clean-all format format-check glslc-test \
-        car-analyze test test-release test-debug prune prune-check check new-class install-hooks
+        car-analyze test test-release test-debug prune prune-check check new-class install-hooks package
 
 help: ## Show this help
 	@echo "Swish make targets:"
@@ -96,6 +96,12 @@ install-hooks: ## Copy scripts/hooks/pre-commit into .git/hooks (opt-in; FORCE=1
 		echo "$$hooks/pre-commit already exists; re-run with FORCE=1 to overwrite"; exit 1; fi; \
 	mkdir -p "$$hooks" && cp scripts/hooks/pre-commit "$$hooks/pre-commit" && chmod +x "$$hooks/pre-commit" && \
 	echo "installed $$hooks/pre-commit"
+
+# Test bundle for friends (ad-hoc signed, NOT a release): see docs/packaging.md before going public.
+#   make package                  -> build/dist/Swish-release-<sha>.zip
+#   make package VARIANT=debug    -> build/dist/Swish-debug-<sha>.zip (live-tuning UI)
+package: ## Friends' test bundle (.app zip): make package [VARIANT=debug]
+	@bash scripts/package_mac.sh $(or $(VARIANT),release)
 
 glslc-test: ## Run scripts/glslc_test.sh
 	@bash scripts/glslc_test.sh

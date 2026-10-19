@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "SpraySystem.h"
 
 #include "debug/DebugParams.h"
@@ -333,7 +334,7 @@ void SpraySystem::createComputeDescriptors(VkDevice device) {
 void SpraySystem::createComputePipeline(VkDevice device, VkPipelineCache cache) {
     m_computePipeLayout = pipeline::create_layout(device, {m_computeSetLayout});
     m_computePipeline =
-        pipeline::create_compute(device, cache, std::string(SHADER_DIR) + "spray_sim.comp.spv", m_computePipeLayout);
+        pipeline::create_compute(device, cache, util::paths::shader_dir() + "spray_sim.comp.spv", m_computePipeLayout);
 }
 
 void SpraySystem::createRenderPass(VkDevice device) {
@@ -408,8 +409,8 @@ void SpraySystem::createDrawPipeline(VkDevice device, VkPipelineCache cache, VkD
     m_drawPipeLayout             = pipeline::create_layout(device, {cameraSetLayout, m_drawSetLayout}, {pc});
 
     PipelineConfig cfg{};
-    cfg.vertShaderPath   = std::string(SHADER_DIR) + "spray.vert.spv";
-    cfg.fragShaderPath   = std::string(SHADER_DIR) + "spray.frag.spv";
+    cfg.vertShaderPath   = util::paths::shader_dir() + "spray.vert.spv";
+    cfg.fragShaderPath   = util::paths::shader_dir() + "spray.frag.spv";
     cfg.noVertexInput    = true;  // gl_VertexIndex quad + gl_InstanceIndex SSBO lookup
     cfg.cullMode         = VK_CULL_MODE_NONE;
     cfg.enableDepthTest  = true;  // scene depth occludes spray behind the car body

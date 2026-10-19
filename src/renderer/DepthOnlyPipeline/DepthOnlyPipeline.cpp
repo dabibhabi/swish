@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "DepthOnlyPipeline.h"
 
 #include "renderer/Pipeline/Pipeline.h"
@@ -40,8 +41,8 @@ void DepthOnlyPipeline::init(VkDevice device, const Config& cfg) {
     m_layout = pipeline::create_layout(device, {}, {pushConstantRange});
 
     // ── Load SPIR-V (same SHADER_DIR convention as ScenePipeline) ──
-    auto vertCode = util::io::read_binary(std::string(SHADER_DIR) + "depth_only.vert.spv");
-    auto fragCode = util::io::read_binary(std::string(SHADER_DIR) + "depth_only.frag.spv");
+    auto vertCode = util::io::read_binary(util::paths::shader_dir() + "depth_only.vert.spv");
+    auto fragCode = util::io::read_binary(util::paths::shader_dir() + "depth_only.frag.spv");
 
     // RAII shader modules (destroyed when init() returns, after the pipeline exists — as before).
     const vkx::DeviceRef deviceRef{device};  // must outlive the module handles below

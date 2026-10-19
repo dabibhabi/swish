@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "DofPass.h"
 
 #include "renderer/RendererConfig.h"
@@ -239,8 +240,8 @@ void DofPass::createPipeline(VkDevice device, VkPipelineCache cache) {
     m_pipeLayout                 = pipeline::create_layout(device, {m_setLayout}, {pc});
 
     PipelineConfig cfg{};
-    cfg.vertShaderPath   = std::string(SHADER_DIR) + "fullscreen.vert.spv";
-    cfg.fragShaderPath   = std::string(SHADER_DIR) + "dof.frag.spv";
+    cfg.vertShaderPath   = util::paths::shader_dir() + "fullscreen.vert.spv";
+    cfg.fragShaderPath   = util::paths::shader_dir() + "dof.frag.spv";
     cfg.noVertexInput    = true;
     cfg.cullMode         = VK_CULL_MODE_NONE;
     cfg.enableDepthTest  = false;

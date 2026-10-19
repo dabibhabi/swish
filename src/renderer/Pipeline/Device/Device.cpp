@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "Device.h"
 
 #include "utils/vulkan/Check.h"
@@ -14,8 +15,8 @@
 
 namespace swish {
 
-// config/pipeline_cache.bin lives in the build tree (CONFIG_DIR = ${CMAKE_BINARY_DIR}/config/).
-static const std::string kPipelineCachePath = std::string(CONFIG_DIR) + "pipeline_cache.bin";
+// config/pipeline_cache.bin: per-user cache dir, never inside an app bundle (see utils/io/AppPaths.h).
+static std::string pipeline_cache_path() { return util::paths::user_cache_dir() + "pipeline_cache.bin"; }
 
 void Device::init(VkInstance instance, VkSurfaceKHR surface) {
     uint32_t deviceCount = 0;
@@ -176,7 +177,7 @@ void Device::createPipelineCache() {
     // header (vendor/device/UUID) and silently ignores it on mismatch, so a stale
     // or foreign cache is safe — it just falls back to compiling from scratch.
     std::vector<char> initialData;
-    if (std::ifstream in{kPipelineCachePath, std::ios::binary | std::ios::ate}) {
+    if (std::ifstream in{pipeline_cache_path(), std::ios::binary | std::ios::ate}) {
         const std::streamsize size = in.tellg();
         if (size > 0) {
             initialData.resize(static_cast<size_t>(size));
@@ -197,7 +198,7 @@ void Device::savePipelineCache() const {
     if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, nullptr) != VK_SUCCESS || size == 0) return;
     std::vector<char> data(size);
     if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, data.data()) != VK_SUCCESS) return;
-    if (std::ofstream out{kPipelineCachePath, std::ios::binary | std::ios::trunc})
+    if (std::ofstream out{pipeline_cache_path(), std::ios::binary | std::ios::trunc})
         out.write(data.data(), static_cast<std::streamsize>(size));
 }
 

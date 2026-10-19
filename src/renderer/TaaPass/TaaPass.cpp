@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "TaaPass.h"
 
 #include "renderer/RendererConfig.h"
@@ -294,8 +295,8 @@ void TaaPass::createPipeline(VkDevice device, VkPipelineCache cache) {
         cfg.dynamicRendering    = true;  // formats replace the render pass; renderPass argument is null
         cfg.dynamicColorFormats = {m_format};
     }
-    cfg.vertShaderPath   = std::string(SHADER_DIR) + "fullscreen.vert.spv";
-    cfg.fragShaderPath   = std::string(SHADER_DIR) + "taa.frag.spv";
+    cfg.vertShaderPath   = util::paths::shader_dir() + "fullscreen.vert.spv";
+    cfg.fragShaderPath   = util::paths::shader_dir() + "taa.frag.spv";
     cfg.noVertexInput    = true;
     cfg.cullMode         = VK_CULL_MODE_NONE;
     cfg.enableDepthTest  = false;

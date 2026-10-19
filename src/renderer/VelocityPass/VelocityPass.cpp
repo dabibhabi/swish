@@ -1,3 +1,4 @@
+#include "utils/io/AppPaths.h"
 #include "VelocityPass.h"
 
 #include "renderer/RendererConfig.h"
@@ -223,8 +224,8 @@ void VelocityPass::createPipeline(VkDevice device, VkPipelineCache cache) {
     auto attrs   = Vertex::getAttributeDescriptions();
 
     PipelineConfig cfg{};
-    cfg.vertShaderPath = std::string(SHADER_DIR) + "velocity.vert.spv";
-    cfg.fragShaderPath = std::string(SHADER_DIR) + "velocity.frag.spv";
+    cfg.vertShaderPath = util::paths::shader_dir() + "velocity.vert.spv";
+    cfg.fragShaderPath = util::paths::shader_dir() + "velocity.frag.spv";
     // velocity.vert reads only inPosition (location 0). Same binding (full Vertex stride), position attribute
     // only: declaring locations 1-3 that the shader never consumes trips the pipeline-creation validation warning.
     cfg.vertexBindings   = {binding};
