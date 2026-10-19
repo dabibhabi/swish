@@ -1,53 +1,41 @@
-# Swish: playtest build
+# Swish: playtest guide
 
-Thanks for testing! This is a **private build**. Please don't pass it on.
-
-## Which app to open
-
-| App | What it is | Use it for |
-|---|---|---|
-| **Swish.app** | Normal game | Playing and judging how it looks and feels |
-| **Swish-Debug.app** | Same game plus a live tuning panel (Dear ImGui) | Tweaking settings while driving. Ask before using it |
-
-Both come in the same kind of zip, and both run the same way.
+Thanks for testing! This is a **private playtest**. Please don't redistribute the game.
 
 ## What you need
 
-| Requirement | Notes |
+| Requirement | How to get it |
 |---|---|
-| Apple Silicon Mac (M1 or newer) | Intel Macs won't run it |
-| A recent macOS | minimum version still being tested |
-| Nothing else | no install, no Homebrew, no Xcode. The game carries its own graphics driver |
+| Apple Silicon Mac (M1 or newer) | Intel Macs are not supported yet |
+| Xcode command line tools | `xcode-select --install` |
+| Homebrew | [brew.sh](https://brew.sh) |
+| CMake, GLFW, GLM | `brew install cmake glfw glm` |
+| Vulkan SDK for macOS | [LunarG SDK download](https://vulkan.lunarg.com/sdk/home). Install it, then set `VULKAN_SDK` (see below) |
 
-## How to run it
+Set `VULKAN_SDK` to the SDK folder, for example `~/VulkanSDK/<version>/macOS`. Add this line to `~/.zshrc`, then open a new Terminal window:
 
-| Step | What to do |
+```sh
+export VULKAN_SDK=~/VulkanSDK/<version>/macOS
+```
+
+## Get the game
+
+| Step | Command |
 |---|---|
-| 1 | Unzip the file you were sent |
-| 2 | Open **Terminal** and run the command for your app (below) |
-| 3 | Double-click the app |
+| 1. Clone | `git clone https://github.com/dabibhabi/swish.git` |
+| 2. Enter the folder | `cd swish` |
+| 3. Switch to the playtest branch | `git switch debug-build` |
 
-### Terminal commands
+To update later, run `git pull` inside the `swish` folder.
 
-Run the one for your app. Each one clears the macOS "unsigned app" block, which is needed once after unzipping.
+## Run it
 
-| App | Command |
-|---|---|
-| Swish.app | `xattr -dr com.apple.quarantine ~/Downloads/Swish-*/Swish.app` |
-| Swish-Debug.app | `xattr -dr com.apple.quarantine ~/Downloads/Swish-*/Swish-Debug.app` |
+| Build | Command | What you get |
+|---|---|---|
+| Normal game | `make run` | The game, release build |
+| Tuning panel | `make debug` | The game with the live tuning panel (Dear ImGui) |
 
-These assume you unzipped into **Downloads**. If you unzipped somewhere else, type `xattr -dr com.apple.quarantine ` (with a space at the end) and drag the app into the window instead.
-
-To open the app from Terminal instead of Finder:
-
-| App | Command |
-|---|---|
-| Swish.app | `open ~/Downloads/Swish-*/Swish.app` |
-| Swish-Debug.app | `open ~/Downloads/Swish-*/Swish-Debug.app` |
-
-**Blocked?** Double-click the app once, then open **System Settings → Privacy & Security** and click **Open Anyway**. Then double-click it again.
-
-The first launch can be slow while the shaders compile. Later launches are faster.
+The first build takes several minutes. Later runs are much faster.
 
 ## Controls
 
@@ -69,21 +57,25 @@ The first launch can be slow while the shaders compile. Later launches are faste
 | V | Wipers: off, intermittent, low, high |
 | Esc | Release or capture the mouse |
 
-**Swish-Debug.app only**
+**`make debug` only**
 
 | Key | Action |
 |---|---|
 | `` ` `` (backtick) | Switch between driving and the tuning panel |
 | F12 | Save a frame capture (hold Shift for HDR) |
 
+## Credits
+
+The Porsche 911 Carrera RS (993) model is **"1995 Porsche 911 Carrera RS (993)"** by **[ddiaz-design](https://sketchfab.com/ddiaz-design)** on Sketchfab, licensed under [CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/). It is rigged for Swish. Source: [sketchfab.com link](https://sketchfab.com/3d-models/1995-porsche-911-carrera-rs-993-e461497e3c5f4f69bc57ce7614739930).
+
 ## What to send back
 
 Please include:
 
 1. **Mac model and macOS version** (Apple menu → About This Mac)
-2. **Which app** you ran (Swish.app or Swish-Debug.app)
+2. **Which build** you ran (`make run` or `make debug`)
 3. **What you did** (for example, "drove at night in heavy rain, chase cam")
 4. **What went wrong or looked odd**, with a screenshot if you can (Cmd + Shift + 4)
-5. **Did it crash?** If so, roughly when
+5. **Did it crash?** If so, roughly when, and any error text from Terminal
 
 Thanks again!
