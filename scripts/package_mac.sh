@@ -130,7 +130,7 @@ for f in "$fw"/*.dylib "$bin"; do codesign --force --sign - "$f" >/dev/null; don
 codesign --force --sign - "$app" >/dev/null
 codesign --verify --strict "$app"
 
-cp "$root/scripts/friends/_READ_ME_FIRST.md" "$stage/"
+cp "$root/scripts/friends/zip/_READ_ME_FIRST.md" "$stage/"
 echo "==> zipping $stage_name.zip"
 # Not ditto: macOS puts com.apple.provenance (SIP-managed, cannot be cleared) on the files, and ditto turns each one into a
 # ._* AppleDouble file. A non-Mac unzip then writes those into the bundle and breaks its code seal. zip -X stores no xattrs.

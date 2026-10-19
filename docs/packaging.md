@@ -59,4 +59,4 @@ This is the list of what a test build does **not** cover. Each item blocks a pub
 - [ ] **Minimum macOS version** (`LSMinimumSystemVersion`), tested on it.
 - [ ] **Owner playtest of the bundle** on a clean Mac account, with the quarantine flow, before it goes to anyone.
 
-Once the first item is done, remove this section and the "test build" wording from `scripts/friends/_READ_ME_FIRST.md`.
+Once the first item is done, remove this section and the "test build" wording from `scripts/friends/zip/_READ_ME_FIRST.md`.
