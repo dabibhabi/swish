@@ -1,8 +1,3 @@
-// Renderer — construction, init/cleanup, manager registry, swapchain recreation.
-// The rest of the class lives in: Renderer_Frame.cpp (drawFrame), Renderer_Record.cpp
-// (recordCommandBuffer: begin, the pass registry loop, end) and Renderer_State.cpp (setters, debug-param
-// apply, scene-geometry delegations). The passes themselves are in renderer/Passes/ (PassList.def is the frame
-// order); weather + IBL rebake are in WeatherController.
 #include "Renderer.h"
 
 #include "core/Window/Window.h"
@@ -94,7 +89,6 @@ void Renderer::init(Window& window) {
     m_passRes.geometry       = &m_geometry;
 #ifdef SWISH_DEBUG_UI
     m_passRes.sceneParams = &m_sceneParams;
-    m_passRes.debugUI     = &m_debugUI;
 #endif
     m_passes = make_pass_registry(&m_geometry);
     init_passes(false);
@@ -216,10 +210,12 @@ void Renderer::wait_for_idle() { vkDeviceWaitIdle(m_device->getDevice()); }
 void Renderer::recreateSwapchain() {
     int width = 0, height = 0;
     m_window->getFramebufferSize(&width, &height);
-    while (width == 0 || height == 0) {
+    while ((width == 0 || height == 0) && !m_window->shouldClose()) {
         m_window->waitEvents();
         m_window->getFramebufferSize(&width, &height);
     }
+
+    if(m_window->shouldClose()) return;
 
     vkDeviceWaitIdle(m_device->getDevice());
 
@@ -236,14 +232,10 @@ void Renderer::recreateSwapchain() {
         m_postProcess->recreate(m_swapchain->getExtent(), m_swapchain->getImageFormat(), m_swapchain->getImageViews());
         m_postProcess->register_images(m_images);
 
-        // SSAA: the offscreen chain (incl. the forward passes' framebuffers over the HDR/depth views) is now sized
-        // at the recomputed render extent; every registry pass rebuilds what depends on it (init_passes(true)).
+        
         init_passes(true);
     }
 
-#ifdef SWISH_DEBUG_UI
-    m_debugUI.recreate(m_swapchain->getImageFormat(), m_swapchain->getImageViews(), m_swapchain->getExtent());
-#endif
 }
 
 // (Re)build the PassInitCtx and init (first time) or resize (after a swapchain / SSAA recreate) every registry pass.
@@ -254,7 +246,8 @@ void Renderer::init_passes(bool resize) {
     if (resize)
         m_passes.resize_all(ctx);
     else
-        m_passes.init_all(ctx);
+       
+    m_passes.init_all(ctx);
 }
 
 FrameUpdate Renderer::make_frame_update(float dt) {
@@ -272,21 +265,23 @@ const DebugParams& Renderer::tune() const {
 }
 
 #ifdef SWISH_DEBUG_UI
-void Renderer::debug_init() {
+void Renderer::debug_init(std::function<void(int, int)> keyEvent) {
     DebugUIInitInfo info{};
     info.instance            = m_context->getInstance();
     info.physicalDevice      = m_device->getPhysicalDevice();
     info.device              = m_device->getDevice();
     info.graphicsQueue       = m_device->getGraphicsQueue();
     info.graphicsQueueFamily = m_device->getQueueFamilies().graphicsFamily.value();
-    info.window              = m_window->getHandle();
-    info.swapchainFormat     = m_swapchain->getImageFormat();
-    info.swapchainViews      = m_swapchain->getImageViews();
-    info.extent              = m_swapchain->getExtent();
-    info.imageCount          = m_swapchain->getImageCount();
-    info.minImageCount       = m_swapchain->getImageCount();
+    info.deviceOwner         = m_device.get();
+    info.presentQueue        = m_device->getPresentQueue();
+    info.presentQueueFamily  = m_device->getQueueFamilies().presentFamily.value();
+    info.keyEvent            = std::move(keyEvent);
     m_debugUI.init(info);
 }
+
+void Renderer::debug_present() { m_debugUI.present(); }
+
+void Renderer::toggle_debug_controls_window() { m_debugUI.toggle_visible(); }
 #endif
 
 }  // namespace swish

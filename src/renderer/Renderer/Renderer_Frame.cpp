@@ -145,6 +145,12 @@ void Renderer::drawFrame(float deltaTime) {
     submitFrame(*imageIndex);
     handlePresent(presentFrame(*imageIndex));
 
+#ifdef SWISH_DEBUG_UI
+    // The controls window has its own swapchain, so presenting it never covers
+    // the scene or interrupts the simulation frame above.
+    m_debugUI.present();
+#endif
+
     m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 

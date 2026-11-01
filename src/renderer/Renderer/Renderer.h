@@ -22,6 +22,7 @@
 // stl headers
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -88,14 +89,6 @@ public:
     void upload_interchange_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws);
     void set_interchanges(const std::vector<float>& slotOffsetsZ);
 
-    // ── Real LIE corridor (Phase 3a) ──────────────────────────────────
-    // Unlike the retired treadmill's ONE canonical chunk instanced at many
-    // offsets, the corridor is a real road: every segment is a distinct mesh.
-    // Each gets its own vertex/index buffer and its own per-frame render
-    // offset (CorridorInstance), which is what keeps segment-local vertex
-    // coordinates inside float32's precise range on an 18 mi road. Culling,
-    // materials and the camera-relative rebase are unchanged — they come free
-    // from SceneGeometry::record_draws.
     void add_corridor_segment(const MeshData& mesh, const std::vector<DrawCall>& draws);
     void set_corridor_instances(const std::vector<CorridorInstance>& instances);
 
@@ -109,20 +102,14 @@ public:
     Camera* get_camera() const;
 
     void set_scene_lights(const std::vector<LightDesc>& lights);
-    // Car spot lights for this frame (CarEntity::get_spot_lights). Debug builds
-    // upload them; release keeps today's lights UBO (tasks/todo.md "Car lights").
     void set_car_spot_lights(const std::vector<SpotLightDesc>& spots);
 
     void set_rain_intensity(float intensity);
-    // RainSystem's INTEGRATED wetness [0,1] (asymmetric wet/dry ramp — NOT
-    // raw rain intensity). 0 if the rain system hasn't been created yet.
-    // Wired to CarEntity::set_wetness() so the wet-grip physics model
-    // (CarPhysics.h::effective_mu) uses the same wetness the renderer's
-    // wet-road/puddle shading uses.
+  
     float get_wetness() const;
     void  set_car_velocity(Vec3 velocity);
     void  set_car_position(Vec3 position);
-    // This frame's wiper (App steps the Wiper.h model; WindshieldRainPass clears the rain under the blades).
+
     void set_wiper(const WiperFrame& wiper);
 
     // HDRI + sun/clarity look for driving weather. Rebakes IBL from assets/Sky/.
@@ -131,7 +118,9 @@ public:
 
 #ifdef SWISH_DEBUG_UI
 
-    void debug_init();
+    void debug_init(std::function<void(int key, int action)> keyEvent);
+    void debug_present();
+    void toggle_debug_controls_window();
     void set_debug_edit_mode(bool edit);
 
     DebugParams& debug_params() { return m_debugParams; }
@@ -180,8 +169,7 @@ private:
     std::unique_ptr<MaterialDescriptors> m_materialDescriptors;
     std::unique_ptr<IBLManager>          m_ibl;
 
-    // Render-pass registry (renderer/Passes/): the explicit ordered list of frame passes (PassList.def), the named
-    // images they exchange, the CPU values they publish for each other, and the subsystem pointers they may read.
+   
     PassRegistry  m_passes;
     ImageRegistry m_images;
     FrameState    m_frameState;
@@ -189,7 +177,7 @@ private:
 
     TextureManager* m_textureManager = nullptr;
 
-    // Owns the scene geometry and draws it into the shadow atlas + G-buffer (R4); see GeometryProducer.h.
+
     GeometryProducer m_geometry;
 
     std::unique_ptr<Camera> m_camera;
@@ -199,7 +187,7 @@ private:
     Vec3       m_carPosition   = Vec3(0.0f, 0.0f, 0.0f);
     WiperFrame m_wiper{};
 
-    // Sun / clarity / HDRI look + IBL rebake (R5). Bound to m_cameraUniforms / m_ibl / m_debugParams.
+
     WeatherController m_weather;
 
 #ifdef SWISH_DEBUG_UI
