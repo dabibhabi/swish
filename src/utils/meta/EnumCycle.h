@@ -16,12 +16,15 @@
 #include <concepts>
 #include <cstdint>
 #include <type_traits>
+#include <utility>
 
 namespace swish::util::meta {
 
-// `Count == 0` is rejected: next_enum would take a modulo by zero.
+// Scoped enums only (a plain enum's enumerators leak into the enclosing scope and convert to int).
+// `Count == 0` is rejected: next_enum would take a modulo by zero. "Values are consecutive from 0" is a contract
+// nothing can check (it would need reflection).
 template <typename E>
-concept CountedEnum = std::is_enum_v<E> && requires { E::Count; } && (static_cast<long long>(E::Count) > 0);
+concept CountedEnum = std::is_scoped_enum_v<E> && requires { E::Count; } && (std::to_underlying(E::Count) > 0);
 
 // Number of real values (the `Count` sentinel).
 template <CountedEnum E>

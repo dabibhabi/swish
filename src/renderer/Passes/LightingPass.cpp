@@ -25,6 +25,9 @@ public:
 
     void declare(PassDeclaration& d) const override {
         d.read({Img::GbAlbedo, Img::GbNormal, Img::GbMaterial, Img::GbClearcoat, Img::HdrDepth}).write({Img::Hdr});
+#ifdef SWISH_DEBUG_UI
+        d.read({Img::AoBlur});  // SSAO (set 1 binding 5), applied to the indirect terms
+#endif
     }
 
     void init(const PassInitCtx& ctx) override {

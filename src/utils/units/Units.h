@@ -16,6 +16,8 @@
 // See also  : scene/RoadScene/RoadParams.h, docs/GLOSSARY.md (WU)
 // Test      : tests/utils/test_units_Units.cpp (+ the static_asserts below)
 
+#include "Quantity.h"
+
 #include <numbers>
 
 namespace swish::util::units {
@@ -36,6 +38,17 @@ inline constexpr float kKmhPerMps = 3.6f;  // 3600 s/h ÷ 1000 m/km
 // ── Angle ─────────────────────────────────────────────────────────────
 inline constexpr float kPi    = std::numbers::pi_v<float>;
 inline constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
+
+// ── Typed conversions (the ONLY place a Quantity changes tag) ─────────
+// Each reuses the raw expression above so rounding is identical to the untyped call sites.
+// Degree/radian factors are the exact double literals glm::radians / glm::degrees multiply by.
+inline constexpr float kRadPerDeg = static_cast<float>(0.01745329251994329576923690768489);
+inline constexpr float kDegPerRad = static_cast<float>(57.295779513082320876798154814105);
+
+[[nodiscard]] constexpr Wu      to_wu(Metres x) noexcept { return Wu{m(x.value())}; }
+[[nodiscard]] constexpr Metres  to_metres(Wu x) noexcept { return Metres{to_m(x.value())}; }
+[[nodiscard]] constexpr Radians to_radians(Degrees x) noexcept { return Radians{x.value() * kRadPerDeg}; }
+[[nodiscard]] constexpr Degrees to_degrees(Radians x) noexcept { return Degrees{x.value() * kDegPerRad}; }
 
 // ── Compile-time guards ───────────────────────────────────────────────
 static_assert(kWuPerMetre == 1000.0f);

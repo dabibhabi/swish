@@ -63,6 +63,9 @@ struct DebugParams {
     glm::vec3 skyZenithOvercast{0.76f, 0.79f, 0.83f};  // overcast: slightly darker grey (subtle gradient)
     glm::vec3 skyZenithClear{0.5f, 0.8f, 1.35f};       // lie preset (was 0.28,0.52,1.50) — deep azure
     float     clarity       = 0.242f;                  // lie preset (was 0.0) — 0 = overcast, 1 = clear
+#ifdef SWISH_DEBUG_UI
+    int environmentHdri = 0;  // index into renderer/IBLManager/HdriCatalog.h
+#endif
     float     sunDiscExpMin = 32.0f;                   // disc sharpness at overcast
     float     sunDiscExpMax = 220.0f;                  // disc sharpness at clear
     float     sunDiscStrMin = 0.242f;                  // lie preset (was 0.3) — disc strength at overcast
@@ -109,13 +112,13 @@ struct DebugParams {
     float godrayIntensity = 0.04f;  // overall additive strength (gain ≈ weight×Σdecayⁱ is large)
 
     // ── SSAO (screen-space ambient occlusion) ─────────────────────────
-    // Runs at 1/2 render res, multiplied into the composite. radius/bias are in
-    // view-space world units (1 m = 1000 WU); tune live toward subtle contact
+    // Runs at 1/2 render res before Lighting, which applies it to the indirect (sky / IBL) terms only.
+    // radius/bias are in view-space world units (1 m = 1000 WU); tune live toward subtle contact
     // darkening. Disabled → intensity forced to 0 (shader outputs 1 = no AO).
     bool  ssaoEnabled   = true;
-    float ssaoRadius    = 1200.0f;  // hemisphere sample radius (WU) — contact-focused
-    float ssaoBias      = 50.0f;    // view-space depth bias to fight self-occlusion (WU)
-    float ssaoIntensity = 1.0f;     // occlusion strength multiplier
+    float ssaoRadius    = 400.0f;  // hemisphere radius (WU); kernel taps reach <= 0.43 of it (~0.17 m)
+    float ssaoBias      = 50.0f;   // view-space depth bias to fight self-occlusion (WU)
+    float ssaoIntensity = 1.0f;    // occlusion strength multiplier
 
     // ── Shadows (single sun shadow map + depth bias) ──────────────────
     float shadowBias       = 0.0018f;    // restored 2026-08-15 — required once shadows are live (acne)
@@ -332,7 +335,7 @@ struct DebugParams {
     TelemetryLens  telemetryLens[4];
 
     // ── UI state (not a scene parameter, but lives with the rest) ─────
-    bool editMode  = false;  // true = cursor free to drive the panel; false = drive-mode (panel ignores mouse)
+    bool editMode  = false;  // true explicitly pauses car/camera updates while tuning
     bool showPanel = true;   // master visibility toggle for the debug window
 };
 

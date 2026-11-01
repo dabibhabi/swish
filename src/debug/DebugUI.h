@@ -7,44 +7,42 @@
 // Built without the define, this translation unit is empty and the class is
 // absent — every caller must guard its use with #ifdef SWISH_DEBUG_UI too.
 //
-// Owns its own descriptor pool, render pass, and per-swapchain-image
-// framebuffers. The render pass chains AFTER the composite pass (which
-// leaves the swapchain image in PRESENT_SRC_KHR): loadOp = LOAD, both
-// initial/final layout = PRESENT_SRC_KHR, so the panel is drawn straight
-// onto the already-composited frame with no extra transitions.
+// Owns a detached GLFW/Vulkan window and its swapchain. Tuning controls are
+// rendered independently from the game's swapchain so driving can continue.
 // ══════════════════════════════════════════════════════════════════════
 
 #ifdef SWISH_DEBUG_UI
 
 #include "DebugParams.h"
+#include "renderer/Swapchain/Swapchain.h"
 #include "utils/types/Types.h"  // Mat4
 
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace swish {
 
+class Device;
+
 // One-shot init payload. All handles/objects are borrowed (not owned by
 // DebugUI) except what DebugUI explicitly creates itself.
 struct DebugUIInitInfo {
+    Device*          deviceOwner;
     VkInstance       instance;
     VkPhysicalDevice physicalDevice;
     VkDevice         device;
     VkQueue          graphicsQueue;
+    VkQueue          presentQueue;
     uint32_t         graphicsQueueFamily;
 
-    GLFWwindow* window;
-
-    VkFormat                 swapchainFormat;
-    std::vector<VkImageView> swapchainViews;
-    VkExtent2D               extent;
-    uint32_t                 imageCount;
-    uint32_t                 minImageCount;
+    uint32_t         presentQueueFamily;
+    std::function<void(int key, int action)> keyEvent;
 };
 
 // "Render tools" panel feed (GPU profiler, frame capture, shader hot-reload, pass-declaration warnings). Borrowed,
@@ -73,37 +71,52 @@ public:
     DebugUI(const DebugUI&)            = delete;
     DebugUI& operator=(const DebugUI&) = delete;
 
-    // Create ImGui context + GLFW/Vulkan backends + our own pool/pass/FBs.
+    // Create the detached settings window and its ImGui/Vulkan presentation path.
     void init(const DebugUIInitInfo& info);
 
     void set_render_tools(RenderToolsView v) { m_tools = std::move(v); }
 
-    // ImGui NewFrame → build the panel (mutates `p`) → ImGui::Render. The camera
-    // view/proj drive the ImGuizmo sun-orientation handle. Call once per frame
-    // BEFORE record().
+    // ImGui NewFrame → build the panel (mutates `p`) → ImGui::Render. Call once
+    // per game frame, then present() after the game's frame.
     void begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj);
-
-    // Begin our render pass on framebuffer[imageIndex] and emit ImGui draws.
-    // Call inside the frame's primary command buffer, AFTER the composite pass.
-    void record(VkCommandBuffer cmd, uint32_t imageIndex, VkExtent2D extent);
-
-    // Rebuild framebuffers for a resized/recreated swapchain. Assumes the
-    // swapchain format is unchanged (render pass is format-dependent only).
-    void recreate(VkFormat fmt, const std::vector<VkImageView>& views, VkExtent2D extent);
+    void present();
+    void toggle_visible();
 
     // Tear everything down. Idempotent (guarded by m_init).
     void cleanup();
 
 private:
-    void createRenderPass(VkFormat fmt);
-    void createFramebuffers(const std::vector<VkImageView>& views, VkExtent2D extent);
-    void destroyFramebuffers();
+    void create_render_pass(VkFormat fmt);
+    void create_framebuffers();
+    void destroy_framebuffers();
+    void recreate_swapchain();
+    static void framebuffer_resize_callback(GLFWwindow* window, int width, int height);
+    static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
+    static void focus_callback(GLFWwindow* window, int focused);
 
+    Device*                    m_deviceOwner = nullptr;
+    VkInstance                 m_instance = VK_NULL_HANDLE;
     VkDevice                   m_device         = VK_NULL_HANDLE;
-    VkDescriptorPool           m_descriptorPool = VK_NULL_HANDLE;
-    VkRenderPass               m_renderPass     = VK_NULL_HANDLE;
+    VkPhysicalDevice           m_physicalDevice = VK_NULL_HANDLE;
+    VkQueue                    m_graphicsQueue = VK_NULL_HANDLE;
+    VkQueue                    m_presentQueue = VK_NULL_HANDLE;
+    uint32_t                   m_graphicsQueueFamily = 0;
+    uint32_t                   m_presentQueueFamily = 0;
+    GLFWwindow*                m_window = nullptr;
+    VkSurfaceKHR               m_surface = VK_NULL_HANDLE;
+    std::unique_ptr<Swapchain> m_swapchain;
+    VkCommandPool              m_commandPool = VK_NULL_HANDLE;
+    std::vector<VkCommandBuffer> m_commandBuffers;
+    std::vector<VkSemaphore>   m_imageAvailable;
+    std::vector<VkSemaphore>   m_renderFinished;
+    std::vector<VkFence>       m_inFlightFences;
+    std::vector<VkFence>       m_imagesInFlight;
+    VkRenderPass               m_renderPass = VK_NULL_HANDLE;
     std::vector<VkFramebuffer> m_framebuffers;
-    VkExtent2D                 m_extent = {};
+    uint32_t                   m_currentFrame = 0;
+    bool                       m_resized = false;
+    std::function<void(int, int)> m_keyEvent;
+    VkDescriptorPool           m_descriptorPool = VK_NULL_HANDLE;
     bool                       m_init   = false;
     RenderToolsView            m_tools;
 };

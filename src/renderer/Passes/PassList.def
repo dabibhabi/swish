@@ -11,9 +11,9 @@
 
 // ── frame order ──────────────────────────────────────────────────────────────
 PRODUCER(Geometry)                        // shadow atlas, G-buffer, G-buffer -> lighting barriers
+PASS_DEBUG(Ssao, make_ssao_pass)          // scene depth is DEPTH_STENCIL_READ_ONLY after Geometry
+PASS_DEBUG(AoBlur, make_ao_blur_pass)     // before Lighting: lighting.frag applies AO to indirect light only
 PASS(Lighting, make_lighting_pass)
-PASS_DEBUG(Ssao, make_ssao_pass)          // scene depth still DEPTH_STENCIL_READ_ONLY here
-PASS_DEBUG(AoBlur, make_ao_blur_pass)
 PASS_DEBUG(Velocity, make_velocity_pass)  // only records when TAA is on
 PASS(Ssr, make_ssr_pass)
 PASS(GodRays, make_godrays_pass)
@@ -29,4 +29,3 @@ PASS(BloomExtract, make_bloom_extract_pass)
 PASS(BloomBlurH, make_bloom_blur_h_pass)
 PASS(BloomBlurV, make_bloom_blur_v_pass)
 PASS(Composite, make_composite_pass)
-PASS_DEBUG(DebugOverlay, make_debug_overlay_pass)

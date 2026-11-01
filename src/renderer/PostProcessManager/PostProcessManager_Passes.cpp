@@ -37,7 +37,7 @@ void PostProcessManager::createRenderPasses(VkFormat swapchainFormat) {
 
     m_hdrRenderPass       = makePass(VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, true);
     m_bloomRenderPass     = makePass(VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
-    m_aoRenderPass        = makePass(VK_FORMAT_R8_UNORM, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
+    m_aoRenderPass        = makePass(kAoFormat, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
     m_compositeRenderPass = makePass(swapchainFormat, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, false);
     m_lightingRenderPass  = makePass(VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
 

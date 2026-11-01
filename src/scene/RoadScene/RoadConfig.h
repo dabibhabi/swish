@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RoadParams.h"
+#include "utils/meta/Concepts.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -80,7 +81,8 @@ struct RoadConfig {
 };
 #pragma pack(pop)
 
-static_assert(std::is_trivially_copyable_v<RoadConfig>, "RoadConfig must be trivially copyable for binary I/O");
+static_assert(swish::util::meta::TriviallyPackable<RoadConfig>,
+              "RoadConfig must be copyable as raw bytes for binary I/O");
 // On-disk layout of road.bin (VERSION 3). The baker includes this same header, so this is the only
 // place the size is pinned: bump VERSION and this number together when a field changes.
 static_assert(sizeof(RoadConfig) == 292, "RoadConfig layout changed: bump RoadConfig::VERSION and re-bake road.bin");

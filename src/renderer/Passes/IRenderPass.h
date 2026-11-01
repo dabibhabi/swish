@@ -40,7 +40,6 @@ class PassRegistry;
 struct DebugParams;
 struct WiperFrame;
 #ifdef SWISH_DEBUG_UI
-class DebugUI;
 class SceneParamsUniform;
 #endif
 
@@ -61,7 +60,6 @@ struct PassResources {
     MaterialDescriptors*      materials      = nullptr;  // G-buffer draws bind per-material sets
 #ifdef SWISH_DEBUG_UI
     const SceneParamsUniform* sceneParams = nullptr;
-    DebugUI*                  debugUI     = nullptr;  // records the overlay; begin_frame is the Renderer's
 #endif
 };
 

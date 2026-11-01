@@ -7,8 +7,10 @@
 #include "Tunables.h"
 #include "renderer/FrameCapture/FrameCapture.h"
 #include "renderer/GpuProfiler/GpuProfiler.h"
+#include "renderer/IBLManager/HdriCatalog.h"
 #include "renderer/Passes/PassDeclarationValidator.h"
 #include "renderer/ShaderHotReload/ShaderHotReload.h"
+#include "renderer/Pipeline/Device/Device.h"
 #include "scene/Entity/CarPhysics.h"  // WetGripParams — hydroplaning thresholds for the Telemetry panel
 #include "utils/meta/Tags.h"
 #include "utils/units/Units.h"
@@ -25,6 +27,7 @@
 #include "ImGuizmo.h"
 // clang-format on
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -32,163 +35,217 @@
 #include <glm/gtc/quaternion.hpp>
 #include <string>
 #include <string_view>
+#include <stdexcept>
 
 namespace swish {
 
 // ══════════════════════════════════════════════════════════════════════
-// Init — ImGui context, GLFW + Vulkan backends, own pool/pass/framebuffers.
+// Detached window — its controls have their own GLFW surface/swapchain.
 // ══════════════════════════════════════════════════════════════════════
+
+namespace {
+constexpr uint32_t kUiFramesInFlight = 2;
+}
 
 void DebugUI::init(const DebugUIInitInfo& info) {
     if (m_init) return;
 
+    m_deviceOwner = info.deviceOwner;
+    m_instance = info.instance;
+    m_physicalDevice = info.physicalDevice;
     m_device = info.device;
-    m_extent = info.extent;
+    m_graphicsQueue = info.graphicsQueue;
+    m_presentQueue = info.presentQueue;
+    m_graphicsQueueFamily = info.graphicsQueueFamily;
+    m_presentQueueFamily = info.presentQueueFamily;
+    m_keyEvent = info.keyEvent;
 
-    // ── Descriptor pool (owned) ───────────────────────────────────────
-    // Sized generously per the classic ImGui example: 1000 of each of the
-    // standard descriptor types. FREE_DESCRIPTOR_SET_BIT so ImGui may free
-    // per-texture sets (used by ImGui_ImplVulkan_AddTexture) at will.
-    {
-        std::array<VkDescriptorPoolSize, 11> poolSizes = {{
-            {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
-            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
-            {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
-            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000},
-            {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000},
-            {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000},
-            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000},
-            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
-            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000},
-            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
-            {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000},
-        }};
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    m_window = glfwCreateWindow(440, 900, "Swish Lighting Controls", nullptr, nullptr);
+    if (!m_window) throw std::runtime_error("failed to create the detached Swish controls window");
+    glfwSetWindowUserPointer(m_window, this);
+    glfwSetFramebufferSizeCallback(m_window, framebuffer_resize_callback);
+    glfwSetKeyCallback(m_window, key_callback);
+    glfwSetWindowFocusCallback(m_window, focus_callback);
 
-        VkDescriptorPoolCreateInfo poolInfo{};
-        poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-        poolInfo.maxSets       = 1000;
-        poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-        poolInfo.pPoolSizes    = poolSizes.data();
-        VK_CHECK(vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool));
+    if (glfwCreateWindowSurface(m_instance, m_window, nullptr, &m_surface) != VK_SUCCESS)
+        throw std::runtime_error("failed to create the detached controls Vulkan surface");
+    VkBool32 supported = VK_FALSE;
+    VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(m_physicalDevice, m_presentQueueFamily, m_surface, &supported));
+    if (supported != VK_TRUE) throw std::runtime_error("the Vulkan present queue cannot present to the controls window");
+
+    const auto indices = m_deviceOwner->findQueueFamilies(m_physicalDevice, m_surface);
+    if (!indices.graphicsFamily || !indices.presentFamily || *indices.graphicsFamily != m_graphicsQueueFamily ||
+        *indices.presentFamily != m_presentQueueFamily)
+        throw std::runtime_error("the controls window requires queue families that were not enabled on the Vulkan device");
+
+    m_swapchain = std::make_unique<Swapchain>();
+    int width = 0, height = 0;
+    glfwGetFramebufferSize(m_window, &width, &height);
+    m_swapchain->init(*m_deviceOwner, m_surface, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+
+    create_render_pass(m_swapchain->getImageFormat());
+    create_framebuffers();
+
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = m_graphicsQueueFamily;
+    VK_CHECK(vkCreateCommandPool(m_device, &poolInfo, nullptr, &m_commandPool));
+
+    m_commandBuffers.resize(kUiFramesInFlight);
+    VkCommandBufferAllocateInfo commandInfo{};
+    commandInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    commandInfo.commandPool = m_commandPool;
+    commandInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    commandInfo.commandBufferCount = kUiFramesInFlight;
+    VK_CHECK(vkAllocateCommandBuffers(m_device, &commandInfo, m_commandBuffers.data()));
+
+    m_imageAvailable.resize(kUiFramesInFlight);
+    m_renderFinished.resize(kUiFramesInFlight);
+    m_inFlightFences.resize(kUiFramesInFlight);
+    m_imagesInFlight.assign(m_swapchain->getImageCount(), VK_NULL_HANDLE);
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    for (uint32_t i = 0; i < kUiFramesInFlight; ++i) {
+        VK_CHECK(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_imageAvailable[i]));
+        VK_CHECK(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinished[i]));
+        VK_CHECK(vkCreateFence(m_device, &fenceInfo, nullptr, &m_inFlightFences[i]));
     }
 
-    createRenderPass(info.swapchainFormat);
-    createFramebuffers(info.swapchainViews, info.extent);
+    std::array<VkDescriptorPoolSize, 11> poolSizes = {{
+        {VK_DESCRIPTOR_TYPE_SAMPLER, 1000}, {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000}, {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000}, {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
+        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000},
+    }};
+    VkDescriptorPoolCreateInfo descriptorInfo{};
+    descriptorInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    descriptorInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    descriptorInfo.maxSets = 1000;
+    descriptorInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    descriptorInfo.pPoolSizes = poolSizes.data();
+    VK_CHECK(vkCreateDescriptorPool(m_device, &descriptorInfo, nullptr, &m_descriptorPool));
 
-    // ── ImGui context + backends ──────────────────────────────────────
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
-
-    // install_callbacks = true → chains ImGui's GLFW callbacks onto the ones
-    // the app already installed (keyboard/mouse still reach the sim).
-    ImGui_ImplGlfw_InitForVulkan(info.window, true);
-
-    // v1.90+ takes a single ImGui_ImplVulkan_InitInfo* whose RenderPass is a
-    // struct field (no separate RenderPass argument). Fonts upload lazily on
-    // the first NewFrame in 1.91 — no manual font command buffer needed.
+    ImGui_ImplGlfw_InitForVulkan(m_window, true);
     ImGui_ImplVulkan_InitInfo initInfo{};
-    initInfo.Instance       = info.instance;
-    initInfo.PhysicalDevice = info.physicalDevice;
-    initInfo.Device         = info.device;
-    initInfo.QueueFamily    = info.graphicsQueueFamily;
-    initInfo.Queue          = info.graphicsQueue;
+    initInfo.Instance = m_instance;
+    initInfo.PhysicalDevice = m_physicalDevice;
+    initInfo.Device = m_device;
+    initInfo.QueueFamily = m_graphicsQueueFamily;
+    initInfo.Queue = m_graphicsQueue;
     initInfo.DescriptorPool = m_descriptorPool;
-    initInfo.RenderPass     = m_renderPass;
-    initInfo.MinImageCount  = info.minImageCount;
-    initInfo.ImageCount     = info.imageCount;
-    initInfo.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.RenderPass = m_renderPass;
+    initInfo.MinImageCount = m_swapchain->getImageCount();
+    initInfo.ImageCount = m_swapchain->getImageCount();
+    initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     ImGui_ImplVulkan_Init(&initInfo);
 
     m_init = true;
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// Render pass — single color attachment, LOAD/STORE onto the swapchain
-// image, PRESENT_SRC in and out (chains after the composite pass).
-// ══════════════════════════════════════════════════════════════════════
-
-void DebugUI::createRenderPass(VkFormat fmt) {
-    VkAttachmentDescription colorAtt{};
-    colorAtt.format         = fmt;
-    colorAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
-    colorAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;  // preserve the composited frame
-    colorAtt.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAtt.initialLayout  = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;  // composite left it here
-    colorAtt.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;  // ready to present
-
-    VkAttachmentReference colorRef{};
-    colorRef.attachment = 0;
-    colorRef.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
+void DebugUI::create_render_pass(VkFormat fmt) {
+    VkAttachmentDescription color{};
+    color.format = fmt;
+    color.samples = VK_SAMPLE_COUNT_1_BIT;
+    color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    color.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    color.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    color.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    VkAttachmentReference ref{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
     VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments    = &colorRef;
-
-    // EXTERNAL → 0: wait for the composite pass's color writes (which end in
-    // PRESENT_SRC) before we blend the UI on top.
-    VkSubpassDependency dep{};
-    dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
-    dep.dstSubpass    = 0;
-    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    // loadOp LOAD reads the composited image, so the dependency must also cover color-attachment READs
-    // (write-only here left the load unordered after the PRESENT_SRC -> COLOR_ATTACHMENT transition).
-    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-    VkRenderPassCreateInfo rpInfo{};
-    rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    rpInfo.attachmentCount = 1;
-    rpInfo.pAttachments    = &colorAtt;
-    rpInfo.subpassCount    = 1;
-    rpInfo.pSubpasses      = &subpass;
-    rpInfo.dependencyCount = 1;
-    rpInfo.pDependencies   = &dep;
-
-    VK_CHECK(vkCreateRenderPass(m_device, &rpInfo, nullptr, &m_renderPass));
+    subpass.pColorAttachments = &ref;
+    VkSubpassDependency dependency{};
+    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependency.dstSubpass = 0;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    VkRenderPassCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    info.attachmentCount = 1;
+    info.pAttachments = &color;
+    info.subpassCount = 1;
+    info.pSubpasses = &subpass;
+    info.dependencyCount = 1;
+    info.pDependencies = &dependency;
+    VK_CHECK(vkCreateRenderPass(m_device, &info, nullptr, &m_renderPass));
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// Framebuffers — one per swapchain image view, at the swap extent.
-// ══════════════════════════════════════════════════════════════════════
-
-void DebugUI::createFramebuffers(const std::vector<VkImageView>& views, VkExtent2D extent) {
-    m_extent = extent;
+void DebugUI::create_framebuffers() {
+    const auto& views = m_swapchain->getImageViews();
+    const VkExtent2D extent = m_swapchain->getExtent();
     m_framebuffers.resize(views.size());
-    for (size_t i = 0; i < views.size(); i++) {
+    for (size_t i = 0; i < views.size(); ++i) {
         VkFramebufferCreateInfo info{};
-        info.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        info.renderPass      = m_renderPass;
+        info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        info.renderPass = m_renderPass;
         info.attachmentCount = 1;
-        info.pAttachments    = &views[i];
-        info.width           = extent.width;
-        info.height          = extent.height;
-        info.layers          = 1;
+        info.pAttachments = &views[i];
+        info.width = extent.width;
+        info.height = extent.height;
+        info.layers = 1;
         VK_CHECK(vkCreateFramebuffer(m_device, &info, nullptr, &m_framebuffers[i]));
     }
+    m_imagesInFlight.assign(views.size(), VK_NULL_HANDLE);
 }
 
-void DebugUI::destroyFramebuffers() {
-    for (auto& fb : m_framebuffers) {
-        if (fb != VK_NULL_HANDLE) vkDestroyFramebuffer(m_device, fb, nullptr);
-    }
+void DebugUI::destroy_framebuffers() {
+    for (VkFramebuffer fb : m_framebuffers) vkDestroyFramebuffer(m_device, fb, nullptr);
     m_framebuffers.clear();
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// Preset helpers — set groups of fields to canned "weather" looks.
-// ══════════════════════════════════════════════════════════════════════
+void DebugUI::framebuffer_resize_callback(GLFWwindow* window, int, int) {
+    auto* self = static_cast<DebugUI*>(glfwGetWindowUserPointer(window));
+    if (self) self->m_resized = true;
+}
+
+void DebugUI::key_callback(GLFWwindow* window, int key, int, int action, int) {
+    auto* self = static_cast<DebugUI*>(glfwGetWindowUserPointer(window));
+    if (self && self->m_keyEvent) self->m_keyEvent(key, action);
+}
+
+void DebugUI::focus_callback(GLFWwindow* window, int focused) {
+    if (focused) return;
+    auto* self = static_cast<DebugUI*>(glfwGetWindowUserPointer(window));
+    if (!self || !self->m_keyEvent) return;
+    for (const int key : {GLFW_KEY_I, GLFW_KEY_K, GLFW_KEY_J, GLFW_KEY_L})
+        self->m_keyEvent(key, GLFW_RELEASE);
+}
+
+void DebugUI::recreate_swapchain() {
+    int width = 0, height = 0;
+    glfwGetFramebufferSize(m_window, &width, &height);
+    while (width == 0 || height == 0) {
+        glfwWaitEvents();
+        glfwGetFramebufferSize(m_window, &width, &height);
+    }
+    VK_CHECK(vkDeviceWaitIdle(m_device));
+    destroy_framebuffers();
+    m_swapchain->cleanup(m_device);
+    m_swapchain->init(*m_deviceOwner, m_surface, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    create_framebuffers();
+    m_resized = false;
+}
 
 namespace {
 
 void presetReset(DebugParams& p) {
     p           = DebugParams{};  // restore all defaults (keeps editMode/showPanel too)
-    p.editMode  = true;
+    p.editMode  = false;
     p.showPanel = true;
 }
 
@@ -451,14 +508,7 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
     ImGui::NewFrame();
     ImGuizmo::BeginFrame();
 
-    // In drive-mode (!editMode) the cursor is locked to steer the car; tell
-    // ImGui to ignore the mouse so it doesn't fight the grab. In edit-mode the
-    // cursor is free and the panel is interactive.
     ImGuiIO& io = ImGui::GetIO();
-    if (!p.editMode)
-        io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
-    else
-        io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
 
     using util::units::kPi;  // == the literal 3.14159265358979323846f (static_assert in Units.h)
 
@@ -466,7 +516,8 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
         ImGui::Begin("swish - debug");
 
         ImGui::Text("%.1f FPS", io.Framerate);
-        ImGui::Checkbox("Edit mode (free cursor)", &p.editMode);
+        ImGui::Checkbox("Pause simulation", &p.editMode);
+        ImGui::TextDisabled("Game window: arrows. Controls window: I/K throttle + brake, J/L steer.");
 
         // ── Telemetry (speed / gear / rpm / grip HUD — issue 5's readout) ──
         // The cockpit instrument cluster is BAKED PIXELS in the GLB texture
@@ -709,6 +760,15 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
 
         // ── Sky ───────────────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Sky")) {
+            int hdriIndex = std::clamp(p.environmentHdri, 0, static_cast<int>(kHdriOptions.size()) - 1);
+            if (ImGui::BeginCombo("Environment HDRI", kHdriOptions[hdriIndex].label.data())) {
+                for (int i = 0; i < static_cast<int>(kHdriOptions.size()); ++i) {
+                    const bool selected = (i == hdriIndex);
+                    if (ImGui::Selectable(kHdriOptions[i].label.data(), selected)) p.environmentHdri = i;
+                    if (selected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
             ImGui::ColorEdit3("Horizon (overcast)", &p.skyHorizonOvercast.x);
             ImGui::ColorEdit3("Horizon (clear)", &p.skyHorizonClear.x);
             ImGui::ColorEdit3("Zenith (overcast)", &p.skyZenithOvercast.x);
@@ -1021,60 +1081,117 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// record — begin our render pass and emit ImGui's draw data.
+// Present the detached controls window.
 // ══════════════════════════════════════════════════════════════════════
 
-void DebugUI::record(VkCommandBuffer cmd, uint32_t imageIndex, VkExtent2D extent) {
+void DebugUI::present() {
     if (!m_init) return;
+    if (glfwWindowShouldClose(m_window)) {
+        glfwSetWindowShouldClose(m_window, GLFW_FALSE);
+        glfwHideWindow(m_window);
+    }
+    if (!glfwGetWindowAttrib(m_window, GLFW_VISIBLE)) return;
+    if (m_resized) recreate_swapchain();
 
-    VkRenderPassBeginInfo rp{};
-    rp.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    rp.renderPass        = m_renderPass;
-    rp.framebuffer       = m_framebuffers[imageIndex];
-    rp.renderArea.offset = {0, 0};
-    rp.renderArea.extent = extent;
-    // loadOp = LOAD → no clear values.
-    rp.clearValueCount = 0;
-    rp.pClearValues    = nullptr;
+    VK_CHECK(vkWaitForFences(m_device, 1, &m_inFlightFences[m_currentFrame], VK_TRUE, UINT64_MAX));
+    uint32_t imageIndex = 0;
+    VkResult acquired = vkAcquireNextImageKHR(m_device, m_swapchain->getSwapchain(), UINT64_MAX,
+                                               m_imageAvailable[m_currentFrame], VK_NULL_HANDLE, &imageIndex);
+    if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
+        recreate_swapchain();
+        return;
+    }
+    if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR)
+        throw std::runtime_error("failed to acquire an image for the controls window");
+    if (m_imagesInFlight[imageIndex] != VK_NULL_HANDLE)
+        VK_CHECK(vkWaitForFences(m_device, 1, &m_imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX));
+    m_imagesInFlight[imageIndex] = m_inFlightFences[m_currentFrame];
 
-    vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+    VK_CHECK(vkResetFences(m_device, 1, &m_inFlightFences[m_currentFrame]));
+    VkCommandBuffer cmd = m_commandBuffers[m_currentFrame];
+    VK_CHECK(vkResetCommandBuffer(cmd, 0));
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    VK_CHECK(vkBeginCommandBuffer(cmd, &begin));
+
+    const VkExtent2D extent = m_swapchain->getExtent();
+    VkClearValue clear{};
+    clear.color = {{0.055f, 0.065f, 0.085f, 1.0f}};
+    VkRenderPassBeginInfo render{};
+    render.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    render.renderPass = m_renderPass;
+    render.framebuffer = m_framebuffers[imageIndex];
+    render.renderArea.extent = extent;
+    render.clearValueCount = 1;
+    render.pClearValues = &clear;
+    vkCmdBeginRenderPass(cmd, &render, VK_SUBPASS_CONTENTS_INLINE);
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
     vkCmdEndRenderPass(cmd);
+    VK_CHECK(vkEndCommandBuffer(cmd));
+
+    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkSubmitInfo submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.waitSemaphoreCount = 1;
+    submit.pWaitSemaphores = &m_imageAvailable[m_currentFrame];
+    submit.pWaitDstStageMask = &waitStage;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+    submit.signalSemaphoreCount = 1;
+    submit.pSignalSemaphores = &m_renderFinished[m_currentFrame];
+    VK_CHECK(vkQueueSubmit(m_graphicsQueue, 1, &submit, m_inFlightFences[m_currentFrame]));
+
+    VkPresentInfoKHR present{};
+    present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    present.waitSemaphoreCount = 1;
+    present.pWaitSemaphores = &m_renderFinished[m_currentFrame];
+    const VkSwapchainKHR swapchain = m_swapchain->getSwapchain();
+    present.swapchainCount = 1;
+    present.pSwapchains = &swapchain;
+    present.pImageIndices = &imageIndex;
+    VkResult result = vkQueuePresentKHR(m_presentQueue, &present);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || acquired == VK_SUBOPTIMAL_KHR || m_resized)
+        recreate_swapchain();
+    else if (result != VK_SUCCESS)
+        throw std::runtime_error("failed to present the controls window");
+
+    m_currentFrame = (m_currentFrame + 1) % kUiFramesInFlight;
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// recreate — rebuild framebuffers for the new swapchain (same format).
-// ══════════════════════════════════════════════════════════════════════
-
-void DebugUI::recreate(VkFormat fmt, const std::vector<VkImageView>& views, VkExtent2D extent) {
+void DebugUI::toggle_visible() {
     if (!m_init) return;
-    (void)fmt;  // format assumed unchanged; render pass is reused as-is.
-    destroyFramebuffers();
-    createFramebuffers(views, extent);
+    if (glfwGetWindowAttrib(m_window, GLFW_VISIBLE)) glfwHideWindow(m_window);
+    else glfwShowWindow(m_window);
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// cleanup — shut down backends + context, destroy owned Vulkan objects.
+// cleanup — shut down ImGui and release UI Vulkan objects before device teardown.
 // ══════════════════════════════════════════════════════════════════════
 
 void DebugUI::cleanup() {
     if (!m_init) return;
+    VK_CHECK(vkDeviceWaitIdle(m_device));
 
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
-    destroyFramebuffers();
-
-    if (m_renderPass != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(m_device, m_renderPass, nullptr);
-        m_renderPass = VK_NULL_HANDLE;
+    destroy_framebuffers();
+    if (m_renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(m_device, m_renderPass, nullptr);
+    if (m_descriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
+    for (VkSemaphore semaphore : m_imageAvailable) vkDestroySemaphore(m_device, semaphore, nullptr);
+    for (VkSemaphore semaphore : m_renderFinished) vkDestroySemaphore(m_device, semaphore, nullptr);
+    for (VkFence fence : m_inFlightFences) vkDestroyFence(m_device, fence, nullptr);
+    if (m_commandPool != VK_NULL_HANDLE) vkDestroyCommandPool(m_device, m_commandPool, nullptr);
+    if (m_swapchain) {
+        m_swapchain->cleanup(m_device);
+        m_swapchain.reset();
     }
-    if (m_descriptorPool != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
-        m_descriptorPool = VK_NULL_HANDLE;
+    if (m_surface != VK_NULL_HANDLE) vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
+    if (m_window) {
+        glfwDestroyWindow(m_window);
+        m_window = nullptr;
     }
-
     m_init = false;
 }
 

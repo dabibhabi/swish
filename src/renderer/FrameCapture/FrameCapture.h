@@ -20,8 +20,8 @@
 // The swapchain needs TRANSFER_SRC usage, which Swapchain adds in debug builds only (release is unchanged).
 //
 // TODO(stub): the full version must (a) write PNG (needs a deflate encoder) and a tone-mapped HDR preview, (b) move
-// the file write to a worker thread, (c) support burst / timed capture and an offscreen "no overlay" capture taken
-// before DebugOverlayPass, (d) capture other named images (G-buffer, AO) by Img, (e) re-capture the same frame at a
+// the file write to a worker thread, (c) support burst / timed capture, (d) capture other named images (G-buffer, AO)
+// by Img, (e) re-capture the same frame at a
 // frozen camera for regression diffs.
 
 #ifdef SWISH_DEBUG_UI

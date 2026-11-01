@@ -118,6 +118,7 @@ bool save(const DebugParams& p, const std::string& name) {
                             {"zenith_overcast", vec3_to_toml(p.skyZenithOvercast)},
                             {"zenith_clear", vec3_to_toml(p.skyZenithClear)},
                             {"clarity", p.clarity},
+                            {"environment_hdri", static_cast<int64_t>(p.environmentHdri)},
                             {"sun_disc_exp_min", p.sunDiscExpMin},
                             {"sun_disc_exp_max", p.sunDiscExpMax},
                             {"sun_disc_str_min", p.sunDiscStrMin},
@@ -231,6 +232,8 @@ bool load(DebugParams& p, const std::string& name) {
     read_vec3(tbl["sky"]["zenith_overcast"], p.skyZenithOvercast);
     read_vec3(tbl["sky"]["zenith_clear"], p.skyZenithClear);
     p.clarity       = tbl["sky"]["clarity"].value_or(p.clarity);
+    p.environmentHdri =
+        static_cast<int>(tbl["sky"]["environment_hdri"].value_or(static_cast<int64_t>(p.environmentHdri)));
     p.sunDiscExpMin = tbl["sky"]["sun_disc_exp_min"].value_or(p.sunDiscExpMin);
     p.sunDiscExpMax = tbl["sky"]["sun_disc_exp_max"].value_or(p.sunDiscExpMax);
     p.sunDiscStrMin = tbl["sky"]["sun_disc_str_min"].value_or(p.sunDiscStrMin);

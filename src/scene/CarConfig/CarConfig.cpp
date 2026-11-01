@@ -66,15 +66,21 @@ namespace {
 
 CarConfig from_table(const toml::table& tbl) {
     CarConfig cfg;
-    cfg.wheels.ackermann = std::clamp(tbl["wheels"]["ackermann"].value_or(cfg.wheels.ackermann), 0.f, 1.f);
-    cfg.gauges           = gauges_from_table(tbl, kGaugeDefaults);
-    WiperParams& w       = cfg.wipers;
-    const auto   wt      = tbl["wipers"];
-    w.lowWipesPerMin     = std::clamp(wt["low_wipes_per_min"].value_or(w.lowWipesPerMin), 1.f, 120.f);
-    w.highWipesPerMin    = std::clamp(wt["high_wipes_per_min"].value_or(w.highWipesPerMin), 1.f, 120.f);
-    w.dwellS             = std::clamp(wt["intermittent_dwell_s"].value_or(w.dwellS), 0.f, 30.f);
-    w.sweepDeg           = std::clamp(wt["sweep_deg"].value_or(w.sweepDeg), 30.f, 120.f);
-    w.ease               = std::clamp(wt["ease"].value_or(w.ease), 0.f, 1.f);
+    cfg.wheels.ackermann    = std::clamp(tbl["wheels"]["ackermann"].value_or(cfg.wheels.ackermann), 0.f, 1.f);
+    cfg.gauges              = gauges_from_table(tbl, kGaugeDefaults);
+    WiperParams& w          = cfg.wipers;
+    const auto   wt         = tbl["wipers"];
+    w.lowWipesPerMin        = std::clamp(wt["low_wipes_per_min"].value_or(w.lowWipesPerMin), 1.f, 120.f);
+    w.highWipesPerMin       = std::clamp(wt["high_wipes_per_min"].value_or(w.highWipesPerMin), 1.f, 120.f);
+    w.dwellS                = std::clamp(wt["intermittent_dwell_s"].value_or(w.dwellS), 0.f, 30.f);
+    w.sweepDeg              = std::clamp(wt["sweep_deg"].value_or(w.sweepDeg), 30.f, 120.f);
+    w.ease                  = std::clamp(wt["ease"].value_or(w.ease), 0.f, 1.f);
+    KeyboardSteerParams& k  = cfg.keyboardSteer;
+    const auto           kt = tbl["keyboard_steer"];
+    k.riseRate              = std::clamp(kt["rise_rate"].value_or(k.riseRate), 0.1f, 20.f);
+    k.returnRate            = std::clamp(kt["return_rate"].value_or(k.returnRate), 0.1f, 50.f);
+    k.gripGain              = std::clamp(kt["grip_gain"].value_or(k.gripGain), 0.25f, 5.f);
+    k.minDeg                = std::clamp(kt["min_deg"].value_or(k.minDeg), 0.f, 10.f);
     return cfg;
 }
 

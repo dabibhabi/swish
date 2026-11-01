@@ -7,7 +7,7 @@ All Vulkan rendering subsystems. Each lives in its own subdirectory and follows 
 | Directory | Class | Responsibility |
 |-----------|-------|----------------|
 | `Renderer/` | `Renderer` | Top-level facade; owns the Vulkan core, the shared subsystems and the pass registry; drives the frame. Split across `Renderer.cpp` (construction/init/cleanup/swapchain recreation, `init_passes`), `Renderer_Frame.cpp` (`drawFrame`: acquire, per-frame CPU work through the registry, record, submit, present), `Renderer_Record.cpp` (`recordCommandBuffer`: begin, `PassRegistry::record_all`, end) and `Renderer_State.cpp` (setters, debug-param apply, scene-geometry delegations). `RendererServices.h` is the short-lived handle bundle |
-| `Passes/` | `IRenderPass`, `PassRegistry`, `ImageRegistry`, `FullscreenPass<Push>` | The render-pass registry (see "Pass registry" below): `PassList.def` (the ordered list), `IRenderPass.h` (`FrameCtx`, `FrameUpdate`, `FrameState`, `PassResources`, `PassInitCtx`), `ImageRegistry.h` (`enum class Img`), `PassInputs.h` (declared sampler inputs, binding numbers from `bindings.glsl`), `FullscreenPass.h`, `ForwardPass.h`, and one `.cpp` per pass that has no folder of its own (`BloomPasses`, `CompositePass`, `GodRaysPass`, `SsrPass`, `SsaoPasses`, `LightingPass`, `HdrFinalizePass`, `DebugOverlayPass`) |
+| `Passes/` | `IRenderPass`, `PassRegistry`, `ImageRegistry`, `FullscreenPass<Push>` | The render-pass registry (see "Pass registry" below): `PassList.def` (the ordered list), `IRenderPass.h` (`FrameCtx`, `FrameUpdate`, `FrameState`, `PassResources`, `PassInitCtx`), `ImageRegistry.h` (`enum class Img`), `PassInputs.h` (declared sampler inputs, binding numbers from `bindings.glsl`), `FullscreenPass.h`, `ForwardPass.h`, and one `.cpp` per pass that has no folder of its own (`BloomPasses`, `CompositePass`, `GodRaysPass`, `SsrPass`, `SsaoPasses`, `LightingPass`, `HdrFinalizePass`) |
 | `GeometryProducer/` | `GeometryProducer` | The geometry producer (R4): owns the scene geometry (intro, road chunks, interchanges, corridor segments, the car), the G-buffer and depth-only pipelines and the CSM cascade fit. Its `record()` writes the shadow atlas, then the G-buffer, then the G-buffer -> lighting barriers. First entry of the pass list, but not an ordinary pass: the Renderer keeps its scene-upload API |
 | `WeatherController/` | `WeatherController` | Sun / clarity / HDRI look of the weather preset and the dirty-checked IBL rebake (R5); binds to `CameraUniforms`, `IBLManager` and (debug) `DebugParams` |
 | `Bindings.h` | `swish::bind` | Descriptor set / binding constants. Includes `shaders/common/bindings.glsl` (the single source, R7) and re-exports each number as a `constexpr` |
@@ -78,7 +78,7 @@ Frame order (release; debug-only passes in brackets, listed where they record):
 `Geometry` (shadow atlas, G-buffer, G-buffer -> lighting barriers) -> `Lighting` -> [`Ssao`, `AoBlur`, `Velocity`] ->
 `Ssr` -> `GodRays` -> [`Dof`] -> `SpraySim` (compute) -> `Rain` -> `SprayDraw` -> `Glass` -> `WindshieldRain` ->
 [`Taa`] -> `HdrFinalize` (luminance pyramid when auto-exposure is on, else the HDR -> SHADER_READ barrier) ->
-`BloomExtract` -> `BloomBlurH` -> `BloomBlurV` -> `Composite` -> [`DebugOverlay`].
+`BloomExtract` -> `BloomBlurH` -> `BloomBlurV` -> `Composite`. Debug controls render to a separate window and swapchain.
 
 | Type | Kind | Role |
 |------|------|------|

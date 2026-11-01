@@ -319,6 +319,12 @@ private:
     VkFramebuffer m_bloomBlurVFB   = VK_NULL_HANDLE;
 
     // ── AO images (shared, 1/2 resolution) ───────────────────────
+#ifdef SWISH_DEBUG_UI
+    // r = AO, g = scaled view depth for the depth-aware blur (ssao.frag / ao_blur.frag).
+    static constexpr VkFormat kAoFormat = VK_FORMAT_R16G16_SFLOAT;
+#else
+    static constexpr VkFormat kAoFormat = VK_FORMAT_R8_UNORM;  // release: primed white only (no SSAO pass)
+#endif
     GpuImage      m_aoImage;
     VkImageView   m_aoView = VK_NULL_HANDLE;
     VkFramebuffer m_aoFB   = VK_NULL_HANDLE;

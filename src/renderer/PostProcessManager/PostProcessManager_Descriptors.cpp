@@ -73,8 +73,8 @@ void PostProcessManager::createDescriptorPool() {
     // Descriptor pool (PP_MAX_FRAMES = 2) — single-texture sets (bloom-extract×PP_MAX_FRAMES + bloom blur×2 +
     // AO-depth×PP_MAX_FRAMES + AO-blur + SSR-HDR×PP_MAX_FRAMES + god-rays-HDR×PP_MAX_FRAMES = 11 sets, 1 sampler
     // each = 11) + 2 composite (5 samplers each = 10) + 2 lighting (5 samplers each = 10: albedo, normal,
-    // material, clearcoat+flake, depth) + 2 shadow (1 each = 2) = 17 sets, 33 samplers. Sized to
-    // 20 sets / 48 samplers for headroom.
+    // material, clearcoat+flake, depth; debug builds add SSAO = 12) + 2 shadow (1 each = 2) = 17 sets, 33 samplers
+    // (35 in debug). Sized to 20 sets / 48 samplers for headroom.
     m_descriptorPool = vkx::make_pool(m_device, {.maxSets = 20, .combinedImageSamplers = 48});
 }
 

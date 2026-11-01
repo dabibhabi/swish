@@ -1,5 +1,7 @@
 #pragma once
 
+#include "utils/meta/Concepts.h"
+
 #include <cstdint>
 #include <cstdio>
 #include <stdexcept>
@@ -116,7 +118,7 @@ struct CorridorLandmark {
 
 #pragma pack(pop)
 
-static_assert(std::is_trivially_copyable_v<CorridorHeader>);
+static_assert(swish::util::meta::TriviallyPackable<CorridorHeader>);
 static_assert(sizeof(CorridorHeader) == 136, "CorridorHeader must match tools/lie_corridor.py");
 static_assert(sizeof(CorridorStation) == 28, "CorridorStation must match tools/lie_corridor.py");
 static_assert(sizeof(CorridorLandmark) == 16, "CorridorLandmark must match tools/lie_corridor.py");

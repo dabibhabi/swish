@@ -25,20 +25,33 @@ void CarEntity::apply_profile(const CarProfile& profile) {
 #endif
 }
 
-void CarEntity::handle_input(GLFWwindow* window, float dt) {
-    // Keyboard -> InputFrame (arrow keys so WASD camera remains independent), then the
-    // shared apply path. UP wins over DOWN; LEFT wins over RIGHT (unchanged precedence).
+void CarEntity::handle_input(GLFWwindow* window, float dt) { apply_input_frame(keyboard_input_frame(window, dt), dt); }
+
+InputFrame CarEntity::keyboard_input_frame(GLFWwindow* window, float dt) {
+    // Arrow keys so the WASD free-fly camera stays independent.
+    KeyboardKeys k;
+    k.up    = glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS;
+    k.down  = glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS;
+    k.left  = glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS;
+    k.right = glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS;
+    return keyboard_input_frame(k, dt);
+}
+
+InputFrame CarEntity::keyboard_input_frame(const KeyboardKeys& keys, float dt) {
     InputFrame f;
-    f.steer_mode = SteerMode::Rate;
-    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+    f.steer_mode = SteerMode::Target;
+    if (keys.up)
         f.throttle = 1.f;
-    else if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+    else if (keys.down)
         f.brake = 1.f;
-    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-        f.steer = -1.f;
-    else if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
-        f.steer = 1.f;
-    apply_input_frame(f, dt);
+
+    m_key_stick       = keyboard_stick_step(m_key_stick, keyboard_steer_dir(keys), dt, m_key_steer);
+    const float lock  = m_profile.steerLockDeg;
+    const float vMps  = std::abs(m_forward_speed) / kWorldUnitsPerMeter;
+    const float limit = keyboard_steer_limit_deg(vMps, m_effective_mu, m_profile.car.wheelbase, m_profile.car.gravity,
+                                                 lock, m_key_steer);
+    f.steer           = lock > 0.f ? m_key_stick * limit / lock : 0.f;
+    return f;
 }
 
 void CarEntity::apply_input_frame(const InputFrame& f, float dt) {

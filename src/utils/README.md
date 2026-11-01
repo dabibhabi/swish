@@ -25,8 +25,11 @@ Generic helpers with no subsystem state, organised **by topic**. One folder per 
 | | `GlmTypes.h` | `vec2/3/4`, `mat3/4`, `quat` plus the legacy `Vec3` / `Mat4` aliases (`swish::`). |
 | | `StdTypes.h` | `u8..u64`, `i8..i64`, `f32`, `f64`, `usize` (`swish::`). |
 | | `GlfwTypes.h` | `glfw_window` forward declaration, no GLFW include. |
-| `units/` | `Units.h` | The one definition of `1 m = 1000 WU`: `kWuPerMetre`, `kWuPerFt`, `m()`, `ft()`, `to_m()`, `to_ft()`, `kPi`, `kTwoPi`. |
-| `math/` | `Smoothing.h` | `exp_smooth`, `exp_smooth_angle_deg`: framerate-independent easing. |
+| `units/` | `Quantity.h` | `Quantity<Tag>`: zero-cost strong float (`Metres`, `Seconds`, `Degrees`, `Rpm`, `Wu` ...). API boundaries only, never inside hot expressions (FMA rule). |
+| | `Units.h` | The one definition of `1 m = 1000 WU`: `kWuPerMetre`, `kWuPerFt`, `m()`, `ft()`, `to_m()`, `to_ft()`, `kPi`, `kTwoPi`, plus the typed `to_wu` / `to_metres` / `to_radians` / `to_degrees`. |
+| `fsm/` | `Fsm.h` | Table-driven finite state machine, actions returned as data: `make_machine`, constexpr `step` / `enter`, `validate` (shadowed rows, unreachable states, unhandled events). No user yet (first: gearbox, tutorial ch. 05). |
+| `math/` | `Angle.h` | `wrap_2pi`, `shortest_delta_deg`, `wrap_heading_deg_legacy` (range (-540, 180), pinned by the car golden), `wrap_deg_180`. |
+| | `Smoothing.h` | `exp_smooth`, `exp_smooth_angle_deg`: framerate-independent easing. |
 | | `Noise.h` | `quasi_noise`: three-sine camera-shake signal in [-1, 1]. |
 | | `Hash.h` | `hash01(int)`: integer hash to [0, 1] (per-tree jitter). |
 | | `Sequences.h` | `halton(index, base)`: TAA jitter sequence. |
@@ -34,7 +37,8 @@ Generic helpers with no subsystem state, organised **by topic**. One folder per 
 | | `Polyline.h` | `polyline_length`, `polyline_sample` (arc-length position + tangent). |
 | `color/` | `Color.h` | `rgba(const float*)` to `glm::vec4`. |
 | `container/` | `VectorOps.h` | `affine(vec, k, bias)`, `filled(n, v)` for `std::vector<float>`. |
-| `meta/` | `EnumCycle.h` | `CountedEnum` concept, `enum_count<E>()`, `next_enum(e)`. |
+| `meta/` | `EnumCycle.h` | `CountedEnum` concept (scoped enums only), `enum_count<E>()`, `next_enum(e)`. |
+| | `Concepts.h` | `IndexEnum`, `FsmState` / `FsmEvent` / `FsmAction`, `TriviallyPackable` (push blocks, UBO mirrors, on-disk structs). Std-only: `RoadConfig.h` includes it and `toml_baker` builds it. |
 | | `Tags.h` | Tag dispatch: empty `swish::tag::flag_t` / `real_t` (objects `tag::flag`, `tag::real`) that pick an overload at compile time; `is_tag_v`. First user: `debug/Tunables.h` `visit`. |
 | `physics/` | `RigidBody.h` | Generic 6-DOF rigid body (SI units): force/torque accumulators, semi-implicit Euler with angular momentum carried; `euler_yxz_from_rotation`. Stub chassis user: `scene/Entity/RigidChassis.h`. |
 | `io/` | `File.h` / `File.cpp` | `read_binary(path)`: whole-file read, throws on failure. |

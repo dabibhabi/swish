@@ -12,7 +12,6 @@
 #include "scene/SceneTypes.h"
 #include "utils/vulkan/Check.h"
 #include "utils/vulkan/Init.h"
-
 #include <memory>
 
 namespace swish {

@@ -53,14 +53,23 @@ inline constexpr std::array<SamplerInput, 5> kCompositeInputs{{
 static_assert(bindings_dense(kCompositeInputs), "composite inputs must be bindings 0..N-1");
 
 // lighting.frag set 1 (also set 0 of ssr.frag / godrays.frag, which declare bindings 0-3 only): the G-buffer.
-// Depth stays at binding 3 and is sampled in DEPTH_STENCIL_READ_ONLY.
+// Depth stays at binding 3 and is sampled in DEPTH_STENCIL_READ_ONLY. Debug builds append the blurred SSAO at
+// binding 5 (SSAO runs before Lighting there, which applies it to the indirect terms only).
+#ifdef SWISH_DEBUG_UI
+inline constexpr std::array<SamplerInput, 6> kGBufferInputs {
+    {
+#else
 inline constexpr std::array<SamplerInput, 5> kGBufferInputs{{
-    {Img::GbAlbedo, bind::kBindGbAlbedo},
-    {Img::GbNormal, bind::kBindGbNormal},
-    {Img::GbMaterial, bind::kBindGbMaterial},
-    {Img::HdrDepth, bind::kBindGbDepth, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
-    {Img::GbClearcoat, bind::kBindGbClearcoatFlake},
-}};
+#endif
+        {Img::GbAlbedo, bind::kBindGbAlbedo}, {Img::GbNormal, bind::kBindGbNormal},
+            {Img::GbMaterial, bind::kBindGbMaterial},
+            {Img::HdrDepth, bind::kBindGbDepth, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
+            {Img::GbClearcoat, bind::kBindGbClearcoatFlake},
+#ifdef SWISH_DEBUG_UI
+            {Img::AoBlur, bind::kBindGbAo},
+#endif
+    }
+};
 static_assert(bindings_dense(kGBufferInputs), "G-buffer inputs must be bindings 0..N-1");
 
 }  // namespace swish

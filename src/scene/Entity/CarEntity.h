@@ -5,8 +5,9 @@
 #include "CarProfile.h"  // CarProfile: per-car physics (992 Turbo S default, 993 RS)
 #include "CarRig.h"      // CarRigGeometry (named-rig loader measurements)
 #include "Entity.h"
-#include "GaugeNeedles.h"  // GaugeParams / GaugeState (named-rig dial needles)
-#include "RigidChassis.h"  // PhysicsModel + the 6-DOF chassis (debug-only alternative to the bicycle)
+#include "GaugeNeedles.h"   // GaugeParams / GaugeState (named-rig dial needles)
+#include "KeyboardSteer.h"  // KeyboardSteerParams / KeyboardKeys (smoothed, speed-limited keyboard steer)
+#include "RigidChassis.h"   // PhysicsModel + the 6-DOF chassis (debug-only alternative to the bicycle)
 #include "SlipVisuals.h"
 #include "WheelKinematics.h"            // CornerSpring (Phase-B suspension state)
 #include "WiperBlade.h"                 // WiperBlade (rigged wiper arms, S1b)
@@ -29,12 +30,18 @@ namespace swish {
 
 class CarEntity : public ModelEntity {
 public:
-    // Process keyboard input each frame before calling update().
+    // Process keyboard input each frame before calling update(): keyboard_input_frame + apply_input_frame.
     void handle_input(GLFWwindow* window, float dt);
 
-    // Device-agnostic input seam (keyboard, gamepad, replay, bench). handle_input() builds a
-    // SteerMode::Rate frame from the arrow keys and calls this, so the keyboard path is
-    // bit-identical to before. Sets throttle/brake/reverse intent and moves the steering angle.
+    // Arrow keys -> a SteerMode::Target frame (KeyboardSteer.h): a held key ramps a virtual stick, and
+    // full stick is capped near the grip-limited steer angle for the current speed and mu. Stateful
+    // (advances the stick by dt), so call it once per frame. The GLFW overload just reads the keys.
+    InputFrame keyboard_input_frame(GLFWwindow* window, float dt);
+    InputFrame keyboard_input_frame(const KeyboardKeys& keys, float dt);
+    void       set_keyboard_steer(const KeyboardSteerParams& p) { m_key_steer = p; }
+
+    // Device-agnostic input seam (keyboard, gamepad, replay, bench). Sets throttle/brake/reverse intent
+    // and moves the steering angle (SteerMode::Rate keeps the legacy fixed-rate keyboard behaviour).
     void apply_input_frame(const InputFrame& frame, float dt);
 
     // Advance physics: drag → steering yaw rate → position integration.
@@ -361,6 +368,10 @@ private:
     float m_throttle = 0.f;    // [0,1]
     float m_brake    = 0.f;    // [0,1]
     bool  m_reverse  = false;  // DOWN held while ~stopped → creep backward
+
+    // Keyboard virtual stick in [-1, 1] and its tuning (config/car.toml [keyboard_steer]).
+    float               m_key_stick = 0.f;
+    KeyboardSteerParams m_key_steer = kKeyboardSteerDefaults;
 
     // Auto-shift state (Wave 2 step 3b, CarPhysics.h) over the profile's gearbox
     // (7-speed PDK on the 992). Advanced each frame by gearbox_shift_step(); starts in 1st.

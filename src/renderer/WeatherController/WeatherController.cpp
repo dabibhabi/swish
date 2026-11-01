@@ -4,6 +4,9 @@
 #include "debug/DebugParams.h"
 #include "renderer/CameraUniforms/CameraUniforms.h"
 #include "renderer/IBLManager/IBLManager.h"
+#ifdef SWISH_DEBUG_UI
+#include "renderer/IBLManager/HdriCatalog.h"
+#endif
 
 #include <glm/glm.hpp>
 #include <string>
@@ -50,7 +53,11 @@ void WeatherController::set_preset(WeatherPreset preset) {
     m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(m_sunColor, look.ambient), m_clarity);
 
     if (m_ibl) {
-        const std::string path = util::paths::asset_dir() + "Sky/" + std::string(weather_preset_hdri_file(preset));
+        const std::string_view file = weather_preset_hdri_file(preset);
+        const std::string      path = util::paths::asset_dir() + "Sky/" + std::string(file);
+#ifdef SWISH_DEBUG_UI
+        const int hdriIndex = hdri_option_index(file);
+#endif
         if (!m_ibl->set_hdri(path, look.hdriExposure, look.hdriYaw)) {
             // Missing asset -> procedural bake with the sun/clarity we just set.
             m_bakedSunDir   = Vec3(1e9f);
@@ -58,6 +65,9 @@ void WeatherController::set_preset(WeatherPreset preset) {
             m_bakedSunColor = Vec3(-1.0f);
             maybe_rebake_ibl();
         } else {
+#ifdef SWISH_DEBUG_UI
+            m_activeHdriIndex = hdriIndex;
+#endif
             m_bakedSunDir   = m_sunDir;
             m_bakedClarity  = m_clarity;
             m_bakedSunColor = m_sunColor;
@@ -68,6 +78,11 @@ void WeatherController::set_preset(WeatherPreset preset) {
     if (m_debug) {
         m_debug->clarity  = m_clarity;
         m_debug->sunColor = m_sunColor;
+        const int presetHdriIndex = hdri_option_index(weather_preset_hdri_file(preset));
+        if (presetHdriIndex >= 0) {
+            m_activeHdriIndex        = presetHdriIndex;
+            m_debug->environmentHdri = presetHdriIndex;
+        }
     }
 #endif
 }
@@ -110,6 +125,12 @@ void WeatherController::apply_debug(const DebugParams& d) {
     m_clarity  = d.clarity;
     m_sunColor = d.sunColor;
     m_cameraUniforms->set_weather(Vec4(m_sunDir, 1.0f), Vec4(m_sunColor, d.sunAmbient), m_clarity);
+    const int hdriIndex = glm::clamp(d.environmentHdri, 0, static_cast<int>(kHdriOptions.size()) - 1);
+    if (m_ibl && hdriIndex != m_activeHdriIndex) {
+        const HdriOption& option = kHdriOptions[hdriIndex];
+        const std::string path   = util::paths::asset_dir() + "Sky/" + std::string(option.file);
+        if (m_ibl->set_hdri(path, option.exposure, option.yaw)) m_activeHdriIndex = hdriIndex;
+    }
     // Re-bake the sky cubemaps if the weather changed (dirty-checked; only on change).
     maybe_rebake_ibl();
 }

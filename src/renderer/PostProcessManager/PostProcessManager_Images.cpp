@@ -14,7 +14,7 @@ namespace swish {
 void PostProcessManager::createImages() {
     VkFormat hdrFormat   = VK_FORMAT_R16G16B16A16_SFLOAT;
     VkFormat depthFormat = resource::findDepthFormat(m_physicalDevice);
-    VkFormat aoFormat    = VK_FORMAT_R8_UNORM;
+    VkFormat aoFormat    = kAoFormat;
 
     auto makeColorImage = [&](uint32_t w, uint32_t h, VkFormat fmt, GpuImage& img, VkImageView& view,
                               VkImageUsageFlags extraUsage = 0) {

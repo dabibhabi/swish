@@ -20,11 +20,12 @@
 // vulkan headers
 #include <vulkan/vulkan.h>
 // stl headers
-#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <vector>
+#include <string>
+
 
 namespace swish {
 
@@ -127,19 +128,8 @@ public:
 
     // Per-wheel spray emitters -> SpraySystem::set_emitters (count 0 / nullptr = legacy single rear-axle origin).
     void set_spray_emitters(const SprayEmitter* emitters, uint32_t count);
-    // S4/S5 status for the debug UI (plain data, read-only). Hot-reload: status(), log(), enabled(); toggle with
-    // set_shader_hot_reload_enabled. Declarations: what each pass reads/writes (list order) + the validator's warnings
-    // computed once after init_all.
-    const ShaderHotReload&               shader_hot_reload() const { return m_shaderReload; }
-    void                                 set_shader_hot_reload_enabled(bool e) { m_shaderReload.set_enabled(e); }
-    const std::vector<NamedDeclaration>& pass_declarations() const { return m_passDecls; }
-    const std::vector<std::string>&      pass_declaration_warnings() const { return m_declWarnings; }
-
-    // S2: per-pass GPU timings (plain data; snapshot().supported == false when timestamps are unavailable).
-    const GpuProfileSnapshot& gpu_profile() const { return m_gpuProfiler.snapshot(); }
-    // S3: request a frame dump (F12). hdr also writes the float scene colour as .pfm. Status/last path for the UI.
-    void                 request_capture(bool hdr) { m_frameCapture.request(hdr); }
-    const CaptureStatus& capture_status() const { return m_frameCapture.status(); }
+    // S3: request a frame dump (F12). hdr also writes the float scene colour as .pfm.
+    void request_capture(bool hdr) { m_frameCapture.request(hdr); }
 #endif
 
     void update_glass_draw_calls(const std::vector<DrawCall>& glassDCs);

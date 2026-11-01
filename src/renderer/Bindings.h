@@ -30,6 +30,7 @@ inline constexpr uint32_t kBindGbNormal         = BIND_GB_NORMAL;
 inline constexpr uint32_t kBindGbMaterial       = BIND_GB_MATERIAL;
 inline constexpr uint32_t kBindGbDepth          = BIND_GB_DEPTH;
 inline constexpr uint32_t kBindGbClearcoatFlake = BIND_GB_CLEARCOAT_FLAKE;
+inline constexpr uint32_t kBindGbAo             = BIND_GB_AO;  // debug builds only (SSAO)
 
 // set 2: shadow map (CSM atlas)
 inline constexpr uint32_t kSetShadow     = SET_SHADOW;

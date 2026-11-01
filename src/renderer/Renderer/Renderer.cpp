@@ -18,7 +18,7 @@
 #include "scene/Camera/Camera.h"
 #include "utils/types/Types.h"
 
-#include <array>
+
 #include <cstdio>
 
 namespace swish {

@@ -1,8 +1,10 @@
-// SSAO + bilateral AO blur (debug realism feature). Runs at 1/2 render resolution into the AO images the composite
-// multiplies in. Depth is sampled in DEPTH_STENCIL_READ_ONLY (the layout the lighting pass left it in). Each pass ends
-// in COLOR_ATTACHMENT and is barriered to SHADER_READ, mirroring the bloom chain. When SSAO is toggled off the
-// intensity is forced to 0, so the shader outputs 1.0 (no darkening) rather than leaving a stale AO in the image.
-// Release keeps the primed-white AO image (composite `hdr *= ao` is a no-op), so these passes are debug-only.
+// SSAO + depth-aware AO blur (debug realism feature). Runs at 1/2 render resolution right after Geometry, into the
+// AO images Lighting samples (set 1 binding 5) and applies to the indirect terms only. Depth is sampled in
+// DEPTH_STENCIL_READ_ONLY (the layout Geometry left it in). The AO images are R16G16_SFLOAT here: r = AO, g = scaled
+// view depth, which the blur uses to stop at silhouettes. Each pass ends in COLOR_ATTACHMENT and is barriered to
+// SHADER_READ, mirroring the bloom chain. When SSAO is toggled off the intensity is forced to 0, so the shader outputs
+// 1.0 (no darkening) rather than leaving a stale AO in the image. Release keeps the primed-white AO image (composite
+// `hdr *= ao` is a no-op), so these passes are debug-only.
 #ifdef SWISH_DEBUG_UI
 
 #include "debug/DebugParams.h"
@@ -48,7 +50,7 @@ protected:
     }
 };
 
-// Bilateral blur: raw AO -> smoothed AO (sampled by composite). No push block.
+// Depth-aware blur: raw AO -> smoothed AO (sampled by Lighting). No push block.
 class AoBlurPass final : public FullscreenPass<NoPush> {
 public:
     const char* name() const override { return "AoBlur"; }

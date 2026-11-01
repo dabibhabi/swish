@@ -57,6 +57,9 @@ private:
     Vec3  m_bakedSunDir   = Vec3(1e9f);
     float m_bakedClarity  = -1.0f;
     Vec3  m_bakedSunColor = Vec3(-1.0f);
+#ifdef SWISH_DEBUG_UI
+    int m_activeHdriIndex = -1;
+#endif
 };
 
 }  // namespace swish

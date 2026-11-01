@@ -216,10 +216,6 @@ void RainSystem::cleanup(VkDevice device) {
         m_rainLayout = VK_NULL_HANDLE;
     }
 
-    // Far descriptor sets need no explicit free — they are released when m_descPool
-    // is destroyed above; m_rainLayout is shared with the near sets.
-    // RAII (VMA): reset frees each buffer + its sub-allocation (persistent maps
-    // are released by vmaDestroyBuffer — no manual vkUnmapMemory).
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         m_rainUBOs[i].reset();
         m_rainUBOsFar[i].reset();
@@ -240,7 +236,6 @@ void RainSystem::cleanup(VkDevice device) {
 // ── Private helpers ────────────────────────────────────────────────────
 
 void RainSystem::createRenderPass(VkDevice device) {
-    // HDR colour LOAD (preserve the deferred lighting output) + read-only scene depth; see ForwardPass.h.
     m_renderPass = make_forward_hdr_pass(device, m_depthFormat);
 }
 
