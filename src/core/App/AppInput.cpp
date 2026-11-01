@@ -55,6 +55,7 @@ void App::init_key_bindings() {
         {GLFW_KEY_V, {}, &App::on_cycle_wiper},
         {GLFW_KEY_G, {}, &App::on_cycle_weather},
 #ifdef SWISH_DEBUG_UI
+        {GLFW_KEY_F2, {}, &App::on_toggle_debug_controls},
         {GLFW_KEY_GRAVE_ACCENT, {}, &App::on_toggle_debug_edit},
         {GLFW_KEY_F12, {}, &App::on_capture_frame},
 #endif
@@ -85,6 +86,19 @@ void App::on_cycle_weather() { set_weather_preset(next_weather_preset(weather_pr
 #ifdef SWISH_DEBUG_UI
 
 void App::on_toggle_debug_edit() { set_debug_edit_mode(!m_debug_edit_mode); }
+
+void App::on_toggle_debug_controls() { m_renderer->toggle_debug_controls_window(); }
+
+void App::on_controls_key(int key, int action) {
+    const bool down = action != GLFW_RELEASE;
+    switch (key) {
+        case GLFW_KEY_I: m_controlsKeyboard.up = down; break;
+        case GLFW_KEY_K: m_controlsKeyboard.down = down; break;
+        case GLFW_KEY_J: m_controlsKeyboard.left = down; break;
+        case GLFW_KEY_L: m_controlsKeyboard.right = down; break;
+        default: break;
+    }
+}
 
 void App::on_capture_frame() {
     GLFWwindow* w = m_window->getHandle();

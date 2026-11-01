@@ -179,8 +179,18 @@ void App::step_car_simulation(float dt, bool debug_edit) {
         if (!step_driving_tools(dt))  // gamepad / record / replay; false = the unchanged keyboard path
 #endif
         {
+#ifdef SWISH_DEBUG_UI
+            if (m_controlsKeyboard.up || m_controlsKeyboard.down || m_controlsKeyboard.left ||
+                m_controlsKeyboard.right) {
+                const InputFrame input = m_car->keyboard_input_frame(m_controlsKeyboard, dt);
+                m_car->apply_input_frame(input, dt);
+                m_car->update(dt);
+            } else
+#endif
+            {
             m_car->handle_input(m_window->getHandle(), dt);
             m_car->update(dt);
+            }
         }
     }
 
@@ -203,7 +213,10 @@ void App::step_car_simulation(float dt, bool debug_edit) {
     // Finite real corridor: origin rebase, visible-segment window,
     // corridor-space lateral clamp, terminus stops. Replaced the
     // treadmill's chunk/interchange windows and ribbon-follower.
-    m_corridor.update(*m_car, *m_renderer, dt, debug_edit);
+#ifdef SWISH_DEBUG_UI
+    if (!m_lookdevMode)
+#endif
+        m_corridor.update(*m_car, *m_renderer, dt, debug_edit);
 
     // Phase-B quarter-car suspension (archive/docs/wheels/phase-b-spec.md): a LATE
     // update run after the corridor update so the body's Y-snap and any

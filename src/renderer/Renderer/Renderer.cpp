@@ -193,7 +193,7 @@ RendererServices Renderer::services() const {
 // Camera
 // ══════════════════════════════════════════════════════════════════════
 
-void Renderer::set_camera(Camera* camera) { m_camera.reset(camera); }
+void Renderer::set_camera(std::unique_ptr<Camera> camera) { m_camera = std::move(camera); }
 
 Camera* Renderer::get_camera() const { return m_camera.get(); }
 

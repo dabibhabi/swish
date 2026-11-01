@@ -98,8 +98,8 @@ public:
 
     void rebuild_material_descriptors();
 
-    void    set_camera(Camera* camera);
-    Camera* get_camera() const;
+    void    set_camera(std::unique_ptr<Camera> camera);  // takes ownership
+    Camera* get_camera() const;                          // non-owning view; the Renderer keeps ownership
 
     void set_scene_lights(const std::vector<LightDesc>& lights);
     void set_car_spot_lights(const std::vector<SpotLightDesc>& spots);

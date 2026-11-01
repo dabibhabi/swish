@@ -10,6 +10,7 @@
 #include "scene/Entity/CarEntity.h"
 #include "scene/ModelManager/ModelManager.h"
 #include "scene/RoadGeometry/RoadGeometry.h"
+#include "scene/RoadScene/MeshBuilder.h"
 #include "scene/SceneManager/SceneManager.h"
 
 #include <GLFW/glfw3.h>
@@ -46,6 +47,10 @@ std::vector<uint8_t> make_rumble_pixels(uint32_t w, uint32_t h) {
 }  // namespace
 
 void App::init() {
+#ifdef SWISH_DEBUG_UI
+    if (const char* lookdev = std::getenv("SWISH_LOOKDEV"))
+        m_lookdevMode = lookdev[0] != '\0' && lookdev[0] != '0';
+#endif
     // Road geometry math lives in RoadGeometry (pure, static); the drivable road
     // and its per-frame update live in m_corridor (CorridorDriver).
     init_window_and_renderer();
@@ -68,7 +73,12 @@ void App::init() {
 
 void App::init_window_and_renderer() {
     m_window = std::make_unique<Window>();
+#ifdef SWISH_DEBUG_UI
+    m_window->init(m_lookdevMode ? 1440 : 800, m_lookdevMode ? 900 : 600,
+                   m_lookdevMode ? "swish - lighting workbench" : "swish");
+#else
     m_window->init(800, 600, "swish");
+#endif
 
     m_renderer = std::make_unique<Renderer>();
     m_renderer->init(*m_window);
@@ -85,7 +95,7 @@ void App::init_window_and_renderer() {
 
 #ifdef SWISH_DEBUG_UI
     // ImGui must init AFTER our GLFW callbacks above — its backend chains onto them.
-    m_renderer->debug_init();
+    m_renderer->debug_init([this](int key, int action) { on_controls_key(key, action); });
 #endif
 }
 
@@ -144,7 +154,7 @@ void App::build_road_scene(Renderer& renderer) {
     std::cout << "[corridor] " << segments.size() << " segments, " << corridorDraws << " draw calls" << std::endl;
 
     // Setup POV camera on the eastbound LIE
-    auto* camera = new Camera();
+    auto camera = std::make_unique<Camera>();
     camera->set_position(Vec3(6501.0f, 1448.0f, -5000.0f));
     camera->set_yaw(-90.0f);   // looking along -Z (down the road)
     camera->set_pitch(-3.0f);  // slight downward driving angle
@@ -161,12 +171,16 @@ void App::build_road_scene(Renderer& renderer) {
     // Single source of truth for the cockpit FOV-kick's "rest" value
     // (F1) — read back rather than duplicating the 65.0f literal.
     m_camera_ctl.set_base_fov(camera->get_fov());
-
-    renderer.set_camera(camera);
+    renderer.set_camera(std::move(camera));
 }
 
 void App::init_scenes() {
     std::vector<Scene> scenes;
+#ifdef SWISH_DEBUG_UI
+    if (m_lookdevMode)
+        scenes.push_back([this](Renderer& renderer) { build_lookdev_scene(renderer); });
+    else
+#endif
     scenes.push_back([this](Renderer& renderer) { build_road_scene(renderer); });
 
     m_sceneManager = std::make_unique<SceneManager>(*m_renderer, std::move(scenes));
@@ -174,6 +188,49 @@ void App::init_scenes() {
     // Activate first scene
     m_sceneManager->set_active_scene(0);
 }
+
+#ifdef SWISH_DEBUG_UI
+namespace {
+// The first-launch studio pad is kept intact in width, material, and camera.
+// Extend only its drive axis; the car is clamped before the far-plane horizon.
+constexpr float kLookdevBaseRoadHalfLengthWU = 250000.0f;
+constexpr float kLookdevRoadScale = 5.0f;
+constexpr float kLookdevRoadHalfLengthWU = kLookdevBaseRoadHalfLengthWU * kLookdevRoadScale;
+constexpr float kLookdevRoadHalfWidthWU = 250000.0f;
+constexpr float kLookdevCameraFarWU = 600000.0f;
+constexpr float kLookdevRoadEndMarginWU = 50000.0f;
+constexpr float kLookdevDriveHalfLengthWU =
+    kLookdevRoadHalfLengthWU - kLookdevCameraFarWU - kLookdevRoadEndMarginWU;
+static_assert(kLookdevRoadScale == 5.0f && kLookdevDriveHalfLengthWU > 0.0f);
+static_assert(kLookdevRoadHalfLengthWU - kLookdevDriveHalfLengthWU > kLookdevCameraFarWU);
+}  // namespace
+
+// A simple, drivable studio pad that keeps the full car/material/lighting path
+// while skipping the LIE asset, corridor, and road scene setup.
+void App::build_lookdev_scene(Renderer& renderer) {
+    RoadGeometry::set_flat_surface(0.0f);
+
+    MeshData mesh;
+    std::vector<DrawCall> draws;
+    MeshBuilder builder(mesh, draws);
+    builder.addHorizontalQuad(-kLookdevRoadHalfLengthWU, kLookdevRoadHalfLengthWU, 0.0f, -kLookdevRoadHalfWidthWU,
+                              kLookdevRoadHalfWidthWU, Vec3(0.0f, 1.0f, 0.0f),
+                              Vec4(0.26f, 0.28f, 0.31f, 1.0f), MAT_ASPHALT, 20000.0f);
+    renderer.upload_scene_geometry(mesh, draws);
+
+    auto camera = std::make_unique<Camera>();
+    camera->set_position(Vec3(-6500.0f, 2200.0f, 0.0f));
+    camera->set_yaw(0.0f);
+    camera->set_pitch(-7.0f);
+    camera->set_collision_enabled(false);
+    const VkExtent2D extent = renderer.services().swapchainExtent;
+    const float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
+    camera->set_perspective(55.0f, aspect, 10.0f, kLookdevCameraFarWU);
+    m_camera_ctl.set_base_fov(camera->get_fov());  // read before the move
+    renderer.set_camera(std::move(camera));
+    m_camera_ctl.set_mode(CameraMode::Chase);
+}
+#endif
 
 // Load the car (the rigged 993 Carrera RS unless SWISH_CAR names another GLB) and upload it.
 void App::load_car() {
@@ -195,6 +252,7 @@ void App::load_car() {
     const CarConfig car_cfg = CarConfig::load(util::paths::config_dir() + "car.toml");
     car_entity->set_ackermann(car_cfg.wheels.ackermann);
     car_entity->set_gauge_params(car_cfg.gauges);
+    car_entity->set_keyboard_steer(car_cfg.keyboardSteer);
     m_wiper_params = car_cfg.wipers;
 #ifdef SWISH_DEBUG_UI
     {
@@ -219,12 +277,18 @@ void App::load_car() {
     car_entity->set_scale(Vec3(1000.f, 1000.f, 1000.f));
     m_car = std::move(car_entity);
 
-    // Position/heading/lane come from the corridor's west end (the
-    // Queens-Midtown Tunnel portal) rather than a hardcoded pose — a real
-    // alignment starts wherever OSM says it starts, and its heading there
-    // is not axis-aligned. This also opens the car's world-X clamp: the
-    // lateral limit is a corridor-space quantity now (CorridorDriver).
-    m_corridor.place_at_start(*m_car);
+#ifdef SWISH_DEBUG_UI
+    if (m_lookdevMode) {
+        m_car->set_position(Vec3(0.0f));
+        m_car->set_rotation(Vec3(0.0f));
+        m_car->set_road_bounds(-kLookdevDriveHalfLengthWU, kLookdevDriveHalfLengthWU);
+    } else
+#endif
+    {
+        // Position/heading/lane come from the corridor's west end rather than
+        // a hardcoded pose. Corridor bounds own the lateral clamp.
+        m_corridor.place_at_start(*m_car);
+    }
 
     // Rebuild material descriptors to include the car's textures.
     m_renderer->rebuild_material_descriptors();

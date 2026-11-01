@@ -7,6 +7,7 @@
 #include "scene/WeatherPreset.h"
 #include "utils/input/InputFrame.h"
 #ifdef SWISH_DEBUG_UI
+#include "scene/Entity/KeyboardSteer.h"
 #include "renderer/WindshieldRainPass/LensWetness.h"  // debug-only CPU lamp-lens wetness model
 #endif
 
@@ -95,9 +96,10 @@ private:
     WeatherPreset m_weather_preset = WeatherPreset::PartlyCloudy;
 
 #ifdef SWISH_DEBUG_UI
-    // Debug edit-mode (backtick `): frees the cursor for the ImGui panel and
-    // freezes the sim so you can tune a static frame.
+    // Optional pause state, toggled from the detached controls window or backtick.
     bool m_debug_edit_mode = false;
+    bool m_lookdevMode = false;
+    KeyboardKeys m_controlsKeyboard{};
 
     // Driving tools (AppDrivingTools.cpp): lazily created on first use; with the panel at its
     // defaults (keyboard, no record/replay) neither is touched and handle_input() drives the car.
@@ -122,6 +124,9 @@ private:
     void init_window_and_renderer();            // Window, Renderer, GLFW callbacks, ImGui (debug)
     void init_textures();                       // material textures + 1x1 defaults + rumble strip
     void build_road_scene(Renderer& renderer);  // Scene callback: corridor alignment/segments + POV camera
+#ifdef SWISH_DEBUG_UI
+    void build_lookdev_scene(Renderer& renderer);  // small car studio for live lighting work
+#endif
     void init_scenes();                         // SceneManager + activate scene 0
     void load_car();                            // SWISH_CAR override, corridor start pose, dynamic geometry
     void init_key_bindings();
@@ -158,6 +163,8 @@ private:
     void on_cycle_weather();
 #ifdef SWISH_DEBUG_UI
     void on_toggle_debug_edit();
+    void on_toggle_debug_controls();
+    void on_controls_key(int key, int action);
     void on_capture_frame();  // F12: dump the frame to build-debug/captures/ (Shift also dumps the HDR scene colour)
     // The one writer of edit mode: frees/captures the cursor and freezes the sim.
     void set_debug_edit_mode(bool edit);

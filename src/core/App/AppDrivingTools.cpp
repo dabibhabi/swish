@@ -24,22 +24,6 @@ namespace swish {
 
 namespace {
 
-// Same key mapping and precedence as CarEntity::handle_input (used only while recording a keyboard
-// drive, where the InputFrame itself is needed): UP over DOWN, LEFT over RIGHT, steer Rate mode.
-InputFrame keyboard_frame(GLFWwindow* window) {
-    InputFrame f;
-    f.steer_mode = SteerMode::Rate;
-    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
-        f.throttle = 1.f;
-    else if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
-        f.brake = 1.f;
-    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-        f.steer = -1.f;
-    else if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
-        f.steer = 1.f;
-    return f;
-}
-
 template <std::size_t N>
 void set_text(char (&dst)[N], const char* src) {
     std::snprintf(dst, N, "%s", src ? src : "");
@@ -69,7 +53,7 @@ bool App::step_driving_tools(float dt) {
         m_gamepad->config().steer_expo     = dp.drvExpo;
         f                                  = m_gamepad->sample(dt);
     } else {
-        f = keyboard_frame(m_window->getHandle());
+        f = m_car->keyboard_input_frame(m_window->getHandle(), dt);  // recording a keyboard drive
     }
 
     m_car->apply_input_frame(f, dt);
