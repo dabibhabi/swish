@@ -1,0 +1,11 @@
+{
+  "retrotrace.explorer.showRefs": true,
+  "retrotrace.explorer.showExternal": true,
+  "files.associations": {
+    "*.vert": "glsl",
+    "*.frag": "glsl",
+    "*.geom": "glsl",
+    "*.comp": "glsl",
+    "*.glsl": "glsl"
+  }
+}

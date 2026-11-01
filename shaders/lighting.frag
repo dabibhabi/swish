@@ -1,5 +1,8 @@
 #version 450
 
+#include "bindings.glsl"
+#include "color.glsl"
+
 // Deferred lighting pass — reads G-buffer, computes PBR lighting in screen space.
 // Outputs HDR color (values can exceed 1.0 for bloom).
 
@@ -11,47 +14,45 @@ layout(location = 0) in vec2 fragUV;
 #define NUM_CASCADES 3
 
 // ── Camera + Lights (same UBOs as scene pass, set 0) ──────────────
-layout(set = 0, binding = 0) uniform CameraUBO {
-    mat4 view;
-    mat4 proj;
-    vec4 camPos;
-    vec4 sunDir;
-    vec4 sunColor;
-    vec4 weather;   // x = clarity (0 overcast .. 1 clear day), yzw reserved
-    // CSM tail (appended AFTER weather; only this shader reads it):
-    mat4 cascadeViewProj[NUM_CASCADES];  // world → cascade [0,1] clip
-    vec4 cascadeSplits;                  // xyz = view-space far distance of cascades 0/1/2
-} camera;
+#define CAMERA_UBO_CSM
+#include "camera.glsl"
 
-struct PointLight {
-    vec4 positionRadius;
-    vec4 colorIntensity;
-};
-
-layout(set = 0, binding = 1) uniform LightsUBO {
-    PointLight pointLights[32];
-    uvec4      numPointLights;
-} lights;
+#include "lights.glsl"
 
 // ── G-Buffer textures (set 1) ────────────────────────────────────
-layout(set = 1, binding = 0) uniform sampler2D gbAlbedo;
-layout(set = 1, binding = 1) uniform sampler2D gbNormal;
-layout(set = 1, binding = 2) uniform sampler2D gbMaterial;
-layout(set = 1, binding = 3) uniform sampler2D gbDepth;
+layout(set = SET_GBUFFER, binding = BIND_GB_ALBEDO) uniform sampler2D gbAlbedo;
+layout(set = SET_GBUFFER, binding = BIND_GB_NORMAL) uniform sampler2D gbNormal;
+layout(set = SET_GBUFFER, binding = BIND_GB_MATERIAL) uniform sampler2D gbMaterial;
+layout(set = SET_GBUFFER, binding = BIND_GB_DEPTH) uniform sampler2D gbDepth;
+// Clearcoat + flake (always-on MRT — see gbuffer.frag). RG = octahedral-encoded
+// flake-perturbed world normal, B = clearcoat lobe strength, A = flake mask.
+layout(set = SET_GBUFFER, binding = BIND_GB_CLEARCOAT_FLAKE) uniform sampler2D gbClearcoatFlake;
+
+// SSAO (debug builds: ssao.frag -> ao_blur.frag run before this pass, r = AO). It occludes the INDIRECT light only:
+// the sun has its own shadow map and point lights are local, so the old composite `hdr *= ao` that darkened them
+// too flattened every sunlit surface. Release has no SSAO, and these expand to the bare term.
+#ifdef SWISH_DEBUG_UI
+layout(set = SET_GBUFFER, binding = BIND_GB_AO) uniform sampler2D gbAo;
+#define AO_DIFFUSE(x) ((x) * ssao)
+#define AO_SPEC(x)    ((x) * specAO)
+#else
+#define AO_DIFFUSE(x) (x)
+#define AO_SPEC(x)    (x)
+#endif
 
 // ── Sun shadow map (set 2) — CSM atlas of NUM_CASCADES horizontal slices.
 //    PLAIN sampler2D + manual PCF compare: MoltenVK's portability subset has
 //    no comparison samplers (no sampler2DShadow). ──
-layout(set = 2, binding = 0) uniform sampler2D shadowMap;
+layout(set = SET_SHADOW, binding = BIND_SHADOW_MAP) uniform sampler2D shadowMap;
 
 // ── IBL: prefiltered environment baked from the procedural sky (set 3) ──
 // irradiance = diffuse hemisphere convolution; prefiltered = GGX specular with
 // roughness mips; brdfLUT = split-sum scale+bias. Baked by IBLManager; present in
 // BOTH builds (release included), so the set index is fixed here regardless of the
 // debug scene-params UBO (which moves to set 4 when SWISH_DEBUG_UI is on).
-layout(set = 3, binding = 0) uniform samplerCube irradianceMap;
-layout(set = 3, binding = 1) uniform samplerCube prefilteredMap;
-layout(set = 3, binding = 2) uniform sampler2D   brdfLUT;
+layout(set = SET_IBL, binding = BIND_IBL_IRRADIANCE) uniform samplerCube irradianceMap;
+layout(set = SET_IBL, binding = BIND_IBL_PREFILTERED) uniform samplerCube prefilteredMap;
+layout(set = SET_IBL, binding = BIND_IBL_BRDF_LUT) uniform sampler2D   brdfLUT;
 #define IBL_PREFILTER_MAX_MIP 4.0  // kPrefilterMips - 1
 
 // ── Push constants: inverse matrices for position reconstruction ──
@@ -62,7 +63,7 @@ layout(push_constant) uniform LightingPC {
 
 layout(location = 0) out vec4 outColor;
 
-const float PI = 3.14159265359;
+#include "math.glsl"
 
 // ── Scene "look" constants ────────────────────────────────────────────
 // These 13 values used to be hardcoded here. Under the debug UI they are
@@ -72,7 +73,7 @@ const float PI = 3.14159265359;
 // output is byte-for-byte unchanged (no set 3, no extra binding). The rest
 // of the shader reads them through the SP_* macros regardless of build.
 #ifdef SWISH_DEBUG_UI
-layout(set = 4, binding = 0) uniform SceneParamsUBO {
+layout(set = SET_SCENE_PARAMS, binding = BIND_SCENE_PARAMS) uniform SceneParamsUBO {
     vec4 skyHorizonOvercast;  // rgb
     vec4 skyHorizonClear;     // rgb
     vec4 skyZenithOvercast;   // rgb
@@ -83,6 +84,7 @@ layout(set = 4, binding = 0) uniform SceneParamsUBO {
     vec4 shadowParams;        // x=bias y=floor
     vec4 wetParams;           // x=porosity y=roughnessCollapse
     vec4 iblParams;           // x=diffuse intensity y=specular intensity
+    vec4 paintParams;         // x=clearcoat roughness y=flake roughness
 } sp;
 #define SP_SKY_HORIZON_OVERCAST sp.skyHorizonOvercast.rgb
 #define SP_SKY_HORIZON_CLEAR    sp.skyHorizonClear.rgb
@@ -108,6 +110,8 @@ layout(set = 4, binding = 0) uniform SceneParamsUBO {
 // fogParams.w, max in fogColor.w. Distinct from the wet rain fog above.
 #define SP_HAZE_DIST            sp.fogParams.w
 #define SP_HAZE_MAX             sp.fogColor.w
+#define SP_CLEARCOAT_ROUGHNESS  sp.paintParams.x
+#define SP_FLAKE_ROUGHNESS      sp.paintParams.y
 #else
 // Release literals — identical to the previously-hardcoded values.
 #define SP_SKY_HORIZON_OVERCAST vec3(0.86, 0.87, 0.89)
@@ -125,19 +129,24 @@ layout(set = 4, binding = 0) uniform SceneParamsUBO {
 #define SP_FOG_DIST63           1200000.0  // ~1.2 km to 63% at full rain
 #define SP_FOG_MAX              0.0         // lie preset: distance rain-fog OFF (was 0.65)
 #define SP_ENV_GLOSS_EXP        3.0
-#define SP_SHADOW_BIAS          0.0    // lie preset (was 0.0018)
-#define SP_SHADOW_FLOOR         1.0    // lie preset: no shadow darkening (was 0.25)
+#define SP_SHADOW_BIAS          0.0018 // EXPERIMENT: restored (lie preset had 0.0)
+#define SP_SHADOW_FLOOR         0.25   // EXPERIMENT: shadows back on (lie preset had 1.0 = off)
 #define SP_SHADOW_LIGHT_SIZE    0.0
 #define SP_WET_POROSITY         0.631  // lie preset (was 0.35)
 #define SP_WET_ROUGHNESS        1.0    // lie preset (was 0.12)
 #define SP_PUDDLE_COVERAGE      0.501  // lie preset (was 0.0 = dry)
-#define SP_IBL_DIFFUSE          1.832  // lie preset (was 1.0)
+#define SP_IBL_DIFFUSE          1.30   // retuned between restored 1.0 and lie preset 1.832
 #define SP_IBL_SPECULAR         1.0
 // Always-on aerial perspective (distance haze) — not wet-gated, so a dry day still
 // reads with depth to the horizon. dist63 ≈ 900 m to 63%; max 0.5 = distant geometry
 // dissolves halfway into the sky. Near surfaces (cabin ~1 m) are unaffected.
 #define SP_HAZE_DIST            900000.0
 #define SP_HAZE_MAX             0.5
+// Clearcoat + flake (car paint BRDF — see tasks/todo.md). Tight/near-mirror
+// clearcoat, broader flake glint. Ships in release (always-on MRT); these are
+// the shared (not per-material) lobe roughnesses.
+#define SP_CLEARCOAT_ROUGHNESS  0.045
+#define SP_FLAKE_ROUGHNESS      0.12
 #endif
 
 // Poisson-disk kernel for PCSS blocker search + variable-radius PCF (debug only).
@@ -191,6 +200,11 @@ vec3 skyIrradiance(vec3 n) {
     return mix(base, ground, clamp(-n.y, 0.0, 1.0));            // → ground when down-facing
 }
 
+// Octahedral normal decode (inverse of gbuffer.frag's octEncode) — recovers the
+// flake-perturbed world normal packed into gbClearcoatFlake.rg.
+#define SWISH_OCT_DECODE
+#include "oct.glsl"
+
 // Analytic environment-BRDF (Karis "Mobile") — the split-sum scale+bias that
 // weights the prefiltered environment, replacing an ad-hoc gloss falloff with an
 // energy-conserving, roughness-aware Fresnel term (no precomputed LUT needed).
@@ -210,19 +224,23 @@ vec2 envBRDFApprox(float NoV, float rough) {
 // Inside a pool the existing wet model collapses roughness + flattens the normal,
 // so the prefiltered-sky IBL reflection resolves as a coherent puddle mirror.
 // Zero in release (SP_PUDDLE_COVERAGE literal is 0) → byte-identical.
-float puddleHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float puddleNoise(vec2 p) {
-    vec2 i = floor(p), f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    float a = puddleHash(i),               b = puddleHash(i + vec2(1.0, 0.0));
-    float c = puddleHash(i + vec2(0.0, 1.0)), d = puddleHash(i + vec2(1.0, 1.0));
-    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-}
-float puddleAmount(vec2 worldXZ, float coverage, float road) {
-    if (coverage <= 0.0 || road < 0.5) return 0.0;
-    vec2  p = worldXZ * 0.00013;  // ~7.7 m puddle cells (1 m = 1000 WU)
-    float n = puddleNoise(p) * 0.65 + puddleNoise(p * 2.7 + 11.0) * 0.35;
-    return smoothstep(1.0 - coverage, 1.0 - coverage + 0.12, n);  // soft shoreline
+#include "puddle.glsl"
+
+// ── Generic Cook-Torrance GGX specular lobe (rind pattern), reused for the
+// clearcoat + flake lobes below so their D/G/F math doesn't duplicate the base
+// lobe inline in main(). Takes NdotH/NdotV/NdotL/HdotV for a (possibly
+// per-lobe-perturbed) normal, plus that lobe's own roughness + F0.
+vec3 ggxSpecular(float NdotH, float NdotV, float NdotL, float HdotV, float roughness, vec3 F0) {
+    float a  = roughness * roughness;
+    float a2 = a * a;
+    float k  = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+    float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    float D  = a2 / (PI * denom * denom + 0.0001);
+    float G1V = NdotV / (NdotV * (1.0 - k) + k);
+    float G1L = NdotL / (NdotL * (1.0 - k) + k);
+    float G  = G1V * G1L;
+    vec3  F  = F0 + (1.0 - F0) * pow(1.0 - HdotV, 5.0);
+    return (D * G * F) / max(4.0 * NdotV * NdotL, 0.001);
 }
 
 void main() {
@@ -231,16 +249,16 @@ void main() {
     vec3  rawNormal = texture(gbNormal, fragUV).rgb;
     vec4  material  = texture(gbMaterial, fragUV);
     float depth     = texture(gbDepth, fragUV).r;
+    vec4  ccFlake   = texture(gbClearcoatFlake, fragUV);
 
     float wetness = camera.camPos.w;  // packed by CameraUniforms::set_wetness()
 
-    // Sky pixels (reverse-Z: far/sky is depth 0.0, no geometry)
+    // Sky pixels (reverse-Z: far/sky is depth 0.0, no geometry). Sample the
+    // prefiltered env at mip 0 so the visible sky matches IBL reflections
+    // (HDRI or procedural — whichever filled the cubes).
     if (depth < 0.0001) {
-        // Any valid depth along the pixel's view ray yields the same direction,
-        // so the 0.5 sample is arbitrary (and in-range under [0,1] clip-Z).
         vec3 viewDir = normalize(reconstructWorldPos(fragUV, 0.5) - camera.camPos.xyz);
-        vec3 sky = compute_sky_color(viewDir);
-        // Overcast: grey out the sky as wetness increases
+        vec3 sky     = textureLod(prefilteredMap, viewDir, 0.0).rgb * SP_IBL_SPECULAR;
         vec3 overcast = sky * (1.0 - wetness * 0.45);
         outColor = vec4(mix(sky, overcast, wetness * 0.9), 1.0);
         return;
@@ -252,6 +270,13 @@ void main() {
     float roughness = material.g;
     float wettable  = material.b;  // 1 = rain-exposed (road/body), 0 = enclosed cabin
     float road      = material.a;  // 1 = asphalt (road tag) — drives puddles
+
+    // Clearcoat + flake (gbuffer.frag). flakeN decodes to N itself where no flake
+    // cell is active (flakeMask 0), so the flake lobe below only contributes where
+    // gbuffer.frag actually perturbed the normal.
+    float clearcoatStrength = ccFlake.b;
+    float flakeMask         = ccFlake.a;
+    vec3  flakeN            = octDecode(ccFlake.rg);
 
     // World position (needed early for the world-space puddle mask; reused below).
     vec3 fragWorldPos = reconstructWorldPos(fragUV, depth);
@@ -273,7 +298,7 @@ void main() {
     // toward the plane so reflections stay coherent. The grazing Fresnel surge that
     // actually reads as "wet" is added after lighting, below.
     float kPorosity = SP_WET_POROSITY;  // asphalt diffuse floor when saturated
-    float luma      = dot(albedo, vec3(0.299, 0.587, 0.114));
+    float luma      = dot(albedo, LUMA_601);
     vec3  wetAlbedo = mix(albedo * kPorosity, vec3(luma * kPorosity), 0.25);  // darken + desaturate
     albedo          = mix(albedo, wetAlbedo, wetLocal);
 
@@ -408,13 +433,19 @@ void main() {
     // stays the overall floor/scale; SP_IBL_DIFFUSE tunes the sky contribution.
     // Additive so dark interior panels can't crush to black; gated (1-metallic)
     // because metals have no diffuse (their env response is the specular term).
+#ifdef SWISH_DEBUG_UI
+    // Specular occlusion from the AO, sharper on glossy surfaces: Lagarde & de Rousiers 2014 ("Moving Frostbite
+    // to PBR"), as Filament's SpecularAO_Lagarde; `a` is the GGX alpha.
+    float ssao   = texture(gbAo, fragUV).r;
+    float specAO = clamp(pow(NdotV + ssao, exp2(-16.0 * a - 1.0)) - 1.0 + ssao, 0.0, 1.0);
+#endif
     float ambient      = camera.sunColor.a;
     vec3  sun_radiance = camera.sunColor.rgb;
     vec3  skyIrr       = texture(irradianceMap, N).rgb;  // baked-sky diffuse irradiance (set 3)
     vec3  ambientIrr   = sun_radiance + skyIrr * SP_IBL_DIFFUSE;
     // Sun (direct) term is shadowed; ambient/sky fill is not (see sunShadow above).
     vec3  sun_term  = (kD * albedo / PI + specular_sun) * NdotL * sun_radiance;
-    vec3  lit_color = albedo * ambient * ambientIrr * (1.0 - metallic * 0.5)
+    vec3  lit_color = AO_DIFFUSE(albedo * ambient * ambientIrr * (1.0 - metallic * 0.5))
                    + sun_term * sunShadow;
 
     // ── Specular IBL: GGX-prefiltered environment × split-sum BRDF LUT ──
@@ -428,7 +459,44 @@ void main() {
     vec3  envColor   = textureLod(prefilteredMap, R, roughness * IBL_PREFILTER_MAX_MIP).rgb;
     envColor         = mix(envColor, envColor * (1.0 - wetness * 0.45), wetness * 0.9);
     vec2  envBRDF    = texture(brdfLUT, vec2(NdotV, roughness)).rg;
-    lit_color       += envColor * (F0 * envBRDF.x + envBRDF.y) * SP_IBL_SPECULAR;
+    lit_color       += AO_SPEC(envColor * (F0 * envBRDF.x + envBRDF.y) * SP_IBL_SPECULAR);
+
+    // ── Clearcoat: second GGX lobe, dielectric F0, tight/near-mirror roughness ──
+    // Real automotive clearcoat: a thin, nearly-flat, near-mirror dielectric layer
+    // over the base paint — most visible at grazing angles (Fresnel), where it
+    // stays a sharp mirror highlight while the (broader, possibly-metallic) base
+    // lobe has already gone diffuse-ish. Added on top of the base lobe (no energy
+    // subtracted from it) — a standard, visually-adequate approximation for a thin,
+    // low-weight coat; strength is authored per-material (SceneTypes.h) and
+    // defaults to 0 off the car, so this is a no-op everywhere else.
+    if (clearcoatStrength > 0.0) {
+        float ccRough = SP_CLEARCOAT_ROUGHNESS;
+        vec3  ccSpec  = ggxSpecular(NdotH, NdotV, NdotL, HdotV, ccRough, vec3(0.04));
+        lit_color    += ccSpec * NdotL * sun_radiance * sunShadow * clearcoatStrength;
+
+        // Clearcoat IBL: same sharp mirror lobe sampling the environment directly
+        // (R, computed above from the base N — the clearcoat's own micro-normal is
+        // effectively flat, so it shares R with the base specular).
+        vec3 ccEnv   = textureLod(prefilteredMap, R, ccRough * IBL_PREFILTER_MAX_MIP).rgb;
+        ccEnv        = mix(ccEnv, ccEnv * (1.0 - wetness * 0.45), wetness * 0.9);
+        vec2 ccBRDF  = envBRDFApprox(NdotV, ccRough);
+        lit_color   += AO_SPEC(ccEnv * (vec3(0.04) * ccBRDF.x + ccBRDF.y) * clearcoatStrength * SP_IBL_SPECULAR);
+    }
+
+    // ── Flake: stochastic per-cell normal-perturbation sparkle ─────────────
+    // Uses flakeN (decoded from gbClearcoatFlake, == N where no cell is active —
+    // flakeMask 0 there) instead of the base N, so the glint only lights up where
+    // a flake cell's random tilt happens to catch the sun — the "metal-flake
+    // glitter" look, not a uniform sheen. Sun-only (no IBL/point-light term): the
+    // sparkle read is dominated by the single strong directional highlight: a
+    // diffuse env term would just look like uniform extra sheen, not a glint.
+    if (flakeMask > 0.0) {
+        float NfdotH = max(dot(flakeN, H), 0.0);
+        float NfdotV = max(dot(flakeN, V), 0.001);
+        float NfdotL = max(dot(flakeN, L), 0.0);
+        vec3  fSpec  = ggxSpecular(NfdotH, NfdotV, NfdotL, HdotV, SP_FLAKE_ROUGHNESS, F0);
+        lit_color   += fSpec * NfdotL * sun_radiance * sunShadow * flakeMask;
+    }
 
     // ── Point light accumulation ──────────────────────────────────
     for (uint i = 0u; i < lights.numPointLights.x; ++i) {
@@ -481,6 +549,45 @@ void main() {
         lit_color += (kD_pt * albedo / PI + spec_pt) * NdotL_pt * radiance;
     }
 
+#ifdef SWISH_DEBUG_UI
+    // ── Car spot lights (headlights / tail / brake; tasks/todo.md "Car lights") ──
+    // Same windowed bounded inverse-square falloff and PBR terms as the point lights,
+    // times a smoothstep cone. The wet halo is the street lamps' (att² · wetLocal ·
+    // kHalo), masked by the cone, so beams bloom on a wet road. Debug-only until the
+    // feature is turned on for release; zero lights (the default) adds nothing.
+    for (uint i = 0u; i < lights.numSpotLights.x; ++i) {
+        vec3  sPos   = lights.spotLights[i].positionRange.xyz;
+        float sRange = lights.spotLights[i].positionRange.w;
+        vec3  sDir   = lights.spotLights[i].directionCosOuter.xyz;
+        float cosOut = lights.spotLights[i].directionCosOuter.w;
+        float cosIn  = lights.spotLights[i].params.x;
+        vec3  sCol   = lights.spotLights[i].colorIntensity.rgb;
+        float sInt   = lights.spotLights[i].colorIntensity.a;
+
+        vec3  toLight = sPos - fragWorldPos;
+        float dist    = length(toLight);
+        vec3  L_s     = toLight / max(dist, 0.001);
+
+        float cone = smoothstep(cosOut, cosIn, dot(-L_s, sDir));
+        float dRef = 0.15 * sRange;
+        float win  = clamp(1.0 - pow(dist / sRange, 4.0), 0.0, 1.0);
+        win        = win * win;
+        float att  = win * (dRef * dRef) / (dRef * dRef + dist * dist) * cone;
+        if (att < 0.0005) continue;
+
+        vec3  H_s     = normalize(V + L_s);
+        float NdotL_s = max(dot(N, L_s), 0.0);
+        float HdotV_s = max(dot(H_s, V), 0.0);
+        vec3  spec_s  = ggxSpecular(max(dot(N, H_s), 0.0), NdotV, NdotL_s, HdotV_s, roughness, F0);
+        vec3  F_s     = F0 + (1.0 - F0) * pow(1.0 - HdotV_s, 5.0);
+        vec3  kD_s    = (vec3(1.0) - F_s) * (1.0 - metallic);
+
+        const float kSpotHalo = 0.12;  // == the street lamps' kHaloStrength
+        lit_color += sCol * sInt * att * att * wetLocal * kSpotHalo;
+        lit_color += (kD_s * albedo / PI + spec_s) * NdotL_s * sCol * sInt * att;
+    }
+#endif
+
     // ── Wet grazing Fresnel surge (P0 #9) ─────────────────────────────
     // At grazing view angles a wet surface reflects the environment with F→1 —
     // the surge that makes a wet night road mirror the sky and lamps. Reflect the
@@ -489,7 +596,7 @@ void main() {
     float grazing  = pow(1.0 - NdotV, 5.0);
     vec3  Fgraze   = F0 + (1.0 - F0) * grazing;             // Schlick, → 1 at grazing
     vec3  wetSheen = Fgraze * skyIrr * ambient * wetLocal;  // reflect sky, gated by exposure·wetness
-    lit_color += wetSheen;
+    lit_color += AO_SPEC(wetSheen);
 
     // ── Depth-resolved rain fog (R-P1-1, Koschmieder) ─────────────────
     // Airlight accumulates with distance: L = L·e^(−βd) + L_air·(1−e^(−βd)).
@@ -502,11 +609,11 @@ void main() {
     vec3  toFrag  = fragWorldPos - camera.camPos.xyz;
     float fogDist = length(toFrag);                              // WU (1 m = 1000 WU)
 
-    // Always-on aerial perspective: distant surfaces dissolve into the horizon SKY in
-    // their own view direction (not a flat grey), so the road reads with depth all the
-    // way to the horizon even on a dry day. Near surfaces (cabin ~1000 WU) are ~0.
+    // Always-on aerial perspective: distant surfaces dissolve into the env sky in
+    // their own view direction (same cubemap as IBL / background), so haze matches
+    // reflections. Near surfaces (cabin ~1000 WU) are ~0.
     float hazeT = (1.0 - exp(-fogDist / SP_HAZE_DIST)) * SP_HAZE_MAX;
-    lit_color   = mix(lit_color, compute_sky_color(normalize(toFrag)), hazeT);
+    lit_color   = mix(lit_color, textureLod(prefilteredMap, normalize(toFrag), 0.0).rgb * SP_IBL_SPECULAR, hazeT);
 
     // Rain fog (wet-gated) layered on top toward the cool overcast airlight colour.
     float fogClear = 1.0 - camera.weather.x;                     // 1 overcast/rain .. 0 clear day

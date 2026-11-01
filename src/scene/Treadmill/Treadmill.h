@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../SceneTypes.h"  // Ribbon, LightDesc
+#include "scene/SceneTypes.h"  // Ribbon, LightDesc
 
 #include <vector>
 

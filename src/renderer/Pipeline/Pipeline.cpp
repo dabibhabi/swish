@@ -1,42 +1,26 @@
 #include "Pipeline.h"
 
-#include "../../utils/FileIO/FileIO.h"
-#include "../../utils/VulkanCheck.h"
+#include "utils/io/File.h"
+#include "utils/vulkan/Check.h"
+#include "utils/vulkan/Rendering.h"
+#include "utils/vulkan/ShaderModule.h"
 
 #include <array>
 
-namespace swish {
+namespace swish::pipeline {
 
-// Process-wide pipeline cache handle (owned by Device; see Pipeline::set_cache).
-// VK_NULL_HANDLE is a valid argument to vkCreateGraphicsPipelines.
-static VkPipelineCache s_pipelineCache = VK_NULL_HANDLE;
-
-void Pipeline::set_cache(VkPipelineCache cache) {
-    s_pipelineCache = cache;
-}
-
-VkPipeline Pipeline::create(VkDevice device, const PipelineConfig& config, VkRenderPass renderPass, VkExtent2D extent) {
+VkPipeline create_graphics(VkDevice device, VkPipelineCache cache, const PipelineConfig& config,
+                           VkRenderPass renderPass, VkExtent2D extent) {
     // 1. Load SPIR-V
-    auto vertCode = FileIO::readBinaryFile(config.vertShaderPath);
-    auto fragCode = FileIO::readBinaryFile(config.fragShaderPath);
+    auto vertCode = util::io::read_binary(config.vertShaderPath);
+    auto fragCode = util::io::read_binary(config.fragShaderPath);
 
-    // 2. Create shader modules
-    VkShaderModule vertModule = createShaderModule(device, vertCode);
-    VkShaderModule fragModule = createShaderModule(device, fragCode);
-
-    struct ScopedShaderModule {
-        VkDevice       dev;
-        VkShaderModule mod;
-        ~ScopedShaderModule() {
-            if (mod != VK_NULL_HANDLE)
-                vkDestroyShaderModule(dev, mod, nullptr);
-        }
-        ScopedShaderModule(VkDevice d, VkShaderModule m) : dev(d), mod(m) {}
-        ScopedShaderModule(const ScopedShaderModule&)            = delete;
-        ScopedShaderModule& operator=(const ScopedShaderModule&) = delete;
-    };
-    ScopedShaderModule scopedVert{device, vertModule};
-    ScopedShaderModule scopedFrag{device, fragModule};
+    // 2. Create shader modules (RAII: destroyed when this function returns, after the pipeline exists)
+    const vkx::DeviceRef deviceRef{device};  // must outlive the module handles below
+    const auto           vertModuleOwner = vkx::make_shader_module(deviceRef, vertCode);
+    const auto           fragModuleOwner = vkx::make_shader_module(deviceRef, fragCode);
+    const VkShaderModule vertModule      = vertModuleOwner.get();
+    const VkShaderModule fragModule      = fragModuleOwner.get();
 
     // 3. Shader stage infos
     VkPipelineShaderStageCreateInfo vertStage{};
@@ -156,17 +140,28 @@ VkPipeline Pipeline::create(VkDevice device, const PipelineConfig& config, VkRen
     pipelineInfo.pColorBlendState    = &colorBlending;
     pipelineInfo.pDynamicState       = &dynamicState;
     pipelineInfo.layout              = config.pipelineLayout;
-    pipelineInfo.renderPass          = renderPass;
     pipelineInfo.subpass             = 0;
 
+    // Dynamic rendering: attachment formats replace the render pass (renderPass must be null then).
+    VkPipelineRenderingCreateInfo renderingInfo{};
+    if (config.dynamicRendering) {
+        renderingInfo      = vkx::make_pipeline_rendering_info(config.dynamicColorFormats.data(),
+                                                               static_cast<uint32_t>(config.dynamicColorFormats.size()),
+                                                               config.dynamicDepthFormat);
+        pipelineInfo.pNext = &renderingInfo;
+        pipelineInfo.renderPass = VK_NULL_HANDLE;
+    } else {
+        pipelineInfo.renderPass = renderPass;
+    }
+
     VkPipeline pipeline;
-    VK_CHECK(vkCreateGraphicsPipelines(device, s_pipelineCache, 1, &pipelineInfo, nullptr, &pipeline));
+    VK_CHECK(vkCreateGraphicsPipelines(device, cache, 1, &pipelineInfo, nullptr, &pipeline));
 
     return pipeline;
 }
 
-VkPipelineLayout Pipeline::createLayout(VkDevice device, const std::vector<VkDescriptorSetLayout>& setLayouts,
-                                        const std::vector<VkPushConstantRange>& pushConstants) {
+VkPipelineLayout create_layout(VkDevice device, const std::vector<VkDescriptorSetLayout>& setLayouts,
+                               const std::vector<VkPushConstantRange>& pushConstants) {
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     layoutInfo.setLayoutCount         = static_cast<uint32_t>(setLayouts.size());
@@ -180,9 +175,12 @@ VkPipelineLayout Pipeline::createLayout(VkDevice device, const std::vector<VkDes
     return layout;
 }
 
-VkPipeline Pipeline::createCompute(VkDevice device, const std::string& compShaderPath, VkPipelineLayout layout) {
-    auto           code = FileIO::readBinaryFile(compShaderPath);
-    VkShaderModule mod  = createShaderModule(device, code);
+VkPipeline create_compute(VkDevice device, VkPipelineCache cache, const std::string& compShaderPath,
+                          VkPipelineLayout layout) {
+    auto                 code = util::io::read_binary(compShaderPath);
+    const vkx::DeviceRef deviceRef{device};                                    // must outlive the module handle below
+    const auto           modOwner = vkx::make_shader_module(deviceRef, code);  // destroyed on return
+    const VkShaderModule mod      = modOwner.get();
 
     VkPipelineShaderStageCreateInfo stage{};
     stage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -196,22 +194,9 @@ VkPipeline Pipeline::createCompute(VkDevice device, const std::string& compShade
     info.layout = layout;
 
     VkPipeline pipeline = VK_NULL_HANDLE;
-    VK_CHECK(vkCreateComputePipelines(device, s_pipelineCache, 1, &info, nullptr, &pipeline));
+    VK_CHECK(vkCreateComputePipelines(device, cache, 1, &info, nullptr, &pipeline));
 
-    vkDestroyShaderModule(device, mod, nullptr);
     return pipeline;
 }
 
-VkShaderModule Pipeline::createShaderModule(VkDevice device, const std::vector<char>& code) {
-    VkShaderModuleCreateInfo createInfo{};
-    createInfo.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    createInfo.codeSize = code.size();
-    createInfo.pCode    = reinterpret_cast<const uint32_t*>(code.data());
-
-    VkShaderModule shaderModule;
-    VK_CHECK(vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule));
-
-    return shaderModule;
-}
-
-}  // namespace swish
+}  // namespace swish::pipeline

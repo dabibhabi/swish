@@ -23,7 +23,7 @@ public:
     // Steps:
     //   1. Query swap chain support (via Device::querySwapChainSupport)
     //   2. Choose surface format — prefer VK_FORMAT_B8G8R8A8_SRGB
-    //   3. Choose present mode — prefer MAILBOX (triple buffer), fallback FIFO
+    //   3. Choose present mode — FIFO (vsync; FPS tracks display refresh)
     //   4. Choose extent — match the framebuffer size (careful on Retina!)
     //   5. Choose image count — min + 1, clamped to max
     //   6. vkCreateSwapchainKHR
@@ -38,11 +38,18 @@ public:
     VkSwapchainKHR                  getSwapchain() const;
     VkFormat                        getImageFormat() const;
     VkExtent2D                      getExtent() const;
-    const std::vector<VkImage>&     getImages() const;
     const std::vector<VkImageView>& getImageViews() const;
     uint32_t                        getImageCount() const;
+#ifdef SWISH_DEBUG_UI
+    // Frame capture: the raw presentable images, and whether they were created with TRANSFER_SRC usage.
+    const std::vector<VkImage>& getImages() const { return m_images; }
+    bool                        supportsTransferSrc() const { return m_transferSrc; }
+#endif
 
 private:
+#ifdef SWISH_DEBUG_UI
+    bool m_transferSrc = false;
+#endif
     VkSwapchainKHR           m_swapchain   = VK_NULL_HANDLE;
     VkFormat                 m_imageFormat = VK_FORMAT_UNDEFINED;
     VkExtent2D               m_extent      = {0, 0};
@@ -52,7 +59,7 @@ private:
     // Picks the best surface format from available options
     VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& available) const;
 
-    // Picks the best present mode (MAILBOX > FIFO)
+    // Picks the present mode (FIFO / vsync)
     VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& available) const;
 
     // Determines swap extent (uses framebuffer size, not window size)

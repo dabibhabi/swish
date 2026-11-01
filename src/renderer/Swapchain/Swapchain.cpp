@@ -1,9 +1,10 @@
 #include "Swapchain.h"
 
-#include "../../utils/VulkanCheck.h"
-#include "../Pipeline/Device/Device.h"
+#include "renderer/Pipeline/Device/Device.h"
+#include "utils/vulkan/Check.h"
 
 #include <algorithm>
+#include <iostream>
 #include <limits>
 
 // Implemented swapchain creation, fetching images, formatting images views,
@@ -16,6 +17,9 @@ void Swapchain::init(Device& device, VkSurfaceKHR surface, uint32_t width, uint3
     auto surfaceFormat    = chooseSwapSurfaceFormat(swapChainSupport.formats);
     auto presentMode      = chooseSwapPresentMode(swapChainSupport.presentModes);
     auto extent           = chooseSwapExtent(swapChainSupport.capabilities, width, height);
+
+    std::cerr << "Swapchain: format=" << surfaceFormat.format << " colorSpace=" << surfaceFormat.colorSpace
+              << " presentMode=" << presentMode << " extent=" << extent.width << "x" << extent.height << '\n';
 
     uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
     if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
@@ -31,6 +35,11 @@ void Swapchain::init(Device& device, VkSurfaceKHR surface, uint32_t width, uint3
     createInfo.imageExtent      = extent;
     createInfo.imageArrayLayers = 1;
     createInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+#ifdef SWISH_DEBUG_UI
+    // Frame capture (FrameCapture) copies the presented image out; debug builds only, release usage is unchanged.
+    m_transferSrc = (swapChainSupport.capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+    if (m_transferSrc) createInfo.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+#endif
 
     QueueFamilyIndices indices              = device.findQueueFamilies(device.getPhysicalDevice(), surface);
     uint32_t           queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presentFamily.value()};
@@ -76,9 +85,7 @@ void Swapchain::init(Device& device, VkSurfaceKHR surface, uint32_t width, uint3
 }
 
 void Swapchain::cleanup(VkDevice device) {
-    for (auto imageView : m_imageViews) {
-        vkDestroyImageView(device, imageView, nullptr);
-    }
+    for (auto imageView : m_imageViews) { vkDestroyImageView(device, imageView, nullptr); }
     m_imageViews.clear();
 
     if (m_swapchain != VK_NULL_HANDLE) {
@@ -87,47 +94,36 @@ void Swapchain::cleanup(VkDevice device) {
     }
 }
 
-VkSwapchainKHR Swapchain::getSwapchain() const {
-    return m_swapchain;
-}
-VkFormat Swapchain::getImageFormat() const {
-    return m_imageFormat;
-}
-VkExtent2D Swapchain::getExtent() const {
-    return m_extent;
-}
-const std::vector<VkImage>& Swapchain::getImages() const {
-    return m_images;
-}
-const std::vector<VkImageView>& Swapchain::getImageViews() const {
-    return m_imageViews;
-}
-uint32_t Swapchain::getImageCount() const {
-    return static_cast<uint32_t>(m_images.size());
-}
+VkSwapchainKHR                  Swapchain::getSwapchain() const { return m_swapchain; }
+VkFormat                        Swapchain::getImageFormat() const { return m_imageFormat; }
+VkExtent2D                      Swapchain::getExtent() const { return m_extent; }
+const std::vector<VkImageView>& Swapchain::getImageViews() const { return m_imageViews; }
+uint32_t                        Swapchain::getImageCount() const { return static_cast<uint32_t>(m_images.size()); }
 
 VkSurfaceFormatKHR Swapchain::chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) const {
-    // Prefer 16-bit extended sRGB linear: wider gamut, no 8-bit banding, HDR-capable displays.
-    // No shader change needed — AgX outputs linear [0,1] and both SRGB (hardware encodes)
-    // and extended-sRGB-linear (display encodes) present correctly.
+    // Prefer standard 8-bit sRGB. On Linux (NVIDIA + Wayland/Hyprland) the
+    // R16G16B16A16_SFLOAT + EXTENDED_SRGB_LINEAR_EXT path can flip the display into
+    // a broken HDR mode and produce a black screen; macOS/MoltenVK often never
+    // offers that pair, which is why the same build looked fine there.
+    // AgX already outputs linear [0,1] — correct for sRGB swapchains (HW encodes).
+    for (const auto& f : availableFormats)
+        if (f.format == VK_FORMAT_B8G8R8A8_SRGB && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) return f;
+
+    for (const auto& f : availableFormats)
+        if (f.format == VK_FORMAT_B8G8R8A8_UNORM && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) return f;
+
+    // Optional wide-gamut path — only if nothing standard is available.
     for (const auto& f : availableFormats)
         if (f.format == VK_FORMAT_R16G16B16A16_SFLOAT && f.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT)
-            return f;
-
-    // Standard 8-bit sRGB fallback
-    for (const auto& f : availableFormats)
-        if (f.format == VK_FORMAT_B8G8R8A8_SRGB && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
             return f;
 
     return availableFormats[0];
 }
 
-VkPresentModeKHR Swapchain::chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) const {
-    for (const auto& availablePresentMode : availablePresentModes) {
-        if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-            return availablePresentMode;
-        }
-    }
+VkPresentModeKHR Swapchain::chooseSwapPresentMode(
+    const std::vector<VkPresentModeKHR>& /*availablePresentModes*/) const {
+    // FIFO waits for vblank (vsync). Cap FPS to the display refresh rate instead of
+    // uncapped MAILBOX (~hundreds of fps). Spec guarantees FIFO is always available.
     return VK_PRESENT_MODE_FIFO_KHR;
 }
 

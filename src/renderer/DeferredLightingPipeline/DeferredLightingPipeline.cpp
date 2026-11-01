@@ -1,6 +1,8 @@
+#include "utils/io/AppPaths.h"
 #include "DeferredLightingPipeline.h"
 
-#include "../Pipeline/Pipeline.h"
+#include "renderer/Pipeline/Pipeline.h"
+#include "utils/vulkan/PushConstants.h"
 
 #include <string>
 #include <vector>
@@ -20,17 +22,15 @@ static_assert(sizeof(LightingPushConstants) == kLightingPushConstSize,
 }  // namespace
 
 void DeferredLightingPipeline::init(VkDevice device, const Config& cfg) {
-    VkPushConstantRange lightPC{};
-    lightPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    lightPC.offset     = 0;
-    lightPC.size       = kLightingPushConstSize;
+    const VkPushConstantRange lightPC = vkx::push_range<LightingPushConstants>(VK_SHADER_STAGE_FRAGMENT_BIT);
 
     std::vector<VkDescriptorSetLayout> setLayouts = {cfg.cameraSetLayout, cfg.gbufferSetLayout, cfg.shadowSetLayout,
                                                      cfg.iblSetLayout};
 #ifdef SWISH_DEBUG_UI
     setLayouts.push_back(cfg.sceneParamsSetLayout);  // set 4 — live-tunables UBO
 #endif
-    m_layout = Pipeline::createLayout(device, setLayouts, {lightPC});
+    m_layout = pipeline::create_layout(device, setLayouts, {lightPC});
+    m_cache  = cfg.pipelineCache;
 
     buildPipeline(device, cfg.lightingRenderPass, cfg.extent);
 }
@@ -78,15 +78,15 @@ void DeferredLightingPipeline::bind_and_record(VkCommandBuffer cmd, VkDescriptor
 
 void DeferredLightingPipeline::buildPipeline(VkDevice device, VkRenderPass renderPass, VkExtent2D extent) {
     PipelineConfig cfg{};
-    cfg.vertShaderPath   = std::string(SHADER_DIR) + "fullscreen.vert.spv";
-    cfg.fragShaderPath   = std::string(SHADER_DIR) + "lighting.frag.spv";
+    cfg.vertShaderPath   = util::paths::shader_dir() + "fullscreen.vert.spv";
+    cfg.fragShaderPath   = util::paths::shader_dir() + "lighting.frag.spv";
     cfg.noVertexInput    = true;
     cfg.enableDepthTest  = false;
     cfg.enableDepthWrite = false;
     cfg.cullMode         = VK_CULL_MODE_NONE;
     cfg.pipelineLayout   = m_layout;
 
-    m_pipeline = Pipeline::create(device, cfg, renderPass, extent);
+    m_pipeline = pipeline::create_graphics(device, m_cache, cfg, renderPass, extent);
 }
 
 void DeferredLightingPipeline::destroyPipelineOnly(VkDevice device) {

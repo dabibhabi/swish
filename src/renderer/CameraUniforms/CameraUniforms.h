@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../../scene/SceneTypes.h"
-#include "../GpuResource/GpuResource.h"
+#include "renderer/GpuResource/GpuResource.h"
+#include "scene/SceneTypes.h"
 
 #include <vulkan/vulkan.h>
 
@@ -29,7 +29,11 @@ public:
         m_lights      = lights;
         m_lightsDirty = true;
     }
-    bool has_lights() const { return !m_lights.empty(); }
+
+    // Car spot lights (headlights / tail / brake), replaced every frame by the App.
+    // Uploaded into LightsUBO::spotLights in debug builds only (release layout is
+    // unchanged; see SceneTypes.h). Empty = no spot lights.
+    void set_spot_lights(const std::vector<SpotLightDesc>& spots) { m_spots = spots; }
 
     // Patches camPos.w in the already-mapped camera UBO for this frame.
     // Call after update() — does not disturb xyz.
@@ -67,8 +71,9 @@ private:
     std::vector<GpuBuffer> m_cameraBuffers;
     std::vector<GpuBuffer> m_lightsBuffers;
 
-    std::vector<LightDesc> m_lights;
-    bool                   m_lightsDirty = false;
+    std::vector<LightDesc>     m_lights;
+    bool                       m_lightsDirty = false;
+    std::vector<SpotLightDesc> m_spots;
 
     // Weather (overcast default — matches the original hardcoded sun). Renderer
     // swaps these via set_weather() when the clear-day preset is toggled.

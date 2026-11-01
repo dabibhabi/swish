@@ -2,7 +2,7 @@
 
 #ifdef SWISH_DEBUG_UI
 
-#include "../utils/VulkanCheck.h"
+#include "utils/vulkan/Check.h"
 
 #include <cstring>
 
@@ -42,6 +42,7 @@ void SceneParamsUniform::update(uint32_t frameIndex, const DebugParams& p) {
     ubo.shadowParams       = glm::vec4(p.shadowBias, p.shadowFloor, p.shadowLightSize, 0.0f);
     ubo.wetParams          = glm::vec4(p.wetPorosity, p.wetRoughness, p.puddlesEnabled ? p.puddleCoverage : 0.0f, 0.0f);
     ubo.iblParams          = glm::vec4(p.iblDiffuse, p.iblSpecular, 0.0f, 0.0f);
+    ubo.paintParams        = glm::vec4(p.clearcoatRoughness, p.flakeRoughness, 0.0f, 0.0f);
     std::memcpy(m_buffers[frameIndex].mapped(), &ubo, sizeof(ubo));
 }
 

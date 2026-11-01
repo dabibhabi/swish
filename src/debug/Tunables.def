@@ -1,0 +1,116 @@
+// Tunables.def -- single-source registry of live tunables (X-macro, no include guard).
+//
+// HOW TO ADD A TUNABLE (converted groups: ssr, reflection, and the wet material pair + puddles; every
+// other group is still hand-written in DebugParams.h / DebugParamsIO.cpp / DebugUI.cpp):
+//   1. Add ONE line below, inside the right group (keep a group's lines together; the
+//      order here is the ImGui slider order, the save order and the printf-dump order).
+//   2. That is all for: the DebugParams field + default, TOML save, TOML load, the ImGui
+//      control, the "name=value" dump line, and the push-constant field copy.
+//   3. If the value goes to a push block, name the SsrParams-style member with PUSH(member)
+//      and make sure the C++ struct + GLSL block have it (PostProcessManager.h / shader).
+//      Use NOPUSH when it is not copied by a generated push copy: either it never reaches the
+//      GPU, or it is packed by hand elsewhere (the reflection / wet entries below go to the
+//      set-4 scene-params UBO in SceneParamsUniform.cpp::update, and release ignores them:
+//      lighting.frag's `#else` SP_* literals are the release values). Derived logic (e.g.
+//      ssrEnabled zeroing intensity) stays hand-written next to the generated copy in
+//      renderer/Passes/SsrPass.cpp (SsrPass::describe).
+//      DO NOT change the TUNE_B/TUNE_F arity: renderer/Passes/SsrPass.cpp includes this file with its own
+//      definitions of both macros.
+//   4. Release default differs from the debug default? Put the release value in the last
+//      slot instead of NOREL (e.g. `0.5f`). Release builds (SWISH_DEBUG_UI=OFF) then default
+//      the DebugParams field to it; the debug default is the `def` slot. Leave NOREL when
+//      they match (the byte-identical-release rule). Keep hand-written GLSL release macros
+//      in sync: tests/test_debug_params_io.cpp diffs them against this table.
+//   5. Keep `lo <= def <= hi` (tested). Existing TOML keys must never be renamed.
+//
+// Line formats (consumers define these before #include, this file #undefs them after):
+//   TUNE_B(name, group, key, def, label, rel)
+//   TUNE_F(name, group, key, def, lo, hi, label, sliderFmt, dumpPrecision, push, rel)
+// Consumers: DebugParams.h (fields), Tunables.h (descriptor table -> IO / UI / dump),
+//            renderer/Passes/SsrPass.cpp SsrPass::describe (push packing; NOPUSH rows expand to a
+//            no-op `(void) d.x;`).
+
+#define NOREL std::nullopt
+
+// ── SSR (screen-space reflections) ─ ImGui header "SSR", TOML table [ssr] ──
+TUNE_B(ssrEnabled, "ssr", "enabled", true, "Enabled##ssr", NOREL)
+TUNE_F(ssrIntensity, "ssr", "intensity", 0.714f, 0.0f, 2.0f, "Intensity##ssr", "%.3f", 3, PUSH(intensity), NOREL)
+TUNE_F(ssrMaxDist, "ssr", "max_dist", 36018.0f, 10000.0f, 500000.0f, "Max dist (WU)", "%.0f", 1, PUSH(maxDist), NOREL)
+TUNE_F(ssrThickness, "ssr", "thickness", 1835.0f, 200.0f, 20000.0f, "Thickness (WU)", "%.0f", 1, PUSH(thickness), NOREL)
+TUNE_F(ssrStride, "ssr", "stride", 8063.0f, 200.0f, 10000.0f, "Stride (WU)", "%.0f", 1, PUSH(stride), NOREL)
+
+// ── Reflections / IBL ─ ImGui header "Reflections / IBL", TOML table [reflection] ──
+// Debug builds pack these into SceneParamsUBO.iblParams.xy / fogParams.z (set 4); the release
+// literals are lighting.frag SP_IBL_DIFFUSE / SP_IBL_SPECULAR / SP_ENV_GLOSS_EXP (== these defaults).
+TUNE_F(iblDiffuse, "reflection", "ibl_diffuse", 1.30f, 0.0f, 3.0f, "IBL diffuse", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(iblSpecular, "reflection", "ibl_specular", 1.0f, 0.0f, 3.0f, "IBL specular", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(envGlossExp, "reflection", "env_gloss_exp", 3.0f, 0.5f, 8.0f, "Env gloss exp (legacy)", "%.3f", 3, NOPUSH, NOREL)
+
+// ── Wet surface material ─ ImGui header "Wet / Rain" (the two rows between "Rain intensity" and
+// "Streak length"), TOML table [wet] (shared with the hand-written rain / puddle / spray keys).
+// SceneParamsUBO.wetParams.xy; release literals SP_WET_POROSITY / SP_WET_ROUGHNESS (== defaults).
+// Puddles (owner decision C2, 2026-09-29): puddleCoverage is the ONE source for the lit pass and SSR.
+// lighting.frag: debug packs it into SceneParamsUBO.wetParams.z (0 when puddles are disabled), release uses the
+// SP_PUDDLE_COVERAGE literal (== this default, pinned by tests/test_debug_params_io.cpp). SSR: PUSH copy into
+// SsrParams::puddleCoverage in BOTH builds (release uses this default too), zeroed by !puddlesEnabled in
+// SsrPass::describe (renderer/Passes/SsrPass.cpp), so SSR reflects in exactly the pools the lit pass turns to mirrors.
+TUNE_F(wetPorosity, "wet", "porosity", 0.631f, 0.0f, 1.0f, "Wet porosity", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(wetRoughness, "wet", "roughness", 1.0f, 0.0f, 1.0f, "Wet roughness", "%.3f", 3, NOPUSH, NOREL)
+TUNE_B(puddlesEnabled, "wet", "puddles_enabled", true, "Puddles##puddle", NOREL)
+TUNE_F(puddleCoverage, "wet", "puddle_coverage", 0.501f, 0.0f, 1.0f, "Puddle coverage", "%.3f", 3, PUSH(puddleCoverage), NOREL)
+
+// ── Car lights ─ ImGui header "Car Lights", TOML table [car_lights] (tasks/todo.md "Car lights") ──
+// CPU-only (NOPUSH): App::push_car_to_renderer builds CarLightParams/CarLightState from these and
+// uploads world spot lights via Renderer::set_car_spot_lights. Debug-only feature; enabled = false
+// reproduces today's image. Only assets with `<Anchor>_Lamp` nodes (porsche_rigged.glb) have lamps.
+TUNE_B(carLightsEnabled, "car_lights", "enabled", false, "Car lights##cl", NOREL)
+TUNE_B(carHeadlightsOn, "car_lights", "headlights_on", true, "Headlights##cl", NOREL)
+TUNE_B(carTailLightsOn, "car_lights", "tail_lights_on", true, "Tail lights##cl", NOREL)
+TUNE_B(carBrakeForce, "car_lights", "brake_force", false, "Hold brake lights##cl", NOREL)
+TUNE_F(carHeadIntensity, "car_lights", "head_intensity", 30.0f, 0.0f, 200.0f, "Headlight intensity", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carHeadRangeM, "car_lights", "head_range_m", 60.0f, 5.0f, 150.0f, "Headlight range (m)", "%.0f", 1, NOPUSH, NOREL)
+TUNE_F(carHeadInnerDeg, "car_lights", "head_inner_deg", 12.0f, 1.0f, 45.0f, "Beam inner (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carHeadOuterDeg, "car_lights", "head_outer_deg", 28.0f, 2.0f, 60.0f, "Beam outer (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carTailIntensity, "car_lights", "tail_intensity", 1.5f, 0.0f, 20.0f, "Tail intensity", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(carBrakeIntensity, "car_lights", "brake_intensity", 6.0f, 0.0f, 50.0f, "Brake intensity", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(carTailRangeM, "car_lights", "tail_range_m", 6.0f, 1.0f, 30.0f, "Tail range (m)", "%.1f", 1, NOPUSH, NOREL)
+// ── Wipers ─ ImGui header "Wet / Rain", config/car.toml table [wipers] (tasks/todo.md "Rigged Porsche" S1b) ──
+// CPU-only (NOPUSH): App::update_wiper copies these into WiperParams each frame. The shipped values live in
+// config/car.toml [wipers] (the release values); App::load_car seeds these from it.
+TUNE_F(wiperLowWpm, "wiper", "low_wipes_per_min", 45.0f, 10.0f, 90.0f, "Wiper Low (wipes/min)", "%.0f", 1, NOPUSH, NOREL)
+TUNE_F(wiperHighWpm, "wiper", "high_wipes_per_min", 65.0f, 10.0f, 120.0f, "Wiper High (wipes/min)", "%.0f", 1, NOPUSH, NOREL)
+TUNE_F(wiperDwellS, "wiper", "intermittent_dwell_s", 4.0f, 0.0f, 15.0f, "Wiper intermittent pause (s)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(wiperSweepDeg, "wiper", "sweep_deg", 105.0f, 30.0f, 120.0f, "Wiper sweep (deg)", "%.0f", 1, NOPUSH, NOREL)
+TUNE_F(wiperEase, "wiper", "ease", 1.0f, 0.0f, 1.0f, "Wiper ease (0 linear, 1 cosine)", "%.2f", 2, NOPUSH, NOREL)
+
+// ── Physics model (stub) ─ ImGui header "Physics", TOML table [car] ──
+// Debug-only: App::apply_debug_params maps it to CarEntity::set_physics_model (false = bicycle, the
+// shipped model; true = 6-DOF rigid-body chassis stub). NOPUSH: never reaches the GPU. Release has no
+// UI and never calls set_physics_model, so the bicycle model always runs (byte-identical).
+TUNE_B(rigidBodyChassis, "car", "rigid_body_chassis", false, "Physics model: rigid body (stub)", NOREL)
+
+// ── Road wheels ─ ImGui header "Road Wheels", TOML table [wheels] (S1a, tasks/todo.md "Rigged Porsche") ──
+// Draw-only Ackermann blend (0 = parallel, 1 = pure). The release value is config/car.toml [wheels] ackermann
+// (CarConfig); App::load_car seeds this field from that file at startup, so `def` is only the no-file fallback.
+TUNE_F(wheelAckermann, "wheels", "ackermann", 1.0f, 0.0f, 1.0f, "Ackermann##wheels", "%.2f", 2, NOPUSH, NOREL)
+
+// ── Dial needles ─ ImGui header "Gauge Needles", TOML table [gauges] (tasks/todo.md "Rigged Porsche" S1c) ──
+// CPU-only (NOPUSH). The defaults read kGaugeDefaults (scene/Entity/GaugeNeedles.h); App::load_car then
+// seeds these from config/car.toml [gauges] (the release source of truth, same keys) and App pushes them into
+// CarEntity::set_gauge_params each frame. The speedo lookup table stays TOML-only (arrays). Only cars with
+// Needle_* pivots (porsche_rigged.glb) have needles.
+TUNE_F(gaugeTachOffsetDeg, "gauges", "tach_offset_deg", kGaugeDefaults.tachOffsetDeg, -180.0f, -90.0f, "Tach offset (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(gaugeTachDegPerKrpm, "gauges", "tach_deg_per_krpm", kGaugeDefaults.tachDegPerKrpm, 20.0f, 50.0f, "Tach deg / 1000 rpm", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(gaugeRpmRestDeg, "gauges", "rpm_rest_deg", kGaugeDefaults.rpmRestDeg, -180.0f, 180.0f, "Tach needle rest (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(gaugeSpeedRestDeg, "gauges", "speed_rest_deg", kGaugeDefaults.speedRestDeg, -180.0f, 180.0f, "Speedo needle rest (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(gaugeNeedleTauMs, "gauges", "needle_tau_ms", kGaugeDefaults.needleTauS * 1000.0f, 5.0f, 500.0f, "Needle damping tau (ms)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(gaugeSweepDurationS, "gauges", "sweep_duration_s", kGaugeDefaults.sweepDurationS, 0.0f, 5.0f, "Startup sweep (s)", "%.2f", 2, NOPUSH, NOREL)
+TUNE_B(gaugeTestOn, "gauges", "test_on", false, "Force test readings##gauge", NOREL)
+TUNE_F(gaugeTestRpm, "gauges", "test_rpm", 4000.0f, 0.0f, 8000.0f, "Test rpm", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(gaugeTestKmh, "gauges", "test_kmh", 140.0f, 0.0f, 320.0f, "Test km/h", "%.0f", 0, NOPUSH, NOREL)
+
+#undef NOREL
+#undef TUNE_B
+#undef TUNE_F
+#undef PUSH
+#undef NOPUSH

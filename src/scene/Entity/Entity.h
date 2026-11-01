@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../../scene/SceneTypes.h"
-#include "../../utils/Types.h"
+#include "scene/SceneTypes.h"
+#include "utils/types/Types.h"
 
 #include <vector>
 

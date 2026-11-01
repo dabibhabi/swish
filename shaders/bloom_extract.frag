@@ -1,5 +1,7 @@
 #version 450
 
+#include "color.glsl"
+
 layout(location = 0) in vec2 fragUV;
 
 layout(set = 0, binding = 0) uniform sampler2D hdrScene;
@@ -16,7 +18,7 @@ void main() {
     vec3 color = texture(hdrScene, fragUV).rgb;
 
     // Luminance (Rec. 709)
-    float brightness = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    float brightness = dot(color, LUMA_709);
 
     // Soft extraction with knee curve
     float contribution = max(brightness - params.threshold, 0.0);

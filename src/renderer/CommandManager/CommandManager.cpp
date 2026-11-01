@@ -1,6 +1,6 @@
 #include "CommandManager.h"
 
-#include "../../utils/VulkanCheck.h"
+#include "utils/vulkan/Check.h"
 
 // Implemented `CommandManager` to spin up command pools matching graphics queue family
 // and gracefully allocate discrete main command buffers.
@@ -38,9 +38,7 @@ VkCommandBuffer CommandManager::getBuffer(uint32_t frameIndex) const {
     return m_buffers.empty() ? VK_NULL_HANDLE : m_buffers[frameIndex];
 }
 
-void CommandManager::resetBuffer(uint32_t frameIndex) {
-    VK_CHECK(vkResetCommandBuffer(m_buffers[frameIndex], 0));
-}
+void CommandManager::resetBuffer(uint32_t frameIndex) { VK_CHECK(vkResetCommandBuffer(m_buffers[frameIndex], 0)); }
 
 void CommandManager::beginRecording(uint32_t frameIndex) {
     VkCommandBufferBeginInfo beginInfo{};
@@ -51,12 +49,8 @@ void CommandManager::beginRecording(uint32_t frameIndex) {
     VK_CHECK(vkBeginCommandBuffer(m_buffers[frameIndex], &beginInfo));
 }
 
-void CommandManager::endRecording(uint32_t frameIndex) {
-    VK_CHECK(vkEndCommandBuffer(m_buffers[frameIndex]));
-}
+void CommandManager::endRecording(uint32_t frameIndex) { VK_CHECK(vkEndCommandBuffer(m_buffers[frameIndex])); }
 
-VkCommandPool CommandManager::getPool() const {
-    return m_pool;
-}
+VkCommandPool CommandManager::getPool() const { return m_pool; }
 
 }  // namespace swish

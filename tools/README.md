@@ -2,13 +2,22 @@
 
 Developer tools that run outside the engine — asset pipeline and mesh analysis utilities.
 
+*Verified 2026-09-29 against the tree.* Related: [docs/REPO_MAP.md](../docs/REPO_MAP.md), [docs/RECIPES.md](../docs/RECIPES.md#add-a-config-key).
+
+| Tool | What it does | Runs |
+|------|--------------|------|
+| `toml_baker.cpp` | `config/road.toml` to `road.bin` (below) | automatically, as a CMake custom command (`bake_configs`) |
+| `lie_corridor.py` | OSM extract to `assets/corridor/lie_corridor.bin`, driven by `config/lie_corridor.toml`; subcommands `fetch`, `net`, `bake`, `all` (only `bake` is needed to reproduce the asset from the cached extract; stdlib-only, Python 3.11+) | by hand; the `.bin` and `.toml` are checked in |
+| `sign_generator.py` | Highway sign textures | by hand |
+| `car_analyzer/` | GLB node-hierarchy inspector (below) | `make car-analyze CAR=assets/cars/foo.glb` |
+
 ---
 
 ## toml_baker (`toml_baker.cpp`)
 
 Converts a human-authored `road.toml` configuration into a compact binary `road.bin` that the engine loads at runtime via a direct struct read.
 
-**Why bake?** The binary format eliminates a TOML parser dependency in the engine. The engine reads `RoadConfig` with a single `fread` into the struct — no allocation, no parsing. The baked file is committed alongside the source TOML so the CI never needs to run the baker.
+**Why bake?** The binary format eliminates a TOML parser dependency in the engine. The engine reads `RoadConfig` with a single `fread` into the struct — no allocation, no parsing. `road.bin` is **not** committed: CMake bakes it into `build/config/road.bin` (`CONFIG_DIR`) whenever `config/road.toml` or the baker changes. Unit constants come from `utils/units/Units.h`, not private copies.
 
 ### Build
 
@@ -24,14 +33,13 @@ cmake --build build --target toml_baker
 
 ### Struct Layout Sync
 
-`toml_baker` writes fields in the **exact memory layout** of `RoadConfig` (`src/scene/RoadScene/RoadConfig.h`). The two files must stay in sync:
+`toml_baker` includes the **same** `RoadConfig.h` the game reads (`src/scene/RoadScene/RoadConfig.h`, include root `src/`) and `fwrite`s the struct, so the layout cannot drift; `static_assert(sizeof(RoadConfig) == 292)` guards it. Changing the struct still needs matching work:
 
 | If you do this in `RoadConfig.h` | You must also |
 |----------------------------------|--------------|
-| Add a field | Add a matching write in `toml_baker.cpp` |
-| Remove a field | Remove the write and regenerate `.bin` |
-| Reorder fields | Reorder writes in `toml_baker.cpp` |
-| Change a field's type | Update both files and regenerate |
+| Add a field | Set it in `toml_baker.cpp` (from a `road.toml` key), bump `version`, update the `sizeof` assert |
+| Remove a field | Remove the assignment, bump `version`, update the `sizeof` assert |
+| Change a field's type | Update the baker's conversion, bump `version` |
 
 The binary begins with `magic = 0x53575243` ("SWRC") and `version = 3` (both `static constexpr` on `RoadConfig`). `load_road_config()` checks both and throws on mismatch — this catches struct-drift errors at startup. All numeric fields are stored in **world units** (already converted from feet/metres by the baker).
 

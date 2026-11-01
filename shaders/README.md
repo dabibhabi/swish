@@ -4,7 +4,7 @@ GLSL 4.50 source files compiled to SPIR-V by `glslc` during the CMake build. Out
 
 ## Compilation
 
-CMake discovers all `*.vert` and `*.frag` files via `SHADER_SOURCES` and compiles them automatically. Rebuild shaders without reconfiguring:
+`CMakeLists.txt` builds the `SHADER_SOURCES` list (verified 2026-09-29: a `file(GLOB ... CONFIGURE_DEPENDS)` over `*.vert`, `*.frag` and `*.comp`; if that ever changes back to a manual list, `CMakeLists.txt` is the source of truth). Debug builds compile with `-DSWISH_DEBUG_UI` (see `SHADER_DEFINES`). Repo-wide map: [docs/REPO_MAP.md](../docs/REPO_MAP.md) (pass to shader to file table). Rebuild shaders without reconfiguring:
 
 ```bash
 cmake --build build --target shaders
@@ -13,14 +13,47 @@ cmake --build build --target shaders
 To iterate on a shader without a full rebuild:
 
 ```bash
-glslc shaders/lighting.frag -o build/shaders/lighting.frag.spv
+glslc -I shaders/common -I shaders shaders/lighting.frag -o build/shaders/lighting.frag.spv
 ```
+
+### Shared includes (`shaders/common/*.glsl`)
+
+Shared GLSL lives in `shaders/common/` and is pulled in with `#include "name.glsl"` (glslc
+resolves it via `-I shaders/common -I shaders`; no `GL_GOOGLE_include_directive` needed).
+
+| File | Provides |
+|------|----------|
+| `bindings.glsl` | `SET_*` / `BIND_*` descriptor numbers (camera/lights, G-buffer, shadow, IBL, scene-params). Plain `#define NAME <int>` only, so C++ can `#include` it later. Used in `layout(set = SET_X, binding = BIND_Y)` (macros in `layout()` compile fine). |
+| `camera.glsl` | `CameraUBO`. Pick the host-struct prefix with a define BEFORE the include: none = 5 members, `CAMERA_UBO_WEATHER` = + `weather`, `CAMERA_UBO_CSM` = + CSM tail (needs `NUM_CASCADES`). |
+| `lights.glsl` | `PointLight` + `LightsUBO` |
+| `math.glsl` | `PI` |
+| `hash.glsl` / `hash11.glsl` | `hash(vec2)` / `hash11(uint)` |
+| `oct.glsl` | `octEncode` (define `SWISH_OCT_ENCODE`) / `octDecode` (`SWISH_OCT_DECODE`) |
+| `color.glsl` | `LUMA_709` (bloom/composite/TAA) and `LUMA_601` (lighting wet-albedo desaturation only). Deliberately separate, never unify. |
+| `puddle.glsl` | world-space puddle mask shared by `lighting.frag` and `ssr.frag` (C++ wet-grip mirror must match) |
+
+**Adding a shared file:** create `shaders/common/<name>.glsl` with an include guard, `#include` it
+from the shader(s), rebuild. Rules that keep the release `.spv` byte-identical
+(`tests/golden/release_spv.sha256`, glslc 1.4.321.0 from the Vulkan SDK):
+
+- Move only text-identical code. A CameraUBO with a different member prefix is a different
+  block, so it stays behind an opt-in define rather than being merged.
+- glslc emits UNUSED functions, so functions not used by every includer go behind an opt-in
+  define or their own file (`hash.glsl` vs `hash11.glsl`, `oct.glsl`).
+- Use `#define` for constants like `LUMA_*`; a global `const vec3` changes the emitted SPIR-V.
+
+**Dependency tracking.** CMake passes `-I shaders/common -I shaders` and, for Ninja / Makefile
+generators, `-MD -MF <spv>.d` + `DEPFILE`, so touching an include rebuilds exactly the shaders
+that include it. The **Xcode generator ignores `DEPFILE`**; there every shader instead `DEPENDS`
+on all `shaders/common/*.glsl` (editing any include rebuilds all shaders).
+Check `which -a glslc`: the golden hashes assume the SDK glslc; a newer Homebrew glslc will
+differ (configure with `-DGLSLC=$HOME/VulkanSDK/1.4.321.0/macOS/bin/glslc`).
 
 ---
 
 ## Descriptor Set Layout
 
-All geometry shaders share the same global layout:
+The geometry shaders share this global layout:
 
 | Set | Binding | Type | Contents |
 |-----|---------|------|---------|
@@ -30,7 +63,7 @@ All geometry shaders share the same global layout:
 | 1 | 1 | Combined sampler | Normal map |
 | 1 | 2 | Combined sampler | Roughness/metallic map |
 
-This is the layout for the **G-buffer (geometry) pipeline**. The deferred-lighting pass reuses **set 0** (camera + lights) but binds the **G-buffer images as its set 1** (binding 0–3 = albedo, normal, material, depth) — a different set-1 layout. Bloom and composite passes bind their inputs via dedicated descriptor sets, all managed by `PostProcessManager`.
+This is the layout for the **G-buffer (geometry) pipeline**. The deferred-lighting pass (`lighting.frag`) reuses **set 0** (camera + lights) but binds the **G-buffer images as its set 1** — binding 0 albedo, 1 normal, 2 material, 3 depth, **4 `gbClearcoatFlake`** (the always-on clearcoat/flake MRT written to `outClearcoatFlake`, location 3, by `gbuffer.frag`). The rest of `lighting.frag`'s sets: **2** = CSM shadow atlas, **3** = IBL (irradiance cube, prefiltered cube, BRDF LUT), **4** = `SceneParamsUBO` (debug live tunables, 11 vec4 rows). Bloom, SSAO, SSR, god-rays and composite bind their inputs via dedicated descriptor sets managed by `PostProcessManager` (composite: set 0 bindings 0-4 = hdrScene, bloomTex, aoTex, ssrTex, godraysTex). Push-constant blocks must be 16-byte multiples (MoltenVK).
 
 The **rain forward pass** (`rain.vert` / `rain.frag`) uses set 0 = `CameraUBO` (shared with geometry), set 1 = `RainUBO` (wind direction, time, intensity, volume size — owned by `RainSystem`). No set-2 or push constants.
 
@@ -67,14 +100,25 @@ Invoke with: `vkCmdDraw(cmd, 3, 1, 0, 0)`
 | `rain.frag` | Rain forward pass | Additive streak texture (src=ONE, dst=ONE); smoothstep edge + fade; outputs premultiplied color |
 | `bloom_extract.frag` | Bloom extract | BT.709 luma soft-knee bright-pass |
 | `bloom_blur.frag` | Bloom blur H + V | 13-tap (7 bilinear) separable Gaussian; direction via push constant |
-| `composite.frag` | Composite | ACES Narkowicz tonemapping; AO × HDR + bloom |
+| `composite.frag` | Composite | AO × HDR, + SSR + god-rays + bloom, exposure, white balance, **AgX** tonemap, post-tonemap grade (saturation / contrast / brightness) |
 | `glass.vert` | Glass forward pass | Per-vertex TBN + world position; passes push-constant color to fragment shader |
 | `glass.frag` | Glass forward pass | Fresnel rim opacity; sun Blinn-Phong specular; `SRC_ALPHA / ONE_MINUS_SRC_ALPHA` blending |
 | `windshield_rain.vert` | Windshield rain pass | Outputs glass-space mesh UV (`fragUV`) for the drop field + object-space normal for the front-pane mask |
 | `windshield_rain.frag` | Windshield rain pass | Layered Voronoi drop **height field** → normal (finite differences) → **refracts** an HDR scene snapshot (lens); stick-slip motion, Fresnel rim + sun glint, forward-normal confinement, analytic wiper clear; **alpha** output |
-| `basic.frag` | Debug / unused | Forward shading fallback |
-| `ssao.frag` | SSAO (disabled) | Screen-space AO; pass not currently recorded |
-| `ao_blur.frag` | AO blur (disabled) | Blurs the SSAO buffer; pass not currently recorded |
+| `basic.frag` | Unused | Forward shading fallback; no `.cpp` loads it (`ScenePipeline` uses `basic.vert` + `gbuffer.frag`) |
+| `ssao.frag` | SSAO | Screen-space AO; loaded by `PostProcessManager` |
+| `ao_blur.frag` | AO blur | Blurs the SSAO buffer; loaded by `PostProcessManager` |
+| `depth_only.vert` / `.frag` | CSM shadow cascades | Depth-only pass; `DepthOnlyPipeline` |
+| `velocity.vert` / `.frag` | Velocity (debug-gated) | Per-object motion vectors for car body + wheels; `VelocityPass` |
+| `taa.frag` | TAA + motion blur (debug-gated) | Reprojection TAA with YCoCg neighbourhood clamp; `TaaPass` |
+| `ssr.frag` | SSR | View-space depth ray-march; added at composite; `PostProcessManager` |
+| `godrays.frag` | God-rays | Half-res radial blur toward the sun, sky-gated; added at composite |
+| `dof.frag` | Depth of field | `DofPass` |
+| `ibl_sky.frag` / `ibl_equirect.frag` | IBL bake stage 1 | Procedural sky or HDRI equirect to a cube face; `IBLManager` |
+| `ibl_irradiance.frag` / `ibl_prefilter.frag` / `ibl_brdf.frag` | IBL bake stages 2-4 | Diffuse irradiance, GGX specular prefilter, split-sum BRDF LUT; `IBLManager` |
+| `spray_sim.comp` | Road spray (compute) | Particle simulation into an SSBO; `SpraySystem` |
+| `spray.vert` / `spray.frag` | Road spray (forward) | Additive camera-facing billboards from the SSBO; `SpraySystem` |
+| `windshield_wetness.frag` | Windshield wetness map | Ping-pong wetness accumulation + wiper clear; `WindshieldRainPass` |
 
 ---
 
@@ -150,9 +194,11 @@ The H and V passes share this shader; direction $\mathbf{d}$ is the push constan
 </details>
 
 <details>
-<summary><strong>Composite — ACES Tonemapping</strong></summary>
+<summary><strong>Composite — historical ACES notes (the shader now uses AgX)</strong></summary>
 
-`composite.frag` combines the buffers **in this order** — AO multiplies the HDR scene, then bloom is added, then exposure — before tonemapping:
+> **Stale-by-design section.** `composite.frag` now tone-maps with **AgX** (`AgX()` in the shader; see [docs/realism-features.md](../docs/realism-features.md)) and also adds SSR and god-rays before bloom, then applies exposure, white balance and a post-tonemap grade. The ACES Narkowicz math and constants below describe the *earlier* composite and are kept only as a reference for that curve; they are not what runs today.
+
+The earlier composite combined the buffers **in this order** — AO multiplies the HDR scene, then bloom is added, then exposure — before tonemapping:
 
 $$\text{hdr}' = \bigl(\text{hdr}\cdot\text{ao} + \text{bloom}\cdot k_\text{intensity}\bigr)\cdot\text{exposure}$$
 
@@ -180,12 +226,14 @@ The ACES curve has a characteristic S-shape: it lifts dark values (shadow detail
 
 ## Adding a New Pass
 
-1. Add `<name>.vert` / `<name>.frag` to this directory — CMake picks it up on the next configure.
-2. Load SPIR-V in your subsystem's `init()`:
+1. Add `<name>.vert` / `<name>.frag` (or `.comp`) to this directory — see `SHADER_SOURCES` in `CMakeLists.txt` (currently a glob with `CONFIGURE_DEPENDS`, so the next build picks it up). Full checklist: [docs/RECIPES.md § add-a-shader](../docs/RECIPES.md#add-a-shader).
+2. Load SPIR-V in your subsystem's `init()`: most passes just set the paths on their `PipelineConfig` and let `Pipeline` read them (as in `DofPass.cpp`):
    ```cpp
-   auto code = FileIO::readBinaryFile(std::string(SHADER_DIR) + "name.frag.spv");
+   cfg.vertShaderPath = std::string(SHADER_DIR) + "fullscreen.vert.spv";
+   cfg.fragShaderPath = std::string(SHADER_DIR) + "name.frag.spv";
+   // or by hand: auto code = util::io::read_binary(std::string(SHADER_DIR) + "name.frag.spv");  // utils/io/File.h
    ```
-3. Wrap `VkShaderModule` creation in `ScopedShaderModule` (see `Pipeline.cpp`) to prevent leaks on pipeline-creation failure.
+3. Wrap `VkShaderModule` creation in `swish::vkx::make_shader_module` (`utils/vulkan/ShaderModule.h`, used by `Pipeline.cpp`): it is RAII, so the module is released on pipeline-creation failure, and it throws on empty or non-4-byte-multiple SPIR-V. Shared GLSL goes in `common/`.
 4. Fullscreen passes: draw with `vkCmdDraw(cmd, 3, 1, 0, 0)` — no vertex input.
 5. Update the file reference table above.
 

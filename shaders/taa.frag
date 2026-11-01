@@ -1,5 +1,7 @@
 #version 450
 
+#include "color.glsl"
+
 // ── Temporal anti-aliasing resolve + per-pixel motion blur (W9, debug-only) ──
 // Reprojection TAA: reconstruct each pixel's world position from depth, project it
 // with the PREVIOUS frame's (un-jittered) view-proj to find where it was last frame,
@@ -15,9 +17,15 @@
 
 layout(location = 0) in vec2 fragUV;
 
-layout(set = 0, binding = 0) uniform sampler2D curHdr;   // this frame's lit+forward HDR (jittered)
-layout(set = 0, binding = 1) uniform sampler2D depthTex; // scene depth (this frame)
-layout(set = 0, binding = 2) uniform sampler2D history;  // last frame's resolved output
+layout(set = 0, binding = 0) uniform sampler2D curHdr;     // this frame's lit+forward HDR (jittered)
+layout(set = 0, binding = 1) uniform sampler2D depthTex;   // scene depth (this frame)
+layout(set = 0, binding = 2) uniform sampler2D history;    // last frame's resolved output
+// Per-object velocity buffer (VelocityPass, todo.md "Per-object velocity buffer"): rg =
+// UV-space motion vector for car-body/wheel pixels, a = validity (1 = valid, 0 = "use the
+// depth-only estimate below"). Fixes reprojection ghosting on the moving car that pure
+// depth + a single camera-level prevViewProj cannot represent (it has no notion that an
+// object, as opposed to the whole world, moved).
+layout(set = 0, binding = 3) uniform sampler2D velocityBuf;
 
 layout(push_constant) uniform Push {
     mat4 prevViewProj;  // world → clip, PREVIOUS frame, un-jittered
@@ -36,7 +44,7 @@ vec3 ycocg2rgb(vec3 c) {
     float t = c.x - c.z;
     return vec3(t + c.y, c.x + c.z, t - c.y);
 }
-float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+float luma(vec3 c) { return dot(c, LUMA_709); }
 
 void main() {
     vec2  texel = pc.params.zw;
@@ -46,9 +54,16 @@ void main() {
     vec4 ndc = vec4(fragUV * 2.0 - 1.0, d, 1.0);
     vec4 wp  = pc.invViewProj * ndc;
     wp /= wp.w;
-    vec4  pc4      = pc.prevViewProj * vec4(wp.xyz, 1.0);
-    vec2  prevUV   = (pc4.xy / pc4.w) * 0.5 + 0.5;
-    vec2  velocity = fragUV - prevUV;
+    vec4  pc4           = pc.prevViewProj * vec4(wp.xyz, 1.0);
+    vec2  depthPrevUV   = (pc4.xy / pc4.w) * 0.5 + 0.5;
+    vec2  depthVelocity = fragUV - depthPrevUV;
+
+    // Per-object velocity (car body/wheels) overrides the depth-only estimate wherever
+    // VelocityPass actually rendered — the depth-only path assumes the WORLD moved (pure
+    // camera reprojection), which is wrong for anything that moved independently of it.
+    vec4 objVel   = texture(velocityBuf, fragUV);
+    vec2 velocity = objVel.a > 0.5 ? objVel.xy : depthVelocity;
+    vec2 prevUV   = fragUV - velocity;
 
     vec3 cur   = texture(curHdr, fragUV).rgb;
     vec3 curYC = rgb2ycocg(cur);

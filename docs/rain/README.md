@@ -24,7 +24,7 @@ graph LR
     BAR --> BLOOM["Bloom"] --> COMP["Composite (ACES)"]
 ```
 
-`RainSystem`'s wetness/intensity feed the windshield UBO each frame, so the drops only appear once the scene is wet. Ordering and the snapshot live in [`Renderer::recordCommandBuffer`](../../src/renderer/Renderer/Renderer.cpp).
+`RainSystem`'s wetness/intensity feed the windshield UBO each frame, so the drops only appear once the scene is wet. Ordering is the pass list [`PassList.def`](../../src/renderer/Passes/PassList.def) (`Rain`, `SprayDraw`, `Glass`, `WindshieldRain`); the snapshot is taken inside the `WindshieldRain` pass.
 
 ---
 
@@ -65,7 +65,7 @@ where $\mathbf F=\texttt{gl\_FragCoord}$, $\mathbf S$ = framebuffer size, $s_r$ 
 
 The windshield pass renders **into** the HDR image (it sits in the forward chain). A fragment shader may not sample the same image it is writing — that is a feedback loop and undefined in Vulkan. So, after the glass pass, the HDR colour is copied into a dedicated sampled image (`refrSrc`, one per frame-in-flight) which the shader reads. The HDR image gained `VK_IMAGE_USAGE_TRANSFER_SRC_BIT` for this.
 
-`ResourceManager::insertImageBarrier` only knows the COLOR/DEPTH/SHADER layouts, so the transfer transitions are issued explicitly:
+The transfer transitions (`COLOR_ATTACHMENT`/`SHADER_READ` to and from `TRANSFER_SRC`/`TRANSFER_DST`) are pairs of the `swish::vkx::image_barrier` table ([`Barrier.h`](../../src/utils/vulkan/Barrier.h)); the sketch below shows the sequence:
 
 ```cpp
 // HDR (color attachment) → transfer source
@@ -202,7 +202,7 @@ vec2  src = fragUV - p.flow * p.advect;     // advect upstream
 float w   = texture(prevWet, src).r;
 w += p.intensity * p.dt * 0.7;              // rain accumulates
 w -= p.dt * 0.04;                           // evaporation
-if (p.wiperOn > 0.5) w *= (1.0 - wiperClear(fragUV, p.wiperAngle, p.aspect));
+if (p.wiperOn > 0.5) w *= (1.0 - wiperClear(fragUV));   // swept quad + band, per projected blade
 outWet = clamp(w, 0.0, 1.0);
 ```
 
@@ -213,19 +213,14 @@ outWet = clamp(w, 0.0, 1.0);
 copies B→A so next frame's history is this result — fixed bindings (the rain frag always samples B),
 no per-frame descriptor churn. With explicit transfer barriers around the copy.
 
-**Wiper blade** — a rotating line-segment SDF in screen space (the cockpit view is fixed; the mesh
-UVs aren't a clean $[0,1]^2$ so screen space is reliable). Blade angle $\theta = \sin(\phi)\,\theta_{\max}$
-($\theta_{\max}\approx 66°$), `V` toggles it (edge-detected in [`App.cpp`](../../src/core/App/App.cpp)):
-
-```glsl
-float wiperClear(vec2 uv, float angle, float aspect) {
-    vec2 pivot = vec2(0.5, 0.92);
-    vec2 rel   = (uv - pivot) * vec2(aspect, 1.0);
-    vec2 dir   = vec2(sin(angle), -cos(angle));
-    float t    = clamp(dot(rel, dir), 0.0, 0.7);
-    return 1.0 - smoothstep(0.045, 0.12, length(rel - dir*t));
-}
-```
+**Wiper blade (since 2026-10-12).** One wiper angle from [`Wiper.h`](../../src/scene/Entity/Wiper.h) (park-and-sweep,
+eased reversals; `V` cycles Off → Intermittent → Low → High) drives everything. `WindshieldRainPass::update_wiper` projects
+each blade's wiped segment to screen UV at last frame's and this frame's angle. For the rigged car these come from its 3D
+`Wiper_*` arms; a car without them gets one analytic screen-space blade pivoting at $(0.5, 0.92)$. `wiperClear` in
+[`windshield_wetness.frag`](../../shaders/windshield_wetness.frag) clears the quad swept between the two segments plus a
+feathered band around the current one, so the cleared glass matches where the blade has been at any frame rate. Math and
+constants: [car-rig.md](../car-rig.md) §3. The pre-2026-10-12 version was a fixed band around a `sin`-driven
+angle ($\pm 66°$), toggled by `V`.
 
 **Speed crossover.** The flow is gravity→aero by speed. The crossover is tuned to the car's
 *achievable* range — terminal speed is drag-limited to $v\approx k_\text{accel}/k_\text{drag}=7200$ WU/s
@@ -247,7 +242,7 @@ The same flow drives both the wetness advection (`m_waterFlow`, CPU) and the pro
 | `flowAndTime` | flow dir x | flow dir y | speed [0,1] | time (s) |
 | `params` | wetness | intensity | drop density | refraction strength |
 | `screenAndRefr` | width (px) | height (px) | maxBlurLod (reserved) | Fresnel rim gain |
-| `wiperState` | blade angle | phase | enabled (0/1) | sweep speed |
+| `wiperState` | screen-space blade angle (rad; cars without rigged wipers) | wiper angle (rad) | draw the screen-space blade (0/1) | sweep (rad) |
 
 ## Tunables (current values)
 
@@ -270,15 +265,16 @@ The same flow drives both the wetness advection (`m_waterFlow`, CPU) and the pro
 | haze strength | `windshield_rain.frag` | `0.035 + 0.03·intensity` | wet-glass fog veil — kept very light so beads carry the look |
 | cull side | `createPipeline` | `FRONT` | which windshield face is shaded |
 | front mask | `windshield_rain.frag` | `smoothstep(0.12,0.45,n.x)` | how aggressively side/rear glass is excluded |
-| wiper pivot / band | `wiperClear` | `(0.5,0.92)` / `0.12` | sweep origin and streak width |
+| wiper band | `WindshieldRainPass.cpp` `kRigBand` / `kScreenBand` | `(0.008, 0.02)` rigged / `(0.04, 0.13)` screen-space, pivot `(0.5,0.92)` | feather around the blade (aspect-corrected UV) |
+| wiper rates / sweep | `config/car.toml` `[wipers]` | 45 / 65 wipes/min, 4 s dwell, 105°, ease 1 | mode speeds and sweep ([car-rig.md](../car-rig.md)) |
 | rain / evaporation rate | `windshield_wetness.frag` | `0.7` / `0.04` | how fast glass wets / dries |
 | flow crossover | `update` + frag | `smoothstep(0.05,0.20,speed)` | speed at which water flips from down → up |
 
 ## Controls
-`R` — cycle rain intensity (off → light → heavy) · `V` — toggle the wiper.
+`R` — cycle rain intensity (off → light → heavy) · `V` — cycle the wipers (off → intermittent → low → high).
 
 ## Files
-`shaders/windshield_rain.{vert,frag}` · `shaders/windshield_wetness.frag` (wetness map) · [`WindshieldRainPass/`](../../src/renderer/WindshieldRainPass/) · [`PostProcessManager.cpp`](../../src/renderer/PostProcessManager/PostProcessManager.cpp) (HDR `TRANSFER_SRC`) · [`Renderer.cpp`](../../src/renderer/Renderer/Renderer.cpp) (snapshot + ordering) · [`ModelManager.cpp`](../../src/scene/ModelManager/ModelManager.cpp) (tagging) · [`App.cpp`](../../src/core/App/App.cpp) (input).
+`shaders/windshield_rain.{vert,frag}` · `shaders/windshield_wetness.frag` (wetness map) · [`WindshieldRainPass/`](../../src/renderer/WindshieldRainPass/) · [`PostProcessManager.cpp`](../../src/renderer/PostProcessManager/PostProcessManager.cpp) (HDR `TRANSFER_SRC`) · [`Renderer_Record.cpp`](../../src/renderer/Renderer/Renderer_Record.cpp) (snapshot + ordering) · [`ModelManager.cpp`](../../src/scene/ModelManager/ModelManager.cpp) (tagging) · [`AppInput.cpp`](../../src/core/App/AppInput.cpp) (input).
 
 ## Verification
 Build green (`cmake -B build && cmake --build build`); validation layers clean (snapshot copy, transfer barriers, binding-1 sampler exercised every frame); loader logs `windshield: 1`. Visually confirmed in-cockpit: small refractive beads (not blobs), no cabin/side-glass rain, wiper sweeps a clear streak — [`docs/images/windshield-rain-fixed.png`](../images/windshield-rain-fixed.png).
@@ -287,6 +283,21 @@ Build green (`cmake -B build && cmake --build build`); validation layers clean (
 - **Refraction is subtle under overcast lighting** — the snapshot scene is low-contrast, so lensing reads mostly via rim/specular. A brighter/HDR-richer scene shows more.
 - **No mip blur** — the snapshot is single-level (`textureLod(..., 0)`); `screenAndRefr.z` is reserved for a wetness-driven blur LOD once the snapshot generates mips.
 - **Uniform rain accumulation** — the wetness map wets the whole windshield evenly; per-drop impact splashes or runner streaks (Tatarchuk's per-cell water mass) would add more structure to the map itself (the procedural drops already supply the fine detail).
+
+## Car rain interactions (stub, debug-only, 2026-10-10)
+
+Interfaces for car/rain coupling, behind `SWISH_DEBUG_UI` and off by default (release output unchanged). Details: [changelog 2026-10-10](../changelog/2026-10.md).
+
+| Piece | File | Status |
+|-------|------|--------|
+| Per-wheel spray | [WheelSpray.h](../../src/renderer/SpraySystem/WheelSpray.h) → `SpraySystem::set_emitters` | Up to 4 emitters; rate $= g\,w\,(k+(1-k)s)\,m$, zero when dry or stationary. Toggle `perWheelSpray`; off = legacy single rear-axle origin. One wheel spawns per frame (round-robin). |
+| Lens wetness | [LensWetness.h](../../src/renderer/WindshieldRainPass/LensWetness.h) | CPU model per lens node name: $c' = \text{rain}\,k_{wet}(1-c) - (a\,k_{clear}+k_{drain})\,c$, steady state $c^*=\frac{\text{rain}\,k_{wet}}{\text{rain}\,k_{wet}+a\,k_{clear}+k_{drain}}$ (about 0.95 parked, 0.10 at speed in rain 1.0). Drives Telemetry rows only. |
+
+**Not done:** screenshots at rain 0 and 1.0; `LensWetnessGpu` upload to the lighting/emissive path.
+
+**Full-version TODOs**
+- Spray: real contact patch and tangential throw off the tyre; per-wheel puddle depth; front bow-wave vs rear rooster-tail; hydroplaning high-volume cone; per-emitter cone/size in `spray_sim.comp` (changes release `.spv` hashes, so golden update plus changelog).
+- Lenses: per-lens exposure to airflow (headlights clear faster than tail lights); stochastic bead merging and lifetime; lamp heat drying; windshield/spray splash wetting rear lenses; renderer upload.
 
 ## References
 - **Tatarchuk, "Artist-Directable Real-Time Rain Rendering in City Environments," SIGGRAPH 2006** — per-cell water mass → dynamic normal map → scene refraction + Fresnel. <https://advances.realtimerendering.com/s2006/Tatarchuk-Rain.pdf>
@@ -297,4 +308,4 @@ Build green (`cmake -B build && cmake --build build`); validation layers clean (
 - **Codrops — "Rain & Water Effect Experiments"** — the drop-mask/refraction intuition. <https://tympanus.net/codrops/2015/11/04/rain-water-effect-experiments/>
 - **Radiant — "How to render rain on glass"** — water-map + background-refraction two-pipeline pattern. <https://radiant-shaders.com/learn/rain-on-glass>
 
-See also the focused notes in this folder: [codebase-map](codebase-map.md) · [technique-refraction](technique-refraction.md) · [technique-wiper](technique-wiper.md) · [implementation-plan](implementation-plan.md).
+See also the focused notes in this folder: [codebase-map](../../archive/docs/rain/codebase-map.md) · [technique-refraction](../../archive/docs/rain/technique-refraction.md) · [technique-wiper](../../archive/docs/rain/technique-wiper.md) · [implementation-plan](../../archive/docs/rain/implementation-plan.md).

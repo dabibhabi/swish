@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../utils/Types.h"
+#include "utils/types/Types.h"
 
 struct GLFWwindow;
 
@@ -47,7 +47,12 @@ public:
     const Vec3& get_up() const;
 
     // ── Perspective parameters ────────────────────────────────────
-    void  set_perspective(float fov_deg, float aspect, float near_plane, float far_plane);
+    void set_perspective(float fov_deg, float aspect, float near_plane, float far_plane);
+    // Runtime FOV modulation (speed/accel "kick", tasks/todo.md F1). Only
+    // clamps defensively to a range that keeps glm::perspective well-defined
+    // (tan(fov/2) finite and positive); the game-feel range (e.g. 65-79°) is
+    // the caller's responsibility (App.cpp's cockpit camera block).
+    void  set_fov(float fov_deg);
     float get_fov() const;
     float get_aspect() const;
     float get_near() const;

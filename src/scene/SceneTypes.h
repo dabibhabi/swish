@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../renderer/Vertex.h"
-#include "../utils/Types.h"
+#include "renderer/Vertex.h"
+#include "utils/types/Types.h"
 
 #include <vector>
 
@@ -26,38 +26,44 @@ enum MaterialId : uint32_t {
     MAT_SIGN_6   = 14,
     MAT_SIGN_7   = 15,
     // ── Car material slots (loaded from GLB, one per glTF material) ──
-    MAT_CAR_0  = 16,
-    MAT_CAR_1  = 17,
-    MAT_CAR_2  = 18,
-    MAT_CAR_3  = 19,
-    MAT_CAR_4  = 20,
-    MAT_CAR_5  = 21,
-    MAT_CAR_6  = 22,
-    MAT_CAR_7  = 23,
-    MAT_CAR_8  = 24,
-    MAT_CAR_9  = 25,
-    MAT_CAR_10 = 26,
-    MAT_CAR_11 = 27,
-    MAT_CAR_12 = 28,
-    MAT_CAR_13 = 29,
-    MAT_CAR_14 = 30,
-    MAT_CAR_15 = 31,
-    MAT_CAR_16 = 32,
-    MAT_CAR_17 = 33,
-    MAT_CAR_18 = 34,
-    MAT_CAR_19 = 35,
+    MAT_CAR_0    = 16,
+    MAT_CAR_1    = 17,
+    MAT_CAR_2    = 18,
+    MAT_CAR_3    = 19,
+    MAT_CAR_4    = 20,
+    MAT_CAR_5    = 21,
+    MAT_CAR_6    = 22,
+    MAT_CAR_7    = 23,
+    MAT_CAR_8    = 24,
+    MAT_CAR_9    = 25,
+    MAT_CAR_10   = 26,
+    MAT_CAR_11   = 27,
+    MAT_CAR_12   = 28,
+    MAT_CAR_13   = 29,
+    MAT_CAR_14   = 30,
+    MAT_CAR_15   = 31,
+    MAT_CAR_16   = 32,
+    MAT_CAR_17   = 33,
+    MAT_CAR_18   = 34,
+    MAT_CAR_19   = 35,
+    MAT_CAR_20   = 36,
+    MAT_CAR_21   = 37,
+    MAT_CAR_22   = 38,
+    MAT_CAR_23   = 39,
+    MAT_CAR_24   = 40,
+    MAT_CAR_25   = 41,
+    MAT_CAR_26   = 42,
+    MAT_CAR_27   = 43,
+    MAT_CAR_28   = 44,
+    MAT_CAR_29   = 45,
+    MAT_CAR_30   = 46,
+    MAT_CAR_31   = 47,
+    MAT_CAR_LAST = MAT_CAR_31,  // car slots are contiguous MAT_CAR_0..MAT_CAR_LAST
     MAT_COUNT
 };
 
-// Number of sun shadow cascades (CSM). Must match NUM_CASCADES in lighting.frag
-// and kNumCascades in PostProcessManager. 3 covers near→~400 m with crisp near
-// shadows on the 4.2 km road.
 static constexpr uint32_t NUM_CASCADES = 3;
 
-// Matches the UBO in basic.vert/basic.frag (set=0, binding=0). Everything past
-// `sunColor` is appended at the END so vertex shaders that declare only the prefix
-// (basic.vert, rain.vert, glass.vert, windshield_rain.vert stop at sunColor) stay
-// layout-compatible; only lighting.frag declares + reads the tail.
 struct CameraUBO {
     Mat4 view;
     Mat4 proj;
@@ -65,24 +71,34 @@ struct CameraUBO {
     Vec4 sunDir;    // xyz = normalized sun direction, w = intensity
     Vec4 sunColor;  // rgb = sun color, a = ambient strength
     Vec4 weather;   // x = clarity (0 overcast .. 1 clear day), yzw reserved
-    // ── CSM: per-cascade light-space view*proj + split far-distances ──
-    // cascadeViewProj[i] maps world → that cascade's [0,1] shadow-atlas clip.
-    // cascadeSplits.xyz = the view-space far distance (positive, +Z forward) of
-    // cascades 0/1/2; a fragment picks the first cascade whose split ≥ its depth.
-    // All 16-aligned; only lighting.frag reads these.
+
     Mat4 cascadeViewProj[NUM_CASCADES];
     Vec4 cascadeSplits;
 };
 
-// Per-material debug override (debug UI). One entry per MaterialId; when `enabled`
-// the draw for that material uses these instead of its asset values. Defaults are
-// no-ops (metalness/roughnessMul applied only when enabled), so release — which
-// never passes an override table — is unaffected.
 struct MaterialOverride {
     bool  enabled      = false;
     float metalness    = 0.0f;
     float roughnessMul = 1.0f;
     Vec3  color        = Vec3(1.0f);
+
+    float clearcoat    = 0.0f;
+    float flakeDensity = 0.0f;
+};
+
+inline constexpr float kDefaultClearcoatStrength = 0.35f;
+inline constexpr float kDefaultFlakeDensity      = 0.0f;
+
+inline float default_clearcoat_strength(MaterialId mat) {
+    return (mat >= MAT_CAR_0 && mat <= MAT_CAR_LAST) ? kDefaultClearcoatStrength : 0.0f;
+}
+inline float default_flake_density(MaterialId mat) {
+    return (mat >= MAT_CAR_0 && mat <= MAT_CAR_LAST) ? kDefaultFlakeDensity : 0.0f;
+}
+
+struct PaintTuning {
+    float clearcoatMul    = 1.0f;
+    float flakeDensityMul = 1.0f;
 };
 
 // ── Point Light System (inspired by rind/Light.cpp) ──────────────────
@@ -93,9 +109,27 @@ struct PointLightData {
     Vec4 colorIntensity;  // rgb = color, a = intensity multiplier
 };
 
+#ifdef SWISH_DEBUG_UI
+// ── Car spot lights (headlights / tail / brake; tasks/todo.md "Car lights") ──
+// Debug-only for now: the release LightsUBO layout (and the release lighting.frag)
+// is unchanged until the feature is turned on for release as its own step.
+static constexpr uint32_t MAX_SPOT_LIGHTS = 8;
+
+struct SpotLightData {
+    Vec4 positionRange;      // xyz = world position (WU), w = range (WU)
+    Vec4 directionCosOuter;  // xyz = unit beam direction, w = cos(outer half-angle)
+    Vec4 colorIntensity;     // rgb = color, a = intensity multiplier
+    Vec4 params;             // x = cos(inner half-angle), yzw = 0
+};
+#endif
+
 struct LightsUBO {
     PointLightData pointLights[MAX_POINT_LIGHTS];
     glm::uvec4     numPointLights;  // x = count, yzw = 0
+#ifdef SWISH_DEBUG_UI
+    SpotLightData spotLights[MAX_SPOT_LIGHTS];
+    glm::uvec4    numSpotLights;  // x = count, yzw = 0
+#endif
 };
 
 struct LightDesc {
@@ -105,13 +139,17 @@ struct LightDesc {
     float radius;
 };
 
-// ── Ribbon ────────────────────────────────────────────────────────────
-// A drivable surface swept along a 3D centreline (interchange-local coords).
-// Shared by the geometry builder (emit_ribbon renders it) and the physics
-// follower (the car tracks arc-length along `pts`, taking Y/pitch/heading from
-// the curve). `next`/`branch` are successor ribbon indices at the far end:
-// `next` by default, `branch` when the driver steers toward it; −1 = leave the
-// interchange (resume free driving).
+struct SpotLightDesc {
+    Vec3  position;   // WU
+    Vec3  direction;  // unit beam direction
+    Vec3  color;
+    float intensity;
+    float range;     // WU; the windowed falloff reaches 0 here
+    float cosInner;  // full intensity inside this half-angle
+    float cosOuter;  // zero outside this half-angle
+};
+
+
 struct Ribbon {
     std::vector<Vec3> pts;
     float             halfWidth = 0.0f;
@@ -119,10 +157,19 @@ struct Ribbon {
     int               branch    = -1;
 };
 
-// ── MeshData ──────────────────────────────────────────────────────────
-// Encapsulates vertex and index buffers with controlled access.
-// Vertices and indices are only added through push methods, ensuring
-// the caller always gets correct base indices for quad construction.
+struct SweepFrame {
+    Vec3  center;
+    Vec3  right;
+    float arc = 0.0f;
+};
+
+struct CorridorInstance {
+    uint32_t segment = 0;
+    Vec3     offset  = Vec3(0.0f);
+};
+
+//
+
 class MeshData {
 public:
     uint32_t getVertexCount() const { return static_cast<uint32_t>(m_vertices.size()); }
@@ -131,8 +178,10 @@ public:
     const std::vector<Vertex>&   getVertices() const { return m_vertices; }
     const std::vector<uint32_t>& getIndices() const { return m_indices; }
 
-    // Mutable access for load-time mesh fixups (e.g. grounding a model).
-    std::vector<Vertex>& getVertices() { return m_vertices; }
+    template <class F>
+    void forEachVertex(F&& fn) {
+        for (Vertex& v : m_vertices) fn(v);
+    }
 
     bool empty() const { return m_vertices.empty() || m_indices.empty(); }
 
@@ -144,10 +193,8 @@ private:
     std::vector<uint32_t> m_indices;
 };
 
-// ── Submesh ───────────────────────────────────────────────────────────
-// One primitive within a ModelEntity. Like DrawCall but without the model
-// matrix — that is injected at draw-call generation time from the entity's
-// current transform.
+enum class RigPart : uint8_t { None, NeedleRpm, NeedleSpeed, WiperDriver, WiperPassenger };
+
 struct Submesh {
     uint32_t   indexOffset;
     uint32_t   indexCount;
@@ -155,59 +202,50 @@ struct Submesh {
     Vec4       color    = Vec4(1.f, 1.f, 1.f, 1.f);
 
     bool is_steering_wheel = false;
-    // Normalized SteeringWheel_Pivot frame (RootNode-rel, +90° Y, grounded).
-    // Steer = sw_pivot_frame * R_local(angle) * inverse(sw_pivot_frame).
+
     Mat4 sw_pivot_frame = Mat4(1.f);
 
-    // Glass (alphaMode=BLEND) — rendered in the forward transparent pass,
-    // not in the G-buffer. is_windshield further marks the main front/side
-    // window panes that receive the windshield rain trail effect.
     bool is_glass      = false;
     bool is_windshield = false;
 
-    // Interior cabin geometry (node name contains "Interior") — tinted light gray
-    // by CarEntity::get_draw_calls as rain rises, via the gbuffer.frag wash sentinel.
     bool is_interior = false;
+
+    int8_t wheel_corner = -1;
+    bool   wheel_spins  = false;
+
+    RigPart rig_part        = RigPart::None;
+    Mat4    rig_pivot_frame = Mat4(1.f);
 };
 
-// ── DrawCall ──────────────────────────────────────────────────────────
-// One draw call = one material applied to a range of indices.
+struct WheelFrame {
+    Mat4  frame     = Mat4(1.f);
+    float radius    = 0.34f;
+    float spin_sign = 1.f;
+};
+
 struct DrawCall {
     uint32_t   indexOffset;
     uint32_t   indexCount;
     Vec4       color;
     Mat4       model;
     MaterialId material;
-    // Excluded from wet-road (asphalt) effects in lighting.frag. Set for the WHOLE
-    // car — the wet-road BRDF (porosity darkening, sky sheen) is tuned for the
-    // horizontal road, not car paint or the enclosed cabin; applying it there
-    // washed the interior out. Road/world geometry leaves this false (wettable).
+
     bool dry = false;
-    // ── Per-draw bounding sphere (object space), for culling ──────────────
-    // Filled by MeshBuilder::pushDrawCall from the draw's index range. A negative
-    // radius is the "unbounded — never cull" sentinel: dynamic draws that skip
-    // MeshBuilder (the car, loaded models) keep the default and always render.
-    // The full-length road surface quads get a huge radius, so they too are never
-    // culled — only the thousands of small props are. Center is transformed by
-    // `model` at cull time; the sphere is conservative (encloses all 4 verts).
+
     Vec3  boundsCenter = Vec3(0.0f);
     float boundsRadius = -1.0f;
 };
 
-// Matches the push constant block in basic.vert + gbuffer.frag.
-// `material.x` is the real per-material metalness [0,1] consumed by gbuffer.frag
-// (dielectric = 0); yzw are reserved. A full Vec4 is used (not a bare float) so
-// the struct is 96 bytes = a multiple of 16: MoltenVK mis-maps push constants
-// whose total size isn't 16-byte aligned (an 80→84 byte change rendered geometry
-// black). basic.vert declares the same 96-byte block so vertex/fragment agree.
 struct PushConstantData {
     Mat4 model;     // 64 B
     Vec4 color;     // 16 B
-    Vec4 material;  // 16 B — x = metalness [0,1], yzw reserved  (total 96 B)
+    Vec4 material;  // 16 B — x = metalness, y = wettable mask, z = roughness mul, w = road tag
+    Vec4 paint;
 };
+static_assert(sizeof(PushConstantData) % 16 == 0, "PushConstantData: push-constant block must be a 16-byte multiple");
 
-// Passes that don't consume `material` (glass / windshield) size their push
-// range + push to just the model+color prefix (still 16-aligned at 80 B).
+
 inline constexpr uint32_t kPushConstantModelColorSize = static_cast<uint32_t>(sizeof(Mat4) + sizeof(Vec4));
+static_assert(kPushConstantModelColorSize % 16 == 0, "model+color push range must be a 16-byte multiple");
 
 }  // namespace swish

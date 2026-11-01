@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../../scene/SceneTypes.h"
-#include "../GpuResource/GpuResource.h"
-#include "../Renderer/RendererServices.h"
+#include "renderer/GpuResource/GpuResource.h"
+#include "renderer/Renderer/RendererServices.h"
+#include "scene/SceneTypes.h"
 
 #include <vulkan/vulkan.h>
 
@@ -67,9 +67,17 @@ public:
     // `originOffset` is added (in double) to every draw's model translation before the
     // camera-relative rebase — this is how ONE canonical chunk mesh is instanced at many
     // world offsets (the endless road) and how the authored intro is shifted on origin rebase.
+    // `paint` (optional) carries the global clearcoat/flake debug multipliers +
+    // the shared flake cell scale/jitter, broadcast into every draw's push
+    // constants (PushConstantData.paint) alongside the per-material clearcoat/
+    // flake authored default (or its debug override, from `overrides`). Default-
+    // constructed PaintTuning is identity, and flakeScale/flakeJitter default to
+    // the release literals below, so omitting this argument reproduces the
+    // shipped look exactly.
     void record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials,
                       const MaterialOverride* overrides, const CullParams& cull, Vec3 originOffset = Vec3(0.0f),
-                      CullStats* stats = nullptr) const;
+                      CullStats* stats = nullptr, const PaintTuning& paint = PaintTuning{}, float flakeScale = 8.0f,
+                      float flakeJitter = 0.35f) const;
 
     // Depth-only pass (shadow map): bind vertex/index buffers, then for each
     // draw call push only the per-object model matrix (no material/descriptor
@@ -94,6 +102,13 @@ public:
     // Used every frame for dynamic objects (e.g. the car) whose vertex data
     // is static but whose model matrices change.
     void update_draw_calls(const std::vector<DrawCall>& draws) { m_drawCalls = draws; }
+
+#ifdef SWISH_DEBUG_UI
+    // Debug-only: exposes the stored draw list so VelocityPass (todo.md "Per-object
+    // velocity buffer") can pair this frame's model matrices with CarEntity's cached
+    // previous-frame matrices. Not used by any release-path code.
+    const std::vector<DrawCall>& get_draw_calls() const { return m_drawCalls; }
+#endif
 
 private:
     GpuBuffer             m_vertexBuffer;  // RAII (VMA)

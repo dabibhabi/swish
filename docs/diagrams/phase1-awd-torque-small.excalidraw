@@ -1,0 +1,131 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "https://excalidraw.com",
+  "elements": [
+    {
+      "id": "title", "type": "text", "x": 40, "y": 10, "width": 640, "height": 30,
+      "angle": 0, "strokeColor": "#f8f8f2", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0,
+      "opacity": 100, "groupIds": [], "frameId": null, "seed": 1, "version": 1,
+      "versionNonce": 1, "isDeleted": false, "boundElements": [], "updated": 1735000000000,
+      "link": null, "locked": false, "roundness": null,
+      "text": "Phase 1 — AWD PTU torque split (slip-responsive)",
+      "fontSize": 18, "fontFamily": 2, "textAlign": "center", "verticalAlign": "middle"
+    },
+    {
+      "id": "box-engine", "type": "rectangle", "x": 40, "y": 70, "width": 220, "height": 70,
+      "angle": 0, "strokeColor": "#8be9fd", "backgroundColor": "#313244",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0,
+      "opacity": 100, "groupIds": [], "frameId": null, "seed": 2, "version": 1,
+      "versionNonce": 2, "isDeleted": false, "boundElements": [], "updated": 1735000000000,
+      "link": null, "locked": false, "roundness": { "type": 3 }
+    },
+    {
+      "id": "txt-engine", "type": "text", "x": 50, "y": 90, "width": 200, "height": 40,
+      "angle": 0, "strokeColor": "#8be9fd", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0,
+      "opacity": 100, "groupIds": [], "frameId": null, "seed": 3, "version": 1,
+      "versionNonce": 3, "isDeleted": false, "boundElements": [], "updated": 1735000000000,
+      "link": null, "locked": false, "roundness": null,
+      "text": "engine_torque(rpm)\n× gearbox ratio",
+      "fontSize": 13, "fontFamily": 2, "textAlign": "center", "verticalAlign": "middle"
+    },
+    {
+      "id": "box-ptu", "type": "rectangle", "x": 340, "y": 70, "width": 240, "height": 90,
+      "angle": 0, "strokeColor": "#ffb86c", "backgroundColor": "#313244",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0,
+      "opacity": 100, "groupIds": [], "frameId": null, "seed": 4, "version": 1,
+      "versionNonce": 4, "isDeleted": false, "boundElements": [], "updated": 1735000000000,
+      "link": null, "locked": false, "roundness": { "type": 3 }
+    },
+    {
+      "id": "txt-ptu", "type": "text", "x": 350, "y": 82, "width": 220, "height": 66,
+      "angle": 0, "strokeColor": "#ffb86c", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0,
+      "opacity": 100, "groupIds": [], "frameId": null, "seed": 5, "version": 1,
+      "versionNonce": 5, "isDeleted": false, "boundElements": [], "updated": 1735000000000,
+      "link": null, "locked": false, "roundness": null,
+      "text": "PTU clutch pack\nfront share = f(rear slip, throttle)\nmostly-rear at cruise",
+      "fontSize": 12, "fontFamily": 2, "textAlign": "center", "verticalAlign": "middle"
+    },
+    {
+      "id": "arrow-eng-ptu", "type": "arrow", "x": 260, "y": 105, "width": 80, "height": 0,
+      "angle": 0, "strokeColor": "#f8f8f2", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0,
+      "opacity": 100, "groupIds": [], "frameId": null, "seed": 6, "version": 1,
+      "versionNonce": 6, "isDeleted": false, "boundElements": [], "updated": 1735000000000,
+      "link": null, "locked": false, "roundness": null,
+      "points": [[0, 0], [80, 0]], "startArrowhead": null, "endArrowhead": "arrow"
+    },
+    {
+      "id": "box-rear", "type": "rectangle", "x": 660, "y": 40, "width": 220, "height": 70,
+      "angle": 0, "strokeColor": "#50fa7b", "backgroundColor": "#313244",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0,
+      "opacity": 100, "groupIds": [], "frameId": null, "seed": 7, "version": 1,
+      "versionNonce": 7, "isDeleted": false, "boundElements": [], "updated": 1735000000000,
+      "link": null, "locked": false, "roundness": { "type": 3 }
+    },
+    {
+      "id": "txt-rear", "type": "text", "x": 670, "y": 55, "width": 200, "height": 40,
+      "angle": 0, "strokeColor": "#50fa7b", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0,
+      "opacity": 100, "groupIds": [], "frameId": null, "seed": 8, "version": 1,
+      "versionNonce": 8, "isDeleted": false, "boundElements": [], "updated": 1735000000000,
+      "link": null, "locked": false, "roundness": null,
+      "text": "Rear axle (primary)\nF_rear ≤ μ·F_z,rear",
+      "fontSize": 12, "fontFamily": 2, "textAlign": "center", "verticalAlign": "middle"
+    },
+    {
+      "id": "box-front", "type": "rectangle", "x": 660, "y": 140, "width": 220, "height": 70,
+      "angle": 0, "strokeColor": "#ff79c6", "backgroundColor": "#313244",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0,
+      "opacity": 100, "groupIds": [], "frameId": null, "seed": 9, "version": 1,
+      "versionNonce": 9, "isDeleted": false, "boundElements": [], "updated": 1735000000000,
+      "link": null, "locked": false, "roundness": { "type": 3 }
+    },
+    {
+      "id": "txt-front", "type": "text", "x": 670, "y": 155, "width": 200, "height": 40,
+      "angle": 0, "strokeColor": "#ff79c6", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0,
+      "opacity": 100, "groupIds": [], "frameId": null, "seed": 10, "version": 1,
+      "versionNonce": 10, "isDeleted": false, "boundElements": [], "updated": 1735000000000,
+      "link": null, "locked": false, "roundness": null,
+      "text": "Front axle (reactive)\nengages under slip/launch",
+      "fontSize": 12, "fontFamily": 2, "textAlign": "center", "verticalAlign": "middle"
+    },
+    {
+      "id": "arrow-ptu-rear", "type": "arrow", "x": 580, "y": 95, "width": 80, "height": -20,
+      "angle": 0, "strokeColor": "#50fa7b", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0,
+      "opacity": 100, "groupIds": [], "frameId": null, "seed": 11, "version": 1,
+      "versionNonce": 11, "isDeleted": false, "boundElements": [], "updated": 1735000000000,
+      "link": null, "locked": false, "roundness": null,
+      "points": [[0, 0], [80, -20]], "startArrowhead": null, "endArrowhead": "arrow"
+    },
+    {
+      "id": "arrow-ptu-front", "type": "arrow", "x": 580, "y": 130, "width": 80, "height": 45,
+      "angle": 0, "strokeColor": "#ff79c6", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0,
+      "opacity": 100, "groupIds": [], "frameId": null, "seed": 12, "version": 1,
+      "versionNonce": 12, "isDeleted": false, "boundElements": [], "updated": 1735000000000,
+      "link": null, "locked": false, "roundness": null,
+      "points": [[0, 0], [80, 45]], "startArrowhead": null, "endArrowhead": "arrow"
+    },
+    {
+      "id": "footer", "type": "text", "x": 40, "y": 250, "width": 840, "height": 40,
+      "angle": 0, "strokeColor": "#6272a4", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0,
+      "opacity": 100, "groupIds": [], "frameId": null, "seed": 13, "version": 1,
+      "versionNonce": 13, "isDeleted": false, "boundElements": [], "updated": 1735000000000,
+      "link": null, "locked": false, "roundness": null,
+      "text": "No explicit launch-control/PSM state machine — the 2.8s 0-60 target is meant to emerge from this split plus tire friction-circle saturation.",
+      "fontSize": 11, "fontFamily": 2, "textAlign": "left", "verticalAlign": "top"
+    }
+  ],
+  "appState": {
+    "gridSize": null,
+    "viewBackgroundColor": "#1e1e2e"
+  },
+  "files": {}
+}

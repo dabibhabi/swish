@@ -1,8 +1,11 @@
 #pragma once
 
-#include "../../scene/SceneTypes.h"
-#include "../../utils/Types.h"
-#include "../GpuResource/GpuResource.h"
+#include "renderer/GpuResource/GpuResource.h"
+#include "renderer/Passes/IRenderPass.h"
+#include "renderer/RendererConfig.h"
+#include "scene/Entity/WiperBlade.h"  // WiperFrame
+#include "scene/SceneTypes.h"
+#include "utils/types/Types.h"
 
 #include <vulkan/vulkan.h>
 
@@ -12,6 +15,7 @@
 namespace swish {
 
 struct RendererServices;
+class Camera;
 
 // GPU layout UBO (std140): mirrors set 1, binding 0 in windshield_rain.frag.
 struct WindshieldRainUBO {
@@ -21,8 +25,8 @@ struct WindshieldRainUBO {
                          // z = drop density (cells across glass), w = refraction strength
     Vec4 screenAndRefr;  // x = framebuffer width (px), y = height (px),
                          // z = max blur LOD (reserved), w = Fresnel rim gain
-    Vec4 wiperState;     // x = blade angle (rad), y = phase [0,2π],
-                         // z = enabled (0/1), w = sweep speed (rad/s)
+    Vec4 wiperState;     // x = screen-space blade angle (rad, default car), y = wiper angle (rad),
+                         // z = draw the screen-space blade (0/1), w = sweep (rad)
 };
 
 // ══════════════════════════════════════════════════════════════════════
@@ -38,53 +42,56 @@ struct WindshieldRainUBO {
 //     not glowing geometry). Gated by the sampled wetness map and confined to
 //     the forward-facing windshield pane.
 //
-// Per frame the Renderer must:
-//   1. update(...)                — advance time/wiper, write UBO + wet params
-//   2. record_wetness_update(...) — step the wetness map (after glass)
-//   3. record_scene_snapshot(...) — blit HDR → refraction source
-//   4. record_draws(...)          — draw the windshield with refractive drops
+// Registry pass. update() advances time / wiper and writes the UBO + wet params; record() (after glass, before
+// TAA / HdrFinalize) steps the wetness map, snapshots the HDR scene into the refraction source, then draws the
+// windshield with refractive drops. Nothing is recorded unless there are windshield draws and car geometry.
 // ══════════════════════════════════════════════════════════════════════
-class WindshieldRainPass {
+class WindshieldRainPass final : public IRenderPass {
 public:
-    WindshieldRainPass()  = default;
-    ~WindshieldRainPass() = default;
+    WindshieldRainPass()           = default;
+    ~WindshieldRainPass() override = default;
 
-    void init(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-              const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
-              VkDescriptorSetLayout cameraSetLayout);
+    const char* name() const override { return "WindshieldRain"; }
+    // Snapshots the HDR (refraction source) then draws the droplets over it, depth read-only.
+    void declare(PassDeclaration& d) const override { d.read({Img::Hdr, Img::HdrDepth}).write({Img::Hdr}); }
+    void init(const PassInitCtx& ctx) override;
+    void onResize(const PassInitCtx& ctx) override;
+    // Screen-space flow direction from the car heading, speed factor (car speed / kMaxSpeed), wetness and rain
+    // intensity from FrameState (published by the rain pass), wiper toggle.
+    void update(const FrameUpdate& u) override;
+    void record(const FrameCtx& ctx) override;
+    void cleanup(VkDevice device) override;
+
+private:
+    void create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent,
+                VkDescriptorSetLayout cameraSetLayout);
+    void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
+                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
 
     // Update per-frame state.
     //   screenFlowDir — car forward dir projected to screen XY (normalized).
     //   speedFactor   — car speed / kMaxSpeed, clamped to [0,1].
-    //   wetness       — from RainSystem::get_wetness().
-    //   intensity     — from RainSystem::get_intensity().
-    //   wiperEnabled  — V-key toggle; runs the continuous wiper sweep.
-    void update(uint32_t frameIndex, float deltaTime, Vec2 screenFlowDir, float speedFactor, float wetness,
-                float intensity, bool wiperEnabled);
+    //   wetness / intensity — the rain system's current values.
+    void step(uint32_t frameIndex, float deltaTime, Vec2 screenFlowDir, float speedFactor, float wetness,
+              float intensity);
 
-    // Step the persistent wetness map (fullscreen pass): rain + advection +
-    // wiper + evaporation. Call AFTER the glass pass, BEFORE the snapshot/draw.
+    // Project the wiper blades into the wetness map's screen space (last frame's and this frame's angle): the
+    // rigged 3D arms through the camera, or the analytic screen-space blade when the car has none.
+    void update_wiper(const WiperFrame& wiper, const Camera* camera);
+
+    // Step the persistent wetness map (fullscreen pass): rain + advection + wiper + evaporation. After the glass
+    // pass, before the snapshot / draw.
     void record_wetness_update(VkCommandBuffer cmd);
 
-    // Snapshot the HDR scene into the per-frame refraction-source image so the
-    // fragment shader can refract it. Records layout transitions + a copy into
-    // the command buffer. Call while hdrImage is COLOR_ATTACHMENT_OPTIMAL
-    // (restored to it on return).
+    // Snapshot the HDR scene into the per-frame refraction-source image so the fragment shader can refract it.
+    // Records layout transitions + a copy. Call while hdrImage is COLOR_ATTACHMENT_OPTIMAL (restored on return).
     void record_scene_snapshot(VkCommandBuffer cmd, uint32_t frameIndex, VkImage hdrImage, VkExtent2D extent);
 
-    // Draw windshield draw calls using the shared car VBO/IBO.
-    // Camera set 0 must already be bound on m_pipeLayout before this call.
+    // Draw windshield draw calls using the shared car VBO/IBO. Camera set 0 must already be bound on m_pipeLayout.
     void record_draws(VkCommandBuffer cmd, uint32_t frameIndex, VkBuffer carVBO, VkBuffer carIBO,
                       const std::vector<DrawCall>& windshieldDCs) const;
 
-    void recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
-                  const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
-
-    void cleanup(VkDevice device);
-
-    VkPipelineLayout get_pipeline_layout() const { return m_pipeLayout; }
-
-private:
     void createRenderPass(VkDevice device, VkFormat depthFormat);
     void createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                             const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews);
@@ -97,8 +104,8 @@ private:
     void clearWetnessImages(VkDevice device);  // one-time zero of both maps
     void createDescriptors(VkDevice device);
     void writeDescriptors(VkDevice device);
-    void createPipeline(VkDevice device, VkDescriptorSetLayout cameraSetLayout);
-    void createWetnessPipeline(VkDevice device);
+    void createPipeline(VkDevice device, VkPipelineCache cache, VkDescriptorSetLayout cameraSetLayout);
+    void createWetnessPipeline(VkDevice device, VkPipelineCache cache);
 
     VkRenderPass                                    m_renderPass = VK_NULL_HANDLE;
     std::array<VkFramebuffer, MAX_FRAMES_IN_FLIGHT> m_framebuffers{};
@@ -136,15 +143,25 @@ private:
     VkFormat         m_refrFormat     = VK_FORMAT_R16G16B16A16_SFLOAT;
     VkFormat         m_wetFormat      = VK_FORMAT_R16_SFLOAT;
 
-    float m_time         = 0.0f;
-    float m_wiperPhase   = 0.0f;
-    bool  m_wiperEnabled = false;
+    float m_time = 0.0f;
+
+    // Wiper (update_wiper): projected blade segments for the wetness clear, the screen-space blade for the UBO.
+    static constexpr size_t           kMaxWiperBlades  = 2;
+    bool                              m_wiperOn        = false;
+    bool                              m_sdfBlade       = false;
+    uint32_t                          m_bladeCount     = 0;
+    float                             m_wiperAngle     = 0.0f;  // rad off park
+    float                             m_wiperPrevAngle = 0.0f;
+    float                             m_wiperSweep     = 0.0f;
+    float                             m_screenAngle    = 0.0f;
+    Vec4                              m_band           = Vec4(0.0f);
+    std::array<Vec4, kMaxWiperBlades> m_prevSeg{};
+    std::array<Vec4, kMaxWiperBlades> m_curSeg{};
 
     // Wetness-pass push-constant params (filled by update(), used by record_wetness_update()).
     Vec2  m_waterFlow    = Vec2(0.0f, 1.0f);
     float m_curIntensity = 0.0f;
     float m_dt           = 0.0f;
-    float m_wiperAngle   = 0.0f;
     float m_advect       = 0.0f;
 };
 

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../GpuResource/GpuResource.h"
-#include "../Renderer/RendererServices.h"
+#include "renderer/GpuResource/GpuResource.h"
+#include "renderer/Renderer/RendererServices.h"
 
 #include <vulkan/vulkan.h>
 
@@ -27,7 +27,7 @@ struct Texture {
 // TextureManager — Loads, caches, and owns all textures.
 //
 // Takes raw Vulkan handles at construction (no Renderer dependency).
-// Uses ResourceManager static methods for GPU operations.
+// Uses the `resource::` free functions (ResourceManager.h) for one-time GPU uploads.
 // ══════════════════════════════════════════════════════════════════════
 
 class TextureManager {
@@ -52,11 +52,10 @@ public:
     void cleanup();
 
 private:
-    VkDevice         m_device;
-    VkPhysicalDevice m_physicalDevice;
-    VkCommandPool    m_commandPool;
-    VkQueue          m_graphicsQueue;
-    VmaAllocator     m_allocator;
+    VkDevice      m_device;
+    VkCommandPool m_commandPool;
+    VkQueue       m_graphicsQueue;
+    VmaAllocator  m_allocator;
 
     std::unordered_map<std::string, Texture> m_textures;
     VkSampler                                m_sampler = VK_NULL_HANDLE;

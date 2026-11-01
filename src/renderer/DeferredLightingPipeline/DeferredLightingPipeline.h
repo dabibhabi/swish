@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../utils/Types.h"
+#include "utils/types/Types.h"
 
 #include <vulkan/vulkan.h>
 
@@ -20,8 +20,9 @@ public:
         VkDescriptorSetLayout sceneParamsSetLayout =
             VK_NULL_HANDLE;  // set 4 (debug) — from SceneParamsUniform (live-tunables UBO)
 #endif
-        VkRenderPass lightingRenderPass = VK_NULL_HANDLE;
-        VkExtent2D   extent             = {0, 0};
+        VkRenderPass    lightingRenderPass = VK_NULL_HANDLE;
+        VkExtent2D      extent             = {0, 0};
+        VkPipelineCache pipelineCache      = VK_NULL_HANDLE;  // RendererServices::pipelineCache (kept for recreate)
     };
 
     DeferredLightingPipeline() = default;
@@ -49,6 +50,7 @@ private:
 
     VkPipeline       m_pipeline = VK_NULL_HANDLE;
     VkPipelineLayout m_layout   = VK_NULL_HANDLE;
+    VkPipelineCache  m_cache    = VK_NULL_HANDLE;  // not owned (Device)
 };
 
 }  // namespace swish

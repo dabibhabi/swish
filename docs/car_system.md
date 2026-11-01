@@ -1,3 +1,9 @@
+---
+verified: 2026-09-29
+against: c843ebe + uncommitted refactor   # git rev-parse --short HEAD; only file references (CarPhysics split, App/AppInit) were re-checked
+owner: docs-scribe
+---
+
 # Car System — Implementation Guide
 
 ## Coordinate Convention (read this first)
@@ -37,6 +43,8 @@ flowchart LR
 After this, `set_position(y = 0)` means "tires resting on the road surface"
 (the road plane is at world Y = 0) and `set_rotation(0, 90, 0)` points the
 nose down −Z.
+
+> A GLB with the named pivots (`Wheel_*`, `Caliper_*`, `SteeringWheel`, `Needle_*`, `Wiper_*`) skips the heuristic wheel recovery: the loader reads wheels, steering wheel, needles and wipers by exact node name. See [car-rig.md](car-rig.md).
 
 ## Cockpit Camera
 
@@ -101,11 +109,16 @@ classDiagram
     }
 
     class Renderer {
-        -SceneGeometry m_sceneGeometry
-        -SceneGeometry m_dynamicGeometry
+        -GeometryProducer m_geometry
         +upload_dynamic_geometry(MeshData, DrawCalls)
         +update_dynamic_draw_calls(DrawCalls)
         +destroy_dynamic_geometry()
+    }
+
+    class GeometryProducer {
+        -SceneGeometry m_dynamic
+        +upload_dynamic(services, MeshData, DrawCalls)
+        +update_dynamic_draw_calls(DrawCalls)
     }
 
     class SceneGeometry {
@@ -120,7 +133,8 @@ classDiagram
     Entity <|-- ModelEntity
     ModelEntity <|-- CarEntity
     ModelManager --> CarEntity : creates
-    Renderer --> SceneGeometry : m_dynamicGeometry
+    Renderer --> GeometryProducer : m_geometry
+    GeometryProducer --> SceneGeometry : m_dynamic
     App --> CarEntity : owns m_car
     App --> Renderer : calls update_dynamic_draw_calls
 ```
@@ -163,9 +177,9 @@ stateDiagram-v2
     CockpitCam --> RenderFrame
     DynamicGeometry --> RenderFrame
 
-    RenderFrame --> GBufferPass : recordGBufferPass()
-    GBufferPass --> StaticGeometry : m_sceneGeometry.record_draws()
-    GBufferPass --> DynGeometry2 : m_dynamicGeometry.record_draws()
+    RenderFrame --> GBufferPass : GeometryProducer::record_gbuffer()
+    GBufferPass --> StaticGeometry : scene geometry record_draws()
+    GBufferPass --> DynGeometry2 : m_dynamic.record_draws()
 
     StaticGeometry --> LightingPass
     DynGeometry2 --> LightingPass
@@ -175,7 +189,97 @@ stateDiagram-v2
 
 ---
 
-## Car Physics — State Diagram
+## Car Physics — as built (2026-08-23, Phase 1)
+
+> The state diagram and the "Improving the Drive Feel" section further down are
+> **onboarding material from the original kinematic prototype** and describe
+> constants (`kAccel`, `kDragCoeff`, `kBrakeAccel`) that no longer exist. They are
+> kept because the *shape* of the input state machine is still right. This block
+> is the authoritative summary of what actually runs.
+
+**Target car: 992 911 Turbo S, AWD.** 0-60 mph 2.8 s (measured 2.758 s) · Vmax
+~205 mph (measured 205.1 m/s→mph analytically, 203 mph and still climbing in
+engine) · 641 hp / 590 lb-ft · 1670 kg. See
+[`phase-1-physics-speed-accuracy.md`](../archive/docs/phase-1-physics-speed-accuracy.md).
+
+Per-frame chain, all of it in the `CarPhysics.h` umbrella (pure SI, unit-tested without a GPU; since 2026-09-29 split into
+`CarParams.h`, `Powertrain.h` (`engine_rpm`, `engine_torque`, gearbox), `Tire.h` (load transfer, friction circle),
+`Drivetrain.h` (`ptu_lock_fraction`, `awd_deliverable_force`), `Longitudinal.h` (`longitudinal_accel`), `Bicycle.h`
+(`dynamic_bicycle_deriv`, `steady_state_top_speed`) and `WetGrip.h` (`effective_mu`), all under `src/scene/Entity/`)
+with `CarEntity` converting at the world-unit boundary:
+
+```mermaid
+graph LR
+    RPM["engine_rpm(v, gear)<br/>no-slip driveline,<br/>floored at 3 m/s<br/>(= PDK clutch slip)"]
+    T["engine_torque(rpm)<br/>twin-turbo curve:<br/>800 N·m 2500-4000,<br/>478 kW @ 6750,<br/>0 @ 7200 redline"]
+    G["gear ratios x final drive<br/>7 of the 8-speed PDK's ratios<br/>(8th = cruise overdrive,<br/>unreachable at WOT)"]
+    PTU["ptu_lock_fraction<br/>lambda from rear<br/>over-demand"]
+    SPLIT["awd_deliverable_force<br/>front share 8% open -> 50% locked,<br/>cross-axle spill scaled by lambda"]
+    FC["per-axle friction circle<br/>Fx^2 + Fy^2 <= (mu Fz)^2<br/>with load transfer"]
+    RES["- aero drag - rolling"]
+    A["a_x"]
+
+    RPM --> T --> G --> PTU --> SPLIT --> FC --> RES --> A
+```
+
+Key properties, none of them clamped or scripted:
+- **Launch** = the four-wheel ceiling `mu*m*g` (1.05 g), because at a standstill the
+  rear axle is demanded far past its limit so the PTU clutch closes and the axles
+  tie together. Turbo lag in the torque curve is what keeps it off `mu*g` in the
+  first instants.
+- **Top speed** emerges where thrust meets drag, in 7th, essentially at the power
+  peak. `steady_state_top_speed()` scans every gear rather than assuming the
+  tallest one wins.
+- **Cornering costs acceleration**: `CarEntity` feeds the bicycle model's own
+  per-axle `F_y` into the same circle, so power-down and braking both lose
+  capacity while the tires are working laterally.
+- **Wet/hydroplaning** rides on top via `effective_mu()`, which only changes `mu`
+  — every limit above therefore collapses together.
+- **Suspension** is a per-corner quarter-car (`WheelKinematics.h`) plus
+  parametric camber/toe gain curves and an anti-roll bar folded in as a
+  cross-corner target shift. Wheels spin, steer, travel, and change alignment;
+  body Y is snapped to the road each frame in `App.cpp` (`update_car`).
+
+## Rigid-body chassis (stub, 2026-10-10, debug-only)
+
+An alternative to the planar bicycle model, selected by the debug-UI "Physics model: rigid body (stub)" checkbox
+(`DebugParams::rigidBodyChassis`, `[car] rigid_body_chassis`, default off = bicycle). Compiled only under
+`SWISH_DEBUG_UI`; the release build always runs the bicycle model.
+
+| Piece | Where |
+|-------|-------|
+| 6-DOF integrator (semi-implicit Euler, angular momentum carried so the gyroscopic term is exact) | [src/utils/physics/RigidBody.h](../src/utils/physics/RigidBody.h) |
+| Four spring-damper contacts at the loader's wheel hubs, tire force at the patch, friction circle shared with `Tire.h` | [src/scene/Entity/RigidChassis.h](../src/scene/Entity/RigidChassis.h) |
+| Mode switch, seeding from the bicycle state, write-back to `m_position` / `m_rotation` | `CarEntity::set_physics_model`, `init_rigid_body`, `update_rigid_body` |
+
+Static sag per wheel is $s = mg/4k$; `make_chassis_params` adds a preload $F_\text{static}/k$ so the design ride height
+is the equilibrium. In rigid mode `App::update_car` skips the road Y snap (the body owns heave). Wheel visuals
+(`update_wheel_visuals`) still run as a draw-matrix-only layer on top of the body pose.
+
+**What the full version must do** (each is a `TODO(stub)` in the code): query road height at every contact patch
+(`RoadGeometry::road_surface_y`, slope and crown) instead of one flat plane; add unsprung mass per wheel (wheel hop) and
+bump stops; fold in anti-roll bars and aero downforce / pitch moment; give each wheel a spin DOF with slip ratio and a
+real tire curve (Pacejka / Fiala) with camber thrust and aligning torque; shift the patch by $r\sin(\text{roll})$;
+replace the box inertia with measured mass-point inertia; add a standstill stick model; and move to impulse-based
+non-smooth contact ([docs/lessons-from-chrono/](lessons-from-chrono/)).
+## Driving tools (2026-10-10, stub)
+
+Input, record/replay and bench tooling around `CarEntity`; physics is unchanged. Full write-up:
+[`docs/changelog/2026-10.md`](changelog/2026-10.md).
+
+| Module | Role |
+|--------|------|
+| [`utils/input/InputFrame.h`](../src/utils/input/InputFrame.h) | `InputFrame{steer, throttle, brake, steer_mode}`, `IInputSource`. `SteerMode::Rate` = keyboard (sign only), `Target` = analog target angle |
+| `CarEntity::apply_input_frame(f, dt)` | The single input entry point; `handle_input` builds a `Rate` frame and calls it |
+| [`utils/input/GamepadMapping.h`](../src/utils/input/GamepadMapping.h), [`core/Input/GlfwGamepadSource.h`](../src/core/Input/GlfwGamepadSource.h) | Pure deadzone + expo + trigger mapping; GLFW feeder |
+| [`utils/telemetry/TelemetryRing.h`](../src/utils/telemetry/TelemetryRing.h), [`ReplayDriver.h`](../src/utils/telemetry/ReplayDriver.h) | Fixed ring (3600 samples), CSV round-trip to `build-debug/telemetry/`, input replay |
+| [`debug/TelemetryRecorder.h`](../src/debug/TelemetryRecorder.h), [`core/App/AppDrivingTools.cpp`](../src/core/App/AppDrivingTools.cpp) | Debug-only recorder and App wiring (`SWISH_DEBUG_UI`); keyboard + idle recorder leaves `handle_input` untouched |
+| [`scene/Entity/ForceFeedback.h`](../src/scene/Entity/ForceFeedback.h) | Self-aligning torque target + `IForceFeedbackSink`; readout only, no device output |
+| [`tests/bench/Bench.h`](../tests/bench/Bench.h) | `[bench]` harness: 0-100, 100-0, top speed, skidpad vs 992 Turbo S targets (printed, not gated) |
+
+Open items are marked `TODO(stub)` in those headers (full FFB model, replay start-pose/wetness restore, `InputFrame` to be absorbed by Ch07).
+
+## Car Physics — State Diagram (input state machine; constants are historical)
 
 ```mermaid
 stateDiagram-v2
@@ -213,12 +317,17 @@ stateDiagram-v2
 
 ## Changing Car Position
 
-The car is spawned in `App.cpp` around line 182:
+The car is loaded in `App::load_car()` ([`src/core/App/AppInit.cpp`](../src/core/App/AppInit.cpp); `SWISH_CAR=<glb>`
+swaps in another model). Scale is set there, but **position and heading no longer come from a hard-coded pose**: the
+active road is the real-LIE corridor, so `m_corridor.place_at_start(*m_car)` puts the car at the corridor's west end
+(the Queens-Midtown Tunnel portal) with the alignment's heading and opens `CarEntity`'s world-X clamp (the lateral limit
+is enforced in corridor space by `CorridorDriver`). The table below describes the world-space convention that the old
+hard-coded pose used, which still holds for the chase/cockpit maths:
 
 ```cpp
-car_entity->set_position(Vec3(6501.0f, 0.0f, -20000.0f));
-car_entity->set_rotation(Vec3(0.f, 90.f, 0.f));  // +90° = nose down -Z
-car_entity->set_scale(Vec3(1000.f, 1000.f, 1000.f));
+car_entity->set_scale(Vec3(1000.f, 1000.f, 1000.f));        // AppInit.cpp: glTF metres to WU
+m_corridor.place_at_start(*m_car);                          // position + heading from the alignment
+// old fixed pose (retired): set_position(Vec3(6501, 0, -20000)); set_rotation(Vec3(0, 90, 0));  // +90° = nose down -Z
 ```
 
 | Parameter | Axis | Effect |

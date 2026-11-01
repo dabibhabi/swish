@@ -5,24 +5,9 @@ layout(location = 1) in vec2 fragUV;
 layout(location = 2) in vec3 fragWorldPos;
 layout(location = 3) in mat3 fragTBN;
 
-layout(set = 0, binding = 0) uniform CameraUBO {
-    mat4 view;
-    mat4 proj;
-    vec4 camPos;
-    vec4 sunDir;    // xyz = direction, w = intensity
-    vec4 sunColor;  // rgb = color, a = ambient strength
-} camera;
+#include "camera.glsl"
 
-// Point light system (inspired by rind/Light.cpp)
-struct PointLight {
-    vec4 positionRadius;    // xyz = position, w = radius
-    vec4 colorIntensity;    // rgb = color, a = intensity
-};
-
-layout(set = 0, binding = 1) uniform LightsUBO {
-    PointLight pointLights[32];
-    uvec4      numPointLights;  // x = count
-} lights;
+#include "lights.glsl"
 
 // PBR material textures
 layout(set = 1, binding = 0) uniform sampler2D albedoTex;
@@ -36,12 +21,10 @@ layout(push_constant) uniform PushConstants {
 
 layout(location = 0) out vec4 outColor;
 
-const float PI = 3.14159265359;
+#include "math.glsl"
 
 // ── Procedural noise for surface variation ────────────────────────
-float hash(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-}
+#include "hash.glsl"
 
 float noise(vec2 p) {
     vec2 i = floor(p);
@@ -89,7 +72,7 @@ void main() {
     // ── Sample PBR textures ───────────────────────────────────────
     vec3 albedo     = albedoSample.rgb * push.color.rgb;
     vec3 normalMap  = texture(normalTex, fragUV).rgb * 2.0 - 1.0;
-    float roughness = texture(roughnessTex, fragUV).r;
+    float roughness = texture(roughnessTex, fragUV).r;  // greyscale; car ORM G expanded at load
 
     // ── Surface variation (procedural weathering/patches) ─────────
     // Low-frequency noise adds dark patches and slight color shifts

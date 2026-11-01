@@ -12,6 +12,9 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wall"
 #pragma GCC diagnostic ignored "-Wextra"
+// GCC still reports these from vk_mem_alloc.h under -Werror even with -Wall/-Wextra ignored.
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#pragma GCC diagnostic ignored "-Wunused-variable"
 #endif
 
 #define VMA_IMPLEMENTATION

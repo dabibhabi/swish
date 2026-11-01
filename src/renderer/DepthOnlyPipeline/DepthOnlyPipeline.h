@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../utils/Types.h"
+#include "utils/types/Types.h"
 
 #include <vulkan/vulkan.h>
 

@@ -44,8 +44,7 @@ public:
     explicit operator bool() const { return m_buffer != VK_NULL_HANDLE; }
 
     void reset() {
-        if (m_buffer != VK_NULL_HANDLE)
-            vmaDestroyBuffer(m_allocator, m_buffer, m_allocation);
+        if (m_buffer != VK_NULL_HANDLE) vmaDestroyBuffer(m_allocator, m_buffer, m_allocation);
         m_buffer     = VK_NULL_HANDLE;
         m_allocation = nullptr;
         m_info       = {};
@@ -92,8 +91,7 @@ public:
     explicit      operator bool() const { return m_image != VK_NULL_HANDLE; }
 
     void reset() {
-        if (m_image != VK_NULL_HANDLE)
-            vmaDestroyImage(m_allocator, m_image, m_allocation);
+        if (m_image != VK_NULL_HANDLE) vmaDestroyImage(m_allocator, m_image, m_allocation);
         m_image      = VK_NULL_HANDLE;
         m_allocation = nullptr;
     }

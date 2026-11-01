@@ -1,20 +1,22 @@
+#include "utils/io/AppPaths.h"
 #include "Device.h"
 
-#include "../../../utils/VulkanCheck.h"
-#include "../Pipeline.h"
+#include "utils/vulkan/Check.h"
 
 #include <vk_mem_alloc.h>
 
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iostream>
 #include <set>
 #include <stdexcept>
 #include <vector>
 
 namespace swish {
 
-// config/pipeline_cache.bin lives in the build tree (CONFIG_DIR = ${CMAKE_BINARY_DIR}/config/).
-static const std::string kPipelineCachePath = std::string(CONFIG_DIR) + "pipeline_cache.bin";
+// config/pipeline_cache.bin: per-user cache dir, never inside an app bundle (see utils/io/AppPaths.h).
+static std::string pipeline_cache_path() { return util::paths::user_cache_dir() + "pipeline_cache.bin"; }
 
 void Device::init(VkInstance instance, VkSurfaceKHR surface) {
     uint32_t deviceCount = 0;
@@ -22,14 +24,22 @@ void Device::init(VkInstance instance, VkSurfaceKHR surface) {
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
+    int bestScore = 0;
     for (const auto& device : devices) {
-        if (rateDevice(device, surface) > 0) {
+        const int score = rateDevice(device, surface);
+        if (score > bestScore) {
+            bestScore        = score;
             m_physicalDevice = device;
-            break;
         }
     }
     if (m_physicalDevice == VK_NULL_HANDLE) {
         throw std::runtime_error("no suitable GPU found — check Vulkan drivers and extensions");
+    }
+
+    {
+        VkPhysicalDeviceProperties props{};
+        vkGetPhysicalDeviceProperties(m_physicalDevice, &props);
+        std::cerr << "Vulkan device: " << props.deviceName << " (score=" << bestScore << ")\n";
     }
 
     // Cache queue families so callers don't have to re-enumerate
@@ -62,6 +72,42 @@ void Device::init(VkInstance instance, VkSurfaceKHR surface) {
     VkPhysicalDeviceFeatures deviceFeatures{};
     createInfo.pEnabledFeatures = &deviceFeatures;
 
+    // Vulkan 1.3 features (dynamic rendering + synchronization2). Query, then enable what the device
+    // supports; unsupported is not an error (classic render pass + barrier path stays available).
+    // SWISH_CLASSIC_VULKAN=1 forces the classic path for testing both code paths on one machine.
+    VkPhysicalDeviceProperties devProps{};
+    vkGetPhysicalDeviceProperties(m_physicalDevice, &devProps);
+    const char* forceClassic  = std::getenv("SWISH_CLASSIC_VULKAN");
+    const bool  classicForced = forceClassic != nullptr && forceClassic[0] != '\0' && forceClassic[0] != '0';
+
+    VkPhysicalDeviceVulkan13Features supported13{};
+    supported13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    if (devProps.apiVersion >= VK_API_VERSION_1_3) {  // the 1.3 feature struct is only valid on a 1.3 device
+        VkPhysicalDeviceFeatures2 query{};
+        query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        query.pNext = &supported13;
+        vkGetPhysicalDeviceFeatures2(m_physicalDevice, &query);
+    }
+
+    m_dynamicRendering = !classicForced && supported13.dynamicRendering == VK_TRUE;
+    m_synchronization2 = !classicForced && supported13.synchronization2 == VK_TRUE;
+
+    VkPhysicalDeviceVulkan13Features enabled13{};
+    enabled13.sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    enabled13.dynamicRendering = m_dynamicRendering ? VK_TRUE : VK_FALSE;
+    enabled13.synchronization2 = m_synchronization2 ? VK_TRUE : VK_FALSE;
+
+    // pEnabledFeatures and a VkPhysicalDeviceFeatures2 in pNext are mutually exclusive. With no 1.3
+    // feature to enable the create info is exactly what it was before this change.
+    VkPhysicalDeviceFeatures2 enabledFeatures2{};
+    if (m_dynamicRendering || m_synchronization2) {
+        enabledFeatures2.sType      = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        enabledFeatures2.pNext      = &enabled13;
+        enabledFeatures2.features   = deviceFeatures;  // all core features stay off, as before
+        createInfo.pNext            = &enabledFeatures2;
+        createInfo.pEnabledFeatures = nullptr;
+    }
+
     std::vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
     uint32_t extensionCount;
@@ -83,6 +129,13 @@ void Device::init(VkInstance instance, VkSurfaceKHR surface) {
         throw std::runtime_error("failed to create logical device!");
     }
 
+    std::cout << "[Device] " << devProps.deviceName << " (Vulkan " << VK_VERSION_MAJOR(devProps.apiVersion) << '.'
+              << VK_VERSION_MINOR(devProps.apiVersion) << '.' << VK_VERSION_PATCH(devProps.apiVersion)
+              << "): dynamicRendering=" << (m_dynamicRendering ? "on" : "off")
+              << " synchronization2=" << (m_synchronization2 ? "on" : "off") << " -> "
+              << ((m_dynamicRendering || m_synchronization2) ? "Vulkan 1.3 path" : "classic render pass path")
+              << (classicForced ? " (forced by SWISH_CLASSIC_VULKAN)" : "") << '\n';
+
     vkGetDeviceQueue(m_device, m_queueFamilies.graphicsFamily.value(), 0, &m_graphicsQueue);
     vkGetDeviceQueue(m_device, m_queueFamilies.presentFamily.value(), 0, &m_presentQueue);
 
@@ -97,17 +150,15 @@ void Device::init(VkInstance instance, VkSurfaceKHR surface) {
         throw std::runtime_error("failed to create VMA allocator!");
     }
 
-    // Pipeline cache: created here so every subsequent Pipeline::create (all of
-    // which run after Device::init) feeds it.
+    // Pipeline cache: created here and handed out via getPipelineCache() (RendererServices::pipelineCache), so
+    // every pipeline::create_* that runs after Device::init feeds it.
     createPipelineCache();
-    Pipeline::set_cache(m_pipelineCache);
 }
 
 void Device::cleanup() {
     // Persist + destroy the pipeline cache before the device (pipelines that used
     // it were already destroyed by their subsystems' cleanup).
     if (m_pipelineCache != VK_NULL_HANDLE) {
-        Pipeline::set_cache(VK_NULL_HANDLE);
         savePipelineCache();
         vkDestroyPipelineCache(m_device, m_pipelineCache, nullptr);
         m_pipelineCache = VK_NULL_HANDLE;
@@ -126,7 +177,7 @@ void Device::createPipelineCache() {
     // header (vendor/device/UUID) and silently ignores it on mismatch, so a stale
     // or foreign cache is safe — it just falls back to compiling from scratch.
     std::vector<char> initialData;
-    if (std::ifstream in{kPipelineCachePath, std::ios::binary | std::ios::ate}) {
+    if (std::ifstream in{pipeline_cache_path(), std::ios::binary | std::ios::ate}) {
         const std::streamsize size = in.tellg();
         if (size > 0) {
             initialData.resize(static_cast<size_t>(size));
@@ -144,34 +195,22 @@ void Device::createPipelineCache() {
 
 void Device::savePipelineCache() const {
     size_t size = 0;
-    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, nullptr) != VK_SUCCESS || size == 0)
-        return;
+    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, nullptr) != VK_SUCCESS || size == 0) return;
     std::vector<char> data(size);
-    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, data.data()) != VK_SUCCESS)
-        return;
-    if (std::ofstream out{kPipelineCachePath, std::ios::binary | std::ios::trunc})
+    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, data.data()) != VK_SUCCESS) return;
+    if (std::ofstream out{pipeline_cache_path(), std::ios::binary | std::ios::trunc})
         out.write(data.data(), static_cast<std::streamsize>(size));
 }
 
-VkPhysicalDevice Device::getPhysicalDevice() const {
-    return m_physicalDevice;
-}
+VkPhysicalDevice Device::getPhysicalDevice() const { return m_physicalDevice; }
 
-VkDevice Device::getDevice() const {
-    return m_device;
-}
+VkDevice Device::getDevice() const { return m_device; }
 
-VkQueue Device::getGraphicsQueue() const {
-    return m_graphicsQueue;
-}
+VkQueue Device::getGraphicsQueue() const { return m_graphicsQueue; }
 
-VkQueue Device::getPresentQueue() const {
-    return m_presentQueue;
-}
+VkQueue Device::getPresentQueue() const { return m_presentQueue; }
 
-const QueueFamilyIndices& Device::getQueueFamilies() const {
-    return m_queueFamilies;
-}
+const QueueFamilyIndices& Device::getQueueFamilies() const { return m_queueFamilies; }
 
 QueueFamilyIndices Device::findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) const {
     uint32_t queueFamilyCount = 0;
@@ -182,14 +221,10 @@ QueueFamilyIndices Device::findQueueFamilies(VkPhysicalDevice device, VkSurfaceK
 
     QueueFamilyIndices indices;
     for (uint32_t i = 0; i < queueFamilyCount; i++) {
-        if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-            indices.graphicsFamily = i;
-        }
+        if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) { indices.graphicsFamily = i; }
         VkBool32 presentSupport = false;
         vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
-        if (presentSupport) {
-            indices.presentFamily = i;
-        }
+        if (presentSupport) { indices.presentFamily = i; }
     }
     return indices;
 }
@@ -210,12 +245,10 @@ SwapChainSupportDetails Device::querySwapChainSupport(VkPhysicalDevice device, V
 
 int Device::rateDevice(VkPhysicalDevice device, VkSurfaceKHR surface) const {
     // Must support required extensions (swapchain at minimum)
-    if (!checkDeviceExtensionSupport(device))
-        return 0;
+    if (!checkDeviceExtensionSupport(device)) return 0;
 
     // Must expose both a graphics and a present queue
-    if (!findQueueFamilies(device, surface).isComplete())
-        return 0;
+    if (!findQueueFamilies(device, surface).isComplete()) return 0;
 
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(device, &properties);
@@ -228,12 +261,10 @@ int Device::rateDevice(VkPhysicalDevice device, VkSurfaceKHR surface) const {
     }
 
     // Prefer the vendor that matches the configured backend
-#if defined(SWISH_BACKEND_LINUX) || defined(SWISH_BACKEND_WINDOWS)
-    if (properties.vendorID == 0x1002 || properties.vendorID == 0x10DE)
-        score += 500;  // AMD / NVIDIA
+#if defined(SWISH_BACKEND_LINUX)
+    if (properties.vendorID == 0x1002 || properties.vendorID == 0x10DE) score += 500;  // AMD / NVIDIA
 #elif defined(SWISH_BACKEND_APPLE)
-    if (properties.vendorID == 0x106B)
-        score += 500;  // Apple GPU
+    if (properties.vendorID == 0x106B) score += 500;  // Apple GPU
 #endif
 
     return score;
@@ -245,9 +276,7 @@ bool Device::checkDeviceExtensionSupport(VkPhysicalDevice device) const {
     std::vector<VkExtensionProperties> extensions(extensionCount);
     vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, extensions.data());
     for (const auto& extension : extensions) {
-        if (strcmp(extension.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
-            return true;
-        }
+        if (strcmp(extension.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) { return true; }
     }
     return false;
 }

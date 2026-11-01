@@ -1,21 +1,25 @@
 #include "App.h"
 
-#include "../../renderer/Renderer/Renderer.h"
-#include "../../renderer/TextureManager/TextureManager.h"
-#include "../../scene/Camera/Camera.h"
-#include "../../scene/Entity/CarEntity.h"
-#include "../../scene/ModelManager/ModelManager.h"
-#include "../../scene/RoadGeometry/RoadGeometry.h"
-#include "../../scene/RoadScene/RoadScene.h"
-#include "../../scene/SceneManager/SceneManager.h"
-#include "../Window/Window.h"
+#include "core/Window/Window.h"
+#ifdef SWISH_DEBUG_UI
+#include "core/Input/GlfwGamepadSource.h"
+#include "debug/TelemetryRecorder.h"
+#endif
+#include "renderer/Renderer/Renderer.h"
+#include "renderer/SpraySystem/WheelSpray.h"
+#include "renderer/TextureManager/TextureManager.h"
+#include "scene/Camera/Camera.h"
+#include "scene/Entity/CarEntity.h"
+#include "scene/ModelManager/ModelManager.h"
+#include "scene/RoadGeometry/RoadGeometry.h"
+#include "scene/SceneManager/SceneManager.h"
+#include "utils/units/Units.h"
 
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
 #include <cmath>
-#include <memory>
-#include <vector>
+#include <iostream>
 
 namespace swish {
 
@@ -26,7 +30,7 @@ App::App() = default;
 App::~App() = default;
 
 // ══════════════════════════════════════════════════════════════════════
-// Accessors (REFACTOR.md §3b) — each setter is the single place that keeps
+// Accessors (archive/src/core/App/REFACTOR.md §3b) — each setter is the single place that keeps
 // the field in sync with the renderer/car side effect it implies.
 // ══════════════════════════════════════════════════════════════════════
 
@@ -38,30 +42,32 @@ void App::set_rain_level(int level) {
     // Drive the interior cabin wash from the same rain level so the cockpit
     // reads light gray as rain rises (off → light → heavy).
     if (m_car) m_car->set_rain_intensity(rain);
-    // Rain and the clear-day preset are mutually exclusive — an azure sunny
-    // sky with rain falling reads wrong, so turning rain on cancels clear day.
-    if (rain > 0.0f && m_clear_day) {
-        m_clear_day = false;
-        m_renderer->set_clear_day(false);
-    }
+#ifdef SWISH_DEBUG_UI
+    // apply_debug_params copies the panel's rain slider into the renderer every
+    // frame; keep the slider in step so the R key is not overwritten next frame.
+    m_renderer->debug_params().rainIntensity = rain;
+#endif
+    // Rain and a clear-day sky are mutually exclusive — an azure sunny sky with
+    // rain falling reads wrong — so rain switches a clear-day preset to Cloudy.
+    // Going through set_weather_preset keeps m_weather_preset (the G-key cycle)
+    // in step with what the renderer shows.
+    if (const WeatherPreset p = preset_for_rain(m_weather_preset, rain); p != m_weather_preset) set_weather_preset(p);
 }
 
-void App::set_clear_day(bool clear_day) {
-    m_clear_day = clear_day;
-    m_renderer->set_clear_day(clear_day);
-    // Clear day is dry — reset the rain cycle (both world rain and cabin wash).
-    if (clear_day) set_rain_level(0);
+void App::set_weather_preset(WeatherPreset preset) {
+    m_weather_preset = preset;
+    m_renderer->set_weather_preset(preset);
+    std::cout << "[weather] " << weather_preset_name(preset) << std::endl;
 }
 
-void App::set_wiper(bool enabled) {
-    m_wiper_enabled = enabled;
-    m_renderer->set_wiper_enabled(enabled);
+void App::set_wiper_mode(WiperMode mode) {
+    m_wiper = wiper_set_mode(m_wiper, mode);  // the blade keeps its place; Off finishes the wipe and parks
+    std::cout << "[wiper] " << wiper_mode_name(mode) << std::endl;
 }
 
-void App::set_cockpit(bool cockpit) {
-    m_cockpit    = cockpit;
-    m_look_yaw   = 0.f;
-    m_look_pitch = 0.f;
+void App::set_camera_mode(CameraMode mode) {
+    m_camera_ctl.set_mode(mode);  // resets look offsets + cockpit smoothing / FOV kick
+    std::cout << "[camera] " << camera_mode_name(mode) << std::endl;
 }
 
 void App::set_cursor_captured(bool captured) {
@@ -70,339 +76,319 @@ void App::set_cursor_captured(bool captured) {
     m_first_mouse = true;
 }
 
-bool App::KeyEdge::pressed(GLFWwindow* window, int key) {
-    bool down = glfwGetKey(window, key) == GLFW_PRESS;
-    bool edge = down && !prev;
-    prev      = down;
-    return edge;
-}
-
-// ══════════════════════════════════════════════════════════════════════
-// Mouse callback — computes delta and sends to camera
-// ══════════════════════════════════════════════════════════════════════
-
-void App::mouse_callback(GLFWwindow* window, double xpos, double ypos) {
-    auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
-    if (!app || !app->m_cursor_captured) return;
-
-    float xf = static_cast<float>(xpos);
-    float yf = static_cast<float>(ypos);
-
-    if (app->m_first_mouse) {
-        app->m_last_mouse_x = xf;
-        app->m_last_mouse_y = yf;
-        app->m_first_mouse  = false;
-        return;
-    }
-
-    float x_offset      = xf - app->m_last_mouse_x;
-    float y_offset      = app->m_last_mouse_y - yf;  // reversed: Y grows downward in screen coords
-    app->m_last_mouse_x = xf;
-    app->m_last_mouse_y = yf;
-
-    if (app->m_cockpit) {
-        // Mouse look relative to the car heading, clamped so you can't
-        // look through the headrest or flip over the roof.
-        constexpr float kSens = 0.1f;
-        app->m_look_yaw       = std::clamp(app->m_look_yaw + x_offset * kSens, -150.f, 150.f);
-        app->m_look_pitch     = std::clamp(app->m_look_pitch + y_offset * kSens, -60.f, 60.f);
-        return;
-    }
-
-    Camera* camera = app->m_renderer->get_camera();
-    if (camera) { camera->process_mouse(x_offset, y_offset); }
-}
-
-void App::framebuffer_resize_callback(GLFWwindow* window, int /*width*/, int /*height*/) {
-    auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
-    if (app && app->m_window) { app->m_window->mark_resized(); }
-}
-
 // ══════════════════════════════════════════════════════════════════════
 // Main application loop
 // ══════════════════════════════════════════════════════════════════════
 
 int App::run() {
-    // Road geometry math + treadmill constants now live in RoadGeometry (pure,
-    // static); endless-road state + per-frame update live in m_treadmill.
+    init();
 
-    // ── 1. Window + Renderer core ─────────────────────────────────
-    m_window = std::make_unique<Window>();
-    m_window->init(800, 600, "swish");
-
-    m_renderer = std::make_unique<Renderer>();
-    m_renderer->init(*m_window);
-
-    // ── 2. Wire input callbacks ───────────────────────────────────
-    GLFWwindow* glfw_window = m_window->getHandle();
-    glfwSetWindowUserPointer(glfw_window, this);  // override Window's user pointer for App
-    glfwSetCursorPosCallback(glfw_window, mouse_callback);
-    // Replace Window's resize callback too. Window::init registered a static
-    // that reinterprets the user pointer as Window*; now that App owns the
-    // pointer, that callback would write through a wrong-typed pointer.
-    glfwSetFramebufferSizeCallback(glfw_window, framebuffer_resize_callback);
-    glfwSetInputMode(glfw_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
-#ifdef SWISH_DEBUG_UI
-    // ImGui must init AFTER our GLFW callbacks above — its backend chains onto them.
-    m_renderer->debug_init();
-#endif
-
-    // ── 3. TextureManager — load all material textures ────────────
-    m_textureManager = std::make_unique<TextureManager>(m_renderer->services());
-
-    m_textureManager->load_directory(TEXTURE_DIR);
-
-    // Register default textures (1x1 pixels for flat-colored surfaces)
-    m_textureManager->register_from_pixels("default", {255, 255, 255, 255}, 1, 1);
-    m_textureManager->register_from_pixels("default_normal", {128, 128, 255, 255}, 1, 1);
-    m_textureManager->register_from_pixels("default_roughness", {255, 255, 255, 255}, 1, 1);
-
-    // Generate procedural rumble strip texture (alternating dark/light bars)
-    {
-        constexpr uint32_t   rumble_w = 64, rumble_h = 64;
-        std::vector<uint8_t> rumble_pixels(rumble_w * rumble_h * 4);
-        for (uint32_t y = 0; y < rumble_h; y++) {
-            // Alternating 4px dark / 4px light bars along Y
-            bool    dark = ((y / 4) % 2 == 0);
-            uint8_t val  = dark ? 80 : 140;
-            for (uint32_t x = 0; x < rumble_w; x++) {
-                size_t idx             = (y * rumble_w + x) * 4;
-                rumble_pixels[idx + 0] = val;
-                rumble_pixels[idx + 1] = val;
-                rumble_pixels[idx + 2] = val;
-                rumble_pixels[idx + 3] = 255;
-            }
-        }
-        m_textureManager->register_from_pixels("rumble", rumble_pixels, rumble_w, rumble_h);
-        m_textureManager->register_from_pixels("rumble_normal", {128, 128, 255, 255}, 1, 1);
-        m_textureManager->register_from_pixels("rumble_roughness", {200, 200, 200, 255}, 1, 1);
-    }
-
-    m_renderer->register_texture_manager(m_textureManager.get());
-
-    // ── 4. ModelManager (placeholder) ─────────────────────────────
-    m_modelManager = std::make_unique<ModelManager>(*m_renderer);
-    m_renderer->register_model_manager(m_modelManager.get());
-
-    // ── 5. Build material descriptor sets ─────────────────────────
-    m_renderer->rebuild_material_descriptors();
-
-    // ── 6. Define scenes ──────────────────────────────────────────
-    auto road_scene = std::make_unique<Scene>([this](Renderer& renderer) {
-        // Generate road geometry
-        RoadScene road;
-        auto      scene = road.generate();
-        renderer.upload_scene_geometry(scene.meshData, scene.drawCalls);
-        renderer.set_scene_lights(scene.lights);
-
-        // Endless-road: the authored road above is the "intro"; past its far end
-        // we tile ONE canonical chunk (uploaded once, instanced per frame by the
-        // treadmill in run()). The treadmill keeps the lamp lights so it can shift
-        // them into the render frame on each origin rebase.
-        const float introLen = road.get_road_length();
-        m_treadmill.set_intro(introLen, scene.lights);
-        auto chunk = road.generate_chunk(RoadGeometry::kChunkLen);
-        renderer.upload_chunk_geometry(chunk.meshData, chunk.drawCalls);
-
-        // Elevated diamond interchange: one canonical mesh, instanced sparsely (~1.5 mi
-        // apart) in the endless region by the treadmill.
-        auto interchange = road.generate_interchange_scene();
-        renderer.upload_interchange_geometry(interchange.meshData, interchange.drawCalls);
-        m_treadmill.set_ribbons(road.interchange_ribbons());  // shared centrelines for the follower
-
-        // Setup POV camera on the eastbound LIE
-        auto* camera = new Camera();
-        camera->set_position(Vec3(6501.0f, 1448.0f, -5000.0f));
-        camera->set_yaw(-90.0f);   // looking along -Z (down the road)
-        camera->set_pitch(-3.0f);  // slight downward driving angle
-
-        // Collision bounds: keep camera within EB roadway
-        camera->set_collision_bounds(RoadGeometry::kBarrierRight + 100.0f, RoadGeometry::kEbRoadRight - 100.0f,
-                                     500.0f, 5000.0f);
-        camera->set_collision_enabled(true);
-
-        VkExtent2D extent = renderer.services().swapchainExtent;
-        float      aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
-        // endless road: window ≈ kChunksAhead chunks
-        camera->set_perspective(65.0f, aspect, 10.0f, RoadGeometry::kCameraFar);
-
-        renderer.set_camera(camera);
-    });
-
-    std::vector<std::unique_ptr<Scene>> scenes;
-    scenes.push_back(std::move(road_scene));
-
-    m_sceneManager = std::make_unique<SceneManager>(*m_renderer, std::move(scenes));
-    m_renderer->register_scene_manager(m_sceneManager.get());
-
-    // ── 7. Activate first scene ───────────────────────────────────
-    m_sceneManager->set_active_scene(0);
-
-    // ── 8. Load the Porsche car ───────────────────────────────────
-    {
-        auto car_entity = m_modelManager->load_car(std::string(ASSET_DIR) + "Porsche/porsche.glb");
-
-        // Place the car on the road ahead of the camera start position.
-        // Camera starts at (6501, 1448, -5000) facing -Z.
-        // Put the car 15m (~15000 WU) ahead; Y from crown formula so wheels sit on road.
-        // Scale converts glTF meters to world units (1m = 1000 WU).
-        constexpr float kCarX = 6501.0f;
-        car_entity->set_position(Vec3(kCarX, RoadGeometry::road_surface_y(kCarX), -20000.0f));
-        car_entity->set_rotation(Vec3(0.f, 90.f, 0.f));  // +90° = nose down -Z, same way the camera looks
-        car_entity->set_scale(Vec3(1000.f, 1000.f, 1000.f));
-        car_entity->set_road_bounds(RoadGeometry::kBarrierRight + 100.f, RoadGeometry::kEbRoadRight - 100.f);
-
-        m_car = std::move(car_entity);
-
-        // Rebuild material descriptors to include the car's textures.
-        m_renderer->rebuild_material_descriptors();
-
-        // Upload the car mesh as dynamic geometry.
-        // Glass submeshes share the same VBO/IBO — no second upload needed.
-        m_renderer->upload_dynamic_geometry(m_car->get_mesh_data(), m_car->get_draw_calls());
-        m_renderer->update_glass_draw_calls(m_car->get_glass_draw_calls());
-        m_renderer->update_windshield_draw_calls(m_car->get_windshield_draw_calls());
-    }
-
-    // ── 8b. Initial look: reproduce the debug-tuned "lie" preset ──────
-    // The release build has no runtime preset loader (the whole TOML system is
-    // #ifdef SWISH_DEBUG_UI), so the lie.toml look is baked into the compiled-in
-    // defaults (DebugParams.h / lighting.frag / Renderer grade literals). The two
-    // remaining pieces are runtime state, applied here on launch:
-    //   • overcast weather w/ 0.242 clarity + 0.823 ambient (set_clear_day's else branch)
-    //   • a wet road at full rain (the preset is a rain scene: rain_intensity = 1.0)
-    set_clear_day(false);  // applies the tuned overcast weather + bakes IBL
-    set_rain_level(2);      // R-key cycle resumes correctly (off → light → heavy)
-
-    // ── 9. Main loop with delta time ──────────────────────────────
     float last_frame_time = static_cast<float>(glfwGetTime());
-
     while (!m_window->shouldClose()) {
-        float current_time = static_cast<float>(glfwGetTime());
-        float delta_time   = current_time - last_frame_time;
-        last_frame_time    = current_time;
-        delta_time         = std::min(delta_time, 1.0f / 15.0f);  // cap at ~67ms to prevent physics explosion
-
+        const float dt = frame_delta(last_frame_time);
+#ifdef SWISH_DEBUG_UI
+        sync_debug_edit_mode_from_panel();  // the panel may have toggled it last frame
+#endif
         // In debug edit-mode the scene freezes so you can tune a static frame.
-        bool debug_edit = false;
-#ifdef SWISH_DEBUG_UI
-        debug_edit = m_debug_edit_mode;
-#endif
+        const bool debug_edit = debug_edit_mode();
 
-        m_window->pollEvents();
+        poll_events();
+        process_key_bindings();
+        m_camera_ctl.poll_input(m_window->getHandle(), m_renderer->get_camera(), dt, m_cursor_captured, debug_edit);
+        update_car(dt, debug_edit);
+        update_camera(dt, debug_edit);
 
-        // Note: drawFrame's handlePresent also checks wasResized, but checking here
-        // ensures the flag is consumed even on frames where drawing is skipped.
-        if (m_window->wasResized()) { m_window->resetResizedFlag(); }
-
-        // Toggle cursor capture with Escape (edge-detected — no toggle spam)
-        if (m_esc_key.pressed(glfw_window, GLFW_KEY_ESCAPE)) { set_cursor_captured(!cursor_captured()); }
-
-        // Toggle cockpit / free-fly camera with C (edge-detected)
-        if (m_c_key.pressed(glfw_window, GLFW_KEY_C)) { set_cockpit(!cockpit()); }
-
-        // R key cycles rain intensity: off → light → heavy → off
-        if (m_r_key.pressed(glfw_window, GLFW_KEY_R)) { set_rain_level(rain_level() + 1); }
-
-        // V key toggles the windshield wiper (edge-detected continuous sweep)
-        if (m_v_key.pressed(glfw_window, GLFW_KEY_V)) { set_wiper(!wiper_enabled()); }
-
-        // G key toggles the clear-day preset (bright sunny sky). A clear day is
-        // dry, so it also resets the rain cycle to off.
-        if (m_g_key.pressed(glfw_window, GLFW_KEY_G)) { set_clear_day(!clear_day()); }
-
-#ifdef SWISH_DEBUG_UI
-        // Backtick (`) toggles debug edit-mode: free the cursor for the panel and
-        // freeze the sim; press again to return to driving.
-        if (m_backtick_key.pressed(glfw_window, GLFW_KEY_GRAVE_ACCENT)) {
-            m_debug_edit_mode = !m_debug_edit_mode;
-            glfwSetInputMode(glfw_window, GLFW_CURSOR, m_debug_edit_mode ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
-            m_first_mouse = true;
-            m_renderer->set_debug_edit_mode(m_debug_edit_mode);
-        }
-#endif
-
-        // Process camera input (WASD) — free-fly mode only
-        Camera* camera = m_renderer->get_camera();
-        if (camera && m_cursor_captured && !m_cockpit && !debug_edit) {
-            camera->process_keyboard(glfw_window, delta_time);
-        }
-
-        // Drive the car (arrow keys)
-        if (m_car) {
-            if (!debug_edit) {
-                m_car->handle_input(glfw_window, delta_time);
-                m_car->update(delta_time);
-            }
-
-            // Snap Y to road crown so wheels sit on the surface as the car steers.
-            Vec3 pos = m_car->get_position();
-            pos.y    = RoadGeometry::road_surface_y(pos.x);
-            m_car->set_position(pos);
-
-            // Endless-road illusion: origin rebase, chunk/interchange windows,
-            // drivable bounds, and the interchange ribbon-follower. All the state
-            // lives in m_treadmill now; it mutates the car and pushes chunk/light
-            // data to the renderer exactly as the inline code did.
-            m_treadmill.update(*m_car, *m_renderer, glfw_window, delta_time, debug_edit);
-
-#ifdef SWISH_DEBUG_UI
-            // Steering-wheel gizmo: feed the current wheel pivot to the debug UI, and
-            // in edit mode pose the wheel from the gizmo/override angle (the sim is
-            // frozen then). The draw calls below re-generate with the new angle.
-            {
-                DebugParams& dp    = m_renderer->debug_params();
-                dp.steerPivotWorld = m_car->get_steering_wheel_pivot_world();
-                dp.steerMaxDeg     = CarEntity::steer_max();
-                if (debug_edit && dp.steerOverride)
-                    m_car->set_steering_angle(dp.steerAngleDeg);
-                else
-                    dp.steerAngleDeg = m_car->get_steering_angle();
-                // Spin-axis calibration correction (edit mode); identity otherwise.
-                m_car->set_steer_axis_correction(
-                    (debug_edit && dp.steerAxisEdit)
-                        ? glm::quat(dp.steerQuat.w, dp.steerQuat.x, dp.steerQuat.y, dp.steerQuat.z)
-                        : glm::quat(1.f, 0.f, 0.f, 0.f));
-            }
-#endif
-
-            m_renderer->update_dynamic_draw_calls(m_car->get_draw_calls());
-            m_renderer->update_glass_draw_calls(m_car->get_glass_draw_calls());
-            m_renderer->update_windshield_draw_calls(m_car->get_windshield_draw_calls());
-
-            // Pass car velocity to renderer so rain streaks lean forward at speed.
-            // Convention (CarEntity.h): forward = (cos yaw_rad, 0, -sin yaw_rad)
-            float yaw_rad = m_car->get_rotation().y * (3.14159265f / 180.0f);
-            Vec3  carFwd(std::cos(yaw_rad), 0.f, -std::sin(yaw_rad));
-            m_renderer->set_car_velocity(carFwd * m_car->get_speed());
-            // Car world position drives the GPU road-spray spawn origin (rear axle).
-            m_renderer->set_car_position(m_car->get_position());
-        }
-
-        // Cockpit camera: the eye rides the car at the driver's seat.
-        // kSeatEye is authored in the car's normalized mesh space (meters,
-        // nose +X, ground y = 0, driver side -Z); the entity scale (1000)
-        // converts it to world units through the model matrix. The steering
-        // wheel center sits at (0.18, 0.76, -0.34) in that space; the eye
-        // goes behind and above it (roof tops out at 1.29).
-        if (camera && m_cockpit && m_car) {
-            const Vec3 kSeatEye(-0.32f, 1.05f, -0.34f);
-            Vec3       eye = Vec3(m_car->get_model_matrix() * Vec4(kSeatEye, 1.f));
-            camera->set_position(eye);
-            // Camera forward = (cos yaw, ·, sin yaw); car forward =
-            // (cos heading, 0, -sin heading) -> camera yaw = -heading.
-            camera->set_yaw(-m_car->get_rotation().y + m_look_yaw);
-            camera->set_pitch(m_look_pitch);
-        }
-
-        m_renderer->drawFrame(delta_time);
+        m_renderer->drawFrame(dt);
     }
 
-    // ── 10. Cleanup (reverse order) ───────────────────────────────
-    // Release GPU resources while the device is still alive; the owned objects
-    // themselves are destroyed automatically (reverse declaration order) when
-    // App is destroyed after run() returns — no manual delete needed.
+    shutdown();
+    return 0;
+}
+
+float App::frame_delta(float& last_frame_time) const {
+    float current_time = static_cast<float>(glfwGetTime());
+    float delta_time   = current_time - last_frame_time;
+    last_frame_time    = current_time;
+    return std::min(delta_time, 1.0f / 15.0f);  // cap at ~67ms to prevent physics explosion
+}
+
+bool App::debug_edit_mode() const {
+#ifdef SWISH_DEBUG_UI
+    return m_debug_edit_mode;
+#else
+    return false;
+#endif
+}
+
+void App::poll_events() {
+    // The resize flag is NOT consumed here: the renderer's present step reads it and
+    // Renderer::recreateSwapchain clears it. (Clearing it here, before drawFrame, made
+    // that check dead and left resizes relying on VK_ERROR_OUT_OF_DATE alone.)
+    m_window->pollEvents();
+}
+
+// Drive the car (arrow keys), then hand its draw state to the renderer.
+void App::update_car(float dt, bool debug_edit) {
+    if (!m_car) return;
+
+    step_car_simulation(dt, debug_edit);
+#ifdef SWISH_DEBUG_UI
+    sync_car_with_debug_panel(dt, debug_edit);
+#endif
+    update_wiper(dt);
+    push_car_to_renderer();
+}
+
+// One wiper angle for the frame: the rigged blades (CarEntity::get_draw_calls) and the windshield
+// rain clear (WindshieldRainPass) both read it, so the cleared glass is where the blades are.
+void App::update_wiper(float dt) {
+#ifdef SWISH_DEBUG_UI
+    const DebugParams& dp          = m_renderer->debug_params();
+    m_wiper_params.lowWipesPerMin  = dp.wiperLowWpm;
+    m_wiper_params.highWipesPerMin = dp.wiperHighWpm;
+    m_wiper_params.dwellS          = dp.wiperDwellS;
+    m_wiper_params.sweepDeg        = dp.wiperSweepDeg;
+    m_wiper_params.ease            = dp.wiperEase;
+#endif
+    m_wiper           = wiper_step(m_wiper, m_wiper_params, dt);
+    const float angle = wiper_angle(m_wiper, m_wiper_params);
+    m_car->set_wiper_angle(angle);
+
+    WiperFrame frame;
+    frame.angle    = angle;
+    frame.sweep    = glm::radians(m_wiper_params.sweepDeg);
+    frame.active   = wiper_active(m_wiper);
+    frame.carModel = m_car->get_model_matrix();
+    for (const WiperBlade& b : m_car->get_wiper_blades()) {
+        if (frame.bladeCount < frame.blades.size()) frame.blades[frame.bladeCount++] = b;
+    }
+    m_renderer->set_wiper(frame);
+}
+
+void App::step_car_simulation(float dt, bool debug_edit) {
+    // Wet-grip physics (Wave 2 step 4, CarPhysics.h::effective_mu) reads
+    // the SAME integrated wetness the renderer's wet-road/puddle shading
+    // uses — not raw rain intensity — so grip loss outlasts a shower
+    // exactly like the visual sheen does. One frame stale at most (this
+    // reads last frame's RainSystem::update output); wetness ramps at
+    // 0.08/s (wet) or 0.012/s (dry), so that lag is imperceptible.
+    m_car->set_wetness(m_renderer->get_wetness());
+
+    if (!debug_edit) {
+#ifdef SWISH_DEBUG_UI
+        if (!step_driving_tools(dt))  // gamepad / record / replay; false = the unchanged keyboard path
+#endif
+        {
+#ifdef SWISH_DEBUG_UI
+            if (m_controlsKeyboard.up || m_controlsKeyboard.down || m_controlsKeyboard.left ||
+                m_controlsKeyboard.right) {
+                const InputFrame input = m_car->keyboard_input_frame(m_controlsKeyboard, dt);
+                m_car->apply_input_frame(input, dt);
+                m_car->update(dt);
+            } else
+#endif
+            {
+            m_car->handle_input(m_window->getHandle(), dt);
+            m_car->update(dt);
+            }
+        }
+    }
+
+    // Snap Y to the road surface so wheels sit on it as the car steers.
+    // On the Phase 3a corridor that query is a flat height
+    // (RoadGeometry::set_flat_surface) rather than the crown formula,
+    // because world X is not a lateral offset on a curving alignment.
+#ifdef SWISH_DEBUG_UI
+    // The rigid-body chassis owns the car's height (heave); the bicycle model needs the snap.
+    const bool car_owns_height = m_car->get_physics_model() == PhysicsModel::RigidBody;
+#else
+    constexpr bool car_owns_height = false;
+#endif
+    if (!car_owns_height) {
+        Vec3 pos = m_car->get_position();
+        pos.y    = RoadGeometry::road_surface_y(pos.x);
+        m_car->set_position(pos);
+    }
+
+    // Finite real corridor: origin rebase, visible-segment window,
+    // corridor-space lateral clamp, terminus stops. Replaced the
+    // treadmill's chunk/interchange windows and ribbon-follower.
+#ifdef SWISH_DEBUG_UI
+    if (!m_lookdevMode)
+#endif
+        m_corridor.update(*m_car, *m_renderer, dt, debug_edit);
+
+    // Phase-B quarter-car suspension (archive/docs/wheels/phase-b-spec.md): a LATE
+    // update run after the corridor update so the body's Y-snap and any
+    // origin rebase have settled. Draw-matrix-only — never touches the car's
+    // transform (§8).
+    m_car->update_wheel_visuals(dt);
+    m_car->update_gauges(dt);  // dial needles (named rig only; GaugeNeedles.h)
+}
+
+#ifdef SWISH_DEBUG_UI
+// Steering-wheel gizmo: feed the current wheel pivot to the debug UI, and
+// in edit mode pose the wheel from the gizmo/override angle (the sim is
+// frozen then). The draw calls pushed afterwards re-generate with the new angle.
+void App::sync_car_with_debug_panel(float dt, bool debug_edit) {
+    DebugParams& dp    = m_renderer->debug_params();
+    dp.steerPivotWorld = m_car->get_steering_wheel_pivot_world();
+    dp.steerMaxDeg     = m_car->steer_max();
+    sync_driving_tools_panel(dp);
+
+    // Telemetry readout (issue 5). Pure push of live car state into the
+    // Telemetry panel — read-only, debug-only. The cockpit gauge cluster
+    // can't serve as the readout: it's baked pixels in the GLB atlas with
+    // no needle node, so the ImGui panel is the only route without new art.
+    dp.telemetrySpeedMps = m_car->get_speed_mps();
+    dp.telemetryGear     = m_car->get_gear();
+    dp.telemetryRpm      = m_car->get_engine_rpm();
+    dp.telemetryRedline  = m_car->get_redline_rpm();
+    dp.telemetryMu       = m_car->get_effective_mu();
+    if (debug_edit && dp.steerOverride)
+        m_car->set_steering_angle(dp.steerAngleDeg);
+    else
+        dp.steerAngleDeg = m_car->get_steering_angle();
+    // Spin-axis calibration correction (edit mode); identity otherwise.
+    m_car->set_steer_axis_correction((debug_edit && dp.steerAxisEdit)
+                                         ? glm::quat(dp.steerQuat.w, dp.steerQuat.x, dp.steerQuat.y, dp.steerQuat.z)
+                                         : glm::quat(1.f, 0.f, 0.f, 0.f));
+    // Road-wheel tuning (panel defaults = the shipped behavior).
+    m_car->set_wheel_tuning(dp.wheelSpinEnabled, dp.wheelSteerEnabled, dp.wheelSpinMul);
+    m_car->set_ackermann(dp.wheelAckermann);  // seeded from config/car.toml at startup (AppInit load_car)
+    // Physics model (stub): unchecked = bicycle (default / identity). set_physics_model is idempotent.
+    m_car->set_physics_model(dp.rigidBodyChassis ? PhysicsModel::RigidBody : PhysicsModel::Bicycle);
+    // Dial needles: the "gauges" sliders over the TOML calibration (the speedo table stays TOML-only).
+    GaugeParams gp    = m_car->get_gauge_params();
+    gp.tachOffsetDeg  = dp.gaugeTachOffsetDeg;
+    gp.tachDegPerKrpm = dp.gaugeTachDegPerKrpm;
+    gp.rpmRestDeg     = dp.gaugeRpmRestDeg;
+    gp.speedRestDeg   = dp.gaugeSpeedRestDeg;
+    gp.needleTauS     = dp.gaugeNeedleTauMs / 1000.f;
+    gp.sweepDurationS = dp.gaugeSweepDurationS;
+    m_car->set_gauge_params(gp);
+    m_car->set_gauge_test(dp.gaugeTestOn, dp.gaugeTestRpm, dp.gaugeTestKmh);
+
+    sync_wheel_fx_with_debug_panel(dt);
+}
+
+// Wheel Phase C / wet-lens debug wiring. Everything here is debug-only; with perWheelSpray off (default) the
+// SpraySystem is never touched (legacy single rear-axle emitter), and the lens model only feeds the Telemetry panel.
+void App::sync_wheel_fx_with_debug_panel(float dt) {
+    DebugParams& dp = m_renderer->debug_params();
+
+    // Slip visuals under the panel's thresholds (degrees -> radians for the struct).
+    SlipVisualParams sp;
+    sp.skidSlipRatio          = dp.slipSkidRatio;
+    sp.skidSlipAngle          = dp.slipSkidAngleDeg * SlipVisualParams::kDegToRad;
+    sp.ratioStart             = dp.slipRatioStart;
+    sp.ratioFull              = dp.slipRatioFull;
+    sp.angleStart             = dp.slipAngleStartDeg * SlipVisualParams::kDegToRad;
+    sp.angleFull              = dp.slipAngleFullDeg * SlipVisualParams::kDegToRad;
+    sp.sprayBoostMax          = dp.slipSprayBoostMax;
+    const CarSlipVisuals slip = m_car->get_wheel_slip_visuals(sp);
+    for (std::size_t i = 0; i < 4; ++i) {
+        const WheelSlipVisual& w = slip.wheel[i];
+        dp.telemetryWheel[i]     = {w.slipRatio, w.slipAngle, w.sprayBoost, w.skid};
+    }
+
+    // Per-wheel spray: four emitters from the wheels' contact points; off = hand the system back to the legacy origin
+    // once (only on the on -> off edge), never per frame.
+    if (dp.perWheelSpray) {
+        const float wetness = m_renderer->get_wetness();
+        const float cover   = dp.puddlesEnabled ? dp.puddleCoverage : 0.0f;
+        const Vec3  vel     = m_car->get_forward() * m_car->get_speed();  // WU/s; lateral slide not modelled yet
+        std::array<SprayEmitter, kMaxWheelEmitters> emitters{};
+        uint32_t                                    count = 0;
+        for (int c = 0; c < 4; ++c) {
+            // compute_wheel_spray takes one standing-water scalar, so evaluate each wheel on its own puddle sample.
+            std::array<WheelSprayInput, kMaxWheelEmitters> one{};
+            one[0].pos                      = m_car->get_wheel_contact_world(c);
+            one[0].vel                      = vel;
+            one[0].slipSprayMul             = slip.wheel[static_cast<std::size_t>(c)].sprayBoost;
+            const float            standing = puddle_amount(one[0].pos.x, one[0].pos.z, cover);
+            const WheelSprayResult r        = compute_wheel_spray(one, wetness, standing);
+            if (r.count > 0) emitters[count++] = r.emitters[0];
+        }
+        m_renderer->set_spray_emitters(emitters.data(), count);
+        m_wheel_spray_active = true;
+    } else if (m_wheel_spray_active) {
+        m_renderer->set_spray_emitters(nullptr, 0);
+        m_wheel_spray_active = false;
+    }
+
+    // Lamp-lens wetness: stepped from the applied rain intensity and the car's speed; panel rows only.
+    static constexpr const char* kLensNames[4] = {"Headlight_L_Lens", "Headlight_R_Lens", "TailLight_L_Lens",
+                                                  "TailLight_R_Lens"};
+    if (!m_lens_wetness_ready) {
+        for (const char* n : kLensNames) m_lens_wetness.add_lens(n);
+        m_lens_wetness_ready = true;
+    }
+    LensWetnessParams lp = m_lens_wetness.params();
+    lp.wetRate           = dp.lensWetRate;
+    lp.clearSpeedStart   = dp.lensClearSpeedStart;
+    lp.clearSpeedFull    = dp.lensClearSpeedFull;
+    lp.clearRate         = dp.lensClearRate;
+    lp.drainRate         = dp.lensDrainRate;
+    m_lens_wetness.set_params(lp);
+    m_lens_wetness.step(dt, dp.rainIntensity, std::fabs(m_car->get_speed_mps()));
+    for (std::size_t i = 0; i < 4; ++i) {
+        const LensWetnessState s = m_lens_wetness.get(kLensNames[i]);
+        dp.telemetryLens[i]      = {s.coverage, s.dropSize, s.streak};
+    }
+}
+#endif
+
+void App::push_car_to_renderer() {
+    m_renderer->update_dynamic_draw_calls(m_car->get_draw_calls());
+    m_renderer->update_glass_draw_calls(m_car->get_glass_draw_calls());
+    m_renderer->update_windshield_draw_calls(m_car->get_windshield_draw_calls());
+#ifdef SWISH_DEBUG_UI
+    // Per-object velocity buffer (todo.md): must be read AFTER get_draw_calls()
+    // above — it stashes each submesh's model matrix as its last step, so this
+    // call sees the matrices as of BEFORE that call (last frame's pose), pairing
+    // index-for-index with the draws just pushed.
+    m_renderer->update_dynamic_prev_draw_models(m_car->get_prev_draw_models());
+
+    // Car lights (tasks/todo.md "Car lights"): world spot lights for this frame's pose.
+    // Panel off (the default) uploads none, so the image is today's.
+    {
+        const DebugParams&         dp = m_renderer->debug_params();
+        std::vector<SpotLightDesc> spots;
+        if (dp.carLightsEnabled) {
+            CarLightParams params;
+            params.headIntensity  = dp.carHeadIntensity;
+            params.headRangeM     = dp.carHeadRangeM;
+            params.headInnerDeg   = std::min(dp.carHeadInnerDeg, dp.carHeadOuterDeg);
+            params.headOuterDeg   = dp.carHeadOuterDeg;
+            params.tailIntensity  = dp.carTailIntensity;
+            params.brakeIntensity = dp.carBrakeIntensity;
+            params.tailRangeM     = dp.carTailRangeM;
+            const CarLightState state{dp.carHeadlightsOn, dp.carTailLightsOn,
+                                      dp.carBrakeForce ? 1.f : m_car->get_brake()};
+            spots = m_car->get_spot_lights(state, params);
+        }
+        m_renderer->set_car_spot_lights(spots);
+    }
+#endif
+
+    // Pass car velocity to renderer so rain streaks lean forward at speed.
+    // Convention (CarEntity.h): forward = (cos yaw_rad, 0, -sin yaw_rad)
+    float yaw_rad = m_car->get_rotation().y * (util::units::kPi / 180.0f);
+    Vec3  carFwd(std::cos(yaw_rad), 0.f, -std::sin(yaw_rad));
+    m_renderer->set_car_velocity(carFwd * m_car->get_speed());
+    // Car world position drives the GPU road-spray spawn origin (rear axle).
+    m_renderer->set_car_position(m_car->get_position());
+}
+
+void App::update_camera(float dt, bool debug_edit) {
+    m_camera_ctl.update(m_renderer->get_camera(), m_car.get(), dt, debug_edit);
+}
+
+// Release GPU resources while the device is still alive (reverse order); the
+// owned objects themselves are destroyed automatically (reverse declaration
+// order) when App is destroyed after run() returns — no manual delete needed.
+void App::shutdown() {
     m_renderer->wait_for_idle();
     m_car.reset();
     m_renderer->destroy_dynamic_geometry();
@@ -410,8 +396,6 @@ int App::run() {
     m_modelManager->cleanup();
     m_renderer->cleanup();
     m_window->cleanup();
-
-    return 0;
 }
 
 }  // namespace swish

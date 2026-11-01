@@ -48,20 +48,7 @@ vec3 viewFromDepth(vec2 uv, float d) {
 
 // Road puddle mask — mirrors lighting.frag so SSR reflects the scene in the same
 // pools the wet model turns to mirrors. World-space, gated to the road tag.
-float puddleHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float puddleNoise(vec2 p) {
-    vec2 i = floor(p), f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    float a = puddleHash(i),                  b = puddleHash(i + vec2(1.0, 0.0));
-    float c = puddleHash(i + vec2(0.0, 1.0)), d = puddleHash(i + vec2(1.0, 1.0));
-    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-}
-float puddleAmount(vec2 worldXZ, float coverage, float road) {
-    if (coverage <= 0.0 || road < 0.5) return 0.0;
-    vec2  p = worldXZ * 0.00013;
-    float n = puddleNoise(p) * 0.65 + puddleNoise(p * 2.7 + 11.0) * 0.35;
-    return smoothstep(1.0 - coverage, 1.0 - coverage + 0.12, n);
-}
+#include "puddle.glsl"
 
 void main() {
     float d = texture(gbDepth, fragUV).r;
