@@ -48,3 +48,13 @@ high_wipes_per_min   = 65.0
 intermittent_dwell_s = 4.0    # pause at park between Intermittent wipes
 sweep_deg            = 105.0  # park -> top; the rigged 993 blades leave the glass past ~120
 ease                 = 1.0    # 0 = constant angular speed, 1 = cosine (blades slow into each reversal)
+
+[keyboard_steer]
+# Arrow-key steering (KeyboardSteer.h). A held key ramps a virtual stick to +-1; full stick commands
+# grip_gain x the grip-limited steer angle atan(wheelbase * mu * g / v^2), capped by the steer lock.
+# Parking speed = full lock; ~100 km/h dry = a few degrees, so a tap no longer spins the car.
+# Gamepad, replay and bench inputs are unaffected. Missing keys keep kKeyboardSteerDefaults (a test pins this).
+rise_rate   = 2.5   # stick units/s while held (0 -> full in 0.4 s)
+return_rate = 6.0   # stick units/s back toward centre on release or reversal
+grip_gain   = 1.5   # full stick = this multiple of the grip limit (>1 lets you provoke a slide)
+min_deg     = 1.0   # floor on the full-stick angle at very high speed or very low grip

@@ -40,7 +40,13 @@ cmake-build-*/
 imgui.ini
 
 # IDE
-.vscode/
+/.vscode/*
+!/.vscode/settings.json
+!/.vscode/tasks.json
+!/.vscode/extensions.json
+/shader-playground/.vscode/*
+!/shader-playground/.vscode/tasks.json
+!/shader-playground/.vscode/extensions.json
 .idea/
 *.swp
 

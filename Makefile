@@ -18,7 +18,7 @@ CHECK_ARGS ?=
 
 .DEFAULT_GOAL := help
 
-.PHONY: help rules feature-rules build run swish debug debug-build clean clean-debug clean-all format format-check glslc-test \
+.PHONY: help rules feature-rules build run swish debug debug-build lookdev clean clean-debug clean-all format format-check glslc-test \
         car-analyze test test-release test-debug prune prune-check check new-class install-hooks package
 
 help: ## Show this help
@@ -48,6 +48,9 @@ debug-build: ## Configure + build the debug-UI tree (build-debug/)
 
 debug: debug-build ## Build debug-UI tree, then run build-debug/swish
 	@./$(DEBUG_BUILD_DIR)/swish
+
+lookdev: debug-build ## Launch the car lighting workbench without the driving corridor
+	@SWISH_LOOKDEV=1 ./$(DEBUG_BUILD_DIR)/swish
 
 swish: run
 

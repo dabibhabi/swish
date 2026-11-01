@@ -17,9 +17,12 @@ add_executable(swish_utils_tests
     test_container_VectorOps.cpp
     test_meta_EnumCycle.cpp
     test_meta_Tags.cpp
+    test_meta_Concepts.cpp
+    test_fsm_Fsm.cpp
+    test_units_Quantity.cpp
+    test_math_Angle.cpp
     test_io_File.cpp
     test_io_AppPaths.cpp
-    ${CMAKE_SOURCE_DIR}/src/utils/io/AppPaths.cpp
     test_vulkan_Check.cpp
     test_vulkan_Init.cpp
     test_vulkan_PushConstants.cpp
@@ -38,6 +41,7 @@ add_executable(swish_utils_tests
     test_renderer_RendererConfig.cpp
 
     ${CMAKE_SOURCE_DIR}/src/utils/io/File.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/io/AppPaths.cpp
     # renderer/Passes: the registry + image registry are Vulkan-handle bookkeeping only (no Vulkan calls)
     ${CMAKE_SOURCE_DIR}/src/renderer/Passes/PassRegistry.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/Passes/ImageRegistry.cpp

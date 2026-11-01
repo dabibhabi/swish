@@ -114,7 +114,7 @@ struct Ref {
 };
 }  // namespace
 
-TEST_CASE("apply_input_frame matches the keyboard path bit-for-bit", "[input]") {
+TEST_CASE("apply_input_frame Rate mode matches the legacy keyboard path bit-for-bit", "[input]") {
     CarEntity   car;
     Ref         ref;
     const float dt = 1.f / 60.f;

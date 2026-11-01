@@ -2,15 +2,113 @@
 
 All notable changes to Swish are documented here.
 
+### 2026-10-25 — Added live HDRI selection to the debug Sky panel
+
+Added a debug selector for the installed environment maps, including Sunflowers, so sky lighting and reflections can be compared while Swish is running.
+
+<details><summary>Technical summary</summary>
+
+The debug Sky panel exposed procedural gradient controls but could not switch the HDRI cubemap used for the visible environment and image based lighting. Added one shared catalog and made selection trigger an HDRI load/rebake through `WeatherController`. Weather preset changes keep the selection synchronized, and saved debug looks retain it.
+
+| File | Change |
+| --- | --- |
+| [CHANGELOG.md](CHANGELOG.md) | Recorded the debug HDRI selector and its implementation details. |
+| [src/renderer/IBLManager/HdriCatalog.h](src/renderer/IBLManager/HdriCatalog.h) | Added the shared HDRI labels, asset paths, exposure and yaw options. |
+| [src/debug/DebugParams.h](src/debug/DebugParams.h) | Added the debug-only selected HDRI index. |
+| [src/debug/DebugParamsIO.cpp](src/debug/DebugParamsIO.cpp) | Persisted HDRI selection in look presets. |
+| [src/debug/DebugUI.cpp](src/debug/DebugUI.cpp) | Added the Environment HDRI combo to the Sky panel. |
+| [src/renderer/WeatherController/WeatherController.h](src/renderer/WeatherController/WeatherController.h) | Added debug-only tracking for the active HDRI selection. |
+| [src/renderer/WeatherController/WeatherController.cpp](src/renderer/WeatherController/WeatherController.cpp) | Load selected HDRIs and synchronize choices with weather presets. |
+| [tasks/todo.md](tasks/todo.md) | Recorded implementation and verification status. |
+| [tasks/code_snippets.md](tasks/code_snippets.md) | Documented the shared catalog pattern. |
+
+</details>
+
+### 2026-10-25 — Set up stage-aware GLSL tooling and shader preview
+
+Fixed the shader workflow gap by adding OpenGL GLSL validation, Vulkan SPIR-V build and validation tasks, and a standalone preview example.
+
+<details><summary>Technical summary</summary>
+
+The repository contains Vulkan-oriented GLSL, while editor previews execute a browser-based WebGL shader path. Kept those workflows distinct, recognized stages from stage suffixes or explicit `#pragma shader_stage(...)`, and skipped ambiguous shared snippets and preview-only `mainImage` sources in standalone compiler tasks.
+
+Added [tools/shader-tools.sh](tools/shader-tools.sh), VS Code tasks, file associations, and the [shader playground](shader-playground/README.md). SPIR-V outputs are placed under `build/spirv/`, preserving the source directory structure. Shader Studio provides the live animated preview; Nifty Shaders is recommended for diagnostics that infer the stage from the pragma.
+
+| File | Change |
+| --- | --- |
+| [`.gitignore`](.gitignore) | Allowed the requested workspace task/settings and sample extension/task files to be versioned while keeping other build output ignored. |
+| [`CHANGELOG.md`](CHANGELOG.md) | Recorded this environment setup and its verification. |
+| [`.vscode/settings.json`](.vscode/settings.json) | Preserved existing settings and added GLSL file associations. |
+| [`.vscode/tasks.json`](.vscode/tasks.json) | Added current-file and project-wide validation/build tasks. |
+| [`.vscode/extensions.json`](.vscode/extensions.json) | Recommended Shader Studio and Nifty Shaders in the repository workspace. |
+| [`tools/shader-tools.sh`](tools/shader-tools.sh) | Added stage-aware validation, compilation, and SPIR-V checks. |
+| [`shader-playground/README.md`](shader-playground/README.md) | Documented stages, inputs, validation, preview use, and platform limits. |
+| [`shader-playground/shaders/basic.vert`](shader-playground/shaders/basic.vert) | Added GLSL 3.30 OpenGL vertex stage. |
+| [`shader-playground/shaders/basic.frag`](shader-playground/shaders/basic.frag) | Added GLSL 3.30 lit fragment stage. |
+| [`shader-playground/shaders/effects/animated.glsl`](shader-playground/shaders/effects/animated.glsl) | Added animated Shader Studio preview source. |
+| [`shader-playground/.vscode/tasks.json`](shader-playground/.vscode/tasks.json) | Added sample-local task shortcuts. |
+| [`shader-playground/.vscode/extensions.json`](shader-playground/.vscode/extensions.json) | Recommended Shader Studio and Nifty Shaders. |
+| [`tasks/todo.md`](tasks/todo.md) | Recorded the plan and verification results. |
+
+Verification: both OpenGL pair shaders passed; the live Shader Studio animation rendered; 33 Vulkan SPIR-V modules compiled and validated. No Homebrew packages were installed because all requested tools were already present.
+
+</details>
+
+### 2026-10-25 — Added a detached live lighting workbench
+
+Added a focused car look-dev launch and moved live ImGui tuning into its own Vulkan window so the driving view remains clear and simulation can continue while settings change.
+
+<details><summary>Technical summary</summary>
+
+The debug UI previously rendered as an overlay in the game swapchain, obstructing the vehicle during driving. The workbench creates a separate GLFW Vulkan surface/swapchain for ImGui, and a `make lookdev` launch uses the same car and renderer on a studio pad without loading/updating the long corridor.
+
+| File | Change |
+| --- | --- |
+| [Makefile](Makefile) | Added `make lookdev`. |
+| [src/debug/DebugUI.cpp](src/debug/DebugUI.cpp) | Added independent controls-window surface, swapchain, synchronization, presentation, and input forwarding. |
+| [src/renderer/Renderer_Frame.cpp](src/renderer/Renderer_Frame.cpp) | Presents controls separately after the game render. |
+| [src/core/App/AppInit.cpp](src/core/App/AppInit.cpp) | Added focused studio-pad scene and look-dev startup path. |
+| [src/core/App/AppInput.cpp](src/core/App/AppInput.cpp) | Added F2 visibility toggle and controls-window driving keys. |
+| [docs/lighting-workbench.md](docs/lighting-workbench.md) | Documented launch, controls, renderer reuse, and limitations. |
+| [tasks/todo.md](tasks/todo.md) | Recorded implementation and verification. |
+| [tasks/code_snippets.md](tasks/code_snippets.md) | Linked the detached presentation and launch patterns. |
+
+Verification: debug and release executables built; CTest passed 415/415 tests; startup logs showed both game and controls swapchains on Apple M3 Max. Screenshot-based layout verification was unavailable in this desktop session.
+
+</details>
+
+### 2026-10-25 — Extended the look-dev road beyond the visible horizon
+
+Extended the studio road to five times its original driving length and clamped the car before the endpoint enters view.
+
+<details><summary>Technical summary</summary>
+
+The original 500 m look-dev pad ended at the same X bound used to clamp the car, allowing it to drive up to the edge. The road now spans 2.5 km along the car's forward axis; the car is bounded to ±600 m while the endpoints are ±1.25 km. At the bound the endpoint is 650 m away, beyond the 600 m camera far plane. Compile-time checks keep that margin tied to the camera and road dimensions while preserving the first-launch width, material, and camera.
+
+| File | Change |
+| --- | --- |
+| [src/core/App/AppInit.cpp](src/core/App/AppInit.cpp) | Added shared road length, drive bounds, end margin, and far-plane constants with compile-time assertions. |
+| [docs/lighting-workbench.md](docs/lighting-workbench.md) | Documented the 2.5 km road and horizon safety margin. |
+| [tasks/lessons.md](tasks/lessons.md) | Recorded the rule for future finite look-dev roads. |
+| [tasks/todo.md](tasks/todo.md) | Recorded implementation and verification. |
+| [tasks/code_snippets.md](tasks/code_snippets.md) | Documented the derived endpoint-clamp relation. |
+
+Verification: debug target built, all 415 CTest cases passed, and the updated look-dev process initialized both windows on Apple M3 Max. The visual road horizon could not be screenshot-inspected in this desktop session.
+
+</details>
+
 ---
 
 <!-- INDEX:START (generated by scripts/changelog_index.py) -->
 
 Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest month first.
 
-### 2026-10 (18 entries)
+### 2026-10 (21 entries)
 
+- 2026-10-25 — [Extended the look-dev road beyond the visible horizon](docs/changelog/2026-10.md#2026-10-25--extended-the-look-dev-road-beyond-the-visible-horizon)
+- 2026-10-25 — [Added a detached live lighting workbench](docs/changelog/2026-10.md#2026-10-25--added-a-detached-live-lighting-workbench)
 - 2026-10-19 — [Made asset paths relocatable and added a macOS test-bundle script for friends](docs/changelog/2026-10.md#2026-10-19--made-asset-paths-relocatable-and-added-a-macos-test-bundle-script-for-friends)
+- 2026-10-17 — [Added the typed-C++ utils: Concepts, Quantity, Fsm, Angle](docs/changelog/2026-10.md#2026-10-17--added-the-typed-c-utils-concepts-quantity-fsm-angle)
 - 2026-10-17 — [Rigged 993 Carrera RS is now the default car](docs/changelog/2026-10.md#2026-10-17--rigged-993-carrera-rs-is-now-the-default-car)
 - 2026-10-16 — [Realism learning plan: course doc, stub headers, hidden learning tests; clearcoat docs corrected](docs/changelog/2026-10.md#2026-10-16--realism-learning-plan-course-doc-stub-headers-hidden-learning-tests-clearcoat-docs-corrected)
 - 2026-10-12 — [Rigged 993 Carrera RS: named-rig loader, per-car physics, wheels, wipers, needles](docs/changelog/2026-10.md#2026-10-12--rigged-993-carrera-rs-named-rig-loader-per-car-physics-wheels-wipers-needles)

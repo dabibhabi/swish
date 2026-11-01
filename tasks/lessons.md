@@ -1,5 +1,9 @@
 # Lessons
 
+## Expanding a finite look-dev road (2026-10-25)
+
+Keep the approved studio look and expand the road along its travel axis only. The drivable clamp must end before the visible road terminus; keep the terminus beyond the active camera far plane so the car cannot expose the skybox boundary while driving. Express this as shared dimensions/margins instead of separately guessed mesh and clamp constants.
+
 ## Visual/rendering features: a clean build is NOT "done" — run it and look (2026-06-29)
 
 **Mistake:** Implemented the rain overhaul (4 shader/C++ workstreams), verified `make build`

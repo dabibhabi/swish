@@ -96,10 +96,13 @@ vec3 AgX(vec3 c) {
 void main() {
     vec3 hdr  = texture(hdrScene, fragUV).rgb;
     vec3 bloom = texture(bloomTex, fragUV).rgb;
+#ifndef SWISH_DEBUG_UI
     float ao  = texture(aoTex, fragUV).r;
 
     // Apply ambient occlusion
     hdr *= ao;
+#endif
+    // Debug builds apply SSAO inside lighting.frag, to the indirect terms only (not sun, lamps, SSR or fog).
 
     // Screen-space reflections: add the reflected radiance on top of the lit HDR
     // (already Fresnel/intensity-weighted in the SSR pass; zero on a miss, where

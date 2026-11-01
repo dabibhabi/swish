@@ -17,6 +17,8 @@
 #define BIND_GB_MATERIAL 2
 #define BIND_GB_DEPTH 3
 #define BIND_GB_CLEARCOAT_FLAKE 4
+/* debug builds only (SWISH_DEBUG_UI): blurred SSAO, applied to the indirect terms in lighting.frag */
+#define BIND_GB_AO 5
 
 /* set 2: shadow map (CSM atlas) */
 #define SET_SHADOW 2

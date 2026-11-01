@@ -69,7 +69,8 @@ brew install glfw glm cmake
 
 ```bash
 make run          # release build into build/, then runs build/swish
-make debug        # Dear ImGui live-tuning build into build-debug/ (backtick toggles edit/drive)
+make debug        # full driving scene + detached Dear ImGui tuning window
+make lookdev      # focused car lighting stage + detached tuning window (no LIE corridor)
 make test         # release build + ctest
 make help         # every target (check, format, new-class, ...)
 # or, without make:
@@ -77,6 +78,11 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release   # auto-detects your platform
 cmake --build build -j
 ./build/swish
 ```
+
+In `make debug`, the controls are a separate window so the game view stays unobstructed and simulation continues
+while you change values. Use a gamepad, or focus the controls window and use **I/K** for throttle/brake and **J/L**
+to steer. `make lookdev` loads the same car and renderer on a simple drivable studio pad without loading the driving
+corridor. See [Lighting workbench](docs/lighting-workbench.md) for controls, shader reload behavior, and limitations.
 
 > Shaders compile automatically during the build via `glslc`. The first build writes all SPIR-V
 > binaries into `build/shaders/`. Keep `VULKAN_SDK` set (or pass `-DGLSLC=...`): CMake looks for `glslc`

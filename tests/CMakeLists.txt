@@ -26,6 +26,7 @@ add_executable(swish_tests
     test_wiper_wipe.cpp
     test_rigid_chassis.cpp
     test_input.cpp
+    test_keyboard_steer.cpp
     test_bench.cpp
     test_telemetry.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/telemetry/TelemetryRing.cpp

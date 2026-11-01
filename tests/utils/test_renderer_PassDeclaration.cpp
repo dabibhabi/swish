@@ -127,7 +127,7 @@ TEST_CASE("the shipped release chain is warning-free; a reorder is caught", "[re
     for (std::size_t i = 0; i < chain.size(); ++i) CHECK(chain[i].name == kRelease[i]);
 
     // Debug list (PASS_DEBUG entries included): SSAO/AO blur/velocity after lighting, DoF after god-rays, TAA after
-    // the windshield, luminance pyramid in HdrFinalize, the overlay last (declares nothing).
+    // the windshield and luminance pyramid in HdrFinalize. Controls render on their own swapchain.
     const std::vector<NamedDeclaration> debugChain = {
         chain[0],
         chain[1],
@@ -148,7 +148,6 @@ TEST_CASE("the shipped release chain is warning-free; a reorder is caught", "[re
         chain[11],
         chain[12],
         chain[13],
-        nd("DebugOverlay", {}, {}),
     };
     CHECK(validate_pass_declarations(debugChain).empty());
     // Taa before the velocity pass would sample a never-written velocity image.

@@ -1,0 +1,100 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Validate OpenGL GLSL project",
+      "type": "process",
+      "command": "${workspaceFolder}/../tools/shader-tools.sh",
+      "args": [
+        "validate-gl-project"
+      ],
+      "problemMatcher": [
+        "$gcc",
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^ERROR: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "error",
+            "message": 3
+          }
+        },
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^WARNING: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "warning",
+            "message": 3
+          }
+        }
+      ]
+    },
+    {
+      "label": "Validate current OpenGL GLSL file",
+      "type": "process",
+      "command": "${workspaceFolder}/../tools/shader-tools.sh",
+      "args": [
+        "validate-gl",
+        "${file}"
+      ],
+      "problemMatcher": [
+        "$gcc",
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^ERROR: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "error",
+            "message": 3
+          }
+        },
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^WARNING: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "warning",
+            "message": 3
+          }
+        }
+      ]
+    },
+    {
+      "label": "Compile current shader for Vulkan",
+      "type": "process",
+      "command": "${workspaceFolder}/../tools/shader-tools.sh",
+      "args": [
+        "compile-vulkan",
+        "${file}"
+      ],
+      "problemMatcher": [
+        "$gcc",
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^ERROR: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "error",
+            "message": 3
+          }
+        },
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^WARNING: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "warning",
+            "message": 3
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -150,12 +150,12 @@ TEST_CASE("PassList.def pins the frame order (release list)", "[renderer]") {
     REQUIRE(std::size(kRelease) == expectedRelease.size());
     for (size_t i = 0; i < expectedRelease.size(); ++i) CHECK(expectedRelease[i] == kRelease[i]);
 
-    // Debug builds add SSAO + AO blur + velocity (after lighting), DoF (after god-rays), TAA (after the windshield)
-    // and the overlay (last).
+    // Debug builds add SSAO + AO blur (before lighting, which applies AO to the indirect terms), velocity (after
+    // lighting), DoF (after god-rays) and TAA (after the windshield). Controls present in a separate window.
     const std::vector<std::string> expectedAll = {
-        "Geometry",   "Lighting",   "Ssao",      "AoBlur",      "Velocity",       "Ssr", "GodRays",     "Dof",
+        "Geometry",   "Ssao",       "AoBlur",    "Lighting",    "Velocity",       "Ssr", "GodRays",     "Dof",
         "SpraySim",   "Rain",       "SprayDraw", "Glass",       "WindshieldRain", "Taa", "HdrFinalize", "BloomExtract",
-        "BloomBlurH", "BloomBlurV", "Composite", "DebugOverlay"};
+        "BloomBlurH", "BloomBlurV", "Composite"};
     REQUIRE(std::size(kAll) == expectedAll.size());
     for (size_t i = 0; i < expectedAll.size(); ++i) CHECK(expectedAll[i] == kAll[i]);
 }

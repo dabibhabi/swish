@@ -403,3 +403,57 @@ All debug-only (`SWISH_DEBUG_UI`), identity default off; release `.spv` 33/33, g
 - [x] S6 Debug UI wiring (profiler table, capture button, hot-reload status): "Render tools" section in `DebugUI.cpp` fed by `RenderToolsView` (set from `Renderer::init`); also shows pass-declaration warnings. Not visually checked in a running window
 - [x] S7 Verify: `make test` 261/261, `make test-debug` 284/284, 33/33 spv (manual hash comparison), `make check` OK (format findings pre-existing, report-only). Warning count is as reported by the build owner, not re-checked while writing the docs
 - [x] S8 Docs + changelog (`docs/changelog/2026-10.md`) + `tasks/stub-report.md`. Still to do: `python3 scripts/changelog_index.py` (index in `CHANGELOG.md`), then `make check`
+
+## GLSL tooling environment — 2026-10-25
+
+- [x] Inspect macOS architecture, Homebrew packages, shader executables, workspace shaders, and editor extensions.
+- [x] Add stage-aware editor tasks for OpenGL validation, Vulkan SPIR-V compile, and SPIR-V validation.
+- [x] Add minimal OpenGL sample and Shader Studio animated preview shader.
+- [x] Document inputs, compiler commands, preview workflow, and macOS OpenGL/Vulkan split.
+- [x] Verify OpenGL shader examples, compile project Vulkan shaders, validate generated SPIR-V, and inspect the live preview.
+
+### Review
+
+- Apple Silicon (`arm64`), macOS 26.6.2, Homebrew 7.0.10; `glslang` 16.6.0, `shaderc` 2026.4, and `spirv-tools` 1.4.357.0 were already installed. No package installation or upgrades were needed.
+- The two GLSL 3.30 OpenGL files passed `glslangValidator`. The animated Shadertoy-style preview compiled and rendered in installed Shader Studio; its preview wrapper is intentionally not a standalone OpenGL entry point.
+- Project Vulkan compilation generated 33 SPIR-V modules; all passed `spirv-val --target-env vulkan1.2`.
+- Existing `dtoplak.vscode-glsllint` does not infer generic `.glsl` stages and reports an error for stage-ambiguous files. Nifty Shaders is recommended for pragma-aware diagnostics; it remains a manual install.
+- No native Vulkan execution was attempted; this setup only compiles and validates SPIR-V on macOS.
+# Lighting look-dev workbench
+
+- [x] Add a debug-only look-dev launch path that reuses the renderer and car asset without loading the driving corridor.
+- [x] Move tuning controls into a separate native GLFW/Vulkan window while the render window continues updating.
+- [x] Retain the existing Swish shader hot-reload/error path; this workbench does not introduce a standalone shader compiler/editor.
+- [x] Build debug and release targets, run shader build through CMake, execute the test suite, and launch both windows on macOS.
+- [x] Document how to launch and tune; append changelog and code-snippet notes.
+
+### Review
+
+- `codex/lookdev-workbench` was created before editing. `cmake --build build-debug --target swish -j4` and `cmake --build build --target swish -j4` succeeded; `ctest --test-dir build-debug --output-on-failure` passed 415/415 tests.
+- `SWISH_LOOKDEV=1 ./build-debug/swish` initialized the Apple M3 Max Vulkan device, game swapchain, separate controls swapchain, IBL, and car asset without startup errors.
+- Visual placement and mouse/keyboard interaction could not be confirmed because the desktop screenshot surface did not show the app's windows. Please check the first launch interactively.
+- The workbench retains the project renderer, so it does not start a full graphics engine-free preview. It uses the existing pipeline shader diagnostics/hot reload where supported.
+
+## Look-dev road horizon and length follow-up
+
+- [x] Preserve the existing first-launch studio-road look while increasing its forward length to 5x.
+- [x] Keep the car clamped far enough from road ends that the endpoints remain beyond the camera far plane.
+- [x] Build and run the look-dev scene; verify extent/bounds numerically and visually if the desktop window is available.
+- [x] Record the follow-up in the changelog and lessons.
+
+### Review
+
+- The pad now spans 2.5 km along X (original width retained). Driving is clamped to ±600 m while the endpoints are ±1.25 km; at either clamp the end is 650 m away, 50 m beyond the 600 m camera far plane. Compile-time assertions prevent the bound from moving inside that horizon.
+- Debug build and all 415 CTest cases passed. Relaunch logs show both Vulkan windows initialize. The actual road silhouette could not be screenshot-inspected in this desktop session.
+## Debug HDRI selector (2026-10-25)
+
+- [x] Add a shared catalog of installed sky HDRIs, including the downloaded Sunflowers map.
+- [x] Add a live selector to the debug Sky panel and wire selection to the IBL rebake path.
+- [x] Persist the selection in debug look presets and sync it when weather presets change.
+- [x] Build release and debug configurations and launch the debug app.
+- [ ] Visually operate the selector and verify switching between Citrus and Sunflowers.
+
+### Review
+
+- `cmake --build build --target swish -j4` and `cmake --build build-debug --target swish -j4` both succeeded. Debug startup logs confirm the Citrus HDRI and both game and controls swapchains initialize.
+- The CUA surface exposes the game window but not the detached controls window, so interaction with the combo and visual confirmation of the switched map remain open.

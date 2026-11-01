@@ -28,6 +28,18 @@ layout(set = SET_GBUFFER, binding = BIND_GB_DEPTH) uniform sampler2D gbDepth;
 // flake-perturbed world normal, B = clearcoat lobe strength, A = flake mask.
 layout(set = SET_GBUFFER, binding = BIND_GB_CLEARCOAT_FLAKE) uniform sampler2D gbClearcoatFlake;
 
+// SSAO (debug builds: ssao.frag -> ao_blur.frag run before this pass, r = AO). It occludes the INDIRECT light only:
+// the sun has its own shadow map and point lights are local, so the old composite `hdr *= ao` that darkened them
+// too flattened every sunlit surface. Release has no SSAO, and these expand to the bare term.
+#ifdef SWISH_DEBUG_UI
+layout(set = SET_GBUFFER, binding = BIND_GB_AO) uniform sampler2D gbAo;
+#define AO_DIFFUSE(x) ((x) * ssao)
+#define AO_SPEC(x)    ((x) * specAO)
+#else
+#define AO_DIFFUSE(x) (x)
+#define AO_SPEC(x)    (x)
+#endif
+
 // ── Sun shadow map (set 2) — CSM atlas of NUM_CASCADES horizontal slices.
 //    PLAIN sampler2D + manual PCF compare: MoltenVK's portability subset has
 //    no comparison samplers (no sampler2DShadow). ──
@@ -421,13 +433,19 @@ void main() {
     // stays the overall floor/scale; SP_IBL_DIFFUSE tunes the sky contribution.
     // Additive so dark interior panels can't crush to black; gated (1-metallic)
     // because metals have no diffuse (their env response is the specular term).
+#ifdef SWISH_DEBUG_UI
+    // Specular occlusion from the AO, sharper on glossy surfaces: Lagarde & de Rousiers 2014 ("Moving Frostbite
+    // to PBR"), as Filament's SpecularAO_Lagarde; `a` is the GGX alpha.
+    float ssao   = texture(gbAo, fragUV).r;
+    float specAO = clamp(pow(NdotV + ssao, exp2(-16.0 * a - 1.0)) - 1.0 + ssao, 0.0, 1.0);
+#endif
     float ambient      = camera.sunColor.a;
     vec3  sun_radiance = camera.sunColor.rgb;
     vec3  skyIrr       = texture(irradianceMap, N).rgb;  // baked-sky diffuse irradiance (set 3)
     vec3  ambientIrr   = sun_radiance + skyIrr * SP_IBL_DIFFUSE;
     // Sun (direct) term is shadowed; ambient/sky fill is not (see sunShadow above).
     vec3  sun_term  = (kD * albedo / PI + specular_sun) * NdotL * sun_radiance;
-    vec3  lit_color = albedo * ambient * ambientIrr * (1.0 - metallic * 0.5)
+    vec3  lit_color = AO_DIFFUSE(albedo * ambient * ambientIrr * (1.0 - metallic * 0.5))
                    + sun_term * sunShadow;
 
     // ── Specular IBL: GGX-prefiltered environment × split-sum BRDF LUT ──
@@ -441,7 +459,7 @@ void main() {
     vec3  envColor   = textureLod(prefilteredMap, R, roughness * IBL_PREFILTER_MAX_MIP).rgb;
     envColor         = mix(envColor, envColor * (1.0 - wetness * 0.45), wetness * 0.9);
     vec2  envBRDF    = texture(brdfLUT, vec2(NdotV, roughness)).rg;
-    lit_color       += envColor * (F0 * envBRDF.x + envBRDF.y) * SP_IBL_SPECULAR;
+    lit_color       += AO_SPEC(envColor * (F0 * envBRDF.x + envBRDF.y) * SP_IBL_SPECULAR);
 
     // ── Clearcoat: second GGX lobe, dielectric F0, tight/near-mirror roughness ──
     // Real automotive clearcoat: a thin, nearly-flat, near-mirror dielectric layer
@@ -462,7 +480,7 @@ void main() {
         vec3 ccEnv   = textureLod(prefilteredMap, R, ccRough * IBL_PREFILTER_MAX_MIP).rgb;
         ccEnv        = mix(ccEnv, ccEnv * (1.0 - wetness * 0.45), wetness * 0.9);
         vec2 ccBRDF  = envBRDFApprox(NdotV, ccRough);
-        lit_color   += ccEnv * (vec3(0.04) * ccBRDF.x + ccBRDF.y) * clearcoatStrength * SP_IBL_SPECULAR;
+        lit_color   += AO_SPEC(ccEnv * (vec3(0.04) * ccBRDF.x + ccBRDF.y) * clearcoatStrength * SP_IBL_SPECULAR);
     }
 
     // ── Flake: stochastic per-cell normal-perturbation sparkle ─────────────
@@ -578,7 +596,7 @@ void main() {
     float grazing  = pow(1.0 - NdotV, 5.0);
     vec3  Fgraze   = F0 + (1.0 - F0) * grazing;             // Schlick, → 1 at grazing
     vec3  wetSheen = Fgraze * skyIrr * ambient * wetLocal;  // reflect sky, gated by exposure·wetness
-    lit_color += wetSheen;
+    lit_color += AO_SPEC(wetSheen);
 
     // ── Depth-resolved rain fog (R-P1-1, Koschmieder) ─────────────────
     // Airlight accumulates with distance: L = L·e^(−βd) + L_air·(1−e^(−βd)).

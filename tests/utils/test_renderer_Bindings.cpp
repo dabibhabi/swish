@@ -20,6 +20,7 @@ TEST_CASE("G-buffer bindings keep depth at 3 and clearcoat+flake at 4", "[render
     STATIC_REQUIRE(bind::kBindGbMaterial == 2);
     STATIC_REQUIRE(bind::kBindGbDepth == 3);
     STATIC_REQUIRE(bind::kBindGbClearcoatFlake == 4);
+    STATIC_REQUIRE(bind::kBindGbAo == 5);  // debug-only SSAO input, appended after the always-on bindings
 }
 
 TEST_CASE("composite inputs are bindings 0..4 of set 0", "[renderer]") {
