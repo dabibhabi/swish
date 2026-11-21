@@ -103,7 +103,7 @@ Verification: debug target built, all 415 CTest cases passed, and the updated lo
 
 Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest month first.
 
-### 2026-11 (22 entries)
+### 2026-11 (23 entries)
 
 - 2026-11-14 — [Added the lighting plan, stub headers, hidden tests and a chapter per phase](docs/changelog/2026-11.md#2026-11-14--added-the-lighting-plan-stub-headers-hidden-tests-and-a-chapter-per-phase)
 - 2026-11-15 — [Clearcoat energy, one BRDF LUT, and wetness intent (L0.3–L0.5)](docs/changelog/2026-11.md#2026-11-15--clearcoat-energy-one-brdf-lut-and-wetness-intent-l03l05)
@@ -127,6 +127,7 @@ Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest mon
 - 2026-11-20 — [Rain P3: wheel-track ruts hold standing water on the corridor lanes (debug)](docs/changelog/2026-11.md#2026-11-20--rain-p3-wheel-track-ruts-hold-standing-water-on-the-corridor-lanes-debug)
 - 2026-11-20 — [Rain P4: procedural rain ripples on standing water (debug)](docs/changelog/2026-11.md#2026-11-20--rain-p4-procedural-rain-ripples-on-standing-water-debug)
 - 2026-11-20 — [Renderer R8/R10/E3/E4/E5 finished, car-light docs, task pruning](docs/changelog/2026-11.md#2026-11-20--renderer-r8r10e3e4e5-finished-car-light-docs-task-pruning)
+- 2026-11-20 — [E1: HDRI swap hitch measured (bake dominates); prefilter roughness-0 early-out](docs/changelog/2026-11.md#2026-11-20--e1-hdri-swap-hitch-measured-bake-dominates-prefilter-roughness-0-early-out)
 
 ### 2026-10 (21 entries)
 

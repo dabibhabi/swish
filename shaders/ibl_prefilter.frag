@@ -48,6 +48,12 @@ void main() {
     vec3 V  = N;  // split-sum simplification (V = R = N)
 
     float rough = pc.params.x;
+    // E1 fix (option A): at roughness 0 the GGX lobe is a delta, importanceSampleGGX returns H = N for every
+    // sample, so all 256 taps fetch the same texel. One fetch gives the same mirror mip 0 at 1/256 the cost.
+    if (rough < 1.0e-4) {
+        outColor = vec4(texture(envMap, N).rgb, 1.0);
+        return;
+    }
     const uint SAMPLES = 256u;
     vec3  prefiltered  = vec3(0.0);
     float totalWeight  = 0.0;

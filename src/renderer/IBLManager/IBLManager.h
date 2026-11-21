@@ -120,9 +120,10 @@ private:
     VkPipeline       m_prefilterPipeline = VK_NULL_HANDLE;
     VkPipeline       m_brdfPipeline      = VK_NULL_HANDLE;
 
-    bool  m_hdriLoaded   = false;
-    float m_hdriExposure = 1.0f;
-    float m_hdriYawRad   = 0.0f;
+    bool   m_hdriLoaded     = false;
+    double m_lastBakeIdleMs = 0.0;  // E1 measure: the queue idle wait at the start of the last bakeFromHdri
+    float  m_hdriExposure   = 1.0f;
+    float  m_hdriYawRad     = 0.0f;
 
     void createImagesAndViews();
     void createRenderPasses();

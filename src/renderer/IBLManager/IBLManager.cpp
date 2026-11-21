@@ -12,6 +12,7 @@
 #include <stb_image.h>
 
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -368,9 +369,19 @@ void IBLManager::destroyEquirect() {
 bool IBLManager::set_hdri(const std::string& path, float exposure, float yaw_rad) {
     m_hdriExposure = exposure;
     m_hdriYawRad   = yaw_rad;
+    // E1 measure: where the HDRI swap hitch goes (load / idle wait / bake), printed with the swap.
+    using Clock   = std::chrono::steady_clock;
+    const auto ms = [](Clock::time_point a, Clock::time_point b) {
+        return std::chrono::duration<double, std::milli>(b - a).count();
+    };
+    const auto t0 = Clock::now();
     if (!loadEquirect(path)) return false;
+    const auto t1 = Clock::now();
     bakeFromHdri();
-    std::cout << "[IBL] Weather HDRI: " << path << " (exposure=" << exposure << ", yaw=" << yaw_rad << ")\n";
+    const auto t2 = Clock::now();
+    std::cout << "[IBL] Weather HDRI: " << path << " (exposure=" << exposure << ", yaw=" << yaw_rad << ")"
+              << "  load " << ms(t0, t1) << " ms, idle wait " << m_lastBakeIdleMs << " ms, bake "
+              << ms(t1, t2) - m_lastBakeIdleMs << " ms\n";
     return true;
 }
 
@@ -426,7 +437,10 @@ void IBLManager::bakeConvolutions(VkCommandBuffer cmd) {
 void IBLManager::bakeFromHdri() {
     if (!m_hdriLoaded) return;
 
+    const auto idle0 = std::chrono::steady_clock::now();
     vkQueueWaitIdle(m_svc.graphicsQueue);
+    m_lastBakeIdleMs =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - idle0).count();  // E1 measure
     VkCommandBuffer cmd = beginOneTime(m_device, m_svc.commandPool);
 
     for (uint32_t f = 0; f < kFaces; f++) {

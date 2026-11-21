@@ -25,11 +25,11 @@ Order:
 - [x] **R8** `cleanup()`: device block under `if (m_device && m_device->getDevice())`, `m_device.reset()`, then `m_context->cleanup()` guarded on `getInstance()` and `m_context.reset()`. `~Renderer` calls `cleanup()`. (fixed 2026-11-20: the committed half-step reset m_device before using it; teardown now device-users -> device -> instance; clean exit code 0 in both builds)
 - [x] **R9** `cleanup()` and `recreateSwapchain()` call `wait_for_idle()` instead of `vkDeviceWaitIdle`. (done)
 - [x] **R10** Split `init_passes(bool)` into `init_passes()` / `resize_passes()` with `pass_init_ctx(const RendererServices&)`. The ctx holds a reference, so keep `svc` local in the caller. (done 2026-11-20: callers switched, old overload removed)
-- [ ] **E1 measure** Time load / idle-wait / bake in `IBLManager::set_hdri` (:368) and `bakeFromHdri` (:426).
+- [x] **E1 measure** Time load / idle-wait / bake in `IBLManager::set_hdri` (:368) and `bakeFromHdri` (:426). (done 2026-11-20: load ~20 ms, idle wait ~0.05 ms, bake ~120-140 ms -> the bake dominates; [IBL] log line now prints all three)
 - [x] **E5** Atomic pipeline cache write in `Device::savePipelineCache` (:196). (done 2026-11-20: .tmp + std::filesystem::rename)
 - [x] **E3** Fence: 5 s, throw. Acquire: 5 s, log once and skip, checked before the `is_presentable` throw. (done 2026-11-20)
 - [x] **E4** fps in the title bar from `glfwGetTime()` in `App::run`; `frame_delta` untouched. (done 2026-11-20: title "swish  |  N fps", 0.5 s window)
-- [ ] **E1 fix** Option A pre-staged (roughness-0 early return in `ibl_prefilter.frag`; regenerate the `.spv` golden on purpose). B/C/D if the load dominates.
+- [x] **E1 fix** Option A pre-staged (roughness-0 early return in `ibl_prefilter.frag`; regenerate the `.spv` golden on purpose). B/C/D if the load dominates. (option A done 2026-11-20: roughness-0 early return, bake 140 -> 132 ms, ~6 %; the hitch needs B/C/D = async or frame-split bake, see L2.4)
 - [ ] **E2** Measure fence vs acquire, then pick A/B/C/D; feel test.
 - [ ] Gates after each item; changelog in `docs/changelog/2026-11.md` (R1-R6, R7-R10, one per E item).
 
