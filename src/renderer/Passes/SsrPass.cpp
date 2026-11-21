@@ -53,6 +53,9 @@ protected:
 #include "debug/Tunables.def"
             if (!d.ssrEnabled) sp.intensity = 0.0f;  // derived gate stays hand-written (== enabled ? intensity : 0)
             sp.wetness = c.state.wetness;
+#ifdef SWISH_DEBUG_UI
+            sp.rutWater = d.rutEnabled ? d.rutWater : 0.0f;
+#endif
             // sp.puddleCoverage (generated copy above) is d.puddleCoverage in BOTH builds: release uses the
             // DebugParams default 0.501, which lighting.frag's release literal SP_PUDDLE_COVERAGE mirrors (pinned
             // by tests/test_debug_params_io.cpp), so SSR reflects in exactly the pools the lit pass turns to mirrors.

@@ -1,7 +1,7 @@
-#include "utils/io/AppPaths.h"
 #include "DeferredLightingPipeline.h"
 
 #include "renderer/Pipeline/Pipeline.h"
+#include "utils/io/AppPaths.h"
 #include "utils/vulkan/PushConstants.h"
 
 #include <string>

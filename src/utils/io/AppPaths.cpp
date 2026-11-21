@@ -37,9 +37,7 @@ constexpr std::string_view kConfigFallback = CONFIG_DIR;
 constexpr std::string_view kConfigFallback;
 #endif
 
-std::filesystem::path bundle_resources(const std::filesystem::path& exeDir) {
-    return exeDir / ".." / "Resources";
-}
+std::filesystem::path bundle_resources(const std::filesystem::path& exeDir) { return exeDir / ".." / "Resources"; }
 
 }  // namespace
 
@@ -57,7 +55,7 @@ std::filesystem::path executable_dir() {
     if (ec) return {};
 #endif
     std::error_code ec;
-    const auto canonical = std::filesystem::canonical(exe, ec);
+    const auto      canonical = std::filesystem::canonical(exe, ec);
     if (ec) return {};
     return canonical.parent_path();
 }
@@ -66,7 +64,7 @@ std::string resolve_dir(const std::filesystem::path& exeDir, std::string_view na
     if (exeDir.empty()) return std::string(fallback);
     for (const auto& base : {bundle_resources(exeDir), exeDir}) {
         std::error_code ec;
-        const auto dir = base / name;
+        const auto      dir = base / name;
         if (std::filesystem::is_directory(dir, ec)) return dir.lexically_normal().string() + "/";
     }
     return std::string(fallback);
@@ -94,7 +92,7 @@ std::string user_cache_dir() {
 }
 
 void configure_process_environment() {
-    const auto icd = bundle_resources(executable_dir()) / "vulkan" / "icd.d" / "MoltenVK_icd.json";
+    const auto      icd = bundle_resources(executable_dir()) / "vulkan" / "icd.d" / "MoltenVK_icd.json";
     std::error_code ec;
     if (executable_dir().empty() || !std::filesystem::is_regular_file(icd, ec)) return;
     const std::string manifest = icd.lexically_normal().string();

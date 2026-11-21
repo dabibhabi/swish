@@ -1,12 +1,15 @@
 // HdrFinalize: the last step before bloom. Leaves the lit + forward HDR image in SHADER_READ_ONLY for bloom and the
-// composite. In debug builds with auto-exposure on it does that as the end of a luminance-pyramid blit chain and owns
-// the auto-exposure state (adapted luminance); otherwise it is the single COLOR_ATTACHMENT -> SHADER_READ barrier.
+// composite. With auto-exposure on (the default, release too, L1.2) it does that as the end of a luminance-pyramid
+// blit chain and owns the auto-exposure state (adapted luminance); otherwise it is the single
+// COLOR_ATTACHMENT -> SHADER_READ barrier.
 #include "debug/DebugParams.h"
 #include "renderer/Passes/IRenderPass.h"
 #include "renderer/PostProcessManager/PostProcessManager.h"
+#include "utils/light/Photometry.h"
 #include "utils/vulkan/Barrier.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/packing.hpp>
@@ -16,6 +19,8 @@ namespace swish {
 
 namespace {
 
+namespace ul = util::light;
+
 class HdrFinalizePass final : public IRenderPass {
 public:
     const char* name() const override { return "HdrFinalize"; }
@@ -23,42 +28,54 @@ public:
     void        cleanup(VkDevice) override {}
     void        declare(PassDeclaration& d) const override {
         d.read({Img::Hdr});
-#ifdef SWISH_DEBUG_UI
-        d.write({Img::Lum});  // luminance pyramid (auto-exposure); release only barriers the HDR
-#endif
+        d.write({Img::Lum});  // luminance pyramid (auto-exposure)
     }
 
-#ifdef SWISH_DEBUG_UI
     // Read the previous frame's average luminance (its 1x1 mip was copied to this frame slot's host buffer), adapt,
     // and publish the exposure the composite uses when tune.autoExposure is on.
     void beginFrame(const FrameUpdate& u) override {
-        if (!u.tune.autoExposure) return;
+        if (!u.tune.autoExposure) {
+            u.state.preExposure = ul::kPreExposure;
+            return;
+        }
         const void* mapped = u.res.pp->get_lum_readback_mapped(u.frameIndex);
         if (!mapped) return;
         const uint16_t* h = reinterpret_cast<const uint16_t*>(mapped);  // RGBA16F, 4 halfs
         Vec3            avg(glm::unpackHalf1x16(h[0]), glm::unpackHalf1x16(h[1]), glm::unpackHalf1x16(h[2]));
-        float           lum  = std::max(glm::dot(avg, Vec3(0.2126f, 0.7152f, 0.0722f)), 1e-4f);
-        float           rate = glm::clamp(1.0f - std::exp(-u.dt * std::max(u.tune.aeSpeed, 0.0f)), 0.0f, 1.0f);
-        m_adaptedLum         = std::max(m_adaptedLum + (lum - m_adaptedLum) * rate, 1e-4f);
-        u.state.exposure     = glm::clamp(u.tune.aeKey / m_adaptedLum, u.tune.aeMin, u.tune.aeMax);
+        // The HDR image holds luminance * pre-exposure (L1.3). This slot was written PP_MAX_FRAMES frames ago, so
+        // undo the pre-exposure THAT frame used to get cd/m². Adaptation runs in cd/m², so it is unaffected when
+        // the pre-exposure itself moves (adaptive mode).
+        const float nits =
+            std::max(glm::dot(avg, Vec3(0.2126f, 0.7152f, 0.0722f)) / m_slotPreExposure[u.frameIndex], 1.0e-3f);
+        const float rate = glm::clamp(1.0f - std::exp(-u.dt * std::max(u.tune.aeSpeed, 0.0f)), 0.0f, 1.0f);
+        m_adaptedNits    = std::max(m_adaptedNits + (nits - m_adaptedNits) * rate, 1.0e-3f);
+        // Compensation brightens when positive, so it is SUBTRACTED from the metered EV. The clamps are the active
+        // weather preset's (FrameState, copied from WeatherController).
+        const float evMetered = ul::ev100_from_luminance(m_adaptedNits);
+        const float evWanted  = evMetered - u.tune.evCompensation;
+        const float ev        = glm::clamp(evWanted, u.state.evMin, u.state.evMax);
+        // Fixed pre-exposure (daylight, the shipped path) or one that follows the exposure (lab / night).
+        u.state.preExposure = u.tune.adaptivePreExposure ? ul::pre_exposure_for_ev100(ev) : ul::kPreExposure;
+        u.state.exposure    = ul::hdr_exposure_from_ev100(ev, u.state.preExposure);
+        u.state.meterNits   = m_adaptedNits;
+        u.state.meterEv     = evMetered;
+        u.state.meterEvUsed = ev;
+        u.state.meterClamp  = evWanted < u.state.evMin ? -1 : (evWanted > u.state.evMax ? 1 : 0);
     }
-#endif
 
     void record(const FrameCtx& c) override {
-#ifdef SWISH_DEBUG_UI
+        m_slotPreExposure[c.frameIndex] = c.state.preExposure;  // what this slot's readback will have been shaded with
         if (c.tune.autoExposure) {
             // Blits the lit HDR down to 1x1 (average) for auto-exposure, then leaves the HDR in SHADER_READ
             // (so it replaces the barrier below).
             record_luminance_pyramid(c);
             return;
         }
-#endif
         vkx::image_barrier<VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL>(
             c.cmd, c.images.image(Img::Hdr, c.frameIndex), VK_IMAGE_ASPECT_COLOR_BIT);
     }
 
 private:
-#ifdef SWISH_DEBUG_UI
     // Blit the lit HDR down a mip chain to 1x1 (average). Leaves the HDR in SHADER_READ. The 1x1 mip is copied to a
     // host buffer the CPU reads next frame (beginFrame).
     void record_luminance_pyramid(const FrameCtx& c) const {
@@ -119,8 +136,11 @@ private:
                                                                                                            kAspect);
     }
 
-    float m_adaptedLum = 0.5f;  // auto-exposure state, private to this pass
-#endif
+    // Auto-exposure state, private to this pass, in cd/m². 19,000 is the average that meters to the shipped
+    // exposure (EV 15.7 + 1.53 compensation), so the first frames do not flash.
+    float m_adaptedNits = 19000.0f;
+    // The pre-exposure each frame slot was shaded with (its readback is consumed PP_MAX_FRAMES frames later).
+    std::array<float, PP_MAX_FRAMES> m_slotPreExposure{ul::kPreExposure, ul::kPreExposure};
 };
 
 }  // namespace

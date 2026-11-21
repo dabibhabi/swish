@@ -58,6 +58,12 @@ void main() {
     vec3 dPdx = dFdx(fragPos);
     vec3 dPdy = dFdy(fragPos);
     vec3 normal = normalize(cross(dPdx, dPdy));
+#ifdef SWISH_DEBUG_UI
+    // Rain P2 (2026-11-20): the cross product's sign depends on the screen axes (Vulkan y-down, reverse-Z). On the
+    // road it pointed INTO the surface, so the hemisphere flip below sent every tap under the asphalt and AO read
+    // ~0: the open road went black once the sun was gone (overcast rain = ambient + reflections only). Face the camera.
+    if (dot(normal, -fragPos) < 0.0) normal = -normal;
+#endif
 
     // Random rotation per pixel
     float angle = hash(fragUV * 1000.0) * 6.28318;

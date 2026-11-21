@@ -1,6 +1,6 @@
-#include "utils/io/AppPaths.h"
 #include "Device.h"
 
+#include "utils/io/AppPaths.h"
 #include "utils/vulkan/Check.h"
 
 #include <vk_mem_alloc.h>

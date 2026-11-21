@@ -2,6 +2,7 @@
 
 #include "scene/Camera/Camera.h"
 #include "utils/types/Types.h"
+#include "utils/units/Units.h"
 #include "utils/vulkan/Check.h"
 #include "utils/vulkan/Descriptors.h"
 
@@ -46,7 +47,7 @@ void CameraUniforms::update(uint32_t frameIndex, const Camera& camera) {
     ubo.camPos   = Vec4(camera.get_position(), 1.0f);
     ubo.sunDir   = m_sunDir;
     ubo.sunColor = m_sunColor;
-    ubo.weather  = Vec4(m_clarity, 0.0f, 0.0f, 0.0f);
+    ubo.weather  = Vec4(m_clarity, m_skyNits, m_preExposure, util::units::to_m(1.0f));
     for (uint32_t c = 0; c < NUM_CASCADES; ++c) ubo.cascadeViewProj[c] = m_cascadeVP[c];
     ubo.cascadeSplits = m_cascadeSplits;
     std::memcpy(m_cameraBuffers[frameIndex].mapped(), &ubo, sizeof(ubo));
@@ -77,14 +78,49 @@ void CameraUniforms::update(uint32_t frameIndex, const Camera& camera) {
     }
     lightsUbo.numPointLights = glm::uvec4(count, 0, 0, 0);
 #ifdef SWISH_DEBUG_UI
-    // Car spot lights: few and car-local, so upload them all (capped), no culling.
-    const auto spotCount = static_cast<uint32_t>(std::min<size_t>(m_spots.size(), MAX_SPOT_LIGHTS));
-    for (uint32_t i = 0; i < spotCount; i++) {
-        const SpotLightDesc& s                    = m_spots[i];
-        lightsUbo.spotLights[i].positionRange     = Vec4(s.position, s.range);
-        lightsUbo.spotLights[i].directionCosOuter = Vec4(s.direction, s.cosOuter);
-        lightsUbo.spotLights[i].colorIntensity    = Vec4(s.color, s.intensity);
-        lightsUbo.spotLights[i].params            = Vec4(s.cosInner, 0.f, 0.f, 0.f);
+    // Spot lights: the car's first (few, always wanted), then the nearest world lamps in the slots left.
+    const auto put = [&](uint32_t i, const SpotLightDesc& sl) {
+        lightsUbo.spotLights[i].positionRange     = Vec4(sl.position, sl.range);
+        lightsUbo.spotLights[i].directionCosOuter = Vec4(sl.direction, sl.cosOuter);
+        lightsUbo.spotLights[i].colorIntensity    = Vec4(sl.color, sl.intensity);
+        lightsUbo.spotLights[i].params            = Vec4(sl.cosInner, sl.cutoff ? 1.f : 0.f, 0.f, 0.f);
+    };
+    uint32_t spotCount = static_cast<uint32_t>(std::min<size_t>(m_spots.size(), MAX_SPOT_LIGHTS));
+    for (uint32_t i = 0; i < spotCount; i++) put(i, m_spots[i]);
+    if (spotCount < MAX_SPOT_LIGHTS && !m_worldSpots.empty()) {
+        std::vector<uint32_t> near(m_worldSpots.size());
+        std::iota(near.begin(), near.end(), 0u);
+        const uint32_t take = std::min(static_cast<uint32_t>(near.size()), MAX_SPOT_LIGHTS - spotCount);
+        const auto     d2   = [&](uint32_t i) {
+            const Vec3 d = m_worldSpots[i].position - camPos;
+            return glm::dot(d, d);
+        };
+        std::partial_sort(near.begin(), near.begin() + take, near.end(),
+                          [&](uint32_t a, uint32_t b) { return d2(a) < d2(b); });
+        for (uint32_t k = 0; k < take; k++) put(spotCount++, m_worldSpots[near[k]]);
+    }
+    m_spotsUploaded = spotCount;
+    // Rectangle area lights: nearest first.
+    {
+        std::vector<uint32_t> near(m_rects.size());
+        std::iota(near.begin(), near.end(), 0u);
+        const uint32_t take = std::min(static_cast<uint32_t>(near.size()), MAX_RECT_LIGHTS);
+        const auto     d2   = [&](uint32_t i) {
+            const Vec3 d = m_rects[i].center - camPos;
+            return glm::dot(d, d);
+        };
+        std::partial_sort(near.begin(), near.begin() + take, near.end(),
+                          [&](uint32_t a, uint32_t b) { return d2(a) < d2(b); });
+        for (uint32_t k = 0; k < take; k++) {
+            const RectLightDesc& r              = m_rects[near[k]];
+            lightsUbo.rectLights[k].centerRange = Vec4(r.center, r.range);
+            lightsUbo.rectLights[k].rightHalfW  = Vec4(r.right, r.halfWidth);
+            lightsUbo.rectLights[k].upHalfH     = Vec4(r.up, r.halfHeight);
+            lightsUbo.rectLights[k].colorNits   = Vec4(r.color, r.nits);
+        }
+        lightsUbo.numRectLights = glm::uvec4(take, 0, 0, 0);
+        lightsUbo.carBoxCenter  = Vec4(m_carBox.center, m_carBox.yawRad);
+        lightsUbo.carBoxHalf    = Vec4(m_carBox.half, m_carBox.enabled ? 1.0f : 0.0f);
     }
     lightsUbo.numSpotLights = glm::uvec4(spotCount, 0, 0, 0);
 #endif
@@ -162,10 +198,13 @@ void CameraUniforms::set_wetness(uint32_t frameIndex, float wetness) {
     ubo->camPos.w = wetness;
 }
 
-void CameraUniforms::set_weather(const Vec4& sunDir, const Vec4& sunColor, float clarity) {
-    m_sunDir   = sunDir;
-    m_sunColor = sunColor;
-    m_clarity  = clarity;
+void CameraUniforms::set_weather(const Vec4& sunDir, const Vec4& sunColor, float clarity, float skyNits,
+                                 float preExposure) {
+    m_sunDir      = sunDir;
+    m_sunColor    = sunColor;
+    m_clarity     = clarity;
+    m_skyNits     = skyNits;
+    m_preExposure = preExposure;
 }
 
 }  // namespace swish

@@ -8,6 +8,7 @@
 #include <vulkan/vulkan.h>
 
 #include <array>
+#include <cstddef>
 #include <vector>
 
 namespace swish {
@@ -26,9 +27,9 @@ namespace swish {
 static constexpr uint32_t PP_MAX_FRAMES = 2;
 
 // Push constants shared by post-process shaders.
-// Layout must match the push_constant block in composite.frag exactly (13 floats = 52 B); the host struct is padded to
-// 64 B so the recorded push range is a 16-byte multiple (MoltenVK rule). The shader block is unchanged: the 12 trailing
-// bytes are never read.
+// Layout must match the push_constant block in composite.frag exactly (16 floats = 64 B, a 16-byte multiple for the
+// MoltenVK rule); the offsetof asserts below pin it. The 3 trailing floats are padding and are never read.
+// bloom_extract.frag and bloom_blur.frag declare smaller blocks over the same 64 B range, which is harmless.
 struct PostProcessParams {
     float threshold;        // bloom threshold (default 1.0)
     float bloom_intensity;  // bloom blend strength (default 0.3)
@@ -45,13 +46,17 @@ struct PostProcessParams {
     float saturation  = 1.0f;
     float temperature = 0.0f;
     float tint        = 0.0f;
-    // Host-only tail padding: 52 B -> 64 B (16-byte multiple). Not part of the shader's push block.
+    // Tail padding: 52 B -> 64 B (16-byte multiple); mirrored as _pad3.._pad5 in composite.frag.
     float _pad3 = 0.0f;
     float _pad4 = 0.0f;
     float _pad5 = 0.0f;
 };
 static_assert(sizeof(PostProcessParams) == 64 && sizeof(PostProcessParams) % 16 == 0,
               "PostProcessParams: push-constant block must be 64 B and a 16-byte multiple (MoltenVK)");
+static_assert(offsetof(PostProcessParams, texel_x) == 16 && offsetof(PostProcessParams, fog_density) == 24 &&
+                  offsetof(PostProcessParams, brightness) == 32 && offsetof(PostProcessParams, tint) == 48 &&
+                  offsetof(PostProcessParams, _pad5) == 60,
+              "PostProcessParams must match the push_constant block in composite.frag");
 
 // SSAO push block (matches shaders/ssao.frag). 2×mat4 + 4 floats = 144 B, a
 // multiple of 16 (MoltenVK-safe). projection avoids a per-sample matrix inverse.
@@ -77,7 +82,7 @@ struct SsrParams {
     float intensity;
     float wetness        = 0.0f;  // global wetness [0,1] (wet surfaces reflect even if dry-rough)
     float puddleCoverage = 0.0f;  // road puddle coverage [0,1] (0 = off)
-    float _pad1          = 0.0f;
+    float rutWater       = 0.0f;  // rain P3 (debug): wheel-track rut water, decoded from the road tag in ssr.frag
     float _pad2          = 0.0f;
 };
 static_assert(sizeof(SsrParams) == 224 && sizeof(SsrParams) % 16 == 0,

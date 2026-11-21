@@ -23,9 +23,8 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <vector>
 #include <string>
-
+#include <vector>
 
 namespace swish {
 
@@ -104,9 +103,14 @@ public:
 
     void set_scene_lights(const std::vector<LightDesc>& lights);
     void set_car_spot_lights(const std::vector<SpotLightDesc>& spots);
+    void set_world_spot_lights(const std::vector<SpotLightDesc>& spots);  // street lamps (debug shaders)
+#ifdef SWISH_DEBUG_UI
+    void set_rect_lights(const std::vector<RectLightDesc>& rects);  // area lights (car showcase)
+    void set_car_occluder(const CarOccluder& box);                  // the car's box, for their grounding shadow
+#endif
 
     void set_rain_intensity(float intensity);
-  
+
     float get_wetness() const;
     void  set_car_velocity(Vec3 velocity);
     void  set_car_position(Vec3 position);
@@ -159,14 +163,12 @@ private:
     std::unique_ptr<MaterialDescriptors> m_materialDescriptors;
     std::unique_ptr<IBLManager>          m_ibl;
 
-   
     PassRegistry  m_passes;
     ImageRegistry m_images;
     FrameState    m_frameState;
     PassResources m_passRes;
 
     TextureManager* m_textureManager = nullptr;
-
 
     GeometryProducer m_geometry;
 
@@ -176,7 +178,6 @@ private:
     Vec3       m_carVelocity   = Vec3(0.0f, 0.0f, 0.0f);
     Vec3       m_carPosition   = Vec3(0.0f, 0.0f, 0.0f);
     WiperFrame m_wiper{};
-
 
     WeatherController m_weather;
 
@@ -200,8 +201,11 @@ private:
     const DebugParams m_defaultTune{};  // release: the shipped look (DebugParams defaults), read through tune()
 #endif
 
-    uint32_t m_currentFrame = 0;
-    Window*  m_window       = nullptr;
+    uint32_t    m_currentFrame = 0;
+    Window*     m_window;  //       = nullptr;
+    void        init_passes();
+    void        resize_passes();
+    PassInitCtx pass_init_ctx(const RendererServices& svc);
 
     void recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex);
     void recreateSwapchain();

@@ -14,6 +14,10 @@ add_executable(swish_utils_tests
     test_geometry_Frustum.cpp
     test_geometry_Polyline.cpp
     test_color_Color.cpp
+    test_light_SkyVisibility.cpp
+    test_light_Atmosphere.cpp
+    test_light_Photometry.cpp   # hidden [.learning] until the lighting stubs are implemented
+    test_light_ShadowFit.cpp    # hidden [.learning]
     test_container_VectorOps.cpp
     test_meta_EnumCycle.cpp
     test_meta_Tags.cpp

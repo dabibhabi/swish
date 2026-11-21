@@ -13,6 +13,10 @@ layout(set = 1, binding = 0) uniform sampler2D albedoTex;
 layout(set = 1, binding = 1) uniform sampler2D normalTex;
 layout(set = 1, binding = 2) uniform sampler2D roughnessTex;
 
+#ifdef SWISH_DEBUG_UI
+#include "ruts.glsl"
+#endif
+
 layout(push_constant) uniform PushConstants {
     mat4 model;
     vec4 color;
@@ -24,6 +28,11 @@ layout(push_constant) uniform PushConstants {
     // debug tunables broadcast into every draw (see SceneGeometry::record_draws),
     // not authored per-material.
     vec4 paint;
+#ifdef SWISH_DEBUG_UI
+    // Lighting L5 / L8 (debug first): x = emissive strength, already pre-exposed; y = retroreflective (0/1);
+    // z = wet car surface (0..1).
+    vec4 extra;
+#endif
 } push;
 
 // ── G-Buffer MRT outputs (4 color attachments) ──────────────────
@@ -107,15 +116,32 @@ void main() {
     roughness = max(roughness, sqrt(2.0 * filterWidth));
 
     // ── Write G-Buffer ────────────────────────────────────────────
+#ifdef SWISH_DEBUG_UI
+    // The two spare alpha channels carry the retroreflective flag (8-bit) and the emissive strength (16-bit
+    // float); lighting.frag reads them. Release keeps writing 1.0 and never reads them.
+    // Alpha: 0.5 = retroreflective (road paint); otherwise 0.25 x the wet-car amount. Never both.
+    outAlbedo   = vec4(albedo, push.extra.y > 0.5 ? 0.5 : 0.25 * clamp(push.extra.z, 0.0, 1.0));
+    outNormal   = vec4(N * 0.5 + 0.5, push.extra.x);
+#else
     outAlbedo   = vec4(albedo, 1.0);
     outNormal   = vec4(N * 0.5 + 0.5, 1.0);       // encode [-1,1] → [0,1]
+#endif
     // R = real metalness (dielectric F0 is a separate constant in lighting.frag),
     // G = roughness, B = wettable mask (1 = rain-exposed, 0 = enclosed cabin) so the
     // lighting pass keeps wet-weather effects off the dry interior.
     // A = road tag (material.w; 1 = asphalt) — gates screen-space puddles in
     // lighting.frag/ssr.frag. Was a hardcoded 1.0; no release consumer read it.
     // Previously R was hardcoded 0.04, conflating F0 with metalness.
+#ifdef SWISH_DEBUG_UI
+    // Rain P3: wheel-track ruts packed into the road tag. Asphalt keeps road >= 0.5 (so every road-tag gate still
+    // sees asphalt) and carries the rut as 0.55 + 0.45 rut; extra.w = the asphalt UV tile (0 = ruts off).
+    float roadTag = push.material.w;
+    if (roadTag > 0.5)
+        roadTag = 0.55 + 0.45 * (push.extra.w > 0.0 ? rutAmount(fragUV.x * push.extra.w, fragUV.y * push.extra.w) : 0.0);
+    outMaterial = vec4(push.material.x, roughness, push.material.y, roadTag);
+#else
     outMaterial = vec4(push.material.x, roughness, push.material.y, push.material.w);
+#endif
 
     // ── Clearcoat + flake (stochastic, procedural — no baked texture) ──────
     // Flake sparkle is generated per WORLD-SPACE cell (not per pixel/UV), so it

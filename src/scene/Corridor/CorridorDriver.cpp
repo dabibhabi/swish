@@ -1,5 +1,6 @@
 #include "CorridorDriver.h"
 
+#include "debug/DebugParams.h"
 #include "renderer/Renderer/Renderer.h"
 #include "scene/Camera/Camera.h"
 #include "scene/Entity/CarEntity.h"
@@ -136,6 +137,26 @@ void CorridorDriver::update(CarEntity& car, Renderer& renderer, float deltaTime,
         visible.push_back(inst);
     }
     renderer.set_corridor_instances(visible);
+
+#ifdef SWISH_DEBUG_UI
+    // Lighting L6: the street lamps of the visible segments, moved into the render frame. The renderer keeps the
+    // nearest ones. Off (an empty list) unless the time of day switches lamps on.
+    {
+        const DebugParams&         dp = renderer.debug_params();
+        std::vector<SpotLightDesc> lamps;
+        if (dp.corridorLamps && dp.lampsOn) {
+            const float gain = dp.lampLumens / 16000.0f;  // the panel's lamp output, relative to the default
+            for (const CorridorInstance& inst : visible) {
+                for (SpotLightDesc l : m_segments[inst.segment].lamps) {
+                    l.position += inst.offset;
+                    l.intensity *= gain;
+                    lamps.push_back(l);
+                }
+            }
+        }
+        renderer.set_world_spot_lights(lamps);
+    }
+#endif
 
 #ifdef SWISH_DEBUG_UI
     // Corridor telemetry — the readout that makes an 18 mi finite road

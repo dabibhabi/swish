@@ -228,6 +228,7 @@ add_library(swish_scene_core STATIC
     ${CMAKE_SOURCE_DIR}/src/scene/RoadGeometry/RoadGeometry.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/Entity/CarEntity.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/Entity/Entity.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/LightingLab/LightingLab.cpp   # debug-only test world; pure geometry
 )
 target_include_directories(swish_scene_core SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/include)   # vendored stb_image.h
 target_link_libraries(swish_scene_core
@@ -267,6 +268,9 @@ add_custom_target(bake_configs DEPENDS ${ROAD_BIN})
 # Runtime TOML configs (parsed with toml++ at startup in both builds, not baked): copied next to road.bin so the
 # game and the tests read CONFIG_DIR "car.toml". configure_file re-runs CMake when the source changes.
 configure_file(${CMAKE_SOURCE_DIR}/config/car.toml ${CONFIG_DIR}/car.toml COPYONLY)   # CarConfig.cpp
+# Debug-only reader (WeatherController::load_time_of_day_presets). Without this copy every time-of-day slot fell back
+# to the built-in golden-hour defaults (the "sunset at noon" bug). Release never opens it.
+configure_file(${CMAKE_SOURCE_DIR}/config/time_of_day.toml ${CONFIG_DIR}/time_of_day.toml COPYONLY)
 
 # --- Main executable ---
 # Sources are globbed (CONFIGURE_DEPENDS): new .cpp files under src/ are picked up
@@ -332,6 +336,9 @@ if(SWISH_DEBUG_UI)
         # (the runtime looks at $VULKAN_SDK/bin first, like find_program above).
         SWISH_SHADER_SRC_DIR="${SHADER_DIR}"
         SWISH_GLSLC_PATH="${GLSLC}"
+        # Readable panel font (Roboto, Apache-2.0, shipped in the fetched ImGui sources); DebugUI falls back to
+        # ImGui's built-in bitmap font if the file is missing.
+        SWISH_IMGUI_FONT_DIR="${imgui_SOURCE_DIR}/misc/fonts/"
     )
     message(STATUS "swish: Dear ImGui debug UI ENABLED (make debug -> build-debug/)")
 endif()

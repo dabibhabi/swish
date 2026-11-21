@@ -34,6 +34,19 @@ struct RainInstance {
     Vec4 seed;  // xyz = position seed in [0,1], w = size/alpha variation in [0,1]
 };
 
+#ifdef SWISH_DEBUG_UI
+// Rain impact splashes (debug-only): push block for rain_splash.vert/.frag (layout documented there).
+static constexpr uint32_t kSplashGrid  = 64;  // cells per side around the camera
+static constexpr uint32_t kSplashSubs  = 5;   // 1 ring + up to 4 droplets per cell
+static constexpr uint32_t kSplashCells = kSplashGrid * kSplashGrid;
+struct SplashPush {
+    Vec4 a;  // rain time (s), road plane Y (WU), cell size (WU), spawn chance
+    Vec4 b;  // period (s), life (s), ring radius (WU), ring tau (s)
+    Vec4 c;  // ring band width (uv), droplet count, droplet speed (WU/s), droplet size (WU)
+    Vec4 d;  // brightness, grid size, unused, unused
+};
+#endif
+
 // ══════════════════════════════════════════════════════════════════════
 // RainSystem — GPU-instanced forward rain pass, rendered additively on
 // top of the deferred HDR buffer between the lighting and bloom passes.
@@ -71,8 +84,9 @@ private:
                   const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews, VkExtent2D extent, VkDevice device);
     // Advance the simulation and upload the UBOs (the body of beginFrame).
     void step(uint32_t frameIndex, float deltaTime, float intensity, Vec3 wind);
-    // Record all rain draw calls into cmd (inside its own render pass). Camera set 0 is bound by record().
-    void record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const;
+    // Record all rain draw calls into cmd (inside its own render pass). Camera set 0 is bound by record(); the
+    // splash pipeline has its own layout, so it rebinds camSet.
+    void record_draws(VkCommandBuffer cmd, uint32_t frameIndex, VkDescriptorSet camSet) const;
 
     void createRenderPass(VkDevice device);
     void createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
@@ -83,6 +97,9 @@ private:
     void createRainUBOs(const RendererServices& s);
     void createDescriptors(VkDevice device, VkDescriptorSetLayout cameraSetLayout);
     void createPipeline(VkDevice device, VkPipelineCache cache, VkDescriptorSetLayout cameraSetLayout);
+#ifdef SWISH_DEBUG_UI
+    void createSplashPipeline(VkDevice device, VkPipelineCache cache, VkDescriptorSetLayout cameraSetLayout);
+#endif
 
     // ── Static geometry ────────────────────────────────────────────
     GpuBuffer m_quadVBO;  // RAII (VMA), host-visible
@@ -110,6 +127,13 @@ private:
     // ── Pipeline ───────────────────────────────────────────────────
     VkPipelineLayout m_pipeLayout = VK_NULL_HANDLE;
     VkPipeline       m_pipeline   = VK_NULL_HANDLE;
+#ifdef SWISH_DEBUG_UI
+    // ── Impact splashes (debug-only: no vertex input, set 0 = camera, push = SplashPush) ──
+    VkPipelineLayout m_splashLayout   = VK_NULL_HANDLE;
+    VkPipeline       m_splashPipeline = VK_NULL_HANDLE;
+    SplashPush       m_splashPush{};
+    bool             m_splashOn = false;
+#endif
 
     VkExtent2D m_extent      = {};
     VkFormat   m_depthFormat = VK_FORMAT_UNDEFINED;

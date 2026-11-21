@@ -89,10 +89,10 @@ void expect_persisted_equal(const DebugParams& a, const DebugParams& b) {
     EQF(temperature);
     EQF(tint);
     EQF(autoExposure);
-    EQF(aeKey);
     EQF(aeSpeed);
-    EQF(aeMin);
-    EQF(aeMax);
+    EQF(evCompensation);
+    EQF(evMin);
+    EQF(evMax);
     EQV3(skyHorizonOvercast);
     EQV3(skyHorizonClear);
     EQV3(skyZenithOvercast);
@@ -197,10 +197,10 @@ DebugParams modified() {
     p.temperature        = f();
     p.tint               = f();
     p.autoExposure       = !p.autoExposure;
-    p.aeKey              = f();
     p.aeSpeed            = f();
-    p.aeMin              = f();
-    p.aeMax              = f();
+    p.evCompensation     = f();
+    p.evMin              = f();
+    p.evMax              = f();
     p.skyHorizonOvercast = {f(), f(), f()};
     p.skyHorizonClear    = {f(), f(), f()};
     p.skyZenithOvercast  = {f(), f(), f()};
@@ -387,13 +387,13 @@ TEST_CASE("Tunables: registry defaults equal the shipped literals (release-neutr
     CHECK(d.ssrIntensity == 0.714f);
     CHECK(d.ssrMaxDist == 36018.0f);
     CHECK(d.ssrThickness == 1835.0f);
-    CHECK(d.ssrStride == 8063.0f);
+    CHECK(d.ssrStride == swish::build_default(400.0f, std::optional<float>(8063.0f)));  // debug 400 WU, release 8063
     // reflection + wet material: the pre-registry struct defaults (== lighting.frag release literals).
     CHECK(d.iblDiffuse == 1.30f);
     CHECK(d.iblSpecular == 1.0f);
     CHECK(d.envGlossExp == 3.0f);
     CHECK(d.wetPorosity == 0.631f);
-    CHECK(d.wetRoughness == 1.0f);
+    CHECK(d.wetRoughness == swish::build_default(0.35f, std::optional<float>(1.0f)));  // debug 0.35, release 1.0
     // Puddles (owner decision C2, 2026-09-29): now registry entries; same values as the old struct defaults.
     CHECK(d.puddlesEnabled == true);
     CHECK(d.puddleCoverage == 0.501f);
@@ -401,9 +401,18 @@ TEST_CASE("Tunables: registry defaults equal the shipped literals (release-neutr
     CHECK(d.rigidBodyChassis == false);
     // Single C++ source of truth: the registry default IS the scene road constant WetGrip.h physics reads.
     CHECK(d.puddleCoverage == swish::road::kPuddleCoverage);
-    // No `.release =` override on any current entry: release default == debug default.
+    // Only wetRoughness and ssrStride have a `.release` override (debug 0.35 wet gloss, release keeps 1.0); every other
+    // entry has release default == debug default.
     for (const auto& t : tunables::all()) {
         INFO(t.name);
+        if (std::string(t.name) == "wetRoughness") {
+            CHECK(t.release_default() == 1.0f);
+            continue;
+        }
+        if (std::string(t.name) == "ssrStride") {  // rain P2b: debug 400 WU first step (near reflections), release 8063
+            CHECK(t.release_default() == 8063.0f);
+            continue;
+        }
         CHECK(t.release_default() == t.def);
         CHECK_FALSE(t.release.has_value());
     }
@@ -411,14 +420,14 @@ TEST_CASE("Tunables: registry defaults equal the shipped literals (release-neutr
 
 TEST_CASE("Tunables: descriptor table is consistent", "[tunables]") {
     const DebugParams d{};
-    REQUIRE(tunables::all().size() == 39);  // every TUNE_B / TUNE_F row in Tunables.def (groups: ssr, reflection, wet,
-                                            // car_lights, wiper, car, wheels, gauges)
+    REQUIRE(tunables::all().size() == 59);  // every TUNE_B / TUNE_F row in Tunables.def (groups: ssr, reflection, wet,
+                                            // rain_splash, ruts, ripples, car_lights, wiper, car, wheels, gauges)
     for (const auto& t : tunables::all()) {
         INFO(t.name);
         CHECK(t.in_range(t.def));
         const std::string g = t.group;
-        CHECK((g == "ssr" || g == "reflection" || g == "wet" || g == "car_lights" || g == "wiper" || g == "car" ||
-               g == "wheels" || g == "gauges"));
+        CHECK((g == "ssr" || g == "reflection" || g == "wet" || g == "rain_splash" || g == "ruts" || g == "ripples" ||
+               g == "car_lights" || g == "wiper" || g == "car" || g == "wheels" || g == "gauges"));
         if (t.kind == tunables::Kind::Float)
             CHECK(t.get_float(d) == t.def);  // struct default generated from the same line
         else
@@ -639,8 +648,8 @@ TEST_CASE("Tunables: visit dispatches Bool to tag::flag and Float to tag::real (
             }
         });
     }
-    CHECK(flags == 8);   // TUNE_B rows
-    CHECK(reals == 31);  // TUNE_F rows
+    CHECK(flags == 11);  // TUNE_B rows
+    CHECK(reals == 48);  // TUNE_F rows
     // The visitor sees the live field: writing through it changes DebugParams (what load/widget rely on).
     const auto& ssr = tunables::all()[1];  // ssrIntensity
     tunables::visit(ssr, p, [](auto, auto& v) { v = std::remove_reference_t<decltype(v)>(1.25f); });

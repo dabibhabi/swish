@@ -28,4 +28,5 @@ PASS(HdrFinalize, make_hdr_finalize_pass)
 PASS(BloomExtract, make_bloom_extract_pass)
 PASS(BloomBlurH, make_bloom_blur_h_pass)
 PASS(BloomBlurV, make_bloom_blur_v_pass)
+PASS_DEBUG(BloomPyramid, make_bloom_pyramid_pass)  // widens the bloom in place (L4.4); BloomBlurV stays readable
 PASS(Composite, make_composite_pass)

@@ -1,8 +1,8 @@
-#include "utils/io/AppPaths.h"
 #include "IBLManager.h"
 
 #include "renderer/Pipeline/Pipeline.h"
 #include "renderer/ResourceManager/ResourceManager.h"
+#include "utils/io/AppPaths.h"
 #include "utils/vulkan/Barrier.h"
 #include "utils/vulkan/Check.h"
 #include "utils/vulkan/PushConstants.h"
@@ -466,6 +466,34 @@ void IBLManager::bake(const SkyBakeParams& sky) {
         p.zenith   = Vec4(sky.zenith, sky.discExp);
         p.sunDir   = Vec4(sky.sunDir, sky.discStr);
         p.sunColor = Vec4(sky.sunColor, 0.0f);
+        beginRP(cmd, m_cubeRenderPass, m_envFBs[f], kEnvDim);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_skyPipeline);
+        setViewportScissor(cmd, kEnvDim);
+        vkCmdPushConstants(cmd, m_skyLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyPush), &p);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdEndRenderPass(cmd);
+    }
+    toShaderRead(cmd, m_envImage.handle(), 1, kFaces);
+
+    bakeConvolutions(cmd);
+    endOneTime(m_device, m_svc.commandPool, m_svc.graphicsQueue, cmd);
+}
+
+void IBLManager::bake_atmosphere(const util::light::SkyParams& sky, float cubeScale) {
+    m_hdriLoaded = false;  // the procedural sky replaces any HDRI environment
+
+    vkQueueWaitIdle(m_svc.graphicsQueue);
+    VkCommandBuffer cmd = beginOneTime(m_device, m_svc.commandPool);
+
+    for (uint32_t f = 0; f < kFaces; f++) {
+        SkyPush p{};  // the lanes carry atmosphere inputs in this mode; see ibl_sky.frag
+        p.faceR    = Vec4(kFace[f].r, 0.0f);
+        p.faceU    = Vec4(kFace[f].u, 0.0f);
+        p.faceF    = Vec4(kFace[f].f, 0.0f);
+        p.sunDir   = Vec4(sky.sunDir, sky.sunToaLux);
+        p.horizon  = Vec4(sky.moonDir, sky.moonToaLux);
+        p.zenith   = Vec4(sky.turbidity, sky.cloud, sky.airglowNits, 1.0f / cubeScale);
+        p.sunColor = Vec4(sky.overcastZenithNits, 0.0f, 0.0f, 1.0f);
         beginRP(cmd, m_cubeRenderPass, m_envFBs[f], kEnvDim);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_skyPipeline);
         setViewportScissor(cmd, kEnvDim);

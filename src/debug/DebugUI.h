@@ -41,7 +41,7 @@ struct DebugUIInitInfo {
     VkQueue          presentQueue;
     uint32_t         graphicsQueueFamily;
 
-    uint32_t         presentQueueFamily;
+    uint32_t                                 presentQueueFamily;
     std::function<void(int key, int action)> keyEvent;
 };
 
@@ -86,39 +86,39 @@ public:
     void cleanup();
 
 private:
-    void create_render_pass(VkFormat fmt);
-    void create_framebuffers();
-    void destroy_framebuffers();
-    void recreate_swapchain();
+    void        create_render_pass(VkFormat fmt);
+    void        create_framebuffers();
+    void        destroy_framebuffers();
+    void        recreate_swapchain();
     static void framebuffer_resize_callback(GLFWwindow* window, int width, int height);
     static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void focus_callback(GLFWwindow* window, int focused);
 
-    Device*                    m_deviceOwner = nullptr;
-    VkInstance                 m_instance = VK_NULL_HANDLE;
-    VkDevice                   m_device         = VK_NULL_HANDLE;
-    VkPhysicalDevice           m_physicalDevice = VK_NULL_HANDLE;
-    VkQueue                    m_graphicsQueue = VK_NULL_HANDLE;
-    VkQueue                    m_presentQueue = VK_NULL_HANDLE;
-    uint32_t                   m_graphicsQueueFamily = 0;
-    uint32_t                   m_presentQueueFamily = 0;
-    GLFWwindow*                m_window = nullptr;
-    VkSurfaceKHR               m_surface = VK_NULL_HANDLE;
-    std::unique_ptr<Swapchain> m_swapchain;
-    VkCommandPool              m_commandPool = VK_NULL_HANDLE;
-    std::vector<VkCommandBuffer> m_commandBuffers;
-    std::vector<VkSemaphore>   m_imageAvailable;
-    std::vector<VkSemaphore>   m_renderFinished;
-    std::vector<VkFence>       m_inFlightFences;
-    std::vector<VkFence>       m_imagesInFlight;
-    VkRenderPass               m_renderPass = VK_NULL_HANDLE;
-    std::vector<VkFramebuffer> m_framebuffers;
-    uint32_t                   m_currentFrame = 0;
-    bool                       m_resized = false;
+    Device*                       m_deviceOwner         = nullptr;
+    VkInstance                    m_instance            = VK_NULL_HANDLE;
+    VkDevice                      m_device              = VK_NULL_HANDLE;
+    VkPhysicalDevice              m_physicalDevice      = VK_NULL_HANDLE;
+    VkQueue                       m_graphicsQueue       = VK_NULL_HANDLE;
+    VkQueue                       m_presentQueue        = VK_NULL_HANDLE;
+    uint32_t                      m_graphicsQueueFamily = 0;
+    uint32_t                      m_presentQueueFamily  = 0;
+    GLFWwindow*                   m_window              = nullptr;
+    VkSurfaceKHR                  m_surface             = VK_NULL_HANDLE;
+    std::unique_ptr<Swapchain>    m_swapchain;
+    VkCommandPool                 m_commandPool = VK_NULL_HANDLE;
+    std::vector<VkCommandBuffer>  m_commandBuffers;
+    std::vector<VkSemaphore>      m_imageAvailable;
+    std::vector<VkSemaphore>      m_renderFinished;
+    std::vector<VkFence>          m_inFlightFences;
+    std::vector<VkFence>          m_imagesInFlight;
+    VkRenderPass                  m_renderPass = VK_NULL_HANDLE;
+    std::vector<VkFramebuffer>    m_framebuffers;
+    uint32_t                      m_currentFrame = 0;
+    bool                          m_resized      = false;
     std::function<void(int, int)> m_keyEvent;
-    VkDescriptorPool           m_descriptorPool = VK_NULL_HANDLE;
-    bool                       m_init   = false;
-    RenderToolsView            m_tools;
+    VkDescriptorPool              m_descriptorPool = VK_NULL_HANDLE;
+    bool                          m_init           = false;
+    RenderToolsView               m_tools;
 };
 
 }  // namespace swish

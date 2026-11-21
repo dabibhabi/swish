@@ -1,8 +1,8 @@
 // PostProcessManager: fullscreen post-process pipelines.
 
-#include "utils/io/AppPaths.h"
 #include "PostProcessManager.h"
 #include "renderer/Pipeline/Pipeline.h"
+#include "utils/io/AppPaths.h"
 
 namespace swish {
 

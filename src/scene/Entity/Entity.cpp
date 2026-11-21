@@ -23,6 +23,8 @@ std::vector<DrawCall> ModelEntity::get_draw_calls() const {
         dc.indexCount  = s.indexCount;
         dc.material    = s.material;
         dc.color       = s.color;
+        dc.metalness   = s.metalness;
+        dc.isPaint     = s.is_paint;
         dc.model       = model;
         result.push_back(dc);
     }

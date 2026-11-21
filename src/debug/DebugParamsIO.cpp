@@ -1,5 +1,6 @@
-#include "utils/io/AppPaths.h"
 #include "DebugParamsIO.h"
+
+#include "utils/io/AppPaths.h"
 
 #ifdef SWISH_DEBUG_UI
 
@@ -109,16 +110,20 @@ bool save(const DebugParams& p, const std::string& name) {
                               {"temperature", p.temperature},
                               {"tint", p.tint},
                               {"auto_exposure", p.autoExposure},
-                              {"ae_key", p.aeKey},
                               {"ae_speed", p.aeSpeed},
-                              {"ae_min", p.aeMin},
-                              {"ae_max", p.aeMax}}},
+                              {"ev_compensation", p.evCompensation},
+                              {"ev_min", p.evMin},
+                              {"ev_max", p.evMax}}},
         {"sky", toml::table{{"horizon_overcast", vec3_to_toml(p.skyHorizonOvercast)},
                             {"horizon_clear", vec3_to_toml(p.skyHorizonClear)},
                             {"zenith_overcast", vec3_to_toml(p.skyZenithOvercast)},
                             {"zenith_clear", vec3_to_toml(p.skyZenithClear)},
                             {"clarity", p.clarity},
                             {"environment_hdri", static_cast<int64_t>(p.environmentHdri)},
+                            {"rain_environment_hdri", static_cast<int64_t>(p.rainEnvironmentHdri)},
+                            {"rain_ev_shift", p.rainEvShift},
+                            {"rain_sky_clear_wetness", p.rainSkyClearWetness},
+                            {"rain_sky_fade_seconds", p.rainSkyFadeSeconds},
                             {"sun_disc_exp_min", p.sunDiscExpMin},
                             {"sun_disc_exp_max", p.sunDiscExpMax},
                             {"sun_disc_str_min", p.sunDiscStrMin},
@@ -222,22 +227,27 @@ bool load(DebugParams& p, const std::string& name) {
     p.temperature    = tbl["grade"]["temperature"].value_or(p.temperature);
     p.tint           = tbl["grade"]["tint"].value_or(p.tint);
     p.autoExposure   = tbl["grade"]["auto_exposure"].value_or(p.autoExposure);
-    p.aeKey          = tbl["grade"]["ae_key"].value_or(p.aeKey);
     p.aeSpeed        = tbl["grade"]["ae_speed"].value_or(p.aeSpeed);
-    p.aeMin          = tbl["grade"]["ae_min"].value_or(p.aeMin);
-    p.aeMax          = tbl["grade"]["ae_max"].value_or(p.aeMax);
+    p.evCompensation = tbl["grade"]["ev_compensation"].value_or(p.evCompensation);
+    p.evMin          = tbl["grade"]["ev_min"].value_or(p.evMin);
+    p.evMax          = tbl["grade"]["ev_max"].value_or(p.evMax);
 
     read_vec3(tbl["sky"]["horizon_overcast"], p.skyHorizonOvercast);
     read_vec3(tbl["sky"]["horizon_clear"], p.skyHorizonClear);
     read_vec3(tbl["sky"]["zenith_overcast"], p.skyZenithOvercast);
     read_vec3(tbl["sky"]["zenith_clear"], p.skyZenithClear);
-    p.clarity       = tbl["sky"]["clarity"].value_or(p.clarity);
+    p.clarity = tbl["sky"]["clarity"].value_or(p.clarity);
     p.environmentHdri =
         static_cast<int>(tbl["sky"]["environment_hdri"].value_or(static_cast<int64_t>(p.environmentHdri)));
-    p.sunDiscExpMin = tbl["sky"]["sun_disc_exp_min"].value_or(p.sunDiscExpMin);
-    p.sunDiscExpMax = tbl["sky"]["sun_disc_exp_max"].value_or(p.sunDiscExpMax);
-    p.sunDiscStrMin = tbl["sky"]["sun_disc_str_min"].value_or(p.sunDiscStrMin);
-    p.sunDiscStrMax = tbl["sky"]["sun_disc_str_max"].value_or(p.sunDiscStrMax);
+    p.rainEnvironmentHdri =
+        static_cast<int>(tbl["sky"]["rain_environment_hdri"].value_or(static_cast<int64_t>(p.rainEnvironmentHdri)));
+    p.rainEvShift         = tbl["sky"]["rain_ev_shift"].value_or(p.rainEvShift);
+    p.rainSkyClearWetness = tbl["sky"]["rain_sky_clear_wetness"].value_or(p.rainSkyClearWetness);
+    p.rainSkyFadeSeconds  = tbl["sky"]["rain_sky_fade_seconds"].value_or(p.rainSkyFadeSeconds);
+    p.sunDiscExpMin       = tbl["sky"]["sun_disc_exp_min"].value_or(p.sunDiscExpMin);
+    p.sunDiscExpMax       = tbl["sky"]["sun_disc_exp_max"].value_or(p.sunDiscExpMax);
+    p.sunDiscStrMin       = tbl["sky"]["sun_disc_str_min"].value_or(p.sunDiscStrMin);
+    p.sunDiscStrMax       = tbl["sky"]["sun_disc_str_max"].value_or(p.sunDiscStrMax);
 
     read_vec3(tbl["sun"]["color"], p.sunColor);
     p.sunAmbient   = tbl["sun"]["ambient"].value_or(p.sunAmbient);

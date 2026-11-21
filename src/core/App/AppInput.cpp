@@ -4,8 +4,11 @@
 #include "renderer/Renderer/Renderer.h"
 #include "scene/Camera/Camera.h"
 #include "scene/CameraMode.h"
+#include "scene/TimeOfDay/TimeOfDay.h"
 
 #include <GLFW/glfw3.h>
+
+#include <iostream>
 
 namespace swish {
 
@@ -58,6 +61,7 @@ void App::init_key_bindings() {
         {GLFW_KEY_F2, {}, &App::on_toggle_debug_controls},
         {GLFW_KEY_GRAVE_ACCENT, {}, &App::on_toggle_debug_edit},
         {GLFW_KEY_F12, {}, &App::on_capture_frame},
+        {GLFW_KEY_T, {}, &App::on_cycle_time_of_day},
 #endif
     };
 }
@@ -84,6 +88,16 @@ void App::on_cycle_wiper() { set_wiper_mode(wiper_next_mode(wiper_mode())); }
 void App::on_cycle_weather() { set_weather_preset(next_weather_preset(weather_preset())); }
 
 #ifdef SWISH_DEBUG_UI
+// T: next time of day (lighting L2). Turns the procedural sky on, since the presets only exist there.
+void App::on_cycle_time_of_day() {
+    DebugParams& dp  = m_renderer->debug_params();
+    dp.skyProcedural = true;
+    dp.timeOfDay     = (dp.timeOfDay + 1) % static_cast<int>(TimeOfDay::Count);
+    std::cout << "[sky] time of day: " << time_of_day_name(static_cast<TimeOfDay>(dp.timeOfDay)) << std::endl;
+}
+#endif
+
+#ifdef SWISH_DEBUG_UI
 
 void App::on_toggle_debug_edit() { set_debug_edit_mode(!m_debug_edit_mode); }
 
@@ -92,11 +106,20 @@ void App::on_toggle_debug_controls() { m_renderer->toggle_debug_controls_window(
 void App::on_controls_key(int key, int action) {
     const bool down = action != GLFW_RELEASE;
     switch (key) {
-        case GLFW_KEY_I: m_controlsKeyboard.up = down; break;
-        case GLFW_KEY_K: m_controlsKeyboard.down = down; break;
-        case GLFW_KEY_J: m_controlsKeyboard.left = down; break;
-        case GLFW_KEY_L: m_controlsKeyboard.right = down; break;
-        default: break;
+        case GLFW_KEY_I:
+            m_controlsKeyboard.up = down;
+            break;
+        case GLFW_KEY_K:
+            m_controlsKeyboard.down = down;
+            break;
+        case GLFW_KEY_J:
+            m_controlsKeyboard.left = down;
+            break;
+        case GLFW_KEY_L:
+            m_controlsKeyboard.right = down;
+            break;
+        default:
+            break;
     }
 }
 

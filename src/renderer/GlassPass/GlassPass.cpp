@@ -1,4 +1,3 @@
-#include "utils/io/AppPaths.h"
 #include "GlassPass.h"
 
 #include "renderer/CameraUniforms/CameraUniforms.h"
@@ -10,8 +9,10 @@
 #include "renderer/ResourceManager/ResourceManager.h"
 #include "renderer/Vertex.h"
 #include "scene/SceneTypes.h"
+#include "utils/io/AppPaths.h"
 #include "utils/vulkan/Check.h"
 #include "utils/vulkan/Init.h"
+
 #include <memory>
 
 namespace swish {

@@ -1,10 +1,15 @@
 #pragma once
 
-#include "scene/Entity/GaugeNeedles.h"   // kGaugeDefaults (Tunables.def "gauges" defaults)
-#include "scene/SceneTypes.h"            // MaterialOverride, MAT_COUNT, MaterialId
-#include "utils/input/GamepadMapping.h"  // GamepadConfig defaults (pure header)
-#include "utils/types/Types.h"           // swish::Vec3 / Vec4 (glm aliases)
+#include "scene/Entity/GaugeNeedles.h"      // kGaugeDefaults (Tunables.def "gauges" defaults)
+#include "scene/LightingLab/LightingLab.h"  // LabProbe
+#include "scene/SceneTypes.h"               // MaterialOverride, MAT_COUNT, MaterialId
+#include "utils/input/GamepadMapping.h"     // GamepadConfig defaults (pure header)
+#include "utils/light/Atmosphere.h"
+#include "utils/light/Photometry.h"
+#include "utils/light/SkyVisibility.h"
+#include "utils/types/Types.h"  // swish::Vec3 / Vec4 (glm aliases)
 
+#include <array>
 #include <glm/glm.hpp>
 #include <optional>
 
@@ -37,52 +42,79 @@ constexpr T build_default(T def, std::optional<T> rel) {
 // under -DSWISH_DEBUG_UI, but the struct itself is header-only and harmless
 // to include unconditionally (it pulls in no ImGui/Vulkan symbols).
 // ══════════════════════════════════════════════════════════════════════
+// True in the debug build. Lighting L2 to L10 are "debug first": their defaults are on here and off in release,
+// so `make run` keeps its look until each item is promoted (tasks/todo.md).
+#ifdef SWISH_DEBUG_UI
+inline constexpr bool kDebugBuild = true;
+#else
+inline constexpr bool kDebugBuild = false;
+#endif
+
 struct DebugParams {
     // ── Grade / composite (tone map + color grade in composite.frag) ──
-    float exposure       = 1.55f;  // retuned 2026-08-15 (lie preset had 2.0) — matches the release literal
-    float bloomThreshold = 1.77f;  // lie preset (was 1.0) — luminance above which bloom extracts
+    float exposure = 1.55f;  // retuned 2026-08-15 (lie preset had 2.0) — matches the release literal
+    float bloomThreshold =
+        2.74f;  // exposed-space luminance above which bloom extracts (L1.6); 2.74 = old raw 1.77 x 1.55
     float bloomIntensity = 0.45f;  // retuned 2026-08-15 (lie preset had 1.097) — matches the release literal
 
     // ── Auto-exposure (eye adaptation) ────────────────────────────────
-    // When on, the composite exposure is driven by the smoothed scene luminance
-    // (exposure = aeKey / adaptedLum, clamped) instead of the manual value above.
-    bool  autoExposure = false;
-    float aeKey        = 0.30f;  // target mid-grey the average maps toward
-    float aeSpeed      = 2.0f;   // adaptation rate (per second)
-    float aeMin        = 0.05f;  // exposure clamp (min)
-    float aeMax        = 2.0f;   // exposure clamp (max)
-    float brightness   = 0.0f;   // retuned 2026-08-15 (lie preset had 0.032) — matches the release literal
-    float contrast     = 1.12f;  // retuned 2026-08-15 (lie preset had 1.499) — matches the release literal
-    float saturation   = 1.2f;   // retuned 2026-08-15 (lie preset had 0.988) — matches the release literal
-    float temperature  = 0.0f;   // warm/cool shift   [-1, 1]
-    float tint         = 0.0f;   // green/magenta shift [-1, 1]
+    // On (the shipped default, release too): the composite exposure follows the smoothed scene luminance,
+    //   EV100 = clamp(ev100(avgLum) - evCompensation, evMin, evMax)   (HdrFinalizePass, util::light)
+    // Off: the manual Exposure value above (debug) or the shipped EV100 (release). See renderer/Passes/Exposure.h.
+    bool  autoExposure = true;
+    float aeSpeed      = 2.0f;  // adaptation rate (per second)
+    // Positive brightens: it is subtracted from the metered EV. 1.53 stops = log2(0.30 / 0.104), the look of the
+    // old aeKey 0.30 (exposure = aeKey / avgLum is the EV law with a key of 0.104).
+    float evCompensation = 1.53f;
+    // Clamp on the EV100 actually used. WeatherController overwrites these per preset (set_preset); the values
+    // here are PartlyCloudy's. The shipped fixed EV (15.7144) sits inside every preset's range.
+    float evMin       = 13.5f;
+    float evMax       = 17.5f;
+    float brightness  = 0.0f;   // retuned 2026-08-15 (lie preset had 0.032) — matches the release literal
+    float contrast    = 1.12f;  // retuned 2026-08-15 (lie preset had 1.499) — matches the release literal
+    float saturation  = 1.2f;   // retuned 2026-08-15 (lie preset had 0.988) — matches the release literal
+    float temperature = 0.0f;   // warm/cool shift   [-1, 1]
+    float tint        = 0.0f;   // green/magenta shift [-1, 1]
 
     // ── Sky (gradient endpoints lerped by `clarity`; sun disc) ────────
     glm::vec3 skyHorizonOvercast{0.86f, 0.87f, 0.89f};  // LIE overcast: even light grey-white
     glm::vec3 skyHorizonClear{0.85f, 1.0f, 1.25f};  // lie preset (was 0.55,0.82,1.30) — bright light blue near horizon
     glm::vec3 skyZenithOvercast{0.76f, 0.79f, 0.83f};  // overcast: slightly darker grey (subtle gradient)
     glm::vec3 skyZenithClear{0.5f, 0.8f, 1.35f};       // lie preset (was 0.28,0.52,1.50) — deep azure
-    float     clarity       = 0.242f;                  // lie preset (was 0.0) — 0 = overcast, 1 = clear
+    float     clarity = 0.242f;                        // lie preset (was 0.0) — 0 = overcast, 1 = clear
 #ifdef SWISH_DEBUG_UI
     int environmentHdri = 0;  // index into renderer/IBLManager/HdriCatalog.h
+    // Sky while it rains (any rain level): an overcast HDRI, coupled to the rain (no sun, clarity 0, EV shift).
+    // 9 = Misty Morning (owner decision, rain round 3). Overrides the weather preset's HDRI and the procedural sky.
+    int   rainEnvironmentHdri = 9;
+    float rainEvShift = 0.0f;  // stops the auto-exposure clamp drops under rain (HDRI path is on the legacy scale)
+    // Rain sky latch: rain turns it on at once; after the rain stops the overcast stays until the road has dried
+    // below this wetness (clouds linger; a clear sky over a soaked road read as a dark, wrong noon).
+    float rainSkyClearWetness = 0.15f;
+    bool  rainSkyActive       = false;  // runtime state written by WeatherController::apply_debug; never saved
+    // Rain onset: the visible sky fades from the procedural sky to the rain HDRI over this many seconds (clouds
+    // rolling in). Only the background fades; the IBL light swaps at once. Clearing is smooth through the latch.
+    float rainSkyFadeSeconds = 20.0f;
+    float rainSkyBlend       = 1.0f;  // runtime 0..1 (0 = procedural sky shown), written by WeatherController
 #endif
-    float     sunDiscExpMin = 32.0f;                   // disc sharpness at overcast
-    float     sunDiscExpMax = 220.0f;                  // disc sharpness at clear
-    float     sunDiscStrMin = 0.242f;                  // lie preset (was 0.3) — disc strength at overcast
-    float     sunDiscStrMax = 0.9f;                    // disc strength at clear
+    float sunDiscExpMin = 32.0f;   // disc sharpness at overcast
+    float sunDiscExpMax = 220.0f;  // disc sharpness at clear
+    float sunDiscStrMin = 0.242f;  // lie preset (was 0.3) — disc strength at overcast
+    float sunDiscStrMax = 0.9f;    // disc strength at clear
 
     // ── Sun / directional light ───────────────────────────────────────
     glm::vec3 sunColor{1.0f, 0.95f, 0.85f};
     float     sunAmbient = 0.50f;  // retuned 2026-08-15 (lie preset had 0.823) — matches the release literal
-    // azimuth/elevation drive the sun direction vector; the Renderer converts
-    // these spherical angles → sunDir (world space) before uploading.
-    float sunAzimuth   = 0.0f;  // [-PI, PI], 0 = +Z
-    float sunElevation = 0.0f;  // [0, PI/2], 0 = horizon, PI/2 = zenith
+    // azimuth/elevation (radians) drive the sun direction vector; WeatherController converts
+    // them → sunDir (world space) via sun_dir_from_az_el. Defaults are the angles of the shipped
+    // sun (0.3, 0.6, 0.15), so untouched sliders reproduce the previous direction (L0.7).
+    float sunAzimuth   = 1.1071487f;  // [-PI, PI], 0 = +Z, PI/2 = +X
+    float sunElevation = 1.0610566f;  // [0, PI/2], 0 = horizon, PI/2 = zenith
 
     // ── Fog (distance-based atmospheric haze) ─────────────────────────
     glm::vec3 fogColor{0.52f, 0.57f, 0.63f};
-    float     fogDist63 = 1200000.0f;  // distance (world units) at which fog ≈ 63%
-    float     fogMax    = 0.0f;        // lie preset (was 0.65) — distance rain-fog OFF
+    float     fogDist63 = 150000.0f;  // WU to ~63% at full wetness: heavy-rain visibility (reference photos 2026-11-20)
+    float     fogMax    = 0.9f;       // rain fog is wetness-gated in lighting.frag, so dry roads are unchanged
     // Always-on aerial-perspective haze (dry days too, not wet-gated). Distant geometry
     // dissolves into the horizon sky so the road reads with depth to the far plane.
     float hazeDist = 900000.0f;  // distance (WU) at which haze reaches ~63%
@@ -116,13 +148,14 @@ struct DebugParams {
     // radius/bias are in view-space world units (1 m = 1000 WU); tune live toward subtle contact
     // darkening. Disabled → intensity forced to 0 (shader outputs 1 = no AO).
     bool  ssaoEnabled   = true;
-    float ssaoRadius    = 400.0f;  // hemisphere radius (WU); kernel taps reach <= 0.43 of it (~0.17 m)
-    float ssaoBias      = 50.0f;   // view-space depth bias to fight self-occlusion (WU)
-    float ssaoIntensity = 1.0f;    // occlusion strength multiplier
+    float ssaoRadius    = 1000.0f;  // hemisphere radius (WU); taps reach <= 0.43 of it (~0.43 m). Was 400 (rain P2b)
+    float ssaoBias      = 50.0f;    // view-space depth bias to fight self-occlusion (WU)
+    float ssaoIntensity = 1.0f;     // occlusion strength multiplier
 
     // ── Shadows (single sun shadow map + depth bias) ──────────────────
-    float shadowBias       = 0.0018f;    // restored 2026-08-15 — required once shadows are live (acne)
-    float shadowFloor      = 0.25f;      // restored 2026-08-15 (lie preset 1.0 disabled shadow darkening entirely)
+    float shadowBias = 0.0018f;  // restored 2026-08-15 — required once shadows are live (acne)
+    float shadowFloor =
+        kDebugBuild ? 0.0f : 0.25f;      // restored 2026-08-15 (lie preset 1.0 disabled shadow darkening entirely)
     float shadowHalfExtent = 45000.0f;   // (legacy single-map; unused by CSM)
     float shadowDepthRange = 200000.0f;  // (legacy single-map; unused by CSM)
     float depthBiasConst   = 4.0f;       // vkCmdSetDepthBias constant factor
@@ -334,9 +367,89 @@ struct DebugParams {
     TelemetryWheel telemetryWheel[4];
     TelemetryLens  telemetryLens[4];
 
+    // ── Lighting L2 to L10 (docs/lighting-l2-l10.md). Debug first: on in `make debug`, off in `make run`. ──
+    // L2: procedural sky + time of day. Off = the HDRI weather presets, exactly as before.
+    bool  skyProcedural = kDebugBuild;
+    int   timeOfDay     = 2;     // TimeOfDay index (Noon). T key or the panel; applying it fills the fields below
+    float turbidity     = 2.5f;  // haze: 2 = very clear, 10 = hazy
+    float cloudCover    = 0.3f;  // 0 clear .. 1 overcast. The weather preset (G key) sets it
+    float moonLux       = 0.0f;  // moonlight at the ground; a full moon is about 0.2
+    bool  skyStars      = true;
+    bool  lampsOn       = false;  // street lamps and car lights (set by the time of day)
+    util::light::SkyParams sky;   // what the sky shader gets; filled by WeatherController each frame
+    // L3: sun shadows.
+    bool  shadowStableFit  = kDebugBuild;                 // stable light up vector + texel snapping of the cascades
+    float cascadeBlend     = kDebugBuild ? 0.12f : 0.0f;  // fraction of a cascade blended into the next (0 = hard pick)
+    float sunAngularRadius = 0.00465f;                    // radians (0.27 degrees); PCSS penumbra width
+    // L4: materials.
+    bool  energyCompensation = kDebugBuild;                // multiscatter GGX energy compensation
+    float paintFlakeDensity  = kDebugBuild ? 0.3f : 0.0f;  // metallic flakes in the body paint (L4.3); 0 = off
+    // L5 / L6 / L8: emissive, lamps, retroreflection.
+    float lensNitsHead    = 60000.0f;  // headlight lens luminance when on, cd/m²
+    float lensNitsTail    = 1500.0f;
+    float lensNitsBrake   = 12000.0f;
+    float lampHeadNits    = 20000.0f;     // a street-lamp head
+    bool  corridorLamps   = kDebugBuild;  // street lamps on the LIE corridor
+    float lampLumens      = 16000.0f;
+    float retroGain       = kDebugBuild ? 8.0f : 0.0f;  // lane-marking retroreflection strength (0 = off)
+    bool  headlightCutoff = kDebugBuild;                // low-beam horizontal cutoff
+    int   spotsUploaded   = 0;                          // read-out: spot lights sent this frame
+    int   spotsTotal      = 0;                          //           of this many in the world
+    // L10: wet.
+    bool carWettable = false;  // let rain wet the car's exterior (the whole car is tagged dry by default)
+
+    // ── Car showcase (docs/car-showcase.md). Debug only. ──
+    bool  turntable       = false;  // orbit the camera around the car
+    float turntableRadius = 6.5f;   // metres
+    float turntableHeight = 1.5f;   // metres
+    float turntableSpeed  = 18.0f;  // degrees per second
+    float turntableAngle  = 0.0f;   // state
+    bool  groundingShadow = true;   // the car's body blocks area light on the ground around it
+    int   carLightsMode   = 0;      // 0 follow the time of day, 1 off, 2 parking (tail only), 3 low beam, 4 brake held
+    int   paintFinish     = 0;      // 0 as the asset, 1 solid gloss, 2 metallic, 3 pearl, 4 satin, 5 matte
+    int   paintColour     = 0;      // 0 as the asset, 1 black, 2 white, 3 silver, 4 red, 5 deep blue, 6 yellow
+    int   carSurface      = 0;      // 0 clean, 1 wet (beaded drops), 2 dusty
+    bool  materialFixes   = true;   // sensible metal / roughness for rubber, glass, chrome, plastic and leather
+    bool  bloomPyramid    = true;   // wide multi-level bloom (L4.4)
+    int   rectsTotal      = 0;      // read-out: area lights in the world
+
+    // ── Lighting lab (tasks/todo.md "Lighting lab"; docs/lighting-lab.md) ──
+    // Sun illuminance (lux) and the sky scale (cd/m² per cube unit). WeatherController mirrors the preset's
+    // values here on a preset change, then reads them back every frame, so the sliders override the preset.
+    float sunLux  = util::light::kLegacyUnitLux;
+    float skyNits = util::light::kLegacyUnitLux;
+    // Pre-exposure follows the exposure instead of the fixed 1e-5. Needed for dusk and night (a fixed value puts a
+    // dark road near the half-float floor). On in the debug build (the night presets need it), off in release.
+    // Known cost: TAA history is one frame behind in brightness while the exposure is moving.
+    bool adaptivePreExposure = kDebugBuild;
+    int  labViewMode         = 0;  // composite view: 0 normal, 1 false colour (exposed value), 2 bloom mask
+    // Set by App::build_lab_scene (SWISH_LAB=1). The roof volumes go to lighting.frag as sky-visibility boxes.
+    bool                                                              labActive    = false;
+    int                                                               labTeleport  = -1;  // one-shot: station index
+    int                                                               labRoofCount = 0;
+    std::array<util::light::RoofVolume, util::light::kMaxRoofVolumes> labRoofs{};
+    // Read-outs (written by the Renderer and the App each frame, shown in the "Lighting lab" panel).
+    struct ExposureMeter {
+        float nits        = 0.0f;      // adapted average scene luminance, cd/m²
+        float ev          = 0.0f;      // EV100 that luminance implies
+        float evUsed      = 15.7144f;  // after compensation and the preset clamps
+        float exposure    = 1.55f;     // multiplier on the HDR image
+        float preExposure = 1.0e-5f;   // what the lights were multiplied by
+        int   clamp       = 0;         // -1 held at evMin, +1 held at evMax
+    };
+    ExposureMeter meter;
+    LabProbe      labProbe;                // sky visibility and lamp lux under the car (lab only)
+    float         labSunLuxGround = 0.0f;  // sun illuminance on flat ground, ignoring shadows
+
     // ── UI state (not a scene parameter, but lives with the rest) ─────
     bool editMode  = false;  // true explicitly pauses car/camera updates while tuning
     bool showPanel = true;   // master visibility toggle for the debug window
 };
+
+#ifdef SWISH_DEBUG_UI
+// The procedural sky is drawn only when it is ticked AND the rain sky is off (rain round 3: any rain, and the
+// still-wet road after it, use the rain HDRI). One rule for the weather controller and the shader flag.
+inline bool procedural_sky_active(const DebugParams& p) { return p.skyProcedural && !p.rainSkyActive; }
+#endif
 
 }  // namespace swish

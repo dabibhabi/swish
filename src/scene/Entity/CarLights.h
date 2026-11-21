@@ -12,6 +12,7 @@
 // not, after the Y-up axis swap), so the loader reads the `_Lamp` nodes.
 
 #include "scene/SceneTypes.h"  // SpotLightDesc
+#include "utils/light/Photometry.h"
 #include "utils/types/Types.h"
 #include "utils/units/Units.h"
 
@@ -43,19 +44,23 @@ struct CarLightState {
 
 // Look of each lamp kind. Ranges in metres (converted to WU here); angles are
 // half-angles in degrees. Defaults are the debug-panel defaults (Tunables.def
-// group "car_lights"); the street lamps (5.0 over 50 m) are the brightness yardstick.
+// group "car_lights"). Flux is in lumens (typical figures, check a datasheet); car_spot_lights converts to
+// candela with the Frostbite rule I = flux / pi. For a headlight the cone rule
+// util::light::cone_candela_from_lumens is the more physical one: a tighter beam is brighter.
 struct CarLightParams {
     Vec3  headColor{1.0f, 0.94f, 0.82f};
-    float headIntensity = 30.0f;
-    float headRangeM    = 60.0f;
-    float headInnerDeg  = 12.0f;
-    float headOuterDeg  = 28.0f;
+    float headLumens   = 1200.0f;  // one low beam, about 1,000 to 1,500 lm
+    float headRangeM   = 60.0f;
+    float headInnerDeg = 12.0f;
+    float headOuterDeg = 28.0f;
+    bool  headCutoff   = false;  // low-beam horizontal cutoff (lighting L6.4)
+    bool  headConeRule = false;  // candela from the cone's solid angle (physical) instead of flux / pi
 
     Vec3  tailColor{1.0f, 0.05f, 0.02f};
-    float tailIntensity  = 1.5f;
-    float brakeIntensity = 6.0f;
-    float tailRangeM     = 6.0f;
-    float tailOuterDeg   = 70.0f;
+    float tailLumens   = 20.0f;   // tail lamp, a few candela
+    float brakeLumens  = 300.0f;  // stop lamp, tens of candela
+    float tailRangeM   = 6.0f;
+    float tailOuterDeg = 70.0f;
 };
 
 // Node name -> lamp kind, exact match on the rig's `_Lamp` nodes only.
@@ -85,15 +90,18 @@ inline std::vector<SpotLightDesc> car_spot_lights(const std::vector<CarLightAnch
             case CarLightKind::Headlight:
                 if (!state.headlights) continue;
                 s.color     = p.headColor;
-                s.intensity = p.headIntensity;
+                s.intensity = p.headConeRule
+                                  ? util::light::cone_candela_from_lumens(p.headLumens, glm::radians(p.headOuterDeg))
+                                  : util::light::spot_candela_from_lumens(p.headLumens);
                 s.range     = util::units::m(p.headRangeM);
                 s.cosInner  = cosDeg(p.headInnerDeg);
                 s.cosOuter  = cosDeg(p.headOuterDeg);
+                s.cutoff    = p.headCutoff;
                 break;
             case CarLightKind::TailLight:
                 if (!state.tail) continue;
                 s.color     = p.tailColor;
-                s.intensity = p.tailIntensity;
+                s.intensity = util::light::spot_candela_from_lumens(p.tailLumens);
                 s.range     = util::units::m(p.tailRangeM);
                 s.cosInner  = cosDeg(p.tailOuterDeg * 0.5f);
                 s.cosOuter  = cosDeg(p.tailOuterDeg);
@@ -101,7 +109,7 @@ inline std::vector<SpotLightDesc> car_spot_lights(const std::vector<CarLightAnch
             case CarLightKind::BrakeLight:
                 if (state.brake <= 0.f) continue;
                 s.color     = p.tailColor;
-                s.intensity = p.brakeIntensity * state.brake;
+                s.intensity = util::light::spot_candela_from_lumens(p.brakeLumens) * state.brake;
                 s.range     = util::units::m(p.tailRangeM);
                 s.cosInner  = cosDeg(p.tailOuterDeg * 0.5f);
                 s.cosOuter  = cosDeg(p.tailOuterDeg);

@@ -153,9 +153,9 @@ TEST_CASE("PassList.def pins the frame order (release list)", "[renderer]") {
     // Debug builds add SSAO + AO blur (before lighting, which applies AO to the indirect terms), velocity (after
     // lighting), DoF (after god-rays) and TAA (after the windshield). Controls present in a separate window.
     const std::vector<std::string> expectedAll = {
-        "Geometry",   "Ssao",       "AoBlur",    "Lighting",    "Velocity",       "Ssr", "GodRays",     "Dof",
-        "SpraySim",   "Rain",       "SprayDraw", "Glass",       "WindshieldRain", "Taa", "HdrFinalize", "BloomExtract",
-        "BloomBlurH", "BloomBlurV", "Composite"};
+        "Geometry",   "Ssao",       "AoBlur",       "Lighting", "Velocity",       "Ssr", "GodRays",     "Dof",
+        "SpraySim",   "Rain",       "SprayDraw",    "Glass",    "WindshieldRain", "Taa", "HdrFinalize", "BloomExtract",
+        "BloomBlurH", "BloomBlurV", "BloomPyramid", "Composite"};
     REQUIRE(std::size(kAll) == expectedAll.size());
     for (size_t i = 0; i < expectedAll.size(); ++i) CHECK(expectedAll[i] == kAll[i]);
 }

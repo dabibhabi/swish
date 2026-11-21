@@ -2,6 +2,7 @@
 // anchors -> world spot-light transform in scene/Entity/CarLights.h. GPU-free.
 
 #include "scene/Entity/CarLights.h"
+#include "utils/light/Photometry.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -45,7 +46,7 @@ TEST_CASE("each switch lights only its own lamps", "[car_lights]") {
     REQUIRE(car_spot_lights(rig_anchors(), Mat4(1.f), {false, true, 0.f}, p).size() == 1);
     const auto brake = car_spot_lights(rig_anchors(), Mat4(1.f), {false, false, 0.5f}, p);
     REQUIRE(brake.size() == 1);
-    REQUIRE(brake[0].intensity == Approx(p.brakeIntensity * 0.5f));
+    REQUIRE(brake[0].intensity == Approx(util::light::spot_candela_from_lumens(p.brakeLumens) * 0.5f));
 }
 
 TEST_CASE("anchors follow the car's model matrix into world space", "[car_lights]") {

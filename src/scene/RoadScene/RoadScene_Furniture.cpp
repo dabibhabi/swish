@@ -1,5 +1,6 @@
 #include "RoadScene.h"
 #include "scene/RoadGeometry/RoadGeometry.h"
+#include "utils/light/Photometry.h"
 #include "utils/math/Hash.h"
 
 #include <algorithm>
@@ -533,6 +534,7 @@ void RoadScene::generate_street_lamps(MeshBuilder& builder, const RoadLayout& la
                                       float z_near, float z_far) const {
     // Lamp placement parameters
     float lamp_spacing = 500.0f * kFt;  // every 500ft (typical highway)
+    float lamp_lumens  = 16000.0f;      // 150 W high-pressure sodium, about 16,000 lm (typical, check a datasheet)
     float pole_height  = 30.0f * kFt;   // 30ft tall highway lamp
     float pole_width   = 0.25f * kFt;   // 3-inch square pole
     float arm_len      = 8.0f * kFt;    // 8ft davit arm reaching over road
@@ -581,9 +583,10 @@ void RoadScene::generate_street_lamps(MeshBuilder& builder, const RoadLayout& la
         float fy = py;
         builder.addHorizontalQuad(light_x - fixture_w / 2.0f, light_x + fixture_w / 2.0f, fy - fixture_h,
                                   z - fixture_w / 2.0f, z + fixture_w / 2.0f, kUp, fixture_tint, MAT_DEFAULT, 0.0f);
-        // Warm sodium-vapor point light (intensity, ~50m radius). CameraUniforms
-        // uploads only the N nearest the camera each frame, so all lamps can emit.
-        lights.push_back({Vec3(light_x, fy - fixture_h, z), Vec3(1.0f, 0.9f, 0.7f), 5.0f, 50000.0f});
+        // Warm sodium-vapor point light: intensity in candela (lumens / 4 pi, about 1,273 cd), ~50m radius.
+        // CameraUniforms uploads only the N nearest the camera each frame, so all lamps can emit.
+        lights.push_back({Vec3(light_x, fy - fixture_h, z), Vec3(1.0f, 0.9f, 0.7f),
+                          util::light::point_candela_from_lumens(lamp_lumens), 50000.0f});
     };
 
     // Emit lamps along the full road (both carriageways, mirrored).

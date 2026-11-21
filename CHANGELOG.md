@@ -103,11 +103,34 @@ Verification: debug target built, all 415 CTest cases passed, and the updated lo
 
 Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest month first.
 
+### 2026-11 (21 entries)
+
+- 2026-11-14 — [Added the lighting plan, stub headers, hidden tests and a chapter per phase](docs/changelog/2026-11.md#2026-11-14--added-the-lighting-plan-stub-headers-hidden-tests-and-a-chapter-per-phase)
+- 2026-11-15 — [Clearcoat energy, one BRDF LUT, and wetness intent (L0.3–L0.5)](docs/changelog/2026-11.md#2026-11-15--clearcoat-energy-one-brdf-lut-and-wetness-intent-l03l05)
+- 2026-11-15 — [Sun intensity, sun sliders, asset metalness, dead sky code (L0.6–L0.10)](docs/changelog/2026-11.md#2026-11-15--sun-intensity-sun-sliders-asset-metalness-dead-sky-code-l06l010)
+- 2026-11-15 — [Padded the composite push-constant block to 64 bytes (L0.11)](docs/changelog/2026-11.md#2026-11-15--padded-the-composite-push-constant-block-to-64-bytes-l011)
+- 2026-11-15 — [Re-recorded the release shader hashes for L0.3 to L0.11](docs/changelog/2026-11.md#2026-11-15--re-recorded-the-release-shader-hashes-for-l03-to-l011)
+- 2026-11-15 — [Physical sun and sky with a fixed pre-exposure (L1.1 to L1.3)](docs/changelog/2026-11.md#2026-11-15--physical-sun-and-sky-with-a-fixed-pre-exposure-l11-to-l13)
+- 2026-11-15 — [Auto-exposure in release, lumens and metres for local lights, bloom in exposed space (L1.2, L1.4 to L1.6)](docs/changelog/2026-11.md#2026-11-15--auto-exposure-in-release-lumens-and-metres-for-local-lights-bloom-in-exposed-space-l12-l14-to-l16)
+- 2026-11-15 — [Lighting lab: a debug test world with tunnels, overpasses, lamps and a calibration lot](docs/changelog/2026-11.md#2026-11-15--lighting-lab-a-debug-test-world-with-tunnels-overpasses-lamps-and-a-calibration-lot)
+- 2026-11-15 — [Lighting L2 to L10, debug first: procedural sky, time of day, shadows, emissive, corridor lamps, retroreflection](docs/changelog/2026-11.md#2026-11-15--lighting-l2-to-l10-debug-first-procedural-sky-time-of-day-shadows-emissive-corridor-lamps-retroreflection)
+- 2026-11-15 — [Car showcase: four lab places, rectangle area lights, paint looks, grounding shadow, wet car, bloom pyramid](docs/changelog/2026-11.md#2026-11-15--car-showcase-four-lab-places-rectangle-area-lights-paint-looks-grounding-shadow-wet-car-bloom-pyramid)
+- 2026-11-20 — [Rain impact splashes (debug only): crown rings and droplets on the road](docs/changelog/2026-11.md#2026-11-20--rain-impact-splashes-debug-only-crown-rings-and-droplets-on-the-road)
+- 2026-11-20 — [Rain look pass: AgX pink-cast fix, time-of-day config copy, overcast rain sky, fog, wet gloss, windshield beads](docs/changelog/2026-11.md#2026-11-20--rain-look-pass-agx-pink-cast-fix-time-of-day-config-copy-overcast-rain-sky-fog-wet-gloss-windshield-beads)
+- 2026-11-20 — [Rain P1: any rain swaps the sky to a rain-coupled overcast HDRI (debug)](docs/changelog/2026-11.md#2026-11-20--rain-p1-any-rain-swaps-the-sky-to-a-rain-coupled-overcast-hdri-debug)
+- 2026-11-20 — [Rain P1b: rain-sky wetness latch, sky fade-in, two more rain skies (debug)](docs/changelog/2026-11.md#2026-11-20--rain-p1b-rain-sky-wetness-latch-sky-fade-in-two-more-rain-skies-debug)
+- 2026-11-20 — [Debug panel readable: Roboto 17 px at HiDPI, high-contrast style, sRGB-correct colours, full-window panel](docs/changelog/2026-11.md#2026-11-20--debug-panel-readable-roboto-17-px-at-hidpi-high-contrast-style-srgb-correct-colours-full-window-panel)
+- 2026-11-20 — [Rain P2: fixed SSAO normal sign (black wet road), Lekner–Dorf wet darkening, water F0 (debug)](docs/changelog/2026-11.md#2026-11-20--rain-p2-fixed-ssao-normal-sign-black-wet-road-leknerdorf-wet-darkening-water-f0-debug)
+- 2026-11-20 — [Rain P2b: SSR catches near reflections (0.4 m first step, normal fix), larger AO radius, dimmer splashes (debug)](docs/changelog/2026-11.md#2026-11-20--rain-p2b-ssr-catches-near-reflections-04-m-first-step-normal-fix-larger-ao-radius-dimmer-splashes-debug)
+- 2026-11-20 — [Rain P2c: analytic car-underbody sky visibility (contact shadow + no sky mirrored under the car, debug)](docs/changelog/2026-11.md#2026-11-20--rain-p2c-analytic-car-underbody-sky-visibility-contact-shadow--no-sky-mirrored-under-the-car-debug)
+- 2026-11-20 — [Rain P2d: SSR swaps out the env reflection at hits; car-occluded reflections mirror the car body (debug)](docs/changelog/2026-11.md#2026-11-20--rain-p2d-ssr-swaps-out-the-env-reflection-at-hits-car-occluded-reflections-mirror-the-car-body-debug)
+- 2026-11-20 — [Rain P3: wheel-track ruts hold standing water on the corridor lanes (debug)](docs/changelog/2026-11.md#2026-11-20--rain-p3-wheel-track-ruts-hold-standing-water-on-the-corridor-lanes-debug)
+- 2026-11-20 — [Rain P4: procedural rain ripples on standing water (debug)](docs/changelog/2026-11.md#2026-11-20--rain-p4-procedural-rain-ripples-on-standing-water-debug)
+
 ### 2026-10 (21 entries)
 
-- 2026-10-25 — [Extended the look-dev road beyond the visible horizon](docs/changelog/2026-10.md#2026-10-25--extended-the-look-dev-road-beyond-the-visible-horizon)
-- 2026-10-25 — [Added a detached live lighting workbench](docs/changelog/2026-10.md#2026-10-25--added-a-detached-live-lighting-workbench)
 - 2026-10-19 — [Made asset paths relocatable and added a macOS test-bundle script for friends](docs/changelog/2026-10.md#2026-10-19--made-asset-paths-relocatable-and-added-a-macos-test-bundle-script-for-friends)
+- 2026-10-25 — [Extended the look-dev road beyond the visible horizon](docs/changelog/2026-10.md#2026-10-25--extended-the-look-dev-road-beyond-the-visible-horizon)
 - 2026-10-17 — [Added the typed-C++ utils: Concepts, Quantity, Fsm, Angle](docs/changelog/2026-10.md#2026-10-17--added-the-typed-c-utils-concepts-quantity-fsm-angle)
 - 2026-10-17 — [Rigged 993 Carrera RS is now the default car](docs/changelog/2026-10.md#2026-10-17--rigged-993-carrera-rs-is-now-the-default-car)
 - 2026-10-16 — [Realism learning plan: course doc, stub headers, hidden learning tests; clearcoat docs corrected](docs/changelog/2026-10.md#2026-10-16--realism-learning-plan-course-doc-stub-headers-hidden-learning-tests-clearcoat-docs-corrected)
@@ -126,6 +149,7 @@ Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest mon
 - 2026-10-01 — [Quick fixes before the typed-C++ refactor: input/edit-mode, weather, resize, GLFW teardown](docs/changelog/2026-10.md#2026-10-01--quick-fixes-before-the-typed-c-refactor-inputedit-mode-weather-resize-glfw-teardown)
 - 2026-10-01 — [C++23: language standard bumped from C++20, nothing else changed](docs/changelog/2026-10.md#2026-10-01--c23-language-standard-bumped-from-c20-nothing-else-changed)
 - 2026-10-01 — [Typed-C++ tutorial: index and M1 chapters 01-12, plus doc drift fixes](docs/changelog/2026-10.md#2026-10-01--typed-c-tutorial-index-and-m1-chapters-01-12-plus-doc-drift-fixes)
+- 2026-10-25 — [Added a detached live lighting workbench](docs/changelog/2026-10.md#2026-10-25--added-a-detached-live-lighting-workbench)
 
 ### 2026-09 (7 entries)
 

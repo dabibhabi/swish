@@ -1,4 +1,3 @@
-#include "utils/io/AppPaths.h"
 #include "RainSystem.h"
 
 #include "RainPhysics.h"
@@ -9,10 +8,12 @@
 #include "renderer/Renderer/RendererServices.h"
 #include "renderer/RendererConfig.h"
 #include "renderer/ResourceManager/ResourceManager.h"
+#include "utils/io/AppPaths.h"
 #include "utils/types/Types.h"
 #include "utils/vulkan/Check.h"
 #include "utils/vulkan/Descriptors.h"
 #include "utils/vulkan/Init.h"
+#include "utils/vulkan/PushConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -68,6 +69,18 @@ void RainSystem::beginFrame(const FrameUpdate& u) {
 
     u.state.wetness       = m_wetness;
     u.state.rainIntensity = m_intensity;
+
+#ifdef SWISH_DEBUG_UI
+    // Splashes sit on a flat plane at the car's height (spray treats carPosition as ground level too).
+    // shortcut: flat plane around the car, so ramps / embankments are slightly off; upgrade to depth-buffer hits.
+    const DebugParams& t = u.tune;
+    m_splashOn           = t.splashEnabled && t.splashDensity > 0.0f;
+    m_splashPush.a =
+        Vec4(m_time, u.carPosition.y + t.splashRoadOffset, t.splashCellSize, m_intensity * t.splashDensity);
+    m_splashPush.b = Vec4(t.splashPeriod, std::min(t.splashLife, t.splashPeriod), t.splashRingRadius, t.splashRingTau);
+    m_splashPush.c = Vec4(t.splashRingWidth, t.splashDropCount, t.splashDropSpeed, t.splashDropSize);
+    m_splashPush.d = Vec4(t.splashBrightness, static_cast<float>(kSplashGrid), 0.0f, 0.0f);
+#endif
 }
 
 void RainSystem::record(const FrameCtx& c) {
@@ -75,7 +88,7 @@ void RainSystem::record(const FrameCtx& c) {
     // record_draws binds its own set 1 (rain UBO) internally.
     VkDescriptorSet camSet = c.res.cameraUniforms->get_set(c.frameIndex);
     vkCmdBindDescriptorSets(c.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeLayout, 0, 1, &camSet, 0, nullptr);
-    record_draws(c.cmd, c.frameIndex);
+    record_draws(c.cmd, c.frameIndex, camSet);
 }
 
 void RainSystem::create(const RendererServices& s, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
@@ -91,6 +104,9 @@ void RainSystem::create(const RendererServices& s, const std::array<VkImageView,
     createRainUBOs(s);
     createDescriptors(s.device, cameraSetLayout);
     createPipeline(s.device, s.pipelineCache, cameraSetLayout);
+#ifdef SWISH_DEBUG_UI
+    createSplashPipeline(s.device, s.pipelineCache, cameraSetLayout);
+#endif
 }
 
 void RainSystem::step(uint32_t frameIndex, float deltaTime, float intensity, Vec3 wind) {
@@ -137,7 +153,7 @@ void RainSystem::step(uint32_t frameIndex, float deltaTime, float intensity, Vec
     std::memcpy(m_rainUBOsFar[frameIndex].mapped(), &farUbo, sizeof(farUbo));
 }
 
-void RainSystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const {
+void RainSystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex, VkDescriptorSet camSet) const {
     if (m_intensity < 0.001f) return;
 
     // Two attachments (color + depth), both LOAD_OP_LOAD — clear values are ignored
@@ -186,6 +202,19 @@ void RainSystem::record_draws(VkCommandBuffer cmd, uint32_t frameIndex) const {
                             nullptr);
     vkCmdDrawIndexed(cmd, 6, drawCount, 0, 0, 0);
 
+#ifdef SWISH_DEBUG_UI
+    // Impact splashes: same blend/depth as the streaks, no vertex buffers (6 verts per instance).
+    if (m_splashOn) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_splashPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_splashLayout, 0, 1, &camSet, 0, nullptr);
+        vkCmdPushConstants(cmd, m_splashLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(SplashPush), &m_splashPush);
+        vkCmdDraw(cmd, 6, kSplashCells * kSplashSubs, 0, 0);
+    }
+#else
+    (void)camSet;
+#endif
+
     vkCmdEndRenderPass(cmd);
 }
 
@@ -198,6 +227,16 @@ void RainSystem::recreate(const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& h
 }
 
 void RainSystem::cleanup(VkDevice device) {
+#ifdef SWISH_DEBUG_UI
+    if (m_splashPipeline != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device, m_splashPipeline, nullptr);
+        m_splashPipeline = VK_NULL_HANDLE;
+    }
+    if (m_splashLayout != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device, m_splashLayout, nullptr);
+        m_splashLayout = VK_NULL_HANDLE;
+    }
+#endif
     if (m_pipeline != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, m_pipeline, nullptr);
         m_pipeline = VK_NULL_HANDLE;
@@ -235,9 +274,7 @@ void RainSystem::cleanup(VkDevice device) {
 
 // ── Private helpers ────────────────────────────────────────────────────
 
-void RainSystem::createRenderPass(VkDevice device) {
-    m_renderPass = make_forward_hdr_pass(device, m_depthFormat);
-}
+void RainSystem::createRenderPass(VkDevice device) { m_renderPass = make_forward_hdr_pass(device, m_depthFormat); }
 
 void RainSystem::createFramebuffers(VkDevice device, const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& hdrViews,
                                     const std::array<VkImageView, MAX_FRAMES_IN_FLIGHT>& depthViews) {
@@ -408,6 +445,26 @@ void RainSystem::createPipeline(VkDevice device, VkPipelineCache cache, VkDescri
 
     m_pipeline = pipeline::create_graphics(device, cache, cfg, m_renderPass, m_extent);
 }
+
+#ifdef SWISH_DEBUG_UI
+void RainSystem::createSplashPipeline(VkDevice device, VkPipelineCache cache, VkDescriptorSetLayout cameraSetLayout) {
+    const VkPushConstantRange pc =
+        vkx::push_range<SplashPush>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    m_splashLayout = pipeline::create_layout(device, {cameraSetLayout}, {pc});
+
+    PipelineConfig cfg{};
+    cfg.vertShaderPath   = util::paths::shader_dir() + "rain_splash.vert.spv";
+    cfg.fragShaderPath   = util::paths::shader_dir() + "rain_splash.frag.spv";
+    cfg.noVertexInput    = true;  // gl_VertexIndex quad + gl_InstanceIndex cell lookup
+    cfg.cullMode         = VK_CULL_MODE_NONE;
+    cfg.enableDepthTest  = true;  // the car body and kerbs occlude splashes behind them
+    cfg.enableDepthWrite = false;
+    cfg.additiveBlending = true;
+    cfg.pipelineLayout   = m_splashLayout;
+
+    m_splashPipeline = pipeline::create_graphics(device, cache, cfg, m_renderPass, m_extent);
+}
+#endif
 
 std::unique_ptr<IRenderPass> make_rain_pass() { return std::make_unique<RainSystem>(); }
 

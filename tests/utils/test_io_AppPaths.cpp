@@ -1,10 +1,10 @@
 #include "utils/io/AppPaths.h"
 
 #include <catch2/catch_test_macros.hpp>
-#include <functional>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <string>
 
 namespace paths = swish::util::paths;
@@ -14,8 +14,9 @@ namespace {
 
 // A throwaway app layout under the temp dir: <root>/Contents/MacOS is the "exe" dir.
 struct Layout {
-    fs::path root = fs::temp_directory_path() / ("swish_apppaths_" + std::to_string(std::hash<std::string>{}(__FILE__)) +
-                                                  "_" + std::to_string(reinterpret_cast<std::uintptr_t>(this)));
+    fs::path root =
+        fs::temp_directory_path() / ("swish_apppaths_" + std::to_string(std::hash<std::string>{}(__FILE__)) + "_" +
+                                     std::to_string(reinterpret_cast<std::uintptr_t>(this)));
     fs::path exeDir() const { return root / "Contents" / "MacOS"; }
     Layout() { fs::create_directories(exeDir()); }
     ~Layout() {
@@ -27,7 +28,7 @@ struct Layout {
 }  // namespace
 
 TEST_CASE("resolve_dir prefers the .app bundle Resources, then the folder beside the exe", "[apppaths]") {
-    Layout l;
+    Layout            l;
     const std::string fallback = "/build/tree/shaders/";
 
     SECTION("nothing on disk falls back to the build-tree macro") {

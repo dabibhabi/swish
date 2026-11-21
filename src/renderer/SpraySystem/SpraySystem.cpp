@@ -1,4 +1,3 @@
-#include "utils/io/AppPaths.h"
 #include "SpraySystem.h"
 
 #include "debug/DebugParams.h"
@@ -9,6 +8,7 @@
 #include "renderer/Renderer/RendererServices.h"
 #include "renderer/RendererConfig.h"
 #include "renderer/ResourceManager/ResourceManager.h"
+#include "utils/io/AppPaths.h"
 #include "utils/vulkan/Check.h"
 #include "utils/vulkan/Descriptors.h"
 #include "utils/vulkan/Init.h"

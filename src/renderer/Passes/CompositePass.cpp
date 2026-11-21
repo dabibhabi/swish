@@ -1,6 +1,7 @@
 // Composite: HDR + bloom + AO + SSR + god-rays -> swapchain image (AgX tonemap + grade). The inputs are the declared
 // list kCompositeInputs (PassInputs.h); the descriptor set is written by PostProcessManager from that list.
 #include "debug/DebugParams.h"
+#include "renderer/Passes/Exposure.h"
 #include "renderer/Passes/FullscreenPass.h"
 #include "renderer/Passes/PassRebuild.h"
 #include "renderer/PostProcessManager/PostProcessManager.h"
@@ -35,23 +36,20 @@ protected:
         d.sets[0]                    = pm.get_composite_set(c.frameIndex);
 
         pp.bloom_intensity = 0.45f;  // retuned: lie preset 1.097 was a 3.7x wash
-        // Shipped grade (composite.frag). Exposure feeds the pre-AgX multiply; contrast /
-        // saturation are the post-tonemap "look". Raised from the old 0.45 — that value was
-        // fighting the double-gamma washout; now the AgX EOTF (pow 2.2) linearises correctly,
-        // the scene is no longer hot, so exposure returns to ~1.0 with a mild punchy grade.
-        pp.exposure   = 1.55f;  // retuned between restored 1.25 and lie preset 2.0
+        // Exposure: auto-exposure, the shipped EV100, or the debug slider; see Exposure.h (L1.1, L1.2, L1.3).
+        pp.exposure = frame_exposure(c);
+        // Shipped grade (composite.frag): contrast / saturation are the post-tonemap "look".
         pp.contrast   = 1.12f;  // EXPERIMENT: restored (lie preset had 1.499)
         pp.saturation = 1.2f;   // EXPERIMENT: restored (lie preset had 0.988)
         pp.brightness = 0.0f;   // EXPERIMENT: restored (lie preset had 0.032)
 #ifdef SWISH_DEBUG_UI
         pp.bloom_intensity = c.tune.bloomIntensity;
-        // Auto-exposure drives the exposure when enabled; else the manual slider.
-        pp.exposure    = c.tune.autoExposure ? c.state.exposure : c.tune.exposure;
-        pp.brightness  = c.tune.brightness;
-        pp.contrast    = c.tune.contrast;
-        pp.saturation  = c.tune.saturation;
-        pp.temperature = c.tune.temperature;
-        pp.tint        = c.tune.tint;
+        pp.brightness      = c.tune.brightness;
+        pp.contrast        = c.tune.contrast;
+        pp.saturation      = c.tune.saturation;
+        pp.temperature     = c.tune.temperature;
+        pp.tint            = c.tune.tint;
+        pp._pad3           = static_cast<float>(c.tune.labViewMode);  // composite.frag debug view (0 = normal)
 #endif
         pp.rain_intensity = c.state.rainIntensity;
         pp.fog_density    = 0.04f;  // multiplied by rain_intensity in the shader

@@ -84,8 +84,9 @@ struct CameraUBO {
     Mat4 view;      // offset   0
     Mat4 proj;      // offset  64
     Vec4 camPos;    // offset 128   xyz = camera world position, w = unused
-    Vec4 sunDir;    // offset 144   xyz = normalized sun direction, w = intensity
-    Vec4 sunColor;  // offset 160   rgb = sun color, a = ambient strength
+    Vec4 sunDir;    // offset 144   xyz = normalized sun direction, w = sun illuminance in lux
+    Vec4 sunColor;  // offset 160   rgb = sun tint, a = ambient gain
+    // (the live struct continues with weather: x clarity, y sky nits, z pre-exposure; see SceneTypes.h)
 };                  // total  176 bytes — no padding (all members 16-aligned)
 ```
 

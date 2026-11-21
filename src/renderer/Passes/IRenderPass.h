@@ -46,9 +46,22 @@ class SceneParamsUniform;
 // CPU-side values a pass publishes for passes later in the list (a blackboard, not a service). Written in
 // update(), read in record(). Defaults equal the pre-registry initial values.
 struct FrameState {
-    float wetness       = 0.0f;   // RainSystem integrated wetness [0,1]; feeds SSR, spray, windshield, the camera UBO
-    float rainIntensity = 0.0f;   // RainSystem's current intensity; feeds the composite mist
-    float exposure      = 0.45f;  // auto-exposure result (debug builds; composite reads it when tune.autoExposure)
+    float wetness       = 0.0f;  // RainSystem integrated wetness [0,1]; feeds SSR, spray, windshield, the camera UBO
+    float rainIntensity = 0.0f;  // RainSystem's current intensity; feeds the composite mist
+    // Auto-exposure result (HdrFinalizePass): what the composite and bloom multiply the HDR image by (frame_exposure).
+    float exposure = 1.55f;
+    // EV100 clamps of the active weather preset (Renderer copies them from WeatherController).
+    float evMin = 13.5f;
+    float evMax = 17.5f;
+    // What every light was multiplied by this frame (camera.weather.z). kPreExposure unless
+    // DebugParams::adaptivePreExposure is on, when it follows the exposure (util::light::pre_exposure_for_ev100).
+    float preExposure = 1.0e-5f;
+    // The meter's read-out for the debug panel: average scene luminance (cd/m²), the EV it implies, the EV used
+    // after compensation and clamps, and which clamp held it (-1 min, 0 none, +1 max).
+    float meterNits   = 0.0f;
+    float meterEv     = 0.0f;
+    float meterEvUsed = 15.7144f;
+    int   meterClamp  = 0;
 };
 
 // Non-owning handles to Renderer-owned subsystems passes may read. All valid from PassRegistry::init_all on.

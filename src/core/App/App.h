@@ -4,11 +4,12 @@
 #include "scene/CameraMode.h"
 #include "scene/Corridor/CorridorDriver.h"  // real LIE corridor (owned by App)
 #include "scene/Entity/Wiper.h"             // WiperState / WiperParams (V-key wipers)
+#include "scene/LightingLab/LightingLab.h"
 #include "scene/WeatherPreset.h"
 #include "utils/input/InputFrame.h"
 #ifdef SWISH_DEBUG_UI
-#include "scene/Entity/KeyboardSteer.h"
 #include "renderer/WindshieldRainPass/LensWetness.h"  // debug-only CPU lamp-lens wetness model
+#include "scene/Entity/KeyboardSteer.h"
 #endif
 
 #include <memory>
@@ -98,8 +99,14 @@ private:
 #ifdef SWISH_DEBUG_UI
     // Optional pause state, toggled from the detached controls window or backtick.
     bool m_debug_edit_mode = false;
-    bool m_lookdevMode = false;
-    KeyboardKeys m_controlsKeyboard{};
+    bool m_lookdevMode     = false;
+    // Lighting lab (SWISH_LAB=1): the walled test world of scene/LightingLab. Implies the lookdev paths
+    // (no LIE corridor, larger window). The lights and roof volumes are kept for the car light probe.
+    bool                                 m_labMode = false;
+    std::vector<LightDesc>               m_labLights;
+    std::vector<util::light::RoofVolume> m_labRoofs;
+    bool                                 m_paint_look_applied = false;  // the showcase wrote the paint overrides
+    KeyboardKeys                         m_controlsKeyboard{};
 
     // Driving tools (AppDrivingTools.cpp): lazily created on first use; with the panel at its
     // defaults (keyboard, no record/replay) neither is touched and handle_input() drives the car.
@@ -126,9 +133,10 @@ private:
     void build_road_scene(Renderer& renderer);  // Scene callback: corridor alignment/segments + POV camera
 #ifdef SWISH_DEBUG_UI
     void build_lookdev_scene(Renderer& renderer);  // small car studio for live lighting work
+    void build_lab_scene(Renderer& renderer);      // lighting lab: tunnels, overpasses, lamps, calibration lot
 #endif
-    void init_scenes();                         // SceneManager + activate scene 0
-    void load_car();                            // SWISH_CAR override, corridor start pose, dynamic geometry
+    void init_scenes();  // SceneManager + activate scene 0
+    void load_car();     // SWISH_CAR override, corridor start pose, dynamic geometry
     void init_key_bindings();
 
     // ── Per-frame stages, in call order (run() step 2: loop) ────────────
@@ -163,6 +171,7 @@ private:
     void on_cycle_weather();
 #ifdef SWISH_DEBUG_UI
     void on_toggle_debug_edit();
+    void on_cycle_time_of_day();  // T: next time-of-day preset (procedural sky)
     void on_toggle_debug_controls();
     void on_controls_key(int key, int action);
     void on_capture_frame();  // F12: dump the frame to build-debug/captures/ (Shift also dumps the HDR scene colour)

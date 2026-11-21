@@ -284,8 +284,14 @@ void main() {
     if (alpha < 0.004) discard;
 
     // ── Refraction: offset the scene-snapshot lookup along the drop normal ─
+#ifdef SWISH_DEBUG_UI
+    // A bead is a tiny fisheye lens (Garg & Nayar 2004: ~165 deg field of view): it shows a minified, flipped view of
+    // the scene, so the lookup offset is much larger than a thin-film shift. 2.3x the host strength.
+    vec2 baseUV = clamp(screenUV - dropN.xy * rain.params.w * 2.3 * coverage, vec2(0.001), vec2(0.999));
+#else
     vec2 baseUV = clamp(screenUV - dropN.xy * rain.params.w * coverage,
                         vec2(0.001), vec2(0.999));
+#endif
 
     // Blur radius: a light haze-blur in the wet glass, ~0 through drops/rivulets.
     // Reduced (0.006 → 0.0025) so the road/lights stay readable through the clear
@@ -296,6 +302,12 @@ void main() {
     // Water darkens what it refracts — gives the lens body contrast against a
     // dull overcast sky so the bead reads as a glass droplet, not a ring.
     refracted *= mix(1.0, 0.85, coverage);
+#ifdef SWISH_DEBUG_UI
+    // Dark lens rim: near the contact line the bead surface is steep, rays leave at grazing angles and mostly see the
+    // dark car interior / total internal reflection. This dark ring is what makes beads read in the reference photos.
+    float rim = smoothstep(0.04, 0.16, length(dropN.xy)) * coverage;
+    refracted *= mix(1.0, 0.35, rim);
+#endif
 
     // ── Per-drop specular glint — the dominant "wet droplet" cue ──────────
     // Use the PER-DROP normal (not the macro glass normal) against a fixed

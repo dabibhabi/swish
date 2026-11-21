@@ -118,9 +118,19 @@ void Renderer::drawFrame(float deltaTime) {
     apply_debug_params();
 #endif
 
-    // Pre-camera-UBO CPU work of the registry passes (debug: auto-exposure readback, published in m_frameState).
+    // The active preset's EV100 clamps feed auto-exposure (HdrFinalizePass reads them from the blackboard).
+    m_frameState.evMin = m_weather.ev_min();
+    m_frameState.evMax = m_weather.ev_max();
+
+    // Pre-camera-UBO CPU work of the registry passes (auto-exposure readback, published in m_frameState).
     const FrameUpdate frameUpdate = make_frame_update(deltaTime);
     m_passes.begin_frame(frameUpdate);
+    // Auto-exposure chose this frame's pre-exposure; it must reach the camera UBO before update() below.
+    m_cameraUniforms->set_pre_exposure(m_frameState.preExposure);
+#ifdef SWISH_DEBUG_UI
+    m_debugParams.meter = {m_frameState.meterNits, m_frameState.meterEv,     m_frameState.meterEvUsed,
+                           m_frameState.exposure,  m_frameState.preExposure, m_frameState.meterClamp};
+#endif
 
     // ── CSM: fit per-cascade sun light-space matrices to the view frustum ──
     m_geometry.compute_cascades(*m_camera, m_weather.sun_dir(), tune());
@@ -129,6 +139,8 @@ void Renderer::drawFrame(float deltaTime) {
     m_cameraUniforms->update(m_currentFrame, *m_camera);
 
 #ifdef SWISH_DEBUG_UI
+    m_debugParams.spotsUploaded = static_cast<int>(m_cameraUniforms->spots_uploaded());
+    m_debugParams.spotsTotal    = static_cast<int>(m_cameraUniforms->spots_total());
     // Push the live "look" tunables into set 4 for this frame (identity to the
     // shipped constants at defaults, so nothing changes until a slider moves).
     m_sceneParams.update(m_currentFrame, m_debugParams);

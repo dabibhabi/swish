@@ -10,6 +10,7 @@
 #include "renderer/TextureManager/TextureManager.h"
 #include "scene/Camera/Camera.h"
 #include "scene/Entity/CarEntity.h"
+#include "scene/Entity/CarLooks.h"
 #include "scene/ModelManager/ModelManager.h"
 #include "scene/RoadGeometry/RoadGeometry.h"
 #include "scene/SceneManager/SceneManager.h"
@@ -188,11 +189,16 @@ void App::step_car_simulation(float dt, bool debug_edit) {
             } else
 #endif
             {
-            m_car->handle_input(m_window->getHandle(), dt);
-            m_car->update(dt);
+                m_car->handle_input(m_window->getHandle(), dt);
+                m_car->update(dt);
             }
         }
     }
+
+#ifdef SWISH_DEBUG_UI
+    // Lighting lab: the wall holds the car in (a position clamp; no collision physics).
+    if (m_labMode) m_car->set_position(lab_clamp_to_wall(m_car->get_position()));
+#endif
 
     // Snap Y to the road surface so wheels sit on it as the car steers.
     // On the Phase 3a corridor that query is a flat height
@@ -233,7 +239,24 @@ void App::step_car_simulation(float dt, bool debug_edit) {
 void App::sync_car_with_debug_panel(float dt, bool debug_edit) {
     DebugParams& dp    = m_renderer->debug_params();
     dp.steerPivotWorld = m_car->get_steering_wheel_pivot_world();
-    dp.steerMaxDeg     = m_car->steer_max();
+    if (m_labMode) {
+        // Teleport request from the panel (one-shot), then the light probe under the car.
+        const auto& stations = lab_stations();
+        if (dp.labTeleport >= 0 && dp.labTeleport < static_cast<int>(stations.size())) {
+            const LabStation& st = stations[static_cast<size_t>(dp.labTeleport)];
+            m_car->set_position(st.position);
+            m_car->set_rotation(Vec3(0.0f, st.yawDeg, 0.0f));
+            m_car->halt();
+            if (st.timeOfDay >= 0) {  // a place built for night switches the time of day with it
+                dp.skyProcedural = true;
+                dp.timeOfDay     = st.timeOfDay;
+            }
+        }
+        dp.labTeleport     = -1;
+        dp.labProbe        = lab_probe(m_labLights, m_labRoofs, m_car->get_position());
+        dp.labSunLuxGround = dp.sunLux * std::max(std::sin(dp.sunElevation), 0.0f);  // from the Elevation slider
+    }
+    dp.steerMaxDeg = m_car->steer_max();
     sync_driving_tools_panel(dp);
 
     // Telemetry readout (issue 5). Pure push of live car state into the
@@ -355,20 +378,71 @@ void App::push_car_to_renderer() {
     {
         const DebugParams&         dp = m_renderer->debug_params();
         std::vector<SpotLightDesc> spots;
-        if (dp.carLightsEnabled) {
+        // Which lamps are on. Mode 0 follows the panel switches and the time of day (lighting L6.6); the other
+        // modes are the showcase's fixed states: off, parking (tail only), low beam, brake held.
+        bool  headOn = false, tailOn = false;
+        float brake = dp.carBrakeForce ? 1.f : m_car->get_brake();
+        switch (dp.carLightsMode) {
+            case 1:
+                brake = 0.f;
+                break;
+            case 2:
+                tailOn = true;
+                break;
+            case 3:
+                headOn = tailOn = true;
+                break;
+            case 4:
+                headOn = tailOn = true;
+                brake           = 1.f;
+                break;
+            default: {
+                const bool on = dp.carLightsEnabled || dp.lampsOn;
+                headOn        = on && dp.carHeadlightsOn;
+                tailOn        = on && dp.carTailLightsOn;
+                if (!on) brake = 0.f;
+                break;
+            }
+        }
+        if (headOn || tailOn || brake > 0.f) {
             CarLightParams params;
-            params.headIntensity  = dp.carHeadIntensity;
-            params.headRangeM     = dp.carHeadRangeM;
-            params.headInnerDeg   = std::min(dp.carHeadInnerDeg, dp.carHeadOuterDeg);
-            params.headOuterDeg   = dp.carHeadOuterDeg;
-            params.tailIntensity  = dp.carTailIntensity;
-            params.brakeIntensity = dp.carBrakeIntensity;
-            params.tailRangeM     = dp.carTailRangeM;
-            const CarLightState state{dp.carHeadlightsOn, dp.carTailLightsOn,
-                                      dp.carBrakeForce ? 1.f : m_car->get_brake()};
-            spots = m_car->get_spot_lights(state, params);
+            params.headCutoff   = dp.headlightCutoff;
+            params.headConeRule = true;  // debug first: a tighter beam is brighter (lighting L6.4)
+            params.headLumens   = dp.carHeadLumens;
+            params.headRangeM   = dp.carHeadRangeM;
+            params.headInnerDeg = std::min(dp.carHeadInnerDeg, dp.carHeadOuterDeg);
+            params.headOuterDeg = dp.carHeadOuterDeg;
+            params.tailLumens   = dp.carTailLumens;
+            params.brakeLumens  = dp.carBrakeLumens;
+            params.tailRangeM   = dp.carTailRangeM;
+            spots               = m_car->get_spot_lights(CarLightState{headOn, tailOn, brake}, params);
         }
         m_renderer->set_car_spot_lights(spots);
+        // Lighting L5.2: the lenses glow while their lamp is on (emissive, so bloom picks them up).
+        m_car->set_lens_nits(headOn ? dp.lensNitsHead : 0.f, tailOn ? dp.lensNitsTail : 0.f, dp.lensNitsBrake * brake);
+
+        // Car showcase: the paint look goes through the material overrides of the body-paint slots; fixes and
+        // the wet surface are per-draw flags on the car.
+        {
+            DebugParams&      edit = m_renderer->debug_params();
+            const PaintFinish finish =
+                static_cast<PaintFinish>(std::clamp(dp.paintFinish, 0, static_cast<int>(PaintFinish::Count) - 1));
+            const PaintColour colour =
+                static_cast<PaintColour>(std::clamp(dp.paintColour, 0, static_cast<int>(PaintColour::Count) - 1));
+            const CarSurface surface =
+                static_cast<CarSurface>(std::clamp(dp.carSurface, 0, static_cast<int>(CarSurface::Count) - 1));
+            const PaintBase        base{m_car->paint_metalness(), kDefaultClearcoatStrength * dp.clearcoatMul,
+                                        dp.paintFlakeDensity};
+            const MaterialOverride look = paint_look(finish, colour, surface, base);
+            if (look.enabled || m_paint_look_applied) {
+                for (const MaterialId mat : m_car->paint_materials())
+                    edit.matOverrides[mat] = look.enabled ? look : MaterialOverride{};
+                m_paint_look_applied = look.enabled;
+            }
+            m_car->set_material_fixes(dp.materialFixes);
+            m_car->set_surface_wet(surface == CarSurface::Wet ? 1.f : 0.f);
+        }
+        m_car->set_exterior_wettable(dp.carWettable || dp.carSurface == 1);  // lighting L10.1
     }
 #endif
 
@@ -383,6 +457,34 @@ void App::push_car_to_renderer() {
 
 void App::update_camera(float dt, bool debug_edit) {
     m_camera_ctl.update(m_renderer->get_camera(), m_car.get(), dt, debug_edit);
+#ifdef SWISH_DEBUG_UI
+    {
+        DebugParams& dp = m_renderer->debug_params();
+        // Car showcase: the car's body as a box, for the grounding shadow under area lights. A sports car is
+        // about 4.5 x 1.3 x 1.9 m with 0.12 m of ground clearance.
+        using util::units::m;
+        CarOccluder box;
+        box.center  = m_car->get_position() + Vec3(0.0f, m(0.72f), 0.0f);
+        box.half    = Vec3(m(2.25f), m(0.60f), m(0.95f));
+        box.yawRad  = glm::radians(m_car->get_rotation().y);
+        box.enabled = dp.groundingShadow;
+        m_renderer->set_car_occluder(box);
+        // Turntable: orbit the camera around the parked car, always looking at it.
+        if (dp.turntable) {
+            if (Camera* cam = m_renderer->get_camera()) {
+                dp.turntableAngle  = std::fmod(dp.turntableAngle + dp.turntableSpeed * dt, 360.0f);
+                const float a      = glm::radians(dp.turntableAngle);
+                const Vec3  target = m_car->get_position() + Vec3(0.0f, m(0.6f), 0.0f);
+                const Vec3  eye    = target + Vec3(std::cos(a) * m(dp.turntableRadius), m(dp.turntableHeight - 0.6f),
+                                                   std::sin(a) * m(dp.turntableRadius));
+                const Vec3  d      = glm::normalize(target - eye);
+                cam->set_position(eye);
+                cam->set_yaw(glm::degrees(std::atan2(d.z, d.x)));
+                cam->set_pitch(glm::degrees(std::asin(d.y)));
+            }
+        }
+    }
+#endif
 }
 
 // Release GPU resources while the device is still alive (reverse order); the

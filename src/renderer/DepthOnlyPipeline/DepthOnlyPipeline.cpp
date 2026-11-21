@@ -1,9 +1,9 @@
-#include "utils/io/AppPaths.h"
 #include "DepthOnlyPipeline.h"
 
 #include "renderer/Pipeline/Pipeline.h"
 #include "renderer/Vertex.h"
 #include "scene/SceneTypes.h"  // (kept for parity with ScenePipeline; not strictly required)
+#include "utils/io/AppPaths.h"
 #include "utils/io/File.h"
 #include "utils/vulkan/Check.h"
 #include "utils/vulkan/ShaderModule.h"

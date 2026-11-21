@@ -25,6 +25,15 @@ void Renderer::set_car_spot_lights(const std::vector<SpotLightDesc>& spots) {
     m_cameraUniforms->set_spot_lights(spots);
 }
 
+void Renderer::set_world_spot_lights(const std::vector<SpotLightDesc>& spots) {
+    m_cameraUniforms->set_world_spot_lights(spots);
+}
+
+#ifdef SWISH_DEBUG_UI
+void Renderer::set_rect_lights(const std::vector<RectLightDesc>& rects) { m_cameraUniforms->set_rect_lights(rects); }
+void Renderer::set_car_occluder(const CarOccluder& box) { m_cameraUniforms->set_car_occluder(box); }
+#endif
+
 void Renderer::set_rain_intensity(float intensity) { m_rainIntensity = intensity; }
 
 float Renderer::get_wetness() const { return m_frameState.wetness; }
@@ -42,7 +51,7 @@ void Renderer::set_debug_edit_mode(bool edit) { m_debugParams.editMode = edit; }
 
 void Renderer::apply_debug_params() {
     // Weather half (sun gizmo, clarity, sun colour/ambient, IBL rebake) lives in WeatherController.
-    m_weather.apply_debug(m_debugParams);
+    m_weather.apply_debug(m_debugParams, m_frameState.wetness);
     // Rain intensity slider drives the same scalar as the R-key cycle.
     m_rainIntensity = m_debugParams.rainIntensity;
     // NOTE: ssaaApplyRequested is consumed at the top of drawFrame (recreate must

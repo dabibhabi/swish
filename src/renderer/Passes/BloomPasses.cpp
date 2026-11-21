@@ -1,6 +1,7 @@
 // Bloom: extract bright pixels (HDR -> 1/4 res), then a separable blur H and V. Three fullscreen passes, each
 // leaving its target in SHADER_READ_ONLY for the next. GPU objects live in PostProcessManager.
 #include "debug/DebugParams.h"
+#include "renderer/Passes/Exposure.h"
 #include "renderer/Passes/FullscreenPass.h"
 #include "renderer/PostProcessManager/PostProcessManager.h"
 #include "utils/vulkan/Barrier.h"
@@ -33,9 +34,11 @@ protected:
         d.layout                     = pm.get_postprocess_layout();
         d.sets[0]                    = pm.get_bloom_extract_set(c.frameIndex);
 
-        pp.threshold       = 1.77f;  // lie preset (was 1.0)
+        // The threshold is in EXPOSED space (L1.6): bloom_extract.frag multiplies by exposure first. 2.74 is the old
+        // raw 1.77 at the old fixed exposure of 1.55 (1.77 x 1.55), so the shipped look is unchanged.
+        pp.threshold       = 2.74f;
         pp.bloom_intensity = 0.45f;  // retuned: lie preset 1.097 was a 3.7x wash
-        pp.exposure        = 1.0f;
+        pp.exposure        = frame_exposure(c);
 #ifdef SWISH_DEBUG_UI
         pp.threshold       = c.tune.bloomThreshold;
         pp.bloom_intensity = c.tune.bloomIntensity;

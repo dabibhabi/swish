@@ -1,4 +1,3 @@
-#include "utils/io/AppPaths.h"
 #include "WindshieldRainPass.h"
 
 #include "renderer/CameraUniforms/CameraUniforms.h"
@@ -11,6 +10,7 @@
 #include "scene/Camera/Camera.h"
 #include "scene/Entity/CarEntity.h"  // CarEntity::kMaxSpeed for the windshield speed factor
 #include "scene/SceneTypes.h"
+#include "utils/io/AppPaths.h"
 #include "utils/units/Units.h"
 #include "utils/vulkan/Barrier.h"
 #include "utils/vulkan/Check.h"

@@ -36,6 +36,8 @@ Generic helpers with no subsystem state, organised **by topic**. One folder per 
 | `geometry/` | `Frustum.h` | `extract_frustum_planes`, `sphere_outside_frustum`. |
 | | `Polyline.h` | `polyline_length`, `polyline_sample` (arc-length position + tangent). |
 | `color/` | `Color.h` | `rgba(const float*)` to `glm::vec4`. |
+| `light/` | `Photometry.h` | Learning scaffold (stubs): `exposure_from_ev100`, `ev100_from_luminance`, lumens to candela, `inverse_square_m`, `kelvin_to_rgb`, `emissive_encode` / `emissive_decode`. Namespace `swish::util::light`. No user yet. |
+| | `ShadowFit.h` | Learning scaffold (stubs): `stable_light_up`, `snap_to_texel`, `cascade_bias`, `pick_shadow_casters`. No user yet. |
 | `container/` | `VectorOps.h` | `affine(vec, k, bias)`, `filled(n, v)` for `std::vector<float>`. |
 | `meta/` | `EnumCycle.h` | `CountedEnum` concept (scoped enums only), `enum_count<E>()`, `next_enum(e)`. |
 | | `Concepts.h` | `IndexEnum`, `FsmState` / `FsmEvent` / `FsmAction`, `TriviallyPackable` (push blocks, UBO mirrors, on-disk structs). Std-only: `RoadConfig.h` includes it and `toml_baker` builds it. |

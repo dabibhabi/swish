@@ -10,6 +10,12 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <sstream>
+#include <string>
+#include <vector>
 
 using namespace swish;
 using Catch::Approx;
@@ -80,4 +86,43 @@ TEST_CASE("snap_dash_to_chunk tiles the chunk exactly and keeps the dash:gap rat
     // 300000 / cycle is (nearly) an integer
     const float n = 300000.0f / (p.length + p.gap);
     CHECK(n == Approx(std::round(n)).margin(1e-3f));
+}
+
+// Rain P3: shaders/common/ruts.glsl hard-codes the endless corridor's cross-section (GLSL has no access to the corridor
+// header), and the debug "Asphalt UV tile" tunable assumes road.toml's asphalt tile. Any of them moving alone fails
+// here.
+namespace {
+std::map<std::string, double> read_key_values(const std::filesystem::path& path, const std::string& prefix) {
+    std::map<std::string, double> out;
+    std::ifstream                 in(path);
+    for (std::string line; std::getline(in, line);) {
+        std::istringstream       ls(line);
+        std::vector<std::string> tok;
+        for (std::string t; ls >> t;) tok.push_back(t);
+        // GLSL: const float NAME = VALUE;   TOML: name = value   # comment
+        if (prefix == "const" && tok.size() >= 5 && tok[0] == "const" && tok[1] == "float" && tok[3] == "=")
+            out[tok[2]] = std::stod(tok[4]);
+        if (prefix.empty() && tok.size() >= 3 && tok[1] == "=") {
+            try {
+                out[tok[0]] = std::stod(tok[2]);
+            } catch (...) {}
+        }
+    }
+    return out;
+}
+}  // namespace
+
+TEST_CASE("ruts.glsl cross-section matches the corridor config", "[roadparams][ruts]") {
+    const std::filesystem::path root = std::filesystem::path(__FILE__).parent_path().parent_path();
+    auto                        glsl = read_key_values(root / "shaders" / "common" / "ruts.glsl", "const");
+    auto                        cor  = read_key_values(root / "config" / "lie_corridor.toml", "");
+    REQUIRE(glsl.count("kRutLaneOriginWU") == 1);
+    REQUIRE(cor.count("lane_width_ft") == 1);
+    const double ft = u::kWuPerFt;
+    CHECK(glsl["kRutLaneWidthWU"] == Approx(cor["lane_width_ft"] * ft).margin(0.05));
+    CHECK(glsl["kRutLaneOriginWU"] ==
+          Approx((cor["median_half_width_ft"] + cor["inner_shoulder_ft"]) * ft).margin(0.05));
+
+    const RoadConfig c = load_road_config(CONFIG_DIR "road.bin");
+    CHECK(c.asphalt_tile == Approx(3000.0f));  // == DebugParams::rutUvTile default (Tunables.def [ruts] uv_tile)
 }

@@ -34,6 +34,10 @@ add_executable(swish_tests
     test_car_profiles.cpp
     test_wheel_articulation.cpp
     test_gauge_needles.cpp
+    test_car_looks.cpp         # car showcase: paint looks and material fixes
+    test_lighting_lab.cpp      # the debug-only lighting test world
+    test_time_of_day.cpp       # hidden [.learning] until the lighting stubs are implemented
+    test_corridor_lamps.cpp    # hidden [.learning]
     ${CMAKE_SOURCE_DIR}/src/scene/CarConfig/CarConfig.cpp   # config/car.toml loader (toml++)
 )
 

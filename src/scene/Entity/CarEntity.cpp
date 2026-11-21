@@ -704,8 +704,18 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
         dc.indexOffset = s.indexOffset;
         dc.indexCount  = s.indexCount;
         dc.material    = s.material;
-        dc.dry         = true;  // whole car excluded from wet-road effects (lighting.frag wettable mask)
-        dc.color       = s.is_interior ? Vec4(s.color.r, s.color.g, s.color.b, 1.0f + washAmount) : s.color;
+        // The car is excluded from wet-road effects (lighting.frag wettable mask) unless the exterior is opted in
+        // (lighting L10.1); the cabin always stays dry.
+        dc.dry          = !(m_exterior_wettable && !s.is_interior);
+        dc.emissiveNits = m_lens_nits[s.lens & 3u];
+        dc.isPaint      = s.is_paint;
+        if (m_material_fixes) {
+            if (s.fixMetalness >= 0.0f) dc.metalness = s.fixMetalness;
+            dc.roughnessMul = s.fixRoughnessMul;
+        }
+        dc.surfaceWet = s.is_interior ? 0.0f : m_surface_wet;
+        dc.color      = s.is_interior ? Vec4(s.color.r, s.color.g, s.color.b, 1.0f + washAmount) : s.color;
+        dc.metalness  = s.metalness;
 
         if (s.is_steering_wheel) {
             // The wheel spins left-right about local +Z (R). The debug correction C
@@ -753,6 +763,23 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
 #endif
 
     return result;
+}
+
+}  // namespace swish
+
+namespace swish {
+
+std::vector<MaterialId> CarEntity::paint_materials() const {
+    std::vector<MaterialId> out;
+    for (const auto& s : get_submeshes())
+        if (s.is_paint && std::find(out.begin(), out.end(), s.material) == out.end()) out.push_back(s.material);
+    return out;
+}
+
+float CarEntity::paint_metalness() const {
+    for (const auto& s : get_submeshes())
+        if (s.is_paint && s.metalness >= 0.0f) return s.metalness;
+    return 0.0f;
 }
 
 }  // namespace swish

@@ -37,7 +37,7 @@ TUNE_B(ssrEnabled, "ssr", "enabled", true, "Enabled##ssr", NOREL)
 TUNE_F(ssrIntensity, "ssr", "intensity", 0.714f, 0.0f, 2.0f, "Intensity##ssr", "%.3f", 3, PUSH(intensity), NOREL)
 TUNE_F(ssrMaxDist, "ssr", "max_dist", 36018.0f, 10000.0f, 500000.0f, "Max dist (WU)", "%.0f", 1, PUSH(maxDist), NOREL)
 TUNE_F(ssrThickness, "ssr", "thickness", 1835.0f, 200.0f, 20000.0f, "Thickness (WU)", "%.0f", 1, PUSH(thickness), NOREL)
-TUNE_F(ssrStride, "ssr", "stride", 8063.0f, 200.0f, 10000.0f, "Stride (WU)", "%.0f", 1, PUSH(stride), NOREL)
+TUNE_F(ssrStride, "ssr", "stride", 400.0f, 200.0f, 10000.0f, "Stride (WU)", "%.0f", 1, PUSH(stride), 8063.0f)
 
 // ── Reflections / IBL ─ ImGui header "Reflections / IBL", TOML table [reflection] ──
 // Debug builds pack these into SceneParamsUBO.iblParams.xy / fogParams.z (set 4); the release
@@ -54,10 +54,42 @@ TUNE_F(envGlossExp, "reflection", "env_gloss_exp", 3.0f, 0.5f, 8.0f, "Env gloss 
 // SP_PUDDLE_COVERAGE literal (== this default, pinned by tests/test_debug_params_io.cpp). SSR: PUSH copy into
 // SsrParams::puddleCoverage in BOTH builds (release uses this default too), zeroed by !puddlesEnabled in
 // SsrPass::describe (renderer/Passes/SsrPass.cpp), so SSR reflects in exactly the pools the lit pass turns to mirrors.
-TUNE_F(wetPorosity, "wet", "porosity", 0.631f, 0.0f, 1.0f, "Wet porosity", "%.3f", 3, NOPUSH, NOREL)
-TUNE_F(wetRoughness, "wet", "roughness", 1.0f, 0.0f, 1.0f, "Wet roughness", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(wetPorosity, "wet", "porosity", 0.631f, 0.0f, 1.0f, "Wet porosity (release; debug = Lekner-Dorf)", "%.3f", 3, NOPUSH, NOREL)
+// wetRoughness: debug 0.35 (Lagarde: gloss x2.5 when wet; reference photos read glossy), release stays 1.0 (SP_WET_ROUGHNESS).
+TUNE_F(wetRoughness, "wet", "roughness", 0.35f, 0.0f, 1.0f, "Wet roughness", "%.3f", 3, NOPUSH, 1.0f)
 TUNE_B(puddlesEnabled, "wet", "puddles_enabled", true, "Puddles##puddle", NOREL)
 TUNE_F(puddleCoverage, "wet", "puddle_coverage", 0.501f, 0.0f, 1.0f, "Puddle coverage", "%.3f", 3, PUSH(puddleCoverage), NOREL)
+
+// ── Rain impact splashes ─ ImGui header "Wet / Rain", TOML table [rain_splash] (tasks/todo.md "Rain impact
+// splashes") ── Debug-only draw: RainSystem::beginFrame packs these into the SplashPush block (rain_splash.vert/.frag).
+// NOPUSH: packed by hand. Release never draws splashes. Splashes scale with rain intensity, so intensity 0 = none.
+TUNE_B(splashEnabled, "rain_splash", "enabled", true, "Splashes##splash", NOREL)
+TUNE_F(splashCellSize, "rain_splash", "cell_size", 600.0f, 200.0f, 3000.0f, "Splash cell (WU)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(splashDensity, "rain_splash", "density", 0.5f, 0.0f, 1.0f, "Splash density", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(splashPeriod, "rain_splash", "period_s", 0.6f, 0.1f, 3.0f, "Splash period (s)", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(splashLife, "rain_splash", "life_s", 0.35f, 0.05f, 1.0f, "Splash life (s)", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(splashRingRadius, "rain_splash", "ring_radius", 80.0f, 20.0f, 1000.0f, "Ring radius (WU)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(splashRingTau, "rain_splash", "ring_tau_s", 0.06f, 0.01f, 0.5f, "Ring growth tau (s)", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(splashRingWidth, "rain_splash", "ring_width", 0.12f, 0.01f, 0.3f, "Ring band width", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(splashDropCount, "rain_splash", "drop_count", 3.0f, 0.0f, 4.0f, "Droplets per splash", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(splashDropSpeed, "rain_splash", "drop_speed", 1500.0f, 0.0f, 5000.0f, "Droplet speed (WU/s)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(splashDropSize, "rain_splash", "drop_size", 25.0f, 5.0f, 200.0f, "Droplet size (WU)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(splashBrightness, "rain_splash", "brightness", 0.35f, 0.0f, 3.0f, "Splash brightness", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(splashRoadOffset, "rain_splash", "road_offset", 0.0f, -500.0f, 500.0f, "Splash height offset (WU)", "%.0f", 0, NOPUSH, NOREL)
+
+// ── Wheel-track ruts ─ ImGui header "Wet / Rain", TOML table [ruts] (rain round 3, P3) ── Debug-only: GeometryProducer
+// pushes the asphalt UV tile (extra.w) so gbuffer.frag can find the lanes; lighting.frag / ssr.frag turn the decoded rut
+// into standing water. NOPUSH: packed by hand. rut_uv_tile MUST equal road.toml [tiling] asphalt (3000 WU).
+TUNE_B(rutEnabled, "ruts", "enabled", true, "Wheel-track ruts##ruts", NOREL)
+TUNE_F(rutUvTile, "ruts", "uv_tile", 3000.0f, 500.0f, 10000.0f, "Asphalt UV tile (WU, = road.toml)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(rutWater, "ruts", "water", 0.85f, 0.0f, 1.0f, "Rut water", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(rutRoughness, "ruts", "roughness", 0.06f, 0.02f, 0.5f, "Rut water roughness", "%.3f", 3, NOPUSH, NOREL)
+
+// ── Rain ripples ─ ImGui header "Wet / Rain", TOML table [ripples] (rain round 3, P4) ── Debug-only: procedural rings
+// on standing water (puddles + ruts) in lighting.frag; packed into iblParams.zw + shadowParams.w (rain clock).
+TUNE_B(rippleEnabled, "ripples", "enabled", true, "Rain ripples##ripples", NOREL)
+TUNE_F(rippleStrength, "ripples", "strength", 0.6f, 0.0f, 2.0f, "Ripple strength", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(rippleCell, "ripples", "cell", 350.0f, 150.0f, 1500.0f, "Ripple cell (WU)", "%.0f", 0, NOPUSH, NOREL)
 
 // ── Car lights ─ ImGui header "Car Lights", TOML table [car_lights] (tasks/todo.md "Car lights") ──
 // CPU-only (NOPUSH): App::push_car_to_renderer builds CarLightParams/CarLightState from these and
@@ -67,12 +99,12 @@ TUNE_B(carLightsEnabled, "car_lights", "enabled", false, "Car lights##cl", NOREL
 TUNE_B(carHeadlightsOn, "car_lights", "headlights_on", true, "Headlights##cl", NOREL)
 TUNE_B(carTailLightsOn, "car_lights", "tail_lights_on", true, "Tail lights##cl", NOREL)
 TUNE_B(carBrakeForce, "car_lights", "brake_force", false, "Hold brake lights##cl", NOREL)
-TUNE_F(carHeadIntensity, "car_lights", "head_intensity", 30.0f, 0.0f, 200.0f, "Headlight intensity", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carHeadLumens, "car_lights", "head_lumens", 1200.0f, 0.0f, 4000.0f, "Headlight flux (lm)", "%.0f", 0, NOPUSH, NOREL)
 TUNE_F(carHeadRangeM, "car_lights", "head_range_m", 60.0f, 5.0f, 150.0f, "Headlight range (m)", "%.0f", 1, NOPUSH, NOREL)
-TUNE_F(carHeadInnerDeg, "car_lights", "head_inner_deg", 12.0f, 1.0f, 45.0f, "Beam inner (deg)", "%.1f", 1, NOPUSH, NOREL)
-TUNE_F(carHeadOuterDeg, "car_lights", "head_outer_deg", 28.0f, 2.0f, 60.0f, "Beam outer (deg)", "%.1f", 1, NOPUSH, NOREL)
-TUNE_F(carTailIntensity, "car_lights", "tail_intensity", 1.5f, 0.0f, 20.0f, "Tail intensity", "%.2f", 2, NOPUSH, NOREL)
-TUNE_F(carBrakeIntensity, "car_lights", "brake_intensity", 6.0f, 0.0f, 50.0f, "Brake intensity", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(carHeadInnerDeg, "car_lights", "head_inner_deg", 8.0f, 1.0f, 45.0f, "Beam inner (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carHeadOuterDeg, "car_lights", "head_outer_deg", 16.0f, 2.0f, 60.0f, "Beam outer (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carTailLumens, "car_lights", "tail_lumens", 20.0f, 0.0f, 200.0f, "Tail flux (lm)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(carBrakeLumens, "car_lights", "brake_lumens", 300.0f, 0.0f, 1000.0f, "Brake flux (lm)", "%.0f", 0, NOPUSH, NOREL)
 TUNE_F(carTailRangeM, "car_lights", "tail_range_m", 6.0f, 1.0f, 30.0f, "Tail range (m)", "%.1f", 1, NOPUSH, NOREL)
 // ── Wipers ─ ImGui header "Wet / Rain", config/car.toml table [wipers] (tasks/todo.md "Rigged Porsche" S1b) ──
 // CPU-only (NOPUSH): App::update_wiper copies these into WiperParams each frame. The shipped values live in

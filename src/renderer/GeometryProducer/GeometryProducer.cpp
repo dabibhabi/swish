@@ -7,6 +7,7 @@
 #include "renderer/Renderer/RendererServices.h"
 #include "scene/Camera/Camera.h"
 #include "utils/geometry/Frustum.h"
+#include "utils/light/ShadowFit.h"
 #include "utils/vulkan/Barrier.h"
 #include "utils/vulkan/RenderScope.h"
 
@@ -116,13 +117,12 @@ void GeometryProducer::compute_cascades(const Camera& camera, const Vec3& sunDir
 
     // Shadows only matter within a bounded range; cap the far cascade far short of
     // the ~2 km camera far so cascades pack resolution where shadows are visible.
-    float shadowFar = 400000.0f;  // ~400 m
-    float lambda    = 0.7f;       // practical-split blend (log vs uniform)
+    constexpr uint32_t pp_shadow_dim = 2048;       // PostProcessManager::kShadowDim (one cascade's resolution)
+    float              shadowFar     = 400000.0f;  // ~400 m
+    float              lambda        = 0.7f;       // practical-split blend (log vs uniform)
 #ifdef SWISH_DEBUG_UI
     shadowFar = tune.csmShadowFar;
     lambda    = tune.csmLambda;
-#else
-    (void)tune;
 #endif
     shadowFar              = std::min(shadowFar, camFar);
     const float shadowNear = camNear;
@@ -170,9 +170,21 @@ void GeometryProducer::compute_cascades(const Camera& camera, const Vec3& sunDir
         for (const Vec3& p : corners) radius = std::max(radius, glm::length(p - center));
         radius = std::ceil(radius);
 
+        // Lighting L3.1 / L3.2 (DebugParams::shadowStableFit; on in debug, off in release): an up vector that
+        // cannot line up with the light (lookAt degenerates with the sun near the zenith), and the cascade
+        // centre snapped to whole shadow texels in light space so shadow edges do not crawl while driving.
+        Vec3 up(0.0f, 1.0f, 0.0f);
+        if (tune.shadowStableFit) {
+            up                     = util::light::stable_light_up(sunDir);
+            const Mat4  lightRot   = glm::lookAt(Vec3(0.0f), sunDir, up);  // same orientation as lightView below
+            const float texelWorld = 2.0f * radius / static_cast<float>(pp_shadow_dim);
+            const Vec3  snapped    = util::light::snap_to_texel(Vec3(lightRot * Vec4(center, 1.0f)), texelWorld);
+            center                 = Vec3(glm::inverse(lightRot) * Vec4(snapped, 1.0f));
+        }
+
         const float margin    = radius;  // pull the near plane back to catch occluders behind the slice
         const Vec3  eye       = center - sunDir * (radius + margin);
-        const Mat4  lightView = glm::lookAt(eye, center, Vec3(0.0f, 1.0f, 0.0f));
+        const Mat4  lightView = glm::lookAt(eye, center, up);
         const Mat4  lightProj = glm::ortho(-radius, radius, -radius, radius, 0.0f, 2.0f * radius + margin);
 
         m_cascadeVP[k]     = lightProj * lightView;
@@ -226,10 +238,12 @@ void GeometryProducer::record_gbuffer(const FrameCtx& c) {
     float       flakeScale  = 8.0f;
     float       flakeJitter = 0.35f;
 #ifdef SWISH_DEBUG_UI
-    paint.clearcoatMul    = c.tune.clearcoatMul;
-    paint.flakeDensityMul = c.tune.flakeDensityMul;
-    flakeScale            = c.tune.flakeScale;
-    flakeJitter           = c.tune.flakeJitter;
+    paint.clearcoatMul      = c.tune.clearcoatMul;
+    paint.flakeDensityMul   = c.tune.flakeDensityMul;
+    paint.paintFlakeDensity = c.tune.paintFlakeDensity;
+    flakeScale              = c.tune.flakeScale;
+    flakeJitter             = c.tune.flakeJitter;
+    paint.rutUvTile         = c.tune.rutEnabled ? c.tune.rutUvTile : 0.0f;
 #endif
 
     [[maybe_unused]] CullStats stats;  // read only in debug-UI builds
@@ -238,14 +252,19 @@ void GeometryProducer::record_gbuffer(const FrameCtx& c) {
     sp = &stats;
 #endif
 
+    // Emissive surfaces (lighting L5): world lamp heads glow only while the lamps are on; the car's lenses carry
+    // their own on/off in the draw call. Both are pre-exposed like every other light.
+    const float staticEmissive = (c.tune.lampsOn || c.tune.labActive) ? c.state.preExposure : 0.0f;
+
     // Authored intro (shifted by the origin rebase), then the endless-road chunks
     // (one canonical mesh instanced at each active slot), interchanges, corridor, then the dynamic car.
     MaterialDescriptors& materials = *c.res.materials;
     for_each_static([&](const SceneGeometry& g, const Vec3& offset) {
-        g.record_draws(cmd, m_scenePipeline, materials, overrides, cull, offset, sp, paint, flakeScale, flakeJitter);
+        g.record_draws(cmd, m_scenePipeline, materials, overrides, cull, offset, sp, paint, flakeScale, flakeJitter,
+                       staticEmissive);
     });
     m_dynamic.record_draws(cmd, m_scenePipeline, materials, overrides, cull, Vec3(0.0f), sp, paint, flakeScale,
-                           flakeJitter);
+                           flakeJitter, c.state.preExposure);
 #ifdef SWISH_DEBUG_UI
     m_lastMainCull = stats;
 #endif

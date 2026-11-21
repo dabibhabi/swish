@@ -18,16 +18,15 @@
 
 namespace swish::util::units {
 
-
 namespace dim {
-    struct wu;
-    struct metre;
-    struct metre_per_second;
-    struct second;
-    struct radian;
-    struct degree;
-    struct rpm;
-}  
+struct wu;
+struct metre;
+struct metre_per_second;
+struct second;
+struct radian;
+struct degree;
+struct rpm;
+}  // namespace dim
 
 template <class Tag>
 class Quantity {
@@ -39,7 +38,6 @@ public:
 
     [[nodiscard]] constexpr float value() const noexcept { return m_v; }
 
-    
     constexpr auto& operator+=(this auto& self, Quantity o) noexcept {
         self.m_v += o.m_v;
         return self;
@@ -63,10 +61,9 @@ public:
     friend constexpr Quantity operator*(Quantity a, float k) noexcept { return a *= k; }
     friend constexpr Quantity operator*(float k, Quantity a) noexcept { return a *= k; }
     friend constexpr Quantity operator/(Quantity a, float k) noexcept { return a /= k; }
-    
+
     friend constexpr float operator/(Quantity a, Quantity b) noexcept { return a.m_v / b.m_v; }
 
-    
     constexpr auto operator<=>(const Quantity&) const noexcept = default;
 
 private:
@@ -81,4 +78,4 @@ using Radians         = Quantity<dim::radian>;
 using Degrees         = Quantity<dim::degree>;
 using Rpm             = Quantity<dim::rpm>;
 
-} 
+}  // namespace swish::util::units

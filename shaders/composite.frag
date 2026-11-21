@@ -25,22 +25,27 @@ layout(push_constant) uniform Params {
     float saturation;
     float temperature;
     float tint;
+    // Tail padding: 52 B -> 64 B, matching PostProcessParams on the host (never read).
+    float _pad3;
+    float _pad4;
+    float _pad5;
 } params;
 
 layout(location = 0) out vec4 outColor;
 
 // AgX tonemapper — Blender 3.4 (Troy Sobotka).
 // Better hue preservation and saturation handling than ACES Narkowicz.
-// GLSL mat3 is column-major.
+// GLSL mat3 is column-major: each line below is one COLUMN. (Until 2026-11-20 the reference rows were typed here as
+// columns, i.e. transposed, which turned neutral grey 0.18 into (62,51,51) sRGB: the long-standing pink/magenta cast.)
 const mat3 kAgXInset = mat3(
-    0.842479062253094,  0.0784335999999992, 0.0792237451477643,
-    0.0423282422610123, 0.878468636469772,  0.0791661274605434,
-    0.0423756549057051, 0.0784336,          0.879465981976014
+    0.842479062253094,  0.0423282422610123, 0.0423756549057051,
+    0.0784335999999992, 0.878468636469772,  0.0784336,
+    0.0792237451477643, 0.0791661274605434, 0.879465981976014
 );
 const mat3 kAgXOutset = mat3(
-     1.19687900512017,   -0.0980208811401368, -0.0990297440797205,
-    -0.0528968517574562,  1.15190312990417,   -0.0989611768448433,
-    -0.0529716355144438, -0.0980434501171241,  1.15107367264116
+     1.19687900512017,   -0.0528968517574562, -0.0529716355144438,
+    -0.0980208811401368,  1.15190312990417,   -0.0980434501171241,
+    -0.0990297440797205, -0.0989611768448433,  1.15107367264116
 );
 
 float agxCurve(float x) {
@@ -108,6 +113,9 @@ void main() {
     // (already Fresnel/intensity-weighted in the SSR pass; zero on a miss, where
     // the sky IBL baked into hdr is the fallback).
     hdr += texture(ssrTex, fragUV).rgb;
+#ifdef SWISH_DEBUG_UI
+    hdr = max(hdr, vec3(0.0));  // rain P2d: SSR now subtracts the env reflection it replaces
+#endif
 
     // God-rays: sun-anchored light shafts (half-res, linearly upsampled here),
     // already density/decay/weight/intensity-weighted in the god-rays pass.
@@ -118,6 +126,29 @@ void main() {
 
     // Exposure adjustment
     hdr *= params.exposure;
+
+#ifdef SWISH_DEBUG_UI
+    // Lighting-lab views (DebugParams::labViewMode rides in the first padding lane).
+    if (params._pad3 > 1.5) {
+        // Bloom mask: only what the bloom extract kept, exposed the way the composite adds it.
+        outColor = vec4(clamp(bloom * params.bloom_intensity * params.exposure, 0.0, 1.0), 1.0);
+        return;
+    }
+    if (params._pad3 > 0.5) {
+        // False colour by exposed luminance: what the exposure is doing to the image, before the tonemap.
+        //   < 0.01 deep blue (crushed)   < 0.05 blue (shadow)   0.05 .. 0.14 and 0.24 .. 1 grey (as lit)
+        //   0.14 .. 0.24 green (around middle grey, 0.18)   1 .. 2 yellow (above display white)   > 2 red (clipped)
+        float v = dot(hdr, LUMA_709);
+        vec3  c = vec3(clamp(v, 0.0, 1.0));
+        if (v < 0.01) c = vec3(0.02, 0.02, 0.30);
+        else if (v < 0.05) c = vec3(0.10, 0.25, 0.80);
+        else if (v > 2.0) c = vec3(0.90, 0.05, 0.05);
+        else if (v > 1.0) c = vec3(0.95, 0.85, 0.10);
+        else if (v > 0.14 && v < 0.24) c = vec3(0.10, 0.65, 0.20);
+        outColor = vec4(c, 1.0);
+        return;
+    }
+#endif
 
     // White balance (linear, pre-tonemap): temperature warms (+R/-B), tint -G (magenta).
     hdr *= vec3(1.0 + params.temperature * 0.20, 1.0 - params.tint * 0.20, 1.0 - params.temperature * 0.20);

@@ -1,5 +1,4 @@
 // App startup: init() and its named steps (window/renderer, textures, scene, car).
-#include "utils/io/AppPaths.h"
 #include "App.h"
 #include "core/Window/Window.h"
 #include "renderer/Renderer/Renderer.h"
@@ -12,9 +11,11 @@
 #include "scene/RoadGeometry/RoadGeometry.h"
 #include "scene/RoadScene/MeshBuilder.h"
 #include "scene/SceneManager/SceneManager.h"
+#include "utils/io/AppPaths.h"
 
 #include <GLFW/glfw3.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -48,8 +49,10 @@ std::vector<uint8_t> make_rumble_pixels(uint32_t w, uint32_t h) {
 
 void App::init() {
 #ifdef SWISH_DEBUG_UI
-    if (const char* lookdev = std::getenv("SWISH_LOOKDEV"))
-        m_lookdevMode = lookdev[0] != '\0' && lookdev[0] != '0';
+    if (const char* lookdev = std::getenv("SWISH_LOOKDEV")) m_lookdevMode = lookdev[0] != '\0' && lookdev[0] != '0';
+    // SWISH_LAB=1: the lighting lab world instead of the LIE corridor (docs/lighting-lab.md).
+    if (const char* lab = std::getenv("SWISH_LAB")) m_labMode = lab[0] != '\0' && lab[0] != '0';
+    if (m_labMode) m_lookdevMode = true;  // same no-corridor, big-window paths
 #endif
     // Road geometry math lives in RoadGeometry (pure, static); the drivable road
     // and its per-frame update live in m_corridor (CorridorDriver).
@@ -75,7 +78,7 @@ void App::init_window_and_renderer() {
     m_window = std::make_unique<Window>();
 #ifdef SWISH_DEBUG_UI
     m_window->init(m_lookdevMode ? 1440 : 800, m_lookdevMode ? 900 : 600,
-                   m_lookdevMode ? "swish - lighting workbench" : "swish");
+                   m_labMode ? "swish - lighting lab" : (m_lookdevMode ? "swish - lighting workbench" : "swish"));
 #else
     m_window->init(800, 600, "swish");
 #endif
@@ -141,7 +144,12 @@ void App::build_road_scene(Renderer& renderer) {
     // One vertex buffer + one render offset per 1.2 km segment; see
     // CorridorScene for why the subdivision exists (vertex precision and
     // arc-length UV range, not the 2 m quantisation the design note feared).
-    std::vector<CorridorSegment>   segments = build_corridor_segments(m_corridor_alignment);
+#ifdef SWISH_DEBUG_UI
+    const bool withLamps = true;  // lighting L6.1 (debug first): street lamps on the median
+#else
+    const bool withLamps = false;
+#endif
+    std::vector<CorridorSegment>   segments = build_corridor_segments(m_corridor_alignment, withLamps);
     std::vector<CorridorPlacement> places;
     places.reserve(segments.size());
     size_t corridorDraws = 0;
@@ -177,11 +185,13 @@ void App::build_road_scene(Renderer& renderer) {
 void App::init_scenes() {
     std::vector<Scene> scenes;
 #ifdef SWISH_DEBUG_UI
-    if (m_lookdevMode)
+    if (m_labMode)
+        scenes.push_back([this](Renderer& renderer) { build_lab_scene(renderer); });
+    else if (m_lookdevMode)
         scenes.push_back([this](Renderer& renderer) { build_lookdev_scene(renderer); });
     else
 #endif
-    scenes.push_back([this](Renderer& renderer) { build_road_scene(renderer); });
+        scenes.push_back([this](Renderer& renderer) { build_road_scene(renderer); });
 
     m_sceneManager = std::make_unique<SceneManager>(*m_renderer, std::move(scenes));
 
@@ -194,13 +204,12 @@ namespace {
 // The first-launch studio pad is kept intact in width, material, and camera.
 // Extend only its drive axis; the car is clamped before the far-plane horizon.
 constexpr float kLookdevBaseRoadHalfLengthWU = 250000.0f;
-constexpr float kLookdevRoadScale = 5.0f;
-constexpr float kLookdevRoadHalfLengthWU = kLookdevBaseRoadHalfLengthWU * kLookdevRoadScale;
-constexpr float kLookdevRoadHalfWidthWU = 250000.0f;
-constexpr float kLookdevCameraFarWU = 600000.0f;
-constexpr float kLookdevRoadEndMarginWU = 50000.0f;
-constexpr float kLookdevDriveHalfLengthWU =
-    kLookdevRoadHalfLengthWU - kLookdevCameraFarWU - kLookdevRoadEndMarginWU;
+constexpr float kLookdevRoadScale            = 5.0f;
+constexpr float kLookdevRoadHalfLengthWU     = kLookdevBaseRoadHalfLengthWU * kLookdevRoadScale;
+constexpr float kLookdevRoadHalfWidthWU      = 250000.0f;
+constexpr float kLookdevCameraFarWU          = 600000.0f;
+constexpr float kLookdevRoadEndMarginWU      = 50000.0f;
+constexpr float kLookdevDriveHalfLengthWU    = kLookdevRoadHalfLengthWU - kLookdevCameraFarWU - kLookdevRoadEndMarginWU;
 static_assert(kLookdevRoadScale == 5.0f && kLookdevDriveHalfLengthWU > 0.0f);
 static_assert(kLookdevRoadHalfLengthWU - kLookdevDriveHalfLengthWU > kLookdevCameraFarWU);
 }  // namespace
@@ -210,12 +219,12 @@ static_assert(kLookdevRoadHalfLengthWU - kLookdevDriveHalfLengthWU > kLookdevCam
 void App::build_lookdev_scene(Renderer& renderer) {
     RoadGeometry::set_flat_surface(0.0f);
 
-    MeshData mesh;
+    MeshData              mesh;
     std::vector<DrawCall> draws;
-    MeshBuilder builder(mesh, draws);
+    MeshBuilder           builder(mesh, draws);
     builder.addHorizontalQuad(-kLookdevRoadHalfLengthWU, kLookdevRoadHalfLengthWU, 0.0f, -kLookdevRoadHalfWidthWU,
-                              kLookdevRoadHalfWidthWU, Vec3(0.0f, 1.0f, 0.0f),
-                              Vec4(0.26f, 0.28f, 0.31f, 1.0f), MAT_ASPHALT, 20000.0f);
+                              kLookdevRoadHalfWidthWU, Vec3(0.0f, 1.0f, 0.0f), Vec4(0.26f, 0.28f, 0.31f, 1.0f),
+                              MAT_ASPHALT, 20000.0f);
     renderer.upload_scene_geometry(mesh, draws);
 
     auto camera = std::make_unique<Camera>();
@@ -224,9 +233,46 @@ void App::build_lookdev_scene(Renderer& renderer) {
     camera->set_pitch(-7.0f);
     camera->set_collision_enabled(false);
     const VkExtent2D extent = renderer.services().swapchainExtent;
-    const float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
+    const float      aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
     camera->set_perspective(55.0f, aspect, 10.0f, kLookdevCameraFarWU);
     m_camera_ctl.set_base_fov(camera->get_fov());  // read before the move
+    renderer.set_camera(std::move(camera));
+    m_camera_ctl.set_mode(CameraMode::Chase);
+}
+#endif
+
+#ifdef SWISH_DEBUG_UI
+// The lighting lab (tasks/todo.md "Lighting lab"): a walled, paved 2-mile box with a station per scenario.
+// Geometry, lamps and roof volumes come from scene/LightingLab (pure); this only uploads them.
+void App::build_lab_scene(Renderer& renderer) {
+    RoadGeometry::set_flat_surface(0.0f);
+
+    LightingLabWorld world = build_lighting_lab();
+    renderer.upload_scene_geometry(world.mesh, world.draws);
+    renderer.set_scene_lights(world.lights);
+    renderer.set_rect_lights(world.rects);  // the showcase places' area lights
+    m_labLights = world.lights;
+    m_labRoofs  = world.roofs;
+
+    DebugParams& dp = renderer.debug_params();
+    dp.labActive    = true;
+    dp.rectsTotal   = static_cast<int>(world.rects.size());
+    dp.labRoofCount = static_cast<int>(std::min<size_t>(world.roofs.size(), dp.labRoofs.size()));
+    for (int i = 0; i < dp.labRoofCount; ++i) dp.labRoofs[static_cast<size_t>(i)] = world.roofs[static_cast<size_t>(i)];
+    // Dusk and night need the pre-exposure to follow the exposure (a fixed one bands in the dark).
+    dp.adaptivePreExposure = true;
+    std::cout << "[lab] lighting lab: " << world.draws.size() << " draw calls, " << world.lights.size() << " lamps, "
+              << world.roofs.size() << " roof volumes" << std::endl;
+
+    auto camera = std::make_unique<Camera>();
+    camera->set_position(Vec3(0.0f, 2200.0f, 6500.0f));
+    camera->set_yaw(-90.0f);  // looking along -Z, down the lanes
+    camera->set_pitch(-7.0f);
+    camera->set_collision_enabled(false);
+    const VkExtent2D extent = renderer.services().swapchainExtent;
+    const float      aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
+    camera->set_perspective(55.0f, aspect, 10.0f, 1500000.0f);  // 1.5 km: the far lanes stay visible
+    m_camera_ctl.set_base_fov(camera->get_fov());
     renderer.set_camera(std::move(camera));
     m_camera_ctl.set_mode(CameraMode::Chase);
 }
@@ -278,7 +324,12 @@ void App::load_car() {
     m_car = std::move(car_entity);
 
 #ifdef SWISH_DEBUG_UI
-    if (m_lookdevMode) {
+    if (m_labMode) {
+        const LabStation& start = lab_stations()[static_cast<size_t>(LabStationId::Start)];
+        m_car->set_position(start.position);
+        m_car->set_rotation(Vec3(0.0f, start.yawDeg, 0.0f));
+        m_car->set_road_bounds(-1e9f, 1e9f);  // the lab wall clamps x and z (App::step_car_simulation)
+    } else if (m_lookdevMode) {
         m_car->set_position(Vec3(0.0f));
         m_car->set_rotation(Vec3(0.0f));
         m_car->set_road_bounds(-kLookdevDriveHalfLengthWU, kLookdevDriveHalfLengthWU);

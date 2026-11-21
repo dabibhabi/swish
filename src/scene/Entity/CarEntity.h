@@ -54,6 +54,29 @@ public:
     void              apply_profile(const CarProfile& profile);
     const CarProfile& get_profile() const { return m_profile; }
 
+    // Luminance of the lamp lenses this frame, cd/m² (lighting L5.2): 0 = lamp off. Applied in get_draw_calls.
+    void set_lens_nits(float head, float tail, float brake) {
+        m_lens_nits[1] = head;
+        m_lens_nits[2] = tail;
+        m_lens_nits[3] = brake;
+    }
+    // Let rain wet the exterior (lighting L10.1); the cabin always stays dry.
+    void set_exterior_wettable(bool wettable) { m_exterior_wettable = wettable; }
+
+    // Car showcase: by-name material corrections, a rain-wet exterior with beaded drops, and the body paint's
+    // material slots and asset metalness (for the looks panel).
+    void                    set_material_fixes(bool on) { m_material_fixes = on; }
+    void                    set_surface_wet(float wet) { m_surface_wet = wet; }
+    std::vector<MaterialId> paint_materials() const;
+    float                   paint_metalness() const;
+
+    // Stop dead (teleports): forward speed, lateral velocity and yaw rate to zero.
+    void halt() {
+        m_forward_speed    = 0.f;
+        m_lateral_velocity = 0.f;
+        m_yaw_rate         = 0.f;
+    }
+
     // Clamp position to road bounds (X axis).
     void set_road_bounds(float min_x, float max_x) {
         m_min_x = min_x;
@@ -390,8 +413,12 @@ private:
     float m_lateral_velocity = 0.f;  // m/s (body rightward)
     float m_yaw_rate         = 0.f;  // rad/s (right-positive; heading -= deg(r)·dt)
 
-    float m_min_x = -1e9f;
-    float m_max_x = 1e9f;
+    float                m_min_x = -1e9f;
+    std::array<float, 4> m_lens_nits{};  // by Submesh::lens (0 unused)
+    bool                 m_exterior_wettable = false;
+    bool                 m_material_fixes    = false;
+    float                m_surface_wet       = 0.0f;
+    float                m_max_x             = 1e9f;
 
     // Kinematic / control constants (~1000 WU/m scale, 1 mph ≈ 447 WU/s).
     // The longitudinal + tire DYNAMICS constants live in CarParams (CarPhysics.h);

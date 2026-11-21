@@ -1,7 +1,7 @@
 #version 450
 
 // ── IBL bake stage 1: procedural sky → one cube face ──────────────────
-// Renders compute_sky_color() (from lighting.frag) into a cube face. All sky
+// Renders the procedural sky gradient (the same math as basic.frag's compute_sky_color) into a cube face. All sky
 // params arrive via push constants — the CPU pre-mixes the clarity blend and
 // supplies the per-face basis — so the bake is decoupled from the camera/
 // scene-params UBOs and runs at init (before the camera/scene exist) and again
@@ -18,15 +18,29 @@ layout(push_constant) uniform P {
     vec4 horizon;   // rgb = clarity-mixed horizon colour
     vec4 zenith;    // rgb = clarity-mixed zenith colour, w = sun-disc exponent
     vec4 sunDir;    // xyz = sun direction (world),        w = sun-disc strength
-    vec4 sunColor;  // rgb = sun colour
+    vec4 sunColor;  // rgb = sun colour, w = 1 selects the atmosphere model below
 } pc;
+
+// Atmosphere mode (lighting L2, w of sunColor > 0.5) reuses the same lanes:
+//   sunDir  = sun direction,  w = lux at the top of the atmosphere
+//   horizon = moon direction, w = its lux at the top of the atmosphere
+//   zenith  = (turbidity, cloud blend, airglow nits, 1 / cube scale)
+//   sunColor.x = overcast zenith nits
+// The cube then holds sky nits / cube scale (no sun disc: the sun is an analytic light).
+#include "atmosphere.glsl"
 
 void main() {
     // Direction for this face pixel: centre + right·s + up·t, s,t ∈ [-1,1].
     vec2 st  = fragUV * 2.0 - 1.0;
     vec3 dir = normalize(pc.faceF.xyz + st.x * pc.faceR.xyz + st.y * pc.faceU.xyz);
 
-    // Identical math to lighting.frag::compute_sky_color (clarity already folded
+    if (pc.sunColor.w > 0.5) {
+        vec3 nits = atmSky(dir, pc.sunDir, pc.horizon, vec4(pc.zenith.xyz, pc.sunColor.x));
+        outColor  = vec4(nits * pc.zenith.w, 1.0);
+        return;
+    }
+
+    // Same math as basic.frag::compute_sky_color (clarity already folded
     // into horizon/zenith/exp/str on the CPU).
     float t   = clamp(dir.y * 2.0 + 0.3, 0.0, 1.0);
     vec3  sky = mix(pc.horizon.rgb, pc.zenith.rgb, pow(t, 1.5));

@@ -1,9 +1,12 @@
-#include "utils/io/AppPaths.h"
 #include "CorridorScene.h"
 
+#include "scene/RoadScene/MeshShapes.h"
 #include "scene/RoadScene/RoadConfig.h"
 #include "scene/RoadScene/RoadScene.h"  // MeshBuilder + emit_sweep_* + build_sweep_frames
 #include "utils/container/VectorOps.h"
+#include "utils/io/AppPaths.h"
+#include "utils/light/Photometry.h"
+#include "utils/units/Units.h"
 
 #include <algorithm>
 #include <cmath>
@@ -41,7 +44,7 @@ using util::container::filled;
 
 }  // namespace
 
-std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al) {
+std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al, bool withLamps) {
     std::vector<CorridorSegment> out;
     if (!al.valid()) return out;
 
@@ -161,6 +164,7 @@ std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al
                                         look.concreteTile);
             }
 
+            const size_t firstMarking = seg.draws.size();
             // ── Edge lines ────────────────────────────────────────────
             // On a divided highway the LEFT (median-side) edge line is yellow
             // and the RIGHT is white — per carriageway, both directions.
@@ -180,6 +184,50 @@ std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al
                                           look.white);
                 builder.emit_sweep_dashes(sl.frames, -t - 0.5f * ew, -t + 0.5f * ew, my, h.dashLength, h.dashGap, phase,
                                           look.white);
+            }
+            // Lighting L8.1: road paint is retroreflective (glass beads). A tag only; the debug shader's spot
+            // loop turns it into the glow you see in your own headlights.
+            for (size_t i = firstMarking; i < seg.draws.size(); ++i) seg.draws[i].retro = 1.0f;
+        }
+
+        // ── Street lamps on the median (lighting L6.1) ────────────────
+        // A pole on the centre-line every kCorridorLampSpacingM, an arm and a glowing head over each
+        // carriageway, and one downward spot per pole (about 2,100 K sodium). Stations are multiples of the
+        // spacing over the whole corridor, so the row does not restart at segment seams.
+        if (withLamps) {
+            namespace ul = util::light;
+            using util::units::m;
+            const double spacing = static_cast<double>(m(kCorridorLampSpacingM));
+            const float  top     = ry + m(kCorridorLampHeightM);
+            const float  reach   = m(3.0f);  // arm length to each side
+            const Vec3   sodium  = ul::kelvin_to_rgb(2100.0f);
+            const float  half    = 70.0f * util::units::kRadPerDeg;
+            const Vec4   steel(0.45f, 0.46f, 0.48f, 1.0f), lens(0.95f, 0.9f, 0.8f, 1.0f);
+            for (double st = std::ceil(s0 / spacing) * spacing; st < s1; st += spacing) {
+                const CorridorAlignment::Sample sm = al.sample(st);
+                if (al.in_turnaround(st)) continue;  // no median there
+                const Vec3  base(static_cast<float>(sm.x - seg.originX), ry, static_cast<float>(sm.z - seg.originZ));
+                const Vec3  fwd(sm.tx, 0.0f, sm.tz), right(-sm.tz, 0.0f, sm.tx), up(0.0f, 1.0f, 0.0f);
+                const float t = m(0.12f);
+                mesh_shapes::oriented_box(builder, base + up * (0.5f * (top - ry)), right * t, up * (0.5f * (top - ry)),
+                                          fwd * t, steel, MAT_METAL);
+                mesh_shapes::oriented_box(builder, base + up * (top - ry), right * reach, up * (0.6f * t),
+                                          fwd * (0.6f * t), steel, MAT_METAL);
+                for (const float side : {-1.0f, 1.0f}) {
+                    const size_t first = seg.draws.size();
+                    mesh_shapes::oriented_box(builder, base + up * (top - ry - m(0.15f)) + right * (side * reach),
+                                              right * m(0.4f), up * m(0.08f), fwd * m(0.25f), lens, MAT_DEFAULT);
+                    for (size_t i = first; i < seg.draws.size(); ++i) seg.draws[i].emissiveNits = 20000.0f;
+                }
+                SpotLightDesc lamp{};
+                lamp.position  = base + up * (top - ry - m(0.3f));
+                lamp.direction = Vec3(0.0f, -1.0f, 0.0f);
+                lamp.color     = sodium;
+                lamp.intensity = ul::cone_candela_from_lumens(kCorridorLampLumens, half);
+                lamp.range     = m(55.0f);
+                lamp.cosInner  = std::cos(55.0f * util::units::kRadPerDeg);
+                lamp.cosOuter  = std::cos(75.0f * util::units::kRadPerDeg);
+                seg.lamps.push_back(lamp);
             }
         }
 

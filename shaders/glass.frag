@@ -48,9 +48,16 @@ void main() {
     vec3  R        = reflect(-V, N);
     float sunDot   = max(dot(R, camera.sunDir.xyz), 0.0);
     float clarity  = camera.weather.x;
-    vec3  sunDisc  = camera.sunColor.rgb
+#ifdef SWISH_DEBUG_UI
+    // Lighting L2.6: the same physical disc the sky draws (atmosphere.glsl), so the sun reflected in the glass
+    // matches the one outside. Lux over the disc's solid angle, pre-exposed, capped like the sky's.
+    vec3  sunDisc  = min(camera.sunColor.rgb * (camera.sunDir.w * camera.weather.z)
+                         * (smoothstep(0.9999852, 0.9999912, sunDot) / 6.8e-5), vec3(30.0));
+#else
+    vec3  sunDisc  = camera.sunColor.rgb * (camera.sunDir.w * camera.weather.z)  // lux * pre-exposure (L1.3)
                    * pow(sunDot, mix(32.0, 220.0, clarity))
                    * mix(0.242, 0.9, clarity);
+#endif
 
     // Combine: a reduced authored tint (no longer the dominant term — see alpha
     // above, and note it is carried by the same low alpha at normal incidence)

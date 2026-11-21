@@ -101,8 +101,8 @@ void SceneGeometry::upload(const RendererServices& s, const MeshData& mesh, cons
 
 void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials,
                                  const MaterialOverride* overrides, const CullParams& cull, Vec3 originOffset,
-                                 CullStats* stats, const PaintTuning& paint, float flakeScale,
-                                 float flakeJitter) const {
+                                 CullStats* stats, const PaintTuning& paint, float flakeScale, float flakeJitter,
+                                 float emissiveScale) const {
     if (!has_geometry()) return;
 
     // Camera-relative rebase (double precision): add the per-batch originOffset (chunk-slot
@@ -134,15 +134,15 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
         dModel[3]         = glm::dvec4(glm::dvec3(dModel[3]) + dOrigin - dCam, dModel[3].w);
         pushData.model    = glm::mat4(dModel);
         pushData.color    = dc.color;
-        // Per-material metalness (first pass: metal barriers/rails are metallic,
-        // everything else is dielectric). Texture-driven metalness is a follow-up.
-        pushData.material.x = (dc.material == MAT_METAL) ? 1.0f : 0.0f;
+        // Metalness: the glTF metallicFactor when the draw carries one (cars), otherwise
+        // the per-material default (metal barriers/rails are metallic, the rest dielectric).
+        pushData.material.x = (dc.metalness >= 0.0f) ? dc.metalness : (dc.material == MAT_METAL) ? 1.0f : 0.0f;
         // Wettable mask: 1 = rain-exposed road/world, 0 = dry (the whole car). Written
         // to outMaterial.b in gbuffer.frag and used by lighting.frag to keep wet-road
         // effects (darkening, sheen, halos) off the car — they wash the cabin out.
         pushData.material.y = dc.dry ? 0.0f : 1.0f;
         // Roughness multiplier (gbuffer.frag: roughness *= material.z). 1 = no change.
-        pushData.material.z = 1.0f;
+        pushData.material.z = dc.roughnessMul;  // 1 unless the car's material fixes are on
         // Road tag (gbuffer.frag: outMaterial.a = material.w). 1 = asphalt → drives
         // screen-space puddles in lighting.frag/ssr.frag; everything else (car, grass,
         // barriers, signs) stays 0 so only the road pools water. Release writes it too,
@@ -154,7 +154,8 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
         // paint.zw (flake cell scale/jitter) are shared across every draw — not
         // per-material — so they're broadcast in from the caller's `paint` args.
         float clearcoat = default_clearcoat_strength(dc.material) * paint.clearcoatMul;
-        float flake     = default_flake_density(dc.material) * paint.flakeDensityMul;
+        float flake =
+            (dc.isPaint ? paint.paintFlakeDensity : default_flake_density(dc.material)) * paint.flakeDensityMul;
 
         // Debug material override for this slot (metalness / roughness / colour /
         // clearcoat / flake).
@@ -169,6 +170,8 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
             }
         }
         pushData.paint = Vec4(clearcoat, flake, flakeScale, flakeJitter);
+        pushData.extra = Vec4(dc.emissiveNits * emissiveScale, dc.retro, dc.surfaceWet,
+                              dc.material == MAT_ASPHALT ? paint.rutUvTile : 0.0f);
 
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(PushConstantData), &pushData);

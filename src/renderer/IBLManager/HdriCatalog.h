@@ -12,7 +12,7 @@ struct HdriOption {
     float            yaw;
 };
 
-inline constexpr std::array<HdriOption, 8> kHdriOptions{{
+inline constexpr std::array<HdriOption, 12> kHdriOptions{{
     {"Citrus Orchard Road (sunrise)", "citrus_orchard_road_puresky_2k.hdr", 0.85f, 0.0f},
     {"Quarry Cloudy", "quarry_cloudy_2k.hdr", 0.90f, 0.0f},
     {"Overcast Soil", "overcast_soil_puresky_2k.hdr", 1.00f, 0.0f},
@@ -21,6 +21,11 @@ inline constexpr std::array<HdriOption, 8> kHdriOptions{{
     {"Derelict Airfield", "derelict_airfield_01_2k.hdr", 0.85f, 0.0f},
     {"Quarry 04", "quarry_04_puresky_2k.hdr", 0.85f, 0.0f},
     {"Urban Street 03", "urban_street_03_2k.hdr", 0.85f, 0.0f},
+    {"Mud Road (overcast rain)", "mud_road_puresky_2k.hdr", 1.00f, 0.0f},
+    {"Misty Morning (heavy rain haze)", "kloofendal_misty_morning_puresky_2k.hdr", 1.00f, 0.0f},
+    {"Kloofendal Overcast", "kloofendal_overcast_puresky_2k.hdr", 1.00f, 0.0f},
+    // ambientCG ships EXR only; converted to Radiance .hdr with headless Blender (stb_image reads .hdr, not .exr).
+    {"Storm Sky (rain shafts)", "DaySkyHDRI068B_2k.hdr", 1.00f, 0.0f},
 }};
 
 inline int hdri_option_index(std::string_view file) {

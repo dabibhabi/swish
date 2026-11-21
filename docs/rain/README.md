@@ -246,6 +246,9 @@ The same flow drives both the wetness advection (`m_waterFlow`, CPU) and the pro
 
 ## Tunables (current values)
 
+Hand-tuning guide with ranges, math and university sources, one section per phase: [tuning-notes.md](tuning-notes.md).
+
+
 | Knob | Where | Value | Effect |
 |------|-------|-------|--------|
 | far-layer scales | `RainSystem.cpp` constants | `halfExt×2`, `speed×0.7`, `intensity×0.55`, `streak×0.8` | distance / fall speed / dimness / length of the 2nd parallax layer |

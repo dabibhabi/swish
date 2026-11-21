@@ -77,7 +77,9 @@ public:
     void record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials,
                       const MaterialOverride* overrides, const CullParams& cull, Vec3 originOffset = Vec3(0.0f),
                       CullStats* stats = nullptr, const PaintTuning& paint = PaintTuning{}, float flakeScale = 8.0f,
-                      float flakeJitter = 0.35f) const;
+                      float flakeJitter = 0.35f, float emissiveScale = 0.0f) const;
+    // `emissiveScale` multiplies each draw's emissiveNits before it is pushed: the frame's pre-exposure, or 0
+    // when this geometry's lamps are switched off (lighting L5). Only the debug shaders read the result.
 
     // Depth-only pass (shadow map): bind vertex/index buffers, then for each
     // draw call push only the per-object model matrix (no material/descriptor

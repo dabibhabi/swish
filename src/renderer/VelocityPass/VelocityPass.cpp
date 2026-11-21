@@ -1,7 +1,7 @@
-#include "utils/io/AppPaths.h"
 #include "VelocityPass.h"
 
 #include "renderer/RendererConfig.h"
+#include "utils/io/AppPaths.h"
 
 #ifdef SWISH_DEBUG_UI
 

@@ -9,9 +9,12 @@
 #include "renderer/GpuProfiler/GpuProfiler.h"
 #include "renderer/IBLManager/HdriCatalog.h"
 #include "renderer/Passes/PassDeclarationValidator.h"
-#include "renderer/ShaderHotReload/ShaderHotReload.h"
 #include "renderer/Pipeline/Device/Device.h"
+#include "renderer/ShaderHotReload/ShaderHotReload.h"
+#include "scene/Entity/CarLooks.h"
 #include "scene/Entity/CarPhysics.h"  // WetGripParams — hydroplaning thresholds for the Telemetry panel
+#include "scene/LightingLab/LightingLab.h"
+#include "scene/TimeOfDay/TimeOfDay.h"
 #include "utils/meta/Tags.h"
 #include "utils/units/Units.h"
 #include "utils/vulkan/Check.h"
@@ -33,9 +36,9 @@
 #include <cstdio>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <stdexcept>
 #include <string>
 #include <string_view>
-#include <stdexcept>
 
 namespace swish {
 
@@ -45,24 +48,89 @@ namespace swish {
 
 namespace {
 constexpr uint32_t kUiFramesInFlight = 2;
+
+// UI1 (owner, 2026-11-20: "the imgui for config is really thin and hard to see"). A real TTF at a readable size,
+// rasterised at the monitor's content scale (crisp on Retina) and shown at 1/scale, plus a higher-contrast dark style
+// with roomier padding and visible frame borders.
+constexpr float kUiFontPx = 17.0f;
+
+void apply_readable_style(GLFWwindow* window) {
+    float xs = 1.0f, ys = 1.0f;
+    glfwGetWindowContentScale(window, &xs, &ys);
+    const float scale = std::max(1.0f, std::max(xs, ys));
+
+    ImGuiIO& io   = ImGui::GetIO();
+    ImFont*  font = nullptr;
+#ifdef SWISH_IMGUI_FONT_DIR
+    font = io.Fonts->AddFontFromFileTTF(SWISH_IMGUI_FONT_DIR "Roboto-Medium.ttf", kUiFontPx * scale);
+#endif
+    if (font) {
+        io.FontGlobalScale = 1.0f / scale;  // rasterised at device pixels, laid out in points
+    } else {
+        ImFontConfig cfg;
+        cfg.SizePixels = 13.0f * 1.35f;  // fallback: the built-in bitmap font, enlarged
+        io.Fonts->AddFontDefault(&cfg);
+    }
+
+    ImGui::StyleColorsDark();
+    ImGuiStyle& st      = ImGui::GetStyle();
+    st.WindowPadding    = ImVec2(12.0f, 10.0f);
+    st.FramePadding     = ImVec2(8.0f, 5.0f);
+    st.ItemSpacing      = ImVec2(8.0f, 7.0f);
+    st.ItemInnerSpacing = ImVec2(6.0f, 5.0f);
+    st.IndentSpacing    = 18.0f;
+    st.ScrollbarSize    = 16.0f;
+    st.GrabMinSize      = 14.0f;
+    st.FrameBorderSize  = 1.0f;
+    st.WindowBorderSize = 0.0f;
+    st.FrameRounding    = 3.0f;
+    st.GrabRounding     = 3.0f;
+    st.WindowRounding   = 0.0f;
+
+    ImVec4* c                    = st.Colors;
+    c[ImGuiCol_Text]             = ImVec4(0.96f, 0.97f, 0.98f, 1.00f);
+    c[ImGuiCol_TextDisabled]     = ImVec4(0.66f, 0.69f, 0.74f, 1.00f);  // hints were near-invisible grey
+    c[ImGuiCol_WindowBg]         = ImVec4(0.09f, 0.10f, 0.12f, 1.00f);
+    c[ImGuiCol_Border]           = ImVec4(0.38f, 0.42f, 0.50f, 0.70f);
+    c[ImGuiCol_FrameBg]          = ImVec4(0.18f, 0.20f, 0.25f, 1.00f);
+    c[ImGuiCol_FrameBgHovered]   = ImVec4(0.26f, 0.30f, 0.38f, 1.00f);
+    c[ImGuiCol_FrameBgActive]    = ImVec4(0.30f, 0.36f, 0.46f, 1.00f);
+    c[ImGuiCol_SliderGrab]       = ImVec4(0.40f, 0.68f, 1.00f, 1.00f);
+    c[ImGuiCol_SliderGrabActive] = ImVec4(0.60f, 0.80f, 1.00f, 1.00f);
+    c[ImGuiCol_CheckMark]        = ImVec4(0.50f, 0.80f, 1.00f, 1.00f);
+    c[ImGuiCol_Header]           = ImVec4(0.22f, 0.36f, 0.56f, 0.90f);
+    c[ImGuiCol_HeaderHovered]    = ImVec4(0.28f, 0.46f, 0.70f, 1.00f);
+    c[ImGuiCol_HeaderActive]     = ImVec4(0.32f, 0.52f, 0.80f, 1.00f);
+    c[ImGuiCol_Separator]        = ImVec4(0.38f, 0.42f, 0.50f, 0.80f);
+    c[ImGuiCol_ScrollbarGrab]    = ImVec4(0.40f, 0.44f, 0.52f, 1.00f);
+
+    // The panel's swapchain is B8G8R8A8_SRGB, so the hardware encodes on write. ImGui colours are authored in sRGB,
+    // which got encoded twice (a washed, low-contrast grey panel). Store the style in linear so it shows as authored.
+    for (int i = 0; i < ImGuiCol_COUNT; ++i) {
+        c[i].x = std::pow(c[i].x, 2.2f);
+        c[i].y = std::pow(c[i].y, 2.2f);
+        c[i].z = std::pow(c[i].z, 2.2f);
+    }
 }
+}  // namespace
 
 void DebugUI::init(const DebugUIInitInfo& info) {
     if (m_init) return;
 
-    m_deviceOwner = info.deviceOwner;
-    m_instance = info.instance;
-    m_physicalDevice = info.physicalDevice;
-    m_device = info.device;
-    m_graphicsQueue = info.graphicsQueue;
-    m_presentQueue = info.presentQueue;
+    m_deviceOwner         = info.deviceOwner;
+    m_instance            = info.instance;
+    m_physicalDevice      = info.physicalDevice;
+    m_device              = info.device;
+    m_graphicsQueue       = info.graphicsQueue;
+    m_presentQueue        = info.presentQueue;
     m_graphicsQueueFamily = info.graphicsQueueFamily;
-    m_presentQueueFamily = info.presentQueueFamily;
-    m_keyEvent = info.keyEvent;
+    m_presentQueueFamily  = info.presentQueueFamily;
+    m_keyEvent            = info.keyEvent;
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    m_window = glfwCreateWindow(440, 900, "Swish Lighting Controls", nullptr, nullptr);
+    // UI1 (2026-11-20): wider and taller so the panel reads without squinting; it stays resizable.
+    m_window = glfwCreateWindow(560, 1000, "Swish Lighting Controls", nullptr, nullptr);
     if (!m_window) throw std::runtime_error("failed to create the detached Swish controls window");
     glfwSetWindowUserPointer(m_window, this);
     glfwSetFramebufferSizeCallback(m_window, framebuffer_resize_callback);
@@ -73,12 +141,14 @@ void DebugUI::init(const DebugUIInitInfo& info) {
         throw std::runtime_error("failed to create the detached controls Vulkan surface");
     VkBool32 supported = VK_FALSE;
     VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(m_physicalDevice, m_presentQueueFamily, m_surface, &supported));
-    if (supported != VK_TRUE) throw std::runtime_error("the Vulkan present queue cannot present to the controls window");
+    if (supported != VK_TRUE)
+        throw std::runtime_error("the Vulkan present queue cannot present to the controls window");
 
     const auto indices = m_deviceOwner->findQueueFamilies(m_physicalDevice, m_surface);
     if (!indices.graphicsFamily || !indices.presentFamily || *indices.graphicsFamily != m_graphicsQueueFamily ||
         *indices.presentFamily != m_presentQueueFamily)
-        throw std::runtime_error("the controls window requires queue families that were not enabled on the Vulkan device");
+        throw std::runtime_error(
+            "the controls window requires queue families that were not enabled on the Vulkan device");
 
     m_swapchain = std::make_unique<Swapchain>();
     int width = 0, height = 0;
@@ -89,16 +159,16 @@ void DebugUI::init(const DebugUIInitInfo& info) {
     create_framebuffers();
 
     VkCommandPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolInfo.queueFamilyIndex = m_graphicsQueueFamily;
     VK_CHECK(vkCreateCommandPool(m_device, &poolInfo, nullptr, &m_commandPool));
 
     m_commandBuffers.resize(kUiFramesInFlight);
     VkCommandBufferAllocateInfo commandInfo{};
-    commandInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    commandInfo.commandPool = m_commandPool;
-    commandInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    commandInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    commandInfo.commandPool        = m_commandPool;
+    commandInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     commandInfo.commandBufferCount = kUiFramesInFlight;
     VK_CHECK(vkAllocateCommandBuffers(m_device, &commandInfo, m_commandBuffers.data()));
 
@@ -118,36 +188,41 @@ void DebugUI::init(const DebugUIInitInfo& info) {
     }
 
     std::array<VkDescriptorPoolSize, 11> poolSizes = {{
-        {VK_DESCRIPTOR_TYPE_SAMPLER, 1000}, {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
-        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000}, {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000}, {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
+        {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
         {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000},
     }};
-    VkDescriptorPoolCreateInfo descriptorInfo{};
-    descriptorInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    descriptorInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    descriptorInfo.maxSets = 1000;
+    VkDescriptorPoolCreateInfo           descriptorInfo{};
+    descriptorInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    descriptorInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    descriptorInfo.maxSets       = 1000;
     descriptorInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-    descriptorInfo.pPoolSizes = poolSizes.data();
+    descriptorInfo.pPoolSizes    = poolSizes.data();
     VK_CHECK(vkCreateDescriptorPool(m_device, &descriptorInfo, nullptr, &m_descriptorPool));
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGui::StyleColorsDark();
+    apply_readable_style(m_window);
     ImGui_ImplGlfw_InitForVulkan(m_window, true);
     ImGui_ImplVulkan_InitInfo initInfo{};
-    initInfo.Instance = m_instance;
+    initInfo.Instance       = m_instance;
     initInfo.PhysicalDevice = m_physicalDevice;
-    initInfo.Device = m_device;
-    initInfo.QueueFamily = m_graphicsQueueFamily;
-    initInfo.Queue = m_graphicsQueue;
+    initInfo.Device         = m_device;
+    initInfo.QueueFamily    = m_graphicsQueueFamily;
+    initInfo.Queue          = m_graphicsQueue;
     initInfo.DescriptorPool = m_descriptorPool;
-    initInfo.RenderPass = m_renderPass;
-    initInfo.MinImageCount = m_swapchain->getImageCount();
-    initInfo.ImageCount = m_swapchain->getImageCount();
-    initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.RenderPass     = m_renderPass;
+    initInfo.MinImageCount  = m_swapchain->getImageCount();
+    initInfo.ImageCount     = m_swapchain->getImageCount();
+    initInfo.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
     ImGui_ImplVulkan_Init(&initInfo);
 
     m_init = true;
@@ -155,49 +230,49 @@ void DebugUI::init(const DebugUIInitInfo& info) {
 
 void DebugUI::create_render_pass(VkFormat fmt) {
     VkAttachmentDescription color{};
-    color.format = fmt;
-    color.samples = VK_SAMPLE_COUNT_1_BIT;
-    color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    color.format         = fmt;
+    color.samples        = VK_SAMPLE_COUNT_1_BIT;
+    color.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    color.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    color.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    color.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    color.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    color.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     VkAttachmentReference ref{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-    VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    VkSubpassDescription  subpass{};
+    subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &ref;
+    subpass.pColorAttachments    = &ref;
     VkSubpassDependency dependency{};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcSubpass    = VK_SUBPASS_EXTERNAL;
+    dependency.dstSubpass    = 0;
+    dependency.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     VkRenderPassCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    info.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     info.attachmentCount = 1;
-    info.pAttachments = &color;
-    info.subpassCount = 1;
-    info.pSubpasses = &subpass;
+    info.pAttachments    = &color;
+    info.subpassCount    = 1;
+    info.pSubpasses      = &subpass;
     info.dependencyCount = 1;
-    info.pDependencies = &dependency;
+    info.pDependencies   = &dependency;
     VK_CHECK(vkCreateRenderPass(m_device, &info, nullptr, &m_renderPass));
 }
 
 void DebugUI::create_framebuffers() {
-    const auto& views = m_swapchain->getImageViews();
+    const auto&      views  = m_swapchain->getImageViews();
     const VkExtent2D extent = m_swapchain->getExtent();
     m_framebuffers.resize(views.size());
     for (size_t i = 0; i < views.size(); ++i) {
         VkFramebufferCreateInfo info{};
-        info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        info.renderPass = m_renderPass;
+        info.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        info.renderPass      = m_renderPass;
         info.attachmentCount = 1;
-        info.pAttachments = &views[i];
-        info.width = extent.width;
-        info.height = extent.height;
-        info.layers = 1;
+        info.pAttachments    = &views[i];
+        info.width           = extent.width;
+        info.height          = extent.height;
+        info.layers          = 1;
         VK_CHECK(vkCreateFramebuffer(m_device, &info, nullptr, &m_framebuffers[i]));
     }
     m_imagesInFlight.assign(views.size(), VK_NULL_HANDLE);
@@ -222,8 +297,7 @@ void DebugUI::focus_callback(GLFWwindow* window, int focused) {
     if (focused) return;
     auto* self = static_cast<DebugUI*>(glfwGetWindowUserPointer(window));
     if (!self || !self->m_keyEvent) return;
-    for (const int key : {GLFW_KEY_I, GLFW_KEY_K, GLFW_KEY_J, GLFW_KEY_L})
-        self->m_keyEvent(key, GLFW_RELEASE);
+    for (const int key : {GLFW_KEY_I, GLFW_KEY_K, GLFW_KEY_J, GLFW_KEY_L}) self->m_keyEvent(key, GLFW_RELEASE);
 }
 
 void DebugUI::recreate_swapchain() {
@@ -358,8 +432,8 @@ void printValues(const DebugParams& p) {
                 p.bloomIntensity);
     std::printf("brightness=%.4f contrast=%.4f saturation=%.4f temperature=%.4f tint=%.4f\n", p.brightness, p.contrast,
                 p.saturation, p.temperature, p.tint);
-    std::printf("autoExposure=%d aeKey=%.3f aeSpeed=%.2f aeMin=%.3f aeMax=%.3f\n", p.autoExposure ? 1 : 0, p.aeKey,
-                p.aeSpeed, p.aeMin, p.aeMax);
+    std::printf("autoExposure=%d evCompensation=%.3f aeSpeed=%.2f evMin=%.2f evMax=%.2f\n", p.autoExposure ? 1 : 0,
+                p.evCompensation, p.aeSpeed, p.evMin, p.evMax);
     std::printf("skyHorizonOvercast={%.3f,%.3f,%.3f} skyHorizonClear={%.3f,%.3f,%.3f}\n", p.skyHorizonOvercast.x,
                 p.skyHorizonOvercast.y, p.skyHorizonOvercast.z, p.skyHorizonClear.x, p.skyHorizonClear.y,
                 p.skyHorizonClear.z);
@@ -384,6 +458,9 @@ void printValues(const DebugParams& p) {
     std::printf("depthBiasConst=%.3f depthBiasSlope=%.3f\n", p.depthBiasConst, p.depthBiasSlope);
     std::printf("rainIntensity=%.3f streakLen=%.1f\n", p.rainIntensity, p.streakLen);
     dump_tunable_group(p, "wet");
+    dump_tunable_group(p, "rain_splash");
+    dump_tunable_group(p, "ruts");
+    dump_tunable_group(p, "ripples");
     dump_tunable_group(p, "wiper");
     dump_tunable_group(p, "car_lights");
     dump_tunable_group(p, "car");
@@ -513,7 +590,13 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
     using util::units::kPi;  // == the literal 3.14159265358979323846f (static_assert in Units.h)
 
     if (p.showPanel) {
-        ImGui::Begin("swish - debug");
+        // UI1: the panel fills its own OS window (resize the window to resize the panel), so it is never a thin
+        // floating box inside an otherwise empty window.
+        ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::Begin("swish - debug", nullptr,
+                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+                         ImGuiWindowFlags_NoTitleBar);
 
         ImGui::Text("%.1f FPS", io.Framerate);
         ImGui::Checkbox("Pause simulation", &p.editMode);
@@ -738,14 +821,204 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             if (status[0]) ImGui::TextDisabled("%s", status);
         }
 
+        // ── Time of day / procedural sky (lighting L2, docs/lighting-l2-l10.md) ──
+        if (ImGui::CollapsingHeader("Time of day / Sky model", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Checkbox("Procedural sky (off = HDRI weather presets)", &p.skyProcedural);
+            if (p.skyProcedural) {
+                for (int i = 0; i < static_cast<int>(TimeOfDay::Count); ++i) {
+                    if (i % 3 != 0) ImGui::SameLine();
+                    if (ImGui::RadioButton(time_of_day_name(static_cast<TimeOfDay>(i)), p.timeOfDay == i))
+                        p.timeOfDay = i;
+                }
+                ImGui::TextDisabled("T cycles. A preset fills the values below once; then they are yours to drag.");
+                ImGui::SliderFloat("Sun elevation (rad)", &p.sunElevation, -kPi * 0.5f, kPi * 0.5f);
+                ImGui::SliderFloat("Sun azimuth (rad)", &p.sunAzimuth, -kPi, kPi * 2.0f);
+                ImGui::SliderFloat("Direct sun (lux)", &p.sunLux, 0.0f, 130000.0f, "%.0f");
+                ImGui::SliderFloat("Moon (lux)", &p.moonLux, 0.0f, 1.0f, "%.3f");
+                ImGui::SliderFloat("Turbidity (haze)", &p.turbidity, 1.5f, 10.0f);
+                ImGui::SliderFloat("Cloud cover (G sets it)", &p.cloudCover, 0.0f, 1.0f);
+                ImGui::Checkbox("Stars", &p.skyStars);
+                ImGui::Checkbox("Lamps and car lights on", &p.lampsOn);
+                ImGui::Text("Sky zenith about %.4g cd/m2 (sets the cube scale)", static_cast<double>(p.skyNits * 0.1f));
+                ImGui::TextDisabled("Each change rebakes the sky cubes (a short hitch).");
+            }
+        }
+
+        // ── Lighting L3 to L10 switches (docs/lighting-l2-l10.md) ─────
+        if (ImGui::CollapsingHeader("Lighting L3-L10 (debug first)")) {
+            ImGui::TextDisabled("Shadows (L3)");
+            ImGui::Checkbox("Stable cascade fit + texel snapping", &p.shadowStableFit);
+            ImGui::SliderFloat("Cascade blend band", &p.cascadeBlend, 0.0f, 0.4f);
+            ImGui::SliderFloat("Sun angular radius (rad)", &p.sunAngularRadius, 0.0f, 0.05f, "%.5f");
+            ImGui::Separator();
+            ImGui::TextDisabled("Materials (L4)");
+            ImGui::Checkbox("Multiscatter energy compensation", &p.energyCompensation);
+            ImGui::SliderFloat("Paint flake density", &p.paintFlakeDensity, 0.0f, 1.0f);
+            ImGui::Separator();
+            ImGui::TextDisabled("Emissive (L5), cd/m2");
+            ImGui::SliderFloat("Headlight lens", &p.lensNitsHead, 0.0f, 200000.0f, "%.0f");
+            ImGui::SliderFloat("Tail lens", &p.lensNitsTail, 0.0f, 10000.0f, "%.0f");
+            ImGui::SliderFloat("Brake lens", &p.lensNitsBrake, 0.0f, 50000.0f, "%.0f");
+            ImGui::Separator();
+            ImGui::TextDisabled("Lamps and beams (L6, L8)");
+            ImGui::Checkbox("Lamps and car lights on", &p.lampsOn);
+            ImGui::Checkbox("Corridor street lamps", &p.corridorLamps);
+            ImGui::SliderFloat("Lamp output (lm)", &p.lampLumens, 2000.0f, 40000.0f, "%.0f");
+            ImGui::Checkbox("Headlight low-beam cutoff", &p.headlightCutoff);
+            ImGui::SliderFloat("Lane-marking retroreflection", &p.retroGain, 0.0f, 40.0f);
+            ImGui::Text("Spot lights uploaded: %d of %d (limit %d)", p.spotsUploaded, p.spotsTotal,
+                        static_cast<int>(MAX_SPOT_LIGHTS));
+            ImGui::Separator();
+            ImGui::TextDisabled("Wet (L10)");
+            ImGui::Checkbox("Rain wets the car's exterior", &p.carWettable);
+        }
+
+        // ── Car showcase (docs/car-showcase.md) ───────────────────────
+        if (ImGui::CollapsingHeader("Car showcase", p.labActive ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
+            ImGui::TextDisabled("Paint");
+            if (ImGui::BeginCombo("Finish", paint_finish_name(p.paintFinish))) {
+                for (int i = 0; i < static_cast<int>(PaintFinish::Count); ++i)
+                    if (ImGui::Selectable(paint_finish_name(i), p.paintFinish == i)) p.paintFinish = i;
+                ImGui::EndCombo();
+            }
+            if (ImGui::BeginCombo("Colour", paint_colour_name(p.paintColour))) {
+                for (int i = 0; i < static_cast<int>(PaintColour::Count); ++i)
+                    if (ImGui::Selectable(paint_colour_name(i), p.paintColour == i)) p.paintColour = i;
+                ImGui::EndCombo();
+            }
+            ImGui::RadioButton("Clean", &p.carSurface, 0);
+            ImGui::SameLine();
+            ImGui::RadioButton("Wet", &p.carSurface, 1);
+            ImGui::SameLine();
+            ImGui::RadioButton("Dusty", &p.carSurface, 2);
+            ImGui::Checkbox("Material fixes (rubber, glass, chrome, cabin)", &p.materialFixes);
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Car lights");
+            ImGui::RadioButton("Auto", &p.carLightsMode, 0);
+            ImGui::SameLine();
+            ImGui::RadioButton("Off", &p.carLightsMode, 1);
+            ImGui::SameLine();
+            ImGui::RadioButton("Parking", &p.carLightsMode, 2);
+            ImGui::SameLine();
+            ImGui::RadioButton("Low beam", &p.carLightsMode, 3);
+            ImGui::SameLine();
+            ImGui::RadioButton("Brake", &p.carLightsMode, 4);
+
+            ImGui::Separator();
+            ImGui::TextDisabled("View");
+            ImGui::Checkbox("Turntable (orbit the camera)", &p.turntable);
+            if (p.turntable) {
+                ImGui::SliderFloat("Orbit radius (m)", &p.turntableRadius, 3.0f, 14.0f);
+                ImGui::SliderFloat("Orbit height (m)", &p.turntableHeight, 0.3f, 5.0f);
+                ImGui::SliderFloat("Orbit speed (deg/s)", &p.turntableSpeed, -60.0f, 60.0f);
+            }
+            ImGui::Checkbox("Grounding shadow under area lights", &p.groundingShadow);
+            ImGui::Checkbox("Bloom pyramid", &p.bloomPyramid);
+            ImGui::Text("Area lights in the world: %d (nearest %d are used)", p.rectsTotal,
+                        static_cast<int>(MAX_RECT_LIGHTS));
+        }
+
+        // ── Lighting lab (docs/lighting-lab.md) ───────────────────────
+        // Teleports need the lab world (SWISH_LAB=1); the light sliders, views and read-outs work anywhere.
+        if (ImGui::CollapsingHeader("Lighting lab", p.labActive ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
+            if (p.labActive) {
+                ImGui::TextDisabled("Teleport to a station");
+                const auto& stations = lab_stations();
+                for (size_t i = 0; i < stations.size(); ++i) {
+                    if (ImGui::Button(stations[i].name)) p.labTeleport = static_cast<int>(i);
+                    if (i % 2 == 0 && i + 1 < stations.size()) ImGui::SameLine();
+                }
+            } else {
+                ImGui::TextDisabled("Launch with SWISH_LAB=1 for the test world.");
+            }
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Time of day (sets sun, sky and the EV clamps; turns auto-exposure on)");
+            const auto set_light = [&p](float sunLux, float skyNits, float evMin, float evMax) {
+                p.sunLux       = sunLux;
+                p.skyNits      = skyNits;
+                p.evMin        = evMin;
+                p.evMax        = evMax;
+                p.autoExposure = true;
+            };
+            if (p.skyProcedural) {
+                // With the procedural sky the three buttons are time-of-day presets (the section above has all six).
+                if (ImGui::Button("Day")) p.timeOfDay = static_cast<int>(TimeOfDay::Noon);
+                ImGui::SameLine();
+                if (ImGui::Button("Dusk")) p.timeOfDay = static_cast<int>(TimeOfDay::Evening);
+                ImGui::SameLine();
+                if (ImGui::Button("Night")) p.timeOfDay = static_cast<int>(TimeOfDay::Midnight);
+            } else {
+                if (ImGui::Button("Day")) set_light(100000.0f, 100000.0f, 13.5f, 17.5f);
+                ImGui::SameLine();
+                if (ImGui::Button("Dusk")) set_light(400.0f, 400.0f, 2.0f, 13.0f);
+                ImGui::SameLine();
+                if (ImGui::Button("Night")) set_light(0.3f, 0.3f, -6.0f, 8.0f);
+                ImGui::SliderFloat("Sun (lux)", &p.sunLux, 0.01f, 200000.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+                ImGui::SliderFloat("Sky scale (nits)", &p.skyNits, 0.01f, 200000.0f, "%.2f",
+                                   ImGuiSliderFlags_Logarithmic);
+            }
+            ImGui::Checkbox("Adaptive pre-exposure (needed for dusk / night)", &p.adaptivePreExposure);
+
+            ImGui::Separator();
+            ImGui::TextDisabled("View");
+            ImGui::RadioButton("Normal", &p.labViewMode, 0);
+            ImGui::SameLine();
+            ImGui::RadioButton("False colour", &p.labViewMode, 1);
+            ImGui::SameLine();
+            ImGui::RadioButton("Bloom mask", &p.labViewMode, 2);
+            if (p.labViewMode == 1)
+                ImGui::TextWrapped(
+                    "Exposed value: deep blue < 0.01, blue < 0.05, green = middle grey (0.14 to 0.24), "
+                    "yellow > 1 (above display white), red > 2 (clipped).");
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Exposure meter");
+            if (p.autoExposure) {
+                ImGui::Text("Scene average   %.3g cd/m2", static_cast<double>(p.meter.nits));
+                ImGui::Text("EV100 metered   %.2f", static_cast<double>(p.meter.ev));
+                ImGui::Text("EV100 used      %.2f  (compensation %.2f, clamp %.1f .. %.1f)%s",
+                            static_cast<double>(p.meter.evUsed), static_cast<double>(p.evCompensation),
+                            static_cast<double>(p.evMin), static_cast<double>(p.evMax),
+                            p.meter.clamp < 0 ? "  HELD AT MIN" : (p.meter.clamp > 0 ? "  HELD AT MAX" : ""));
+            } else {
+                ImGui::TextDisabled("Auto-exposure is off (Image / Grade): the manual Exposure slider is in use.");
+            }
+            ImGui::Text("HDR multiplier  %.4g", static_cast<double>(p.meter.exposure));
+            ImGui::Text("Pre-exposure    %.3g", static_cast<double>(p.meter.preExposure));
+            {
+                // A few seconds of the EV actually used, so adaptation is visible as a curve.
+                static std::array<float, 240> history{};
+                static int                    head = 0;
+                history[static_cast<size_t>(head)] = p.meter.evUsed;
+                head                               = (head + 1) % static_cast<int>(history.size());
+                ImGui::PlotLines("EV100 used", history.data(), static_cast<int>(history.size()), head, nullptr, -6.0f,
+                                 20.0f, ImVec2(0.0f, 70.0f));
+            }
+
+            if (p.labActive) {
+                ImGui::Separator();
+                ImGui::TextDisabled("Light on the ground under the car");
+                ImGui::Text("Sun            %.4g lux  (unshadowed, from the Elevation slider)",
+                            static_cast<double>(p.labSunLuxGround));
+                ImGui::Text("Sky visibility %.2f  (1 = open sky, 0 = deep under a roof)",
+                            static_cast<double>(p.labProbe.skyVisibility));
+                ImGui::Text("Lamps          %.3g lux from %d in range", static_cast<double>(p.labProbe.lampLux),
+                            p.labProbe.lampsInRange);
+                if (p.labProbe.nearestLampM >= 0.0f)
+                    ImGui::Text("Nearest lamp   %.1f m", static_cast<double>(p.labProbe.nearestLampM));
+            }
+        }
+
         // ── Image / Grade ─────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Image / Grade", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::Checkbox("Auto-exposure", &p.autoExposure);
             if (p.autoExposure) {
-                ImGui::SliderFloat("AE key (grey)", &p.aeKey, 0.05f, 1.0f);
+                ImGui::SliderFloat("AE compensation (stops)", &p.evCompensation, -3.0f, 3.0f);
                 ImGui::SliderFloat("AE speed", &p.aeSpeed, 0.1f, 8.0f);
-                ImGui::SliderFloat("AE min", &p.aeMin, 0.01f, 1.0f);
-                ImGui::SliderFloat("AE max", &p.aeMax, 0.5f, 4.0f);
+                ImGui::SliderFloat("EV100 min", &p.evMin, -6.0f, 20.0f);
+                ImGui::SliderFloat("EV100 max", &p.evMax, -6.0f, 20.0f);
             } else {
                 ImGui::SliderFloat("Exposure", &p.exposure, 0.0f, 2.0f);
             }
@@ -769,6 +1042,19 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
                 }
                 ImGui::EndCombo();
             }
+            int rainIndex = std::clamp(p.rainEnvironmentHdri, 0, static_cast<int>(kHdriOptions.size()) - 1);
+            if (ImGui::BeginCombo("Rain HDRI", kHdriOptions[rainIndex].label.data())) {
+                for (int i = 0; i < static_cast<int>(kHdriOptions.size()); ++i) {
+                    const bool selected = (i == rainIndex);
+                    if (ImGui::Selectable(kHdriOptions[i].label.data(), selected)) p.rainEnvironmentHdri = i;
+                    if (selected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SliderFloat("Rain EV shift (stops)", &p.rainEvShift, 0.0f, 6.0f, "%.1f");
+            ImGui::SliderFloat("Sky clears below wetness", &p.rainSkyClearWetness, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Rain sky fade-in (s)", &p.rainSkyFadeSeconds, 0.0f, 60.0f, "%.0f");
+            ImGui::TextDisabled("any rain: Rain HDRI, no sun, clarity 0, EV clamp lowered");
             ImGui::ColorEdit3("Horizon (overcast)", &p.skyHorizonOvercast.x);
             ImGui::ColorEdit3("Horizon (clear)", &p.skyHorizonClear.x);
             ImGui::ColorEdit3("Zenith (overcast)", &p.skyZenithOvercast.x);
@@ -785,7 +1071,8 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::ColorEdit3("Sun color", &p.sunColor.x);
             ImGui::SliderFloat("Ambient", &p.sunAmbient, 0.0f, 1.0f);
             ImGui::SliderFloat("Azimuth", &p.sunAzimuth, -kPi, kPi);
-            ImGui::SliderFloat("Elevation", &p.sunElevation, 0.0f, kPi * 0.5f);
+            ImGui::SliderFloat("Elevation", &p.sunElevation, -kPi * 0.5f,
+                               kPi * 0.5f);  // below 0 = sun under the horizon
             ImGui::Checkbox("Sun gizmo (drag to orient)", &p.showSunGizmo);
             if (p.showSunGizmo && ImGui::Button("Reset gizmo")) p.sunGizmoRot = glm::mat4(1.0f);
         }
@@ -932,6 +1219,12 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             ImGui::SliderFloat("Rain intensity", &p.rainIntensity, 0.0f, 1.0f);
             ImGui::SliderFloat("Streak length", &p.streakLen, 0.0f, 10000.0f, "%.0f");
             draw_tunable_group(p, "wet");  // Wet porosity / roughness, Puddles, Puddle coverage (Tunables.def)
+            ImGui::Separator();
+            draw_tunable_group(p, "rain_splash");  // impact splashes: ring + droplets (Tunables.def)
+            ImGui::Separator();
+            draw_tunable_group(p, "ruts");  // wheel-track ruts: water film in the tyre paths (Tunables.def)
+            ImGui::Separator();
+            draw_tunable_group(p, "ripples");  // rain ripples on standing water (Tunables.def)
             ImGui::Separator();
             draw_tunable_group(p, "wiper");  // V cycles the mode; rates / pause / sweep / ease (Tunables.def)
             ImGui::Separator();
@@ -1095,8 +1388,8 @@ void DebugUI::present() {
 
     VK_CHECK(vkWaitForFences(m_device, 1, &m_inFlightFences[m_currentFrame], VK_TRUE, UINT64_MAX));
     uint32_t imageIndex = 0;
-    VkResult acquired = vkAcquireNextImageKHR(m_device, m_swapchain->getSwapchain(), UINT64_MAX,
-                                               m_imageAvailable[m_currentFrame], VK_NULL_HANDLE, &imageIndex);
+    VkResult acquired   = vkAcquireNextImageKHR(m_device, m_swapchain->getSwapchain(), UINT64_MAX,
+                                                m_imageAvailable[m_currentFrame], VK_NULL_HANDLE, &imageIndex);
     if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
         recreate_swapchain();
         return;
@@ -1115,41 +1408,41 @@ void DebugUI::present() {
     VK_CHECK(vkBeginCommandBuffer(cmd, &begin));
 
     const VkExtent2D extent = m_swapchain->getExtent();
-    VkClearValue clear{};
+    VkClearValue     clear{};
     clear.color = {{0.055f, 0.065f, 0.085f, 1.0f}};
     VkRenderPassBeginInfo render{};
-    render.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    render.renderPass = m_renderPass;
-    render.framebuffer = m_framebuffers[imageIndex];
+    render.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    render.renderPass        = m_renderPass;
+    render.framebuffer       = m_framebuffers[imageIndex];
     render.renderArea.extent = extent;
-    render.clearValueCount = 1;
-    render.pClearValues = &clear;
+    render.clearValueCount   = 1;
+    render.pClearValues      = &clear;
     vkCmdBeginRenderPass(cmd, &render, VK_SUBPASS_CONTENTS_INLINE);
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
     vkCmdEndRenderPass(cmd);
     VK_CHECK(vkEndCommandBuffer(cmd));
 
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.waitSemaphoreCount = 1;
-    submit.pWaitSemaphores = &m_imageAvailable[m_currentFrame];
-    submit.pWaitDstStageMask = &waitStage;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
+    VkSubmitInfo         submit{};
+    submit.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.waitSemaphoreCount   = 1;
+    submit.pWaitSemaphores      = &m_imageAvailable[m_currentFrame];
+    submit.pWaitDstStageMask    = &waitStage;
+    submit.commandBufferCount   = 1;
+    submit.pCommandBuffers      = &cmd;
     submit.signalSemaphoreCount = 1;
-    submit.pSignalSemaphores = &m_renderFinished[m_currentFrame];
+    submit.pSignalSemaphores    = &m_renderFinished[m_currentFrame];
     VK_CHECK(vkQueueSubmit(m_graphicsQueue, 1, &submit, m_inFlightFences[m_currentFrame]));
 
     VkPresentInfoKHR present{};
-    present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    present.waitSemaphoreCount = 1;
-    present.pWaitSemaphores = &m_renderFinished[m_currentFrame];
+    present.sType                  = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    present.waitSemaphoreCount     = 1;
+    present.pWaitSemaphores        = &m_renderFinished[m_currentFrame];
     const VkSwapchainKHR swapchain = m_swapchain->getSwapchain();
-    present.swapchainCount = 1;
-    present.pSwapchains = &swapchain;
-    present.pImageIndices = &imageIndex;
-    VkResult result = vkQueuePresentKHR(m_presentQueue, &present);
+    present.swapchainCount         = 1;
+    present.pSwapchains            = &swapchain;
+    present.pImageIndices          = &imageIndex;
+    VkResult result                = vkQueuePresentKHR(m_presentQueue, &present);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || acquired == VK_SUBOPTIMAL_KHR || m_resized)
         recreate_swapchain();
     else if (result != VK_SUCCESS)
@@ -1160,8 +1453,10 @@ void DebugUI::present() {
 
 void DebugUI::toggle_visible() {
     if (!m_init) return;
-    if (glfwGetWindowAttrib(m_window, GLFW_VISIBLE)) glfwHideWindow(m_window);
-    else glfwShowWindow(m_window);
+    if (glfwGetWindowAttrib(m_window, GLFW_VISIBLE))
+        glfwHideWindow(m_window);
+    else
+        glfwShowWindow(m_window);
 }
 
 // ══════════════════════════════════════════════════════════════════════

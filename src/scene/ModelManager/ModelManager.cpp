@@ -9,6 +9,7 @@
 #include "renderer/TextureManager/TextureManager.h"
 #include "renderer/Vertex.h"
 #include "scene/Entity/CarLights.h"
+#include "scene/Entity/CarLooks.h"
 #include "scene/Entity/CarRig.h"
 #include "scene/Entity/WiperBlade.h"
 #include "scene/SceneTypes.h"
@@ -535,9 +536,14 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
             const CarRigTag& rtag = rig_tags[ni];
 
             Submesh sm{};
-            sm.indexOffset       = idx_start;
-            sm.indexCount        = static_cast<uint32_t>(n_idx);
-            sm.is_glass          = isGlass;
+            sm.indexOffset = idx_start;
+            sm.indexCount  = static_cast<uint32_t>(n_idx);
+            sm.is_glass    = isGlass;
+            // Lamp lenses and emitters (the named rig's nodes), for the emissive glow (lighting L5.2).
+            if (node.name.find("_Lens") != std::string::npos || node.name.find("_Emitter") != std::string::npos)
+                sm.lens = node.name.rfind("Headlight", 0) == 0    ? 1
+                          : node.name.rfind("BrakeLight", 0) == 0 ? 3
+                                                                  : 2;  // TailLight_*, RearLightBar_*
             sm.is_windshield     = isWindshield;
             sm.is_interior       = isInterior;
             sm.is_steering_wheel = !isGlass && found_sw_pivot &&
@@ -588,6 +594,25 @@ std::unique_ptr<CarEntity> ModelManager::load_car(const std::string& path) {
 
             if (prim.material >= 0 && prim.material < kMaxCarMaterials) {
                 sm.material = static_cast<MaterialId>(MAT_CAR_0 + prim.material);
+                // Metalness from the asset. shortcut: scalar metallicFactor only; the
+                // metallicRoughness texture's B channel is not read (no car authors one yet).
+                {
+                    // Body paint by material name (lighting L4.3): "...Paint...", the rigged car's "..._ext1".
+                    std::string mn = gltf.materials[prim.material].name;
+                    std::transform(mn.begin(), mn.end(), mn.begin(),
+                                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+                    sm.is_paint = mn.find("paint") != std::string::npos || mn.find("_ext1") != std::string::npos;
+                    // A sensible metalness / roughness by name (applied only on request; see CarLooks.h).
+                    const MaterialFix fix = car_material_fix(mn);
+                    sm.fixMetalness       = fix.metalness;
+                    if (fix.roughness >= 0.0f) {
+                        const float assetRough =
+                            static_cast<float>(gltf.materials[prim.material].pbrMetallicRoughness.roughnessFactor);
+                        sm.fixRoughnessMul = fix.roughness / std::max(assetRough, 0.05f);
+                    }
+                }
+                sm.metalness = std::clamp(
+                    static_cast<float>(gltf.materials[prim.material].pbrMetallicRoughness.metallicFactor), 0.0f, 1.0f);
 
                 if (rigGlass && !hellcat) {
                     sm.color = Vec4(0.f, 0.f, 0.f, 0.25f);  // Porsche window tint (its BLEND factor)

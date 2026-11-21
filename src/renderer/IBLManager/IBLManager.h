@@ -2,6 +2,7 @@
 
 #include "renderer/GpuResource/GpuResource.h"
 #include "renderer/Renderer/RendererServices.h"
+#include "utils/light/Atmosphere.h"
 #include "utils/types/Types.h"
 
 #include <vulkan/vulkan.h>
@@ -44,6 +45,10 @@ public:
 
     // Procedural bake — no-op while an HDRI is active.
     void bake(const SkyBakeParams& sky);
+
+    // Bake the raymarched atmosphere (lighting L2) into the environment cube and re-run the convolutions. The
+    // cube stores sky nits / cubeScale. Replaces an HDRI environment (uses_hdri() becomes false).
+    void bake_atmosphere(const util::light::SkyParams& sky, float cubeScale);
 
 private:
     static constexpr uint32_t kEnvDim         = 256;

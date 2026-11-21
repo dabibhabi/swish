@@ -68,9 +68,10 @@ struct CameraUBO {
     Mat4 view;
     Mat4 proj;
     Vec4 camPos;    // xyz = camera world position, w = wetness (set_wetness)
-    Vec4 sunDir;    // xyz = normalized sun direction, w = intensity
-    Vec4 sunColor;  // rgb = sun color, a = ambient strength
-    Vec4 weather;   // x = clarity (0 overcast .. 1 clear day), yzw reserved
+    Vec4 sunDir;    // xyz = normalized sun direction, w = sun illuminance (lux)
+    Vec4 sunColor;  // rgb = sun tint, a = ambient gain
+    Vec4
+        weather;  // x = clarity (0 overcast .. 1 clear day), y = sky scale (cd/m²), z = pre-exposure, w = metres per WU
 
     Mat4 cascadeViewProj[NUM_CASCADES];
     Vec4 cascadeSplits;
@@ -97,8 +98,12 @@ inline float default_flake_density(MaterialId mat) {
 }
 
 struct PaintTuning {
-    float clearcoatMul    = 1.0f;
-    float flakeDensityMul = 1.0f;
+    float clearcoatMul      = 1.0f;
+    float flakeDensityMul   = 1.0f;
+    float paintFlakeDensity = 0.0f;  // flake density for body paint (Submesh::is_paint); 0 = off
+    // Rain P3 (debug): asphalt UV tile in WU, pushed as extra.w on asphalt draws so gbuffer.frag can recover the
+    // lateral position for wheel-track ruts (shaders/common/ruts.glsl). 0 = ruts off (release never sets it).
+    float rutUvTile = 0.0f;
 };
 
 // ── Point Light System (inspired by rind/Light.cpp) ──────────────────
@@ -113,13 +118,22 @@ struct PointLightData {
 // ── Car spot lights (headlights / tail / brake; tasks/todo.md "Car lights") ──
 // Debug-only for now: the release LightsUBO layout (and the release lighting.frag)
 // is unchanged until the feature is turned on for release as its own step.
-static constexpr uint32_t MAX_SPOT_LIGHTS = 8;
+static constexpr uint32_t MAX_SPOT_LIGHTS = 40;  // 7 car lights + the nearest street lamps (lighting L6.3)
 
 struct SpotLightData {
     Vec4 positionRange;      // xyz = world position (WU), w = range (WU)
     Vec4 directionCosOuter;  // xyz = unit beam direction, w = cos(outer half-angle)
     Vec4 colorIntensity;     // rgb = color, a = intensity multiplier
-    Vec4 params;             // x = cos(inner half-angle), yzw = 0
+    Vec4 params;             // x = cos(inner half-angle), y = 1 for a low-beam cutoff (L6.4), zw = 0
+};
+
+// ── Rectangle area lights (car showcase; docs/car-showcase.md) ──
+static constexpr uint32_t MAX_RECT_LIGHTS = 16;
+struct RectLightData {
+    Vec4 centerRange;  // xyz = centre (WU), w = range (WU)
+    Vec4 rightHalfW;   // xyz = unit right, w = half width (WU)
+    Vec4 upHalfH;      // xyz = unit up, w = half height (WU)
+    Vec4 colorNits;    // rgb = colour, a = luminance (cd/m²)
 };
 #endif
 
@@ -129,6 +143,10 @@ struct LightsUBO {
 #ifdef SWISH_DEBUG_UI
     SpotLightData spotLights[MAX_SPOT_LIGHTS];
     glm::uvec4    numSpotLights;  // x = count, yzw = 0
+    RectLightData rectLights[MAX_RECT_LIGHTS];
+    glm::uvec4    numRectLights;  // x = count
+    Vec4          carBoxCenter;   // xyz = the car body's box centre (WU), w = yaw (radians)
+    Vec4          carBoxHalf;     // xyz = half extents along forward / up / right (WU), w = 1 when it occludes
 #endif
 };
 
@@ -144,11 +162,32 @@ struct SpotLightDesc {
     Vec3  direction;  // unit beam direction
     Vec3  color;
     float intensity;
-    float range;     // WU; the windowed falloff reaches 0 here
-    float cosInner;  // full intensity inside this half-angle
-    float cosOuter;  // zero outside this half-angle
+    float range;           // WU; the windowed falloff reaches 0 here
+    float cosInner;        // full intensity inside this half-angle
+    float cosOuter;        // zero outside this half-angle
+    bool  cutoff = false;  // low beam: almost no light above the beam axis (headlights, lighting L6.4)
 };
 
+// A rectangle area light: a glowing panel. It emits along cross(right, up), lights surfaces softly and appears
+// in glossy paint as a rectangle highlight. Luminance in cd/m² (a studio softbox is a few thousand).
+struct RectLightDesc {
+    Vec3  center;      // WU
+    Vec3  right;       // unit
+    Vec3  up;          // unit, perpendicular to right
+    float halfWidth;   // WU, along right
+    float halfHeight;  // WU, along up
+    Vec3  color;
+    float nits;
+    float range;  // WU; the light fades to zero here
+};
+
+// The car body as a box, for the grounding shadow under area lights.
+struct CarOccluder {
+    Vec3  center{0.0f};  // WU
+    Vec3  half{0.0f};    // WU, along the car's forward / up / right
+    float yawRad  = 0.0f;
+    bool  enabled = false;
+};
 
 struct Ribbon {
     std::vector<Vec3> pts;
@@ -201,6 +240,18 @@ struct Submesh {
     MaterialId material = MAT_DEFAULT;
     Vec4       color    = Vec4(1.f, 1.f, 1.f, 1.f);
 
+    // glTF metallicFactor of the source material, in [0,1]. Negative = no asset value
+    // (non-glTF geometry), so SceneGeometry falls back to the per-material default.
+    float metalness = -1.0f;
+
+    // Lighting L4.3 / L5.2 (debug shaders): body paint gets metallic flakes; a lamp lens or emitter glows when
+    // its lamp is on. lens: 0 none, 1 headlight, 2 tail, 3 brake (from the node name, ModelManager).
+    bool    is_paint = false;
+    uint8_t lens     = 0;
+    // Corrected values for this material by name (scene/Entity/CarLooks.h); used only when the car is asked to.
+    float fixMetalness    = -1.0f;  // < 0 = no correction
+    float fixRoughnessMul = 1.0f;   // multiplier on the roughness texture that reaches the corrected roughness
+
     bool is_steering_wheel = false;
 
     Mat4 sw_pivot_frame = Mat4(1.f);
@@ -234,6 +285,15 @@ struct DrawCall {
 
     Vec3  boundsCenter = Vec3(0.0f);
     float boundsRadius = -1.0f;
+
+    float metalness = -1.0f;  // copied from Submesh::metalness; negative = use the per-material default
+
+    // Lighting L5 / L8 / L4.3. Read only by the debug-build shaders (see PushConstantData::extra).
+    float emissiveNits = 0.0f;   // surface luminance in cd/m² (a lamp lens, a street-lamp head); 0 = not emissive
+    float retro        = 0.0f;   // 1 = retroreflective (lane markings)
+    bool  isPaint      = false;  // car body paint: gets the metallic-flake default
+    float roughnessMul = 1.0f;   // per-draw roughness multiplier (material fixes); 1 = the texture's value
+    float surfaceWet   = 0.0f;   // 1 = a rain-wet car surface with beaded drops (car showcase)
 };
 
 struct PushConstantData {
@@ -241,9 +301,10 @@ struct PushConstantData {
     Vec4 color;     // 16 B
     Vec4 material;  // 16 B — x = metalness, y = wettable mask, z = roughness mul, w = road tag
     Vec4 paint;
+    Vec4 extra;  // x = emissive strength, already pre-exposed; y = retroreflective (0/1); z = wet car surface (0..1).
+                 // Debug shaders only
 };
 static_assert(sizeof(PushConstantData) % 16 == 0, "PushConstantData: push-constant block must be a 16-byte multiple");
-
 
 inline constexpr uint32_t kPushConstantModelColorSize = static_cast<uint32_t>(sizeof(Mat4) + sizeof(Vec4));
 static_assert(kPushConstantModelColorSize % 16 == 0, "model+color push range must be a 16-byte multiple");
