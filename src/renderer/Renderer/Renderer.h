@@ -209,7 +209,6 @@ private:
 
     void recordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex);
     void recreateSwapchain();
-    void init_passes(bool resize);  // (re)build the PassInitCtx and init / resize every registered pass
     // FrameCtx for one frame; `tune` is the live DebugParams in debug builds and DebugParams{} defaults in release.
     const DebugParams& tune() const;
     FrameUpdate        make_frame_update(float dt);

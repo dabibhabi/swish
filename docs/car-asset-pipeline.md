@@ -185,6 +185,26 @@ pass rather than an afterthought of the AI-generated exterior shell:
 
 </details>
 
+
+### Car light nodes (as built, Car lights S0–S3)
+
+Lights use their own **exact-name** convention, separate from the pivot roles above. The loader is `ModelManager::load_car`,
+and the name table is `car_light_kind_from_node` in [CarLights.h](../src/scene/Entity/CarLights.h).
+
+| Anchor Empty | `_Lamp` child (read by the loader) | Kind | Switched by |
+|---|---|---|---|
+| `Headlight_L`, `Headlight_R` | `Headlight_L_Lamp`, `Headlight_R_Lamp` | headlight spot | headlights on |
+| `TailLight_L`, `TailLight_R`, `RearLightBar` | `TailLight_L_Lamp`, `TailLight_R_Lamp`, `RearLightBar_Lamp` | tail (dim red) | tail lights on |
+| `BrakeLight_L`, `BrakeLight_R` | `BrakeLight_L_Lamp`, `BrakeLight_R_Lamp` | brake (bright red) | brake input |
+
+- Each anchor Empty holds its `_Lens`, `_Housing` and `_Emitter` meshes plus a `KHR_lights_punctual` `_Lamp` node.
+- The exporter orients the **`_Lamp`** node so its local **−Z** is the beam direction. The Empty itself is not oriented
+  after the Y-up swap, so only the `_Lamp` nodes are read.
+- Names match exactly. A misspelt lamp is silently absent: the car still loads, with fewer lights. Check the loader's
+  "N car light anchors" log line (7 for `porsche_rigged.glb`).
+- Brightness, range and cone angles are the `car_lights` tunables (lumens, metres, degrees), not asset data.
+  `tests/test_car_lights.cpp` pins the name table and the car-space → world transform.
+
 ---
 
 ## 3. Photoreal exterior paint — texture spec, tied to the planned clearcoat shader

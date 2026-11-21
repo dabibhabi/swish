@@ -15,6 +15,7 @@
 #include "utils/vulkan/Init.h"
 
 #include <glm/glm.hpp>
+#include <iostream>
 #include <optional>
 
 namespace swish {
@@ -55,10 +56,20 @@ void Renderer::drawFrame(float deltaTime) {
     // (acquire) → record → (submit) → (present) → handlePresent.
     auto acquireImage = [&]() -> std::optional<uint32_t> {
         uint32_t idx;
-        VkResult r = vkAcquireNextImageKHR(m_device->getDevice(), m_swapchain->getSwapchain(), UINT64_MAX,
+        // E3: 5 s instead of forever. A timeout (window occluded, display asleep, compositor stall) skips this frame;
+        // the fence is only reset after a successful acquire, so the next frame's wait still passes.
+        constexpr uint64_t kAcquireTimeoutNs = 5'000'000'000ull;
+        VkResult r = vkAcquireNextImageKHR(m_device->getDevice(), m_swapchain->getSwapchain(), kAcquireTimeoutNs,
                                            m_syncObjects->getImageAvailable(m_currentFrame), VK_NULL_HANDLE, &idx);
         if (vkx::is_out_of_date(r)) {
             recreateSwapchain();
+            return std::nullopt;
+        }
+        if (r == VK_TIMEOUT || r == VK_NOT_READY) {
+            static bool logged = false;
+            if (!logged)
+                std::cerr << "[Renderer] swapchain acquire timed out (5 s); skipping frames until it returns\n";
+            logged = true;
             return std::nullopt;
         }
         if (!vkx::is_presentable(r)) throw std::runtime_error("failed to acquire swap chain image!");

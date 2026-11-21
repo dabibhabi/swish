@@ -95,7 +95,7 @@ void Renderer::init(Window& window) {
     m_passRes.sceneParams = &m_sceneParams;
 #endif
     m_passes = make_pass_registry(&m_geometry);
-    init_passes(false);
+    init_passes();
 
 #ifdef SWISH_DEBUG_UI
     // S4: validate the passes' declared image reads/writes once (list order, read-before-write) and keep the result
@@ -156,18 +156,17 @@ void Renderer::cleanup() {
         m_postProcess->cleanup();
         m_postProcess.reset();
     }
-    m_device.reset();
-    if (m_context && m_context->getInstance()) m_context->cleanup();
-    m_context.reset();
     m_materialDescriptors->cleanup(m_device->getDevice());
     m_cameraUniforms->cleanup(m_device->getDevice());
 
-    // ── Core Vulkan teardown ──────────────────────────────────────
+    // ── Core Vulkan teardown (R8): everything that uses the device first, then the device, then the instance ──
     m_syncObjects->cleanup(m_device->getDevice());
     m_commandManager->cleanup(m_device->getDevice());
     m_swapchain->cleanup(m_device->getDevice());
     m_device->cleanup();
-    m_context->cleanup();
+    m_device.reset();
+    if (m_context && m_context->getInstance()) m_context->cleanup();
+    m_context.reset();
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -240,7 +239,7 @@ void Renderer::recreateSwapchain() {
         m_postProcess->recreate(m_swapchain->getExtent(), m_swapchain->getImageFormat(), m_swapchain->getImageViews());
         m_postProcess->register_images(m_images);
 
-        init_passes(true);
+        resize_passes();
     }
 }
 
@@ -253,6 +252,8 @@ PassInitCtx Renderer::pass_init_ctx(const RendererServices& svc) {
             this->m_cameraUniforms->get_layout()};
 }
 
+// R10: first-time init, and resize after a swapchain / SSAA recreate. The ctx holds a reference to `svc`, so it stays a
+// local here, alive for the whole call.
 void Renderer::init_passes() {
     const RendererServices svc = services();
     this->m_passes.init_all(pass_init_ctx(svc));
@@ -261,18 +262,6 @@ void Renderer::init_passes() {
 void Renderer::resize_passes() {
     const RendererServices svc = services();
     this->m_passes.resize_all(pass_init_ctx(svc));
-}
-
-// (Re)build the PassInitCtx and init (first time) or resize (after a swapchain / SSAA recreate) every registry pass.
-void Renderer::init_passes(bool resize) {
-    const RendererServices svc = services();
-    const PassInitCtx      ctx{
-        svc, m_images, m_passRes, m_passes, m_postProcess->get_render_extent(), m_cameraUniforms->get_layout()};
-
-    if (resize)
-        m_passes.resize_all(ctx);
-    else
-        m_passes.init_all(ctx);
 }
 
 FrameUpdate Renderer::make_frame_update(float dt) {

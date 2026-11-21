@@ -189,6 +189,14 @@ stateDiagram-v2
 
 ---
 
+## Car lights (2026-10-10, debug-only)
+
+Each frame, `App` builds `CarLightState` (headlights / tails on, brake from the input) and calls `car_spot_lights()`
+([CarLights.h](../src/scene/Entity/CarLights.h)). That function turns the GLB's `_Lamp` anchors (car space) into world
+`SpotLightDesc`s. They are uploaded with `Renderer::set_car_spot_lights` into the `LightsUBO` spot array (`lights.glsl`),
+lit in `lighting.frag`, and tuned by the `car_lights` tunables. Node naming:
+[car-asset-pipeline.md, "Car light nodes"](car-asset-pipeline.md). Lens glow is the emissive path (lighting L5.2).
+
 ## Car Physics — as built (2026-08-23, Phase 1)
 
 > The state diagram and the "Improving the Drive Feel" section further down are

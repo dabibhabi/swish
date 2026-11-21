@@ -7,6 +7,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <set>
@@ -198,8 +199,19 @@ void Device::savePipelineCache() const {
     if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, nullptr) != VK_SUCCESS || size == 0) return;
     std::vector<char> data(size);
     if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, data.data()) != VK_SUCCESS) return;
-    if (std::ofstream out{pipeline_cache_path(), std::ios::binary | std::ios::trunc})
+    // E5: write a sibling temp file and rename it over the cache, so a crash or kill mid-write never leaves a
+    // truncated cache (rename within one directory is atomic on POSIX). Failures just keep the old cache.
+    const std::string path = pipeline_cache_path();
+    const std::string tmp  = path + ".tmp";
+    {
+        std::ofstream out{tmp, std::ios::binary | std::ios::trunc};
+        if (!out) return;
         out.write(data.data(), static_cast<std::streamsize>(size));
+        if (!out.good()) return;
+    }
+    std::error_code ec;
+    std::filesystem::rename(tmp, path, ec);
+    if (ec) std::filesystem::remove(tmp, ec);
 }
 
 VkPhysicalDevice Device::getPhysicalDevice() const { return m_physicalDevice; }

@@ -3,6 +3,7 @@
 #include "utils/vulkan/Check.h"
 
 #include <cassert>
+#include <stdexcept>
 
 namespace swish {
 
@@ -50,8 +51,12 @@ void SyncObjects::recreateRenderFinishedSemaphores(VkDevice device, uint32_t swa
 }
 
 void SyncObjects::waitForFence(VkDevice device, uint32_t frameIndex) {
-    constexpr uint64_t kNoFenceTimeout = UINT64_MAX;  // disable timeout
-    VK_CHECK(vkWaitForFences(device, 1, &m_inFlightFences[frameIndex], VK_TRUE, kNoFenceTimeout));
+    // E3: a frame's fence normally signals in milliseconds; 5 s means the GPU hung (or MoltenVK lost the device).
+    // Fail loudly instead of freezing the app forever.
+    constexpr uint64_t kFenceTimeoutNs = 5'000'000'000ull;
+    const VkResult     r = vkWaitForFences(device, 1, &m_inFlightFences[frameIndex], VK_TRUE, kFenceTimeoutNs);
+    if (r == VK_TIMEOUT) throw std::runtime_error("SyncObjects: in-flight fence not signalled after 5 s (GPU hang?)");
+    VK_CHECK(r);
 }
 
 void SyncObjects::resetFence(VkDevice device, uint32_t frameIndex) {

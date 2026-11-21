@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <iostream>
 
 namespace swish {
@@ -85,8 +86,20 @@ int App::run() {
     init();
 
     float last_frame_time = static_cast<float>(glfwGetTime());
+    // E4: fps in the title bar (both builds), refreshed twice a second from wall-clock time. frame_delta is
+    // untouched (it is capped at 1/15 s for the physics, so it would under-report slow frames).
+    double fps_window_start = glfwGetTime();
+    int    fps_frames       = 0;
     while (!m_window->shouldClose()) {
         const float dt = frame_delta(last_frame_time);
+        ++fps_frames;
+        if (const double now = glfwGetTime(); now - fps_window_start >= 0.5) {
+            char title[64];
+            std::snprintf(title, sizeof(title), "swish  |  %.0f fps", fps_frames / (now - fps_window_start));
+            glfwSetWindowTitle(m_window->getHandle(), title);
+            fps_window_start = now;
+            fps_frames       = 0;
+        }
 #ifdef SWISH_DEBUG_UI
         sync_debug_edit_mode_from_panel();  // the panel may have toggled it last frame
 #endif

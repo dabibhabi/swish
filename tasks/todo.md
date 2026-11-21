@@ -2,7 +2,8 @@
 
 > Reorganised 2026-09-29. Finished and shipped sections were moved **verbatim** to
 > [`archive/2026-06.md`](archive/2026-06.md), [`archive/2026-07.md`](archive/2026-07.md) and
-> [`archive/2026-08.md`](archive/2026-08.md); open items from them are carried below.
+> [`archive/2026-08.md`](archive/2026-08.md) and (2026-11-20 pruning) [`archive/2026-11.md`](archive/2026-11.md);
+> open items from them are carried below.
 > Checkbox state inside the archive is a **snapshot** and some open boxes there shipped later — the
 > "Verify before starting" note at the bottom lists the ones known to be stale. Ground truth for what
 > shipped: `git log` and [`CHANGELOG.md`](../CHANGELOG.md). Current user goal:
@@ -20,14 +21,14 @@ Decisions:
 
 Order:
 
-- [ ] **R7** Assert `m_window` at the top of `recreateSwapchain()`; keep the pointer (no `Window&` member).
-- [ ] **R8** `cleanup()`: device block under `if (m_device && m_device->getDevice())`, `m_device.reset()`, then `m_context->cleanup()` guarded on `getInstance()` and `m_context.reset()`. `~Renderer` calls `cleanup()`.
-- [ ] **R9** `cleanup()` and `recreateSwapchain()` call `wait_for_idle()` instead of `vkDeviceWaitIdle`.
-- [ ] **R10** Split `init_passes(bool)` into `init_passes()` / `resize_passes()` with `pass_init_ctx(const RendererServices&)`. The ctx holds a reference, so keep `svc` local in the caller.
+- [x] **R7** Assert `m_window` at the top of `recreateSwapchain()`; keep the pointer (no `Window&` member). (done)
+- [x] **R8** `cleanup()`: device block under `if (m_device && m_device->getDevice())`, `m_device.reset()`, then `m_context->cleanup()` guarded on `getInstance()` and `m_context.reset()`. `~Renderer` calls `cleanup()`. (fixed 2026-11-20: the committed half-step reset m_device before using it; teardown now device-users -> device -> instance; clean exit code 0 in both builds)
+- [x] **R9** `cleanup()` and `recreateSwapchain()` call `wait_for_idle()` instead of `vkDeviceWaitIdle`. (done)
+- [x] **R10** Split `init_passes(bool)` into `init_passes()` / `resize_passes()` with `pass_init_ctx(const RendererServices&)`. The ctx holds a reference, so keep `svc` local in the caller. (done 2026-11-20: callers switched, old overload removed)
 - [ ] **E1 measure** Time load / idle-wait / bake in `IBLManager::set_hdri` (:368) and `bakeFromHdri` (:426).
-- [ ] **E5** Atomic pipeline cache write in `Device::savePipelineCache` (:196).
-- [ ] **E3** Fence: 5 s, throw. Acquire: 5 s, log once and skip, checked before the `is_presentable` throw.
-- [ ] **E4** fps in the title bar from `glfwGetTime()` in `App::run`; `frame_delta` untouched.
+- [x] **E5** Atomic pipeline cache write in `Device::savePipelineCache` (:196). (done 2026-11-20: .tmp + std::filesystem::rename)
+- [x] **E3** Fence: 5 s, throw. Acquire: 5 s, log once and skip, checked before the `is_presentable` throw. (done 2026-11-20)
+- [x] **E4** fps in the title bar from `glfwGetTime()` in `App::run`; `frame_delta` untouched. (done 2026-11-20: title "swish  |  N fps", 0.5 s window)
 - [ ] **E1 fix** Option A pre-staged (roughness-0 early return in `ibl_prefilter.frag`; regenerate the `.spv` golden on purpose). B/C/D if the load dominates.
 - [ ] **E2** Measure fence vs acquire, then pick A/B/C/D; feel test.
 - [ ] Gates after each item; changelog in `docs/changelog/2026-11.md` (R1-R6, R7-R10, one per E item).
@@ -780,41 +781,6 @@ Changed from the defaults above: the bake was **not** made cheaper (the irradian
 
 Not surveyed yet, check before the phase that touches them: `ssr.frag`, `godrays.frag`, `glass.frag` lighting, the IBL bake shaders, road roughness textures.
 
-## What's next (updated 2026-10-11, after merging everything into `debug-ui`)
-
-`debug-ui` now holds: car lights S0–S3, the four debug-only stubs (rigid body, car rain, render tools, driving
-tools), refactor M0 (P0.3–P0.5), the committed Ch01 / Hellcat work, upstream `origin/debug-ui` (swapchain sRGB +
-FIFO vsync, run_mac.sh, 2026-07-25 reviews) and `assets/blend/porsche_rigged.{blend,glb}`. Gate at merge: release
-309/309, debug 333/333, `.spv` 33/33, 0 warnings, `make check` OK (CHANGELOG 2026-10-11). In priority order:
-
-1. **Look at what was merged (nothing has been seen running yet).** `make debug` with
-
-   `SWISH_CAR=assets/blend/porsche_rigged.glb`: car lights at rain 0 / 1.0 + fps (car-lights S4); Physics
-     "rigid body" toggle; per-wheel spray; Render tools panel (GPU profiler on MoltenVK, F12 capture, hot-reload of
-     `composite.frag`); Driving tools panel (record/replay, gamepad). Window-only screenshots, per CLAUDE.md.
-2. **Check the upstream swapchain change on the Mac.** Present mode is now always FIFO (fps capped at the display
-
-   refresh) and 8-bit sRGB is preferred over 16-bit extended-sRGB: confirm the image matches and re-baseline any fps
-     numbers; fix `docs/DESIGN_PATTERNS.md`'s "present mode is hard-coded Mac behaviour" claim.
-3. **Make the rigged Porsche a first-class car.** Loader path for the Swish node convention (`Wheel_`*, `Caliper_`*,
-
-   `SteeringWheel`, `Needle_*`, `Wiper_*`) so wheels spin/steer (today: "WHEEL RECOVERY FAILED", rigid wheels),
-     needles follow rpm/speed and the wipers follow `wiperAngle`. Then decide whether it replaces `porsche.glb`.
-4. **Finish car lights:** S5 lens glow (emissive on `*_Lens` / `_Emitter` submeshes), S6 rain on the lenses (feed the
-
-   car-rain `LensWetnessModel` into a lens shading path), S7 docs; optional: split turn signals / fog lamps in Blender.
-5. **Typed-C++ M1:** owner review of the committed Ch01 work, then Ch02–Ch04. Note `InputFrame` (driving tools)
-
-   already covers part of Ch07; reconcile before starting Ch07.
-6. **Stub → real, by value:** braking distance 36.6 m vs 31.5 m target (bench); true multi-emitter spray (needs
-
-   `spray_sim.comp`, a deliberate release `.spv` change); rigid-body `TODO(stub)`s; hot-reload for the other pipelines.
-7. **Release decisions (owner):** car lights to release; TAA vs SSAA default.
-8. **Housekeeping:** format the 27 files that differ from `.clang-format`, then make format-check a hard CI gate;
-
-   stale counts in `DESIGN_PATTERNS.md`; check `docs/utils-component-design.md` against `src/utils/`; decide whether to
-     keep or delete `origin/debug-ui-2026-10` now that `origin/debug-ui` is current.
-
 ## Rigged Porsche: first-class car (started 2026-10-12, source `goals.md`)
 
 Owner decisions, grill round 1 (2026-10-12):
@@ -911,34 +877,9 @@ radiance $= CIattc$; wet halo $= CIatt^2cwk_{halo}$ (same $k_{halo}$ as street l
 - [x] S2 (2026-10-10) GPU: `SpotLightData` array in `LightsUBO` + `lights.glsl`, spot loop in `lighting.frag`, all `#ifdef SWISH_DEBUG_UI`
 - [x] S3 (2026-10-10) Wiring + tunables: `car_lights` group in `Tunables.def`; brake lamps follow `m_brake`; App pushes spots each frame
 - [ ] S4 Verify (night chase screenshots, tests, 33/33 .spv done 2026-10-10; rain 0/1.0 pair + fps numbers open): debug + release builds, `make test` / `make test-debug`, 33/33 `.spv`, screenshots night/day × rain 0/1.0
-- [ ] S5 Lens glow: headlight / tail / brake lens submeshes tagged by node name and lit emissive when on
-- [ ] S6 Rain on the lenses: wet-lens beading + streak on `*_Lens` submeshes (reuse windshield-rain height field idea)
-- [ ] S7 Changelog + `docs/car_system.md` + `docs/car-asset-pipeline.md` (light node convention)
-- [ ] Review: what shipped, what did not, lessons
-
-## Stub: 6-DOF rigid-body chassis (started 2026-10-10)
-
-### Feature: rigid-body chassis (stub)
-
-- **Player sees:** nothing by default; in `make debug` a "Physics model" toggle drives the car pose (incl. pitch/roll) from a 6-DOF body on four spring-damper wheel contacts.
-- **Done when:** new Catch2 tests green (free fall, static sag = mg/4k, L conservation, damped energy monotone, bicycle golden unchanged); `make test` + `make test-debug` green; 33/33 `.spv`; `make check` OK.
-- **Builds:** debug-only; default = bicycle (identity), release byte-identical.
-- **Owner:** vehicle-dynamics-engineer (lead), debug-ui-engineer, build-verify-engineer, docs-scribe.
-- **Out of scope:** road-height raycasts, anti-roll bars, aero, replacing the bicycle model.
-
-- [x] Slice 1: `utils/physics/RigidBody` (GLM-only state + symplectic Euler) + `tests/utils/` tests
-- [x] Slice 2: four wheel contacts (spring-damper normal + Tire.h friction circle at patch) + tests
-- [x] Slice 3: CarEntity wiring (debug-gated, bicycle default) + golden unchanged (rigid-mode runtime path not yet exercised; no test target defines SWISH_DEBUG_UI)
-- [x] Slice 4: `Tunables.def` `rigidBodyChassis` bool (`[car] rigid_body_chassis`, default false = bicycle) + "Physics" UI header + App wiring + preset round-trip test
-- [x] Slice 5: verify (both configs, 33/33 .spv, make check, warnings) — release 230/230, debug 254/254, 33/33 .spv, 0 first-party warnings (-Werror debug-UI build); GUI toggle not driven (launch needs approval)
-- [x] Slice 6: changelog (`docs/changelog/2026-10.md`) + docs + `tasks/stub-report.md` (2026-10-10; changelog index not yet regenerated, stray root files not yet deleted)
-
-### Review (2026-10-10)
-
-- Built: `utils/physics/RigidBody.h`, `scene/Entity/RigidChassis.h`, debug-gated `CarEntity` wiring, `[car] rigid_body_chassis` toggle; 12 new test cases. Release 230/230, debug 254/254, 33/33 `.spv`, `-Werror` debug-UI build clean.
-- Not verified: the GUI toggle was never driven (no visual check); App Y-snap is skipped in rigid mode.
-- Owner to do: delete stray root files (`build-debug-td.log`, `build-werror-tmp.cfg`, `build-werror-tmp.log`, `build-werror-tmp/`, `rb-testdebug.log`), run `python3 scripts/changelog_index.py`, then `make check`.
-- Details, stubbed-vs-real list, open questions and risks: [`stub-report.md`](stub-report.md).
+- [x] S5 Lens glow: headlight / tail / brake lens submeshes tagged by node name and lit emissive when on (done as lighting L5.2 emissive lens glow)
+- [x] S7 Changelog + `docs/car_system.md` + `docs/car-asset-pipeline.md` (light node convention) (done 2026-11-20)
+- [x] Review: what shipped, what did not, lessons (folded into S7)
 
 ## Typed C++ system refactor + tutorial (started 2026-10-01)
 
@@ -1035,25 +976,24 @@ and re-plan. Release build (`SWISH_DEBUG_UI=OFF`) stays byte-identical unless de
 - [x] Wave A (parallel, split by directory; verified: release 149/149, debug-UI 168/168, 33/33 `.spv`, 0 warnings with `-Werror`, runtime first frame pixel-identical to the pre-refactor binary, 0 validation messages): A1 scene (RoadScene.cpp split, delete dead `generate_trees`, element registry, CarPhysics.h topic headers); A2 renderer (Renderer.cpp split, migrate the 6 identical-mask barrier pairs to `vkx`, shader-module dedupe; 2 differing pairs held for sync validation); A3 core/debug (App::run split + CameraController, presets out of `build/`, more registry groups); A4 hygiene (root clutter -> `archive/docs/notes/` or backup, script portability, `make check` + size guard + pre-commit sample)
 - [x] Wave B (serial, touches includes everywhere; verified: release 181/181, debug-UI 203/203, 33/33 `.spv`, 0 warnings, smoke test identical): `src/utils/<topic>/` layout + `swish::util` namespaces + include-path cleanup
 - [x] Wave C: docs — cleanup report (what was cleaned / reorganized), "keeping it clean" guide, directory README + Excalidraw of the new tree, REPO_MAP/RECIPES/CLAUDE.md refresh, changelog entries
-- [ ] Final: main session verifies both configs, 33 `.spv` hashes, goldens, runtime smoke test under validation + window-only screenshots
 
 - Follow-up found by verification: golden mesh intro hashes are bit-exact to Release/Clang codegen and fail at `-O0`, with `-ffp-contract=off`, and under GCC — make them tolerance-based outside optimized Clang before Arch/GCC CI can be green
 - Held for the owner: C2 puddle mismatch, `References/` untrack, `.claude/worktrees/thirsty-darwin`, the 2 differing barrier pairs, V5 dynamic rendering, pass registry, Arch reconciliation (plans in `archive/local/review_2026-09-29/docs/arch-plan-*.md`), any commit/push
 
 ### Phase 2 — single sources of truth
 
-- [ ] 1. `src/utils/units/Units.h` replacing the 4-6 duplicated unit constants; `toml_baker` includes shared `RoadConfig.h`
-- [ ] 2. `src/utils/<topic>/` layout per `docs/utils-component-design.md`
-- [ ] 3. Tunable registry (`src/debug/Tunables.def`), start with the `ssr` group
-- [ ] 4. `shaders/common/*.glsl` in verified batches (`.spv` hashes must match)
-- [ ] 5. `utils/vulkan/` (`vkx`), starting with `Barrier.h`
+- [x] 1. `src/utils/units/Units.h` replacing the 4-6 duplicated unit constants; `toml_baker` includes shared `RoadConfig.h` (done, verified 2026-11-20)
+- [x] 2. `src/utils/<topic>/` layout per `docs/utils-component-design.md` (done, verified 2026-11-20)
+- [x] 3. Tunable registry (`src/debug/Tunables.def`), start with the `ssr` group (done, verified 2026-11-20)
+- [x] 4. `shaders/common/*.glsl` in verified batches (`.spv` hashes must match) (done, verified 2026-11-20)
+- [x] 5. `utils/vulkan/` (`vkx`), starting with `Barrier.h` (done, verified 2026-11-20)
 
 ### Phase 3 — structural (only after 0-2 are green)
 
-- [ ] V5 gate: Vulkan 1.3 dynamic rendering + sync2, TAA first
-- [ ] Pass architecture (`IRenderPass`, `FrameCtx`, `PassRegistry`, `enum class Img`, ...)
-- [ ] Pure file splits: `RoadScene.cpp`, `Renderer.cpp`, `CarPhysics.h`; delete dead `generate_trees`
-- [ ] Build/module split; split `App::run()` (~515 lines today; see `archive/src/core/App/REFACTOR.md`)
+- [x] V5 gate: Vulkan 1.3 dynamic rendering + sync2, TAA first (done: cleanup R2)
+- [x] Pass architecture (`IRenderPass`, `FrameCtx`, `PassRegistry`, `enum class Img`, ...) (done: cleanup R3)
+- [x] Pure file splits: `RoadScene.cpp`, `Renderer.cpp`, `CarPhysics.h`; delete dead `generate_trees` (done: wave A)
+- [x] Build/module split; split `App::run()` (~515 lines today; see `archive/src/core/App/REFACTOR.md`) (done: wave A, App::run ~25 lines)
 
 ### Owner-approved follow-ups (2026-09-29, in progress)
 
@@ -1109,16 +1049,16 @@ today is unproven.
 
 **Checklist:**
 
-- [ ] Job 1: build all test targets (`cmake --build build` or `--target swish_tests swish_utils_tests`), or scope
+- [x] Job 1: build all test targets (`cmake --build build` or `--target swish_tests swish_utils_tests`), or scope (done: ci.yml builds both test targets)
   ```
   ctest to built targets
   ```
-- [ ] Make the golden-mesh hash checks portable: assert exact hashes only in optimized Clang builds; elsewhere check
+- [x] Make the golden-mesh hash checks portable: assert exact hashes only in optimized Clang builds; elsewhere check (done: test_golden_mesh.cpp kHashesComparable)
   ```
   counts/bounds/tolerances (keep `make test` on macOS strict)
   ```
-- [ ] Add a `bash scripts/check_repo.sh --quick` step (hard checks only)
-- [ ] Fix the stale `FileIO` comment in `ci.yml`
+- [x] Add a `bash scripts/check_repo.sh --quick` step (hard checks only) (done: ci.yml make check)
+- [x] Fix the stale `FileIO` comment in `ci.yml` (done: no FileIO comment left)
 - [ ] Decide the `.spv` hash policy for CI (the golden file is tied to macOS Vulkan SDK glslc 1.4.321.0; Linux glslc
   ```
   differs — per-platform baseline or skip in CI; see `archive/local/review_2026-09-29/docs/arch-plan-toolchain-build-assets.md`)
@@ -1135,7 +1075,7 @@ today is unproven.
 | 3 | Phase 3 corridor **3b / 3c** | 3b: real interchange ramps + service-road connections, then delete unwired `generate_interchange` / `generate_service_roads` / `generate_chunk`; 3c: exit-number signage + HOV markings from OSM tags |
 | 4 | **Per-wheel spray emitters** | debug stub merged 2026-10-11 (`WheelSpray.h`, round-robin on the single sim); real version needs a `CarEntity` wheel-matrix accessor, `App.cpp` wiring, `Renderer` setter, 4 spawn points in `SpraySimUBO` |
 | 5 | **TAA as release default** vs SSAA | user decision pending; TAA and `VelocityPass` are debug-gated today |
-| 6 | Reflection / ambient energy rebalance; Fresnel-bounded sheen (E2) | stops bright panels stacking past AgX's shoulder; also cures over-exposed far road |
+| 6 | Reflection / ambient energy rebalance; ~~Fresnel-bounded sheen (E2)~~ (sheen done: L4.2, rain P2/P2d) | stops bright panels stacking past AgX's shoulder; also cures over-exposed far road |
 | 7 | Height fog (D1) + sun-tinted airlight (D2); froxel volumetrics (C4) | C4 wants clustered light culling (C6) first |
 
 ## Open items by area (carried verbatim in meaning from the archives)
@@ -1145,23 +1085,21 @@ today is unproven.
 - [ ] Squat / dive / roll load transfer (Phase B2; needs stable `ax`/`ay`) — `archive/2026-08.md`, `archive/2026-07.md`
 - [ ] Wheel Phase B spec section 11 debug sliders (`debug-ui-engineer`)
 - [ ] Hydroplane: violent spin needs per-side water sampling or combined-slip tire (cheapest step: first-order lag on `filmOverTread`); dry-road spin stays gated (decision 2)
-- [ ] `puddleAmount` exists in three hand-synced copies (`lighting.frag`, `ssr.frag`, `CarPhysics.h`); the planned shared GLSL include (Phase 2 step 4) removes this
+- [x] `puddleAmount` exists in three hand-synced copies (`lighting.frag`, `ssr.frag`, `CarPhysics.h`); the planned shared GLSL include (Phase 2 step 4) removes this (done: shaders/common/puddle.glsl shared)
 - [ ] Promote the debug Telemetry speed readout to an always-compiled release overlay (user chose debug-gated first)
 
 **Core / App** (from the archived `REFACTOR.md`, 2026-09-29)
 
 - [ ] Input injection: `Camera::process_keyboard` and `CarEntity::handle_input` still read GLFW directly; gather input into a plain struct in `core/`
-- [ ] Weather presets as data files: `WeatherPreset` is still an enum in `src/scene/WeatherPreset.h`
-- [ ] `Subsystems` struct for the `unique_ptr`s + scene-lambda wiring in `App` (only if a second scene appears)
 - [ ] No automated test drives `App` (needs a window); verify with a scripted screenshot run
 
 **Rendering / lighting** (lighting items are now planned in the "Lighting" section near the top, 2026-11-14)
 
-- [ ] `glass.frag` sun disc has no `#ifdef SWISH_DEBUG_UI` set-4 branch, so debug sun-disc sliders do not move the windshield sky (bind set 4 in `GlassPass.cpp`)
-- [ ] Composite `Params` push-constant block was measured at 52 bytes (not a 16-byte multiple); re-measure and pad if still true
-- [ ] Shadow polish: PCSS soft shadows, tighter frustum fit, bias auto-tune
+- [x] `glass.frag` sun disc has no `#ifdef SWISH_DEBUG_UI` set-4 branch, so debug sun-disc sliders do not move the windshield sky (bind set 4 in `GlassPass.cpp`) (done: lighting L2.6)
+- [x] Composite `Params` push-constant block was measured at 52 bytes (not a 16-byte multiple); re-measure and pad if still true (done: L0.11)
+- [x] Shadow polish: PCSS soft shadows, tighter frustum fit, bias auto-tune (done: L3.1-3.3; release PCSS is the L3.4 owner decision)
 - [ ] SSAA polish (render-scale as key/config; better downsample kernel above 1.5x)
-- [ ] Bloom pyramid with Karis firefly suppression (C2) + vignette + film grain (F2)
+- [x] Bloom pyramid with Karis firefly suppression (C2) + vignette + film grain (F2) (bloom pyramid done 2026-11-15; vignette/grain still an owner look call)
 - [ ] Analytic sky (D3); multiscatter GGX (E1); layered wet BRDF (E3); puddle ripple normals (E4)
 - [ ] Blue-noise dithering (G1); Halton sequences (G2); Halton temporal upsampling (G3)
 - [ ] GI approximation (H1); environment density + decals (B3); clustered light culling (C6); mesopic night look (C8)
@@ -1170,20 +1108,19 @@ today is unproven.
 
 **Rain (from the 2026-06-30 roadmap)**
 
-- [ ] A2 impact splashes; A3 lens raindrops overlay; A4 validate windshield drops vs Heartfelt; A5 wetness-map mip blur
+- [ ] ~~A2 impact splashes~~ (done 2026-11-20, rain_splash.*); A3 lens raindrops overlay; A4 validate windshield drops vs Heartfelt; A5 wetness-map mip blur
 
 **Road / LIE (from the 2026-06-30 roadmap)**
 
-- [ ] B1 curved centerline (largely superseded by the OSM corridor, Phase 3a); B2 distance LOD + billboard impostors; B4 network-first refactor; B5 further extension after B2
+- [ ] B2 distance LOD + billboard impostors; B4 network-first refactor; B5 further extension after B2
 
 **Car and environment assets (planned, nothing built;** `docs/car-asset-pipeline.md`**,** `docs/environment-asset-pipeline.md`**)**
 
 - [ ] A/B Tripo3D vs Hunyuan3D on an exterior shell; budget real Blender retopo
-- [ ] Interior shapes (steering wheel + dashboard) to the naming convention in `docs/car-asset-pipeline.md` section 2
-- [ ] GLB export from Blender, name-based loader path with heuristic fallback (additive)
-- [ ] Hand-model wiper blade (two materials, WORLD_SCALE standoff gap)
+- [x] Interior shapes (steering wheel + dashboard) to the naming convention in `docs/car-asset-pipeline.md` section 2 (done: rigged loader S0c)
+- [x] GLB export from Blender, name-based loader path with heuristic fallback (additive) (done: rigged loader S0c)
+- [x] Hand-model wiper blade (two materials, WORLD_SCALE standoff gap) (done: Wiper_* nodes)
 - [ ] Leaf-card texture atlases (species-referenced) before any tree LOD; B2 = nearer mesh LOD geomorphing into the billboard
-- [ ] Note: clearcoat + flake shader (formerly "open item 1") **shipped 2026-08-23**, so AI-paint texturing can target real shader inputs
 
 ## Verify before starting (archive checkboxes known to be stale)
 
@@ -1192,96 +1129,3 @@ SSR, SSAO, CSM, auto-exposure, DoF (`src/renderer/DofPass/`), god-rays, puddles 
 (debug-gated), FOV kick + shake (F1), `Smoothing.h` (F3), wet-asphalt BRDF (C1), clearcoat + flake,
 per-object velocity buffer, Wheel Phase B, ADR `docs/adr/0001-*` (the "ADR candidate" box). The C++ standard
 is now 20. Re-check any other older box before treating it as open.
-
-## Stub: driving realism tools
-
-Track lead: driving-tools. Pipeline: vehicle-dynamics-engineer → (parallel) telemetry/replay + bench → debug-ui-engineer → build-verify-engineer → docs-scribe.
-
-- [x] S1 Input seam: `InputFrame` (`src/utils/input/`), `CarEntity::apply_input_frame`, keyboard source, gamepad source (deadzone+curve), FFB stub (SAT target); additive to Ch07
-- [x] S2 Telemetry ring buffer + CSV export/import + replay driver (debug-only)
-- [x] S3 Physics bench harness `[bench]` (0-100, 100-0, skidpad, top speed) vs 911 Turbo reference
-- [x] S4 Debug panel (record/replay/gamepad/FFB readout), gated, identity default off
-- [x] S5 Tests green (release + debug), 33/33 .spv, goldens untouched, `make check`
-- [x] S6 Changelog entry + docs + `tasks/stub-report.md`
-
-## Stub: car rain interactions (2026-10-10, branch `stub/car-rain`)
-
-Track brief: `.worktrees/agent-runs/car-rain.md`. Stub = real interfaces + minimal honest impl + GPU-free Catch2 tests; debug-only, release byte-identical (33/33 `.spv`, goldens untouched).
-
-- [x] S1 Per-wheel spray emitter pure fn (`WheelSpray.h`) + SpraySystem accepts ≤4 emitters (debug-only path; release = today's single origin) — rain-weather-engineer
-- [x] S2 Lens wetness model (`LensWetness.h`, keyed by lens node name; accumulate / airflow clear / drain; upload-ready struct) — rain-weather-engineer
-- [x] S3 Phase C slip/lockup visual hooks (`SlipVisuals.h`: slip ratio/angle per wheel → spray boost, `skid` flag) — vehicle-dynamics-engineer
-- [x] S4 Debug wiring (DebugParams/Tunables, Telemetry readout, SWISH_DEBUG_UI gated, identity defaults) — debug-ui-engineer
-- [x] S5 Tests per slice (monotonic in rain, cleared at speed, zero dry, slip thresholds)
-- [x] S6 Verify: `make test`, `make test-debug`, 33/33 `.spv`, `make check`, 0 warnings, screenshots rain 0 & 1.0 — build-verify-engineer. **Note: release 233/233, debug 256/256, 33/33** `.spv` **unchanged; screenshots at rain 0 & 1.0 NOT done (still open);** `make check` **to be run by owner after the changelog index refresh.**
-- [x] S7 Docs: changelog `docs/changelog/2026-10.md` + index, docs/rain, docs/wheels — docs-scribe (index refresh `python3 scripts/changelog_index.py` pending, owner runs it)
-- [ ] S8 `tasks/stub-report.md`
-
-## Stub: Vulkan render tools (started 2026-10-10, track `render-tools`)
-
-All debug-only (`SWISH_DEBUG_UI`), identity default off; release `.spv` 33/33, goldens untouched. Brief: `agent-runs/render-tools.md`.
-
-- [x] S1 GPU-free logic + tests: timestamp ring/latency math + smoothing (`TimestampMath.h`), capture path naming + PPM/PFM/half encoders (`CapturePath.h`), pass-declaration validator
-- [x] S2 GPU timestamp profiler: query pool sized to pass list, write around each pass, N-2 readback, graceful degrade (MoltenVK); `GpuProfiler` snapshot accessor done, debug-UI table + total is S6. Not yet run on a GPU (build + unit tests only)
-- [x] S3 Frame capture helper: LDR swapchain dump (+ optional HDR PFM) to `build-debug/captures/`, staging copy after fence, F12 key (Shift = + HDR); `FrameCapture` status accessor done, UI button is S6. Not yet run on a GPU (build + unit tests only)
-- [x] S4 `IRenderPass` resource declarations (reads/writes by `Img`) + debug validator (read-before-write warn); pass order unchanged
-- [x] S5 Shader hot-reload: mtime poller, glslc recompile (same cmd as CMake), `PipelineRebuild` hook wired for Composite, rest logged TODO
-- [x] S6 Debug UI wiring (profiler table, capture button, hot-reload status): "Render tools" section in `DebugUI.cpp` fed by `RenderToolsView` (set from `Renderer::init`); also shows pass-declaration warnings. Not visually checked in a running window
-- [x] S7 Verify: `make test` 261/261, `make test-debug` 284/284, 33/33 spv (manual hash comparison), `make check` OK (format findings pre-existing, report-only). Warning count is as reported by the build owner, not re-checked while writing the docs
-- [x] S8 Docs + changelog (`docs/changelog/2026-10.md`) + `tasks/stub-report.md`. Still to do: `python3 scripts/changelog_index.py` (index in `CHANGELOG.md`), then `make check`
-
-## GLSL tooling environment — 2026-10-25
-
-- [x] Inspect macOS architecture, Homebrew packages, shader executables, workspace shaders, and editor extensions.
-- [x] Add stage-aware editor tasks for OpenGL validation, Vulkan SPIR-V compile, and SPIR-V validation.
-- [x] Add minimal OpenGL sample and Shader Studio animated preview shader.
-- [x] Document inputs, compiler commands, preview workflow, and macOS OpenGL/Vulkan split.
-- [x] Verify OpenGL shader examples, compile project Vulkan shaders, validate generated SPIR-V, and inspect the live preview.
-
-### Review
-
-- Apple Silicon (`arm64`), macOS 26.6.2, Homebrew 7.0.10; `glslang` 16.6.0, `shaderc` 2026.4, and `spirv-tools` 1.4.357.0 were already installed. No package installation or upgrades were needed.
-- The two GLSL 3.30 OpenGL files passed `glslangValidator`. The animated Shadertoy-style preview compiled and rendered in installed Shader Studio; its preview wrapper is intentionally not a standalone OpenGL entry point.
-- Project Vulkan compilation generated 33 SPIR-V modules; all passed `spirv-val --target-env vulkan1.2`.
-- Existing `dtoplak.vscode-glsllint` does not infer generic `.glsl` stages and reports an error for stage-ambiguous files. Nifty Shaders is recommended for pragma-aware diagnostics; it remains a manual install.
-- No native Vulkan execution was attempted; this setup only compiles and validates SPIR-V on macOS.
-
-# Lighting look-dev workbench
-
-- [x] Add a debug-only look-dev launch path that reuses the renderer and car asset without loading the driving corridor.
-- [x] Move tuning controls into a separate native GLFW/Vulkan window while the render window continues updating.
-- [x] Retain the existing Swish shader hot-reload/error path; this workbench does not introduce a standalone shader compiler/editor.
-- [x] Build debug and release targets, run shader build through CMake, execute the test suite, and launch both windows on macOS.
-- [x] Document how to launch and tune; append changelog and code-snippet notes.
-
-### Review
-
-- `codex/lookdev-workbench` was created before editing. `cmake --build build-debug --target swish -j4` and `cmake --build build --target swish -j4` succeeded; `ctest --test-dir build-debug --output-on-failure` passed 415/415 tests.
-- `SWISH_LOOKDEV=1 ./build-debug/swish` initialized the Apple M3 Max Vulkan device, game swapchain, separate controls swapchain, IBL, and car asset without startup errors.
-- Visual placement and mouse/keyboard interaction could not be confirmed because the desktop screenshot surface did not show the app's windows. Please check the first launch interactively.
-- The workbench retains the project renderer, so it does not start a full graphics engine-free preview. It uses the existing pipeline shader diagnostics/hot reload where supported.
-
-## Look-dev road horizon and length follow-up
-
-- [x] Preserve the existing first-launch studio-road look while increasing its forward length to 5x.
-- [x] Keep the car clamped far enough from road ends that the endpoints remain beyond the camera far plane.
-- [x] Build and run the look-dev scene; verify extent/bounds numerically and visually if the desktop window is available.
-- [x] Record the follow-up in the changelog and lessons.
-
-### Review
-
-- The pad now spans 2.5 km along X (original width retained). Driving is clamped to ±600 m while the endpoints are ±1.25 km; at either clamp the end is 650 m away, 50 m beyond the 600 m camera far plane. Compile-time assertions prevent the bound from moving inside that horizon.
-- Debug build and all 415 CTest cases passed. Relaunch logs show both Vulkan windows initialize. The actual road silhouette could not be screenshot-inspected in this desktop session.
-
-## Debug HDRI selector (2026-10-25)
-
-- [x] Add a shared catalog of installed sky HDRIs, including the downloaded Sunflowers map.
-- [x] Add a live selector to the debug Sky panel and wire selection to the IBL rebake path.
-- [x] Persist the selection in debug look presets and sync it when weather presets change.
-- [x] Build release and debug configurations and launch the debug app.
-- [ ] Visually operate the selector and verify switching between Citrus and Sunflowers.
-
-### Review
-
-- `cmake --build build --target swish -j4` and `cmake --build build-debug --target swish -j4` both succeeded. Debug startup logs confirm the Citrus HDRI and both game and controls swapchains initialize.
-- The CUA surface exposes the game window but not the detached controls window, so interaction with the combo and visual confirmation of the switched map remain open.
