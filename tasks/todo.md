@@ -9,6 +9,93 @@
 > shipped: `git log` and [`CHANGELOG.md`](../CHANGELOG.md). Current user goal:
 > [`docs/user-goals/CURRENT.md`](../docs/user-goals/CURRENT.md).
 
+## LIE full route + 6-DOF physics + real road (planned 2026-11-20, grilling session; plan drafted by AI)
+
+Reference sheet: [`docs/lie-reference/README.md`](../docs/lie-reference/README.md). Status: **phase A done; B1-B5a and B5c built (6-DOF still off by default). Open in B: B5b, B5d, B6, B7. Then C.** Tuning notes: [`docs/corridor/tuning-notes.md`](../docs/corridor/tuning-notes.md).
+
+Decisions (owner, 2026-11-20):
+
+- Route: Queens-Midtown Tunnel to Riverhead (exit 73), about 30 scene miles. Real OSM centreline and lane counts.
+- Compression: tunnel to exit 49 stays as built (31.2 real mi -> 18 mi). Exits 49-73 (about 40 real mi) get about 12 mi (3.3:1); length is cut from straights first so curves keep a highway radius.
+- Elevation: real USGS 3DEP terrain along the centreline, smoothed, plus bridge/tunnel heights from OSM tags.
+- Exits: every exit is drivable. Ramps lead only to the parallel service roads and back. East of exit 64, where no real service road exists, a fictional tree-lined one is invented.
+- Ends: drive the tunnel interior, emerge at the plaza; Riverhead ends at the CR-58 merge with a turnaround.
+- Physics: finish the 6-DOF rigid chassis with per-wheel tyres. Feel: sim-cade, keyboard first, ABS and traction control on by default.
+- Surface: real LIE variety per stretch (concrete slabs, fresh/patched asphalt), wheel paths, sealant, worn paint, rumble strips, reflectors.
+- Scenery: three procedural kits (Queens urban, Nassau suburban, Suffolk pine), skyline billboard. No OSM building footprints.
+- Detail: 12 hand-checked landmarks; the other exits get generated signs and a standard interchange.
+- References: Street View links and notes only; saved photos must be CC-licensed.
+- Gating: everything debug-first (`make debug`); release stays byte-identical until the owner signs off each phase.
+- Out: traffic, manual shifting, scripted time/weather (conditions stay player-set).
+
+Decisions, round 2 (owner, 2026-11-20):
+
+- Who builds: agents, **one code item at a time, in order, no parallel code agents** (parallel is for research only). Run until done or the limit is hit. Work is organised by track (A-D).
+- Every item ships: debug sliders in `Tunables.def`, tuning notes, and an architecture write-up with university slide references (`docs/<topic>/`).
+- Research on the real LIE uses the Chrome connector and other machine tools.
+- HOV lane (about exits 32-64): diamond symbols, double-white buffer, gap openings from OSM; freely drivable.
+- Service roads: two-lane one-way each side; cross streets are dead-end stubs with cycling traffic lights as props; crossing only at each exit's overpass or underpass.
+- Collision: slide along barriers and walls with friction and speed loss; no damage; grass drivable but slow and bumpy.
+- Performance floor: 30 fps at the densest Queens spot; record `GpuProfiler` numbers per phase.
+- HUD: speed, gear, next exit number/name/distance, town, plus a small route minimap that does not distract (edge-anchored, low contrast, no animation).
+- Physics extras in: aero downforce with active rear spoiler, road bumps fed to the suspension, skid marks and tyre smoke.
+- Branch: stay on `bug/fix-camera-ownership`, uncommitted, no commits unless asked.
+- Verification: for this plan agents may launch `make debug` and take window-only screenshots. Simple unit tests only; complex tests go to the queue in [`upcoming-tests.md`](upcoming-tests.md) for the owner.
+
+Order (each phase ends drivable; owner checks in the app, agents run unit tests only):
+
+**A. Route data**
+- [x] **A1** (done 2026-11-20: 70.41 real mi chain, ramps in the extract, frame pinned) Widen the bbox to Riverhead in `config/lie_corridor.toml`, `fetch --force` + `net --force` in `tools/lie_corridor.py`. Check: exit 73 junction present.
+- [x] **A2** (done 2026-11-20: two-zone solve, 29.999 mi, tightest curve still the real 99 m; west differs from the August bake by up to 6.6 m because the old OSM cache was overwritten) Piecewise compression: keep the west anchors, add east anchors (53, 62, 64, 68, 73). Check: west stations unchanged to 1 mm (`tests/test_corridor.cpp`), total length 30 mi +/- 0.5; minimum curve radius test for 70 mph.
+- [x] **A3** (done 2026-11-20: USGS cache, profile 5.00 % / 0.59 m/s², asset v2 as debug-only `lie_corridor_full.bin`; release asset restored) Elevation bake: sample 3DEP per station, low-pass, clamp grade to 6%, vertical-curve fit; add `y` and bank to the station record; bump the asset version in `CorridorAsset.h` and the packer together. Check: max grade and max vertical acceleration at 70 mph in a test.
+- [x] **A4** (done 2026-11-20: 108 exits with sign text, 3 districts, trailing blocks, `next_exit` / `district_at`, debug log readout) Exit table block in the asset: number, name, destinations, side, district tag per station. Names come from the OSM `motorway_link` `destination` tags, with a hand table for gaps.
+- [x] **A5** (done 2026-11-20: mesh, lamps and car height follow grade and bank in debug; car does not pitch or roll until B4) `CorridorScene` sweeps with grade and bank; the bicycle car follows road height (stop-gap until B).
+
+**B. Physics (debug toggle, bicycle stays the default)**
+- [x] **B1** (done 2026-11-20: equal slices of at most 1/240 s instead of an accumulator, debug slider `carSubstepHz`) Fixed 1/240 s substep with accumulator for both models. Check: same result at 30 and 144 fps.
+- [x] **B2** (done 2026-11-20) Wheel-spin state per wheel, slip ratio, brake and drive torque at the wheel.
+- [x] **B3** (done 2026-11-20: similarity-method magic formula, load-sensitive) Combined-slip tyre (Pacejka magic formula, load-sensitive peak), replacing the linear clamp. Check: peak then fall-off, friction-ellipse test.
+- [x] **B4** (done 2026-11-20: anti-roll bars, sloped ground plane per wheel; static split test) Suspension forces feed tyre load (spring, damper, anti-roll bars); raycast per wheel against the corridor surface. Check: static corner weights match the 911 39/61 split.
+- [x] **B5** (done 2026-11-20: ABS, traction control, engine braking; engine inertia not modelled) Real ABS and traction control acting on wheel torque; engine braking and inertia.
+- [x] **B5a** (done 2026-11-20: axle loads at 150 mph not tested) Aero: speed-squared downforce front/rear, active spoiler above a set speed. Check: axle loads at 150 mph.
+- [ ] **B5b** Road bumps: slab joints, rumble strips and patches as a height signal under each wheel (from the D1 material id; stub profile until D1).
+- [x] **B5c** (done 2026-11-20 for walls; grass drag not done) Wall contact: push-out plus friction impulse; grass rolling resistance and bump noise.
+- [ ] **B5d** Skid marks and tyre smoke from per-wheel slip.
+- [ ] **B6** Keyboard feel pass: speed-sensitive steer filter, counter-steer assist, throttle ramp. Check: lift-off oversteer is catchable on arrow keys.
+- [ ] **B7** Owner A/B against the bicycle, then flip the default. Tuning notes in `docs/wheels/tuning-notes.md`.
+
+**C. Exits and service roads**
+- [x] **C1** Port ramp and service-road generators from the retired `RoadScene`/treadmill to corridor frames; delete the unused originals once ported.
+  Grilled 2026-11-20: (1) copy `generate_exit_ramp` / `generate_service_roads` / `generate_crossover` into Corridor; keep `RoadScene` (golden mesh test + lighting lab use it), delete in a later item. (2) Furniture stays with D2-D4. (3) Procedural ramps sized from `RoadParams`; no asset format change. (4) Output = free sweep functions over an s-range + lateral offset, unit tests on frame/height, one debug-only demo placement at a slider-chosen s. (5) Service road y = `surface_y(s)` + tunable dy (default 0), smoothstep blend along the ramp, bank 0. (6) Emit into the segment's MeshBuilder; split ramps at segment edges. Not drivable until C3. Release byte-identical.
+  Done 2026-11-20: `src/scene/Corridor/CorridorRamps.{h,cpp}` (one smoothstep path type for ramp, service road, crossover), debug demo in the "Corridor" panel, 4 unit tests; originals kept (deletion deferred as grilled).
+- [x] **C2** Standard diamond from the exit table: off-ramp, service road segment, on-ramp, overpass for the crossroad. Fictional service road east of exit 64.
+  Grilled 2026-11-20: (1) every exit record gets the same diamond template (off-ramp at its station, crossroad, on-ramp after). (2) Crossroad = plain box deck + road strip, piers at median and edges; D4 restyles. (3) Service roads are real continuous marginal roads, not per-exit stubs: extents from a new Overpass fetch of the service-road ways (back up `data/osm/` first, separate file) baked into a new optional asset block; exit-number rule fills gaps and the fictional stretch east of 64. Direction, lanes and grade per research (pending).
+  C2a done 2026-11-20: `fetch_srvr` -> `data/osm/lie_service_roads.json` (512 ways; backup in `data/osm_backup_2026-11-20/`), bake merges per side (gap < 150 m), lanes = median OSM 1..3, rule fill Queens + east to exit 68; `SRVR` block in `lie_corridor_full.bin`, `CorridorAlignment::service_roads()`. EB 6 osm + 2 rule, WB 5 osm + 2 rule. Nothing drawn yet. Next: C2b geometry.
+  C2b done 2026-11-21: `CorridorDiamonds.{h,cpp}` + `corridor_crossroads` / `corridor_diamond_paths`; 30 crossroads (58 exit numbers, 900 m spacing), mainline dip `CorridorAlignment::dip` (6.5 m, 350 m half), service roads with curbs and MUTCD paint, 4 ramps each with gore chevrons, crossroad deck/parapets/piers/crosswalks; demo sliders retired. Found: `lighting.frag` treats depth < 1e-4 as sky = nothing drawn past ~100 m (not fixed, owner call).
+- [x] **C3** Drivable surface query covers ramps and service roads; barriers elsewhere.
+  Done 2026-11-21: `CorridorSurface.h` (`drive_surface` / `drive_spans` over mainline, ramps, service roads, crossroad run) drives the clamp and height for both car models; dead-end hold; slider `corridorDriveOff`; driven lane-ramp-SR-cross-ramp-lane (bicycle + 6-DOF); 13 cm seam step at ramp starts on 5-6 % banks (C2b mesh trait).
+- [x] **C3a** Service-road cross-street stubs with prop traffic lights; HOV buffer, diamonds and gaps.
+  Done 2026-11-21: 90 m stubs past each service road (crest hides the end, walks, apron, stop bars), Long Island span-wire signals with a fixed two-phase lens cycle, HOV exits 32-64 with double-white buffer, broken access zones and 1,000 ft diamonds; +679 draws (+2.7 %); stubs not drivable.
+- [x] **C3b** HUD strip and route minimap (2D, debug build first). Done 2026-11-21: second ImGui context drawn after Composite; speed/district/piece/next exit + route or 2 km minimap; H key; viewed in app.
+- [x] **C4** Tunnel interior and plaza; Riverhead turnaround.
+  Done 2026-11-21: drive starts 1.08 km inside the Queens-Midtown tube (white tile with blue and gold stripes, own lights, roof sky occlusion, tube EV floor), portal with cover, widened plaza with gantry and U-turn opening; Riverhead lane drop, splitter and fictional roundabout to WB; both drivable; ring not driven in the app.
+
+**D. Looks**
+- [x] **D0** Fill the 12 landmark notes and save CC photos with credits (reference sheet template). Done 2026-11-21: 12 notes (5 partial), corridor-wide kit, 15 CC photos; Street View unvisited.
+- [x] **D1** Surface: per-stretch material id in the asset; concrete slab joints, wheel-path polish (promote the debug ruts shader), sealant, worn paint, rumble strips, reflectors. Wire the unused `Asphalt012`/`Concrete012` sets.
+  Done 2026-11-21 (debug): `[surface]` toml -> `SURF` block -> `CorridorAlignment::surface_at`; concrete east of exit 64, asphalt grades guessed; `shaders/common/pavement.glsl`; six `surface_*` sliders; [docs/surface/](../docs/surface/README.md). B5b can read `surface_at` now.
+- [x] **D2** Edges: sloped Jersey barrier profile, guardrail, sound walls, embankments in place of the flat grass plane.
+  Done 2026-11-21 (debug): 32 in NJ median with toe clamp; wide grass median + cable east of exit 64 (carriageways part); W-beam pier shields; Nassau brick sound walls (9, 13.2 km); ditch + rounded cut; debug mip chain; [CorridorEdges.h](../src/scene/Corridor/CorridorEdges.h).
+- [x] **D3** Signs: `tools/sign_generator.py` reads the exit table; overhead gantries at 1 mile, 1/2 mile and the gore; mile markers. Unblocks L8.3 retroreflective signs.
+  Done 2026-11-21 (debug): `tools/sign_corridor.py` atlases (Overpass OFL) + `CorridorSigns.{h,cpp}`; 119 gantries (real-mile distances, collapse rule), 60 gore signs, 493 mile markers, exit 73 boards filled; +186 draws; westbound faces and night retro not viewed.
+- [x] **D4** Overpasses at every crossing from OSM bridge tags; three girder styles. Done 2026-11-21: 145 OSM crossings (XING block), 38 bridges kept after the crossroad merge (steel, concrete, Sagtikos stone arch, LIRR through-girder, 15 LIE-over), 30 crossroad decks restyled; debug CSM light-side fix + ground bounce; 512 / 487 tests.
+- [x] **D5** District kits and skyline billboard; lamps per district. Done 2026-11-21: 13 kits by exit number (lamps, trees, buildings), Queens median twins + outer, Nassau/west Suffolk shoulder shoebox/cobra, none east of 64; far ground; Midtown card scaled about the camera; draws 23,840 → 8,674 (lamps batched); 515 / 490 tests.
+- [x] **D6** Hand-detail the 12 landmarks from the notes. Done 2026-11-21: Unisphere + NYS Pavilion (sightline wedge), QMT vent tower, Queens gantry removed, Calvary headstones, stone exit 31 deck, 5 boards (county line, HOV, Great Neck, 62N), Melville street trees, pine-oak kit; landmark exits 17 / 39 / 44 keep their diamonds; draws 8,674 → 8,710; 516 / 491 tests.
+
+Gates after each item: `make test-debug`, `make check`, changelog in `docs/changelog/2026-11.md`, tuning notes for B and D1.
+
+Risks: (1) Work shares a branch with about 40 uncommitted files from other tasks; a bad item cannot be reverted cleanly. (2) About 70 drivable interchanges is the largest item; C2 must be one generator, not hand work. (3) Asset format change must keep the Python packer and `CorridorAsset.h` byte-identical.
+
 ## Renderer roadmap: R7-R10 + E1-E5 (planned 2026-11-01, branch `bug/fix-camera-ownership`)
 
 Source: [`renderer-next-steps-README.md`](renderer-next-steps-README.md) plus the grilling session on 2026-11-01. The owner writes the code. Manual checks: [`upcoming-tests.md`](upcoming-tests.md). The visual guide is a private artifact with the same checklist.
@@ -719,7 +806,7 @@ Changed from the defaults above: the bake was **not** made cheaper (the irradian
 - [x] **L2.1** Pick the sky model. Recommended: a Hillaire-style transmittance + sky-view LUT, because it stays correct with the sun at and below the horizon. This is the old "analytic sky (D3)" item. Done (debug): raymarched Rayleigh + Mie + ozone, no LUTs (`atmosphere.glsl`, `Atmosphere.h`).
 - [ ] **L2.2** Make the procedural bake the default path; today it only runs when the HDRI file is missing (`WeatherController.cpp:61-66`) and the rebake is skipped when an HDRI is loaded (`:90-93`). Open by decision (debug first): the procedural sky is the debug default; release still loads the HDRI.
 - [x] **L2.3** Presets as data: one TOML table per time of day (sun elevation and azimuth, lux, turbidity, EV100 clamps, lamps on/off). This also closes "weather presets as data files" (`WeatherPreset.h` enum). Done (debug): six presets loaded from `config/time_of_day.toml`; T key and panel.
-- [ ] **L2.4** Rebake IBL on preset switch without a hitch. Depends on the E1 bake-timing work above. Half done: the sky rebakes on every change, but synchronously, so the hitch remains (E1 is still unmeasured).
+- [x] **L2.4** Rebake IBL on preset switch without a hitch. (done 2026-11-20: filtered importance sampling + env mips, bake 130 -> ~5-10 ms; rain HDRI decoded + uploaded in the background while dry; mid-run rain swap ~165 -> ~22 ms. Next, optional: fence-based async submit to drop the ~12 ms queue-idle wait.)
 - [x] **L2.5** Draw the visible sky from the sky model instead of prefiltered mip 0, which is only 256² (`lighting.frag:261`). Done (debug): sky pixels evaluate the model, plus the sun or moon disc and stars.
 - [x] **L2.6** One sun disc for exterior and cockpit: `glass.frag` needs the set-4 branch (`GlassPass.cpp`), which also fixes the cockpit sky mismatch in `docs/user-goals/CURRENT.md:50-53`. Done (debug): `glass.frag` reflects the same physical disc. It needs no set 4; the inputs ride in the camera UBO.
 - [x] **L2.7** Moon as the directional light for midnight (about 0.2 lux), plus a star/night-sky term. Done (debug): moon as the directional light when the sun is down, airglow, stars.
@@ -767,7 +854,7 @@ Changed from the defaults above: the bake was **not** made cheaper (the irradian
 
 - [x] **L8.1** A retroreflective material tag. Lane markings use the default material today (`CorridorScene.cpp:167-180`). Done: lane and edge markings carry `DrawCall::retro`, written to the albedo buffer's alpha (debug).
 - [x] **L8.2** Retro lobe in the spot-light loop: brightness peaks when the view direction is close to the light direction. Done (debug): `pow(dot(V, L), 64)` lobe in the spot loop, `retroGain`.
-- [ ] **L8.3** Signs: the corridor has none. Depends on Layer 5 / Phase 3c exit signage. Left out of this run by decision (no signs exist).
+- [ ] **L8.3** Signs: the corridor has none. Depends on Layer 5 / Phase 3c exit signage. Left out of this run by decision (no signs exist). D3 (2026-11-21) built the signs: faces carry `retro = 1` and `sign_sheen`; L8.3 can give sheeting its own lobe.
 
 ### L9: remaining presets
 
@@ -777,7 +864,7 @@ Changed from the defaults above: the bake was **not** made cheaper (the irradian
 ### L10: wet pass
 
 - [ ] **L10.1** Every preset at rain 0 and 1.0; whole car is tagged `dry` today (`CarEntity.cpp:707`). Half done: rain fog takes the sky's colour, and "Rain wets the car's exterior" is a panel option. Checking every preset at rain 0 and 1 is the owner's.
-- [ ] **L10.2** Wet halo and puddle reflections of lamps and headlights; layered wet BRDF (old E3); lens rain (old car-lights S6). Left out of this run by decision (wet halos and puddles are unchanged).
+- [x] **L10.2** Wet halo and puddle reflections of lamps and headlights; layered wet BRDF (old E3); lens rain (old car-lights S6). Left out of this run by decision (wet halos and puddles are unchanged). (done 2026-11-20: anisotropic wet streak lobe for lamps + car lights; layered wet BRDF = rain P2 Lekner-Dorf + water F0; lens rain = rain wets/beads the car exterior incl. lenses. Gap found: rain is always the daytime Misty HDRI, so no rain-at-night yet.)
 
 Not surveyed yet, check before the phase that touches them: `ssr.frag`, `godrays.frag`, `glass.frag` lighting, the IBL bake shaders, road roughness textures.
 
@@ -1071,7 +1158,7 @@ today is unproven.
 | # | Item | Notes |
 |---|------|-------|
 | 1 | Endless-road **Layer 5 polish** | exit signage, network lights, junction UX, haze/far-plane tuning |
-| 2 | Wheel **Phase C** | stub hooks merged 2026-10-11 (`SlipVisuals.h`); slip/lockup visuals + rain-mu tie-in; verify rain at 0 and 1.0; effort S-M |
+| 2 | Wheel **Phase C** | SHIPPED 2026-11-20: visual wheel slip from axle friction use (spin at the drive cap, ABS or lockup at the brake cap); wet mu coupled; owner check in the app at rain 0 and 1.0 pending |
 | 3 | Phase 3 corridor **3b / 3c** | 3b: real interchange ramps + service-road connections, then delete unwired `generate_interchange` / `generate_service_roads` / `generate_chunk`; 3c: exit-number signage + HOV markings from OSM tags |
 | 4 | **Per-wheel spray emitters** | debug stub merged 2026-10-11 (`WheelSpray.h`, round-robin on the single sim); real version needs a `CarEntity` wheel-matrix accessor, `App.cpp` wiring, `Renderer` setter, 4 spawn points in `SpraySimUBO` |
 | 5 | **TAA as release default** vs SSAA | user decision pending; TAA and `VelocityPass` are debug-gated today |
@@ -1082,9 +1169,11 @@ today is unproven.
 
 **Vehicle**
 
-- [ ] Squat / dive / roll load transfer (Phase B2; needs stable `ax`/`ay`) — `archive/2026-08.md`, `archive/2026-07.md`
+- [x] Squat / dive / roll load transfer (Phase B2), 2026-11-20: second spring set from dFz/k, body-only attitude (`WheelKinematics.h` `corner_load_transfer_n`, `body_attitude_from_travel`)
+- [ ] Phase C follow-ups: per-wheel slip angle (load + Ackermann), skid marks, tyre load sensitivity (lateral transfer cuts axle grip)
 - [ ] Wheel Phase B spec section 11 debug sliders (`debug-ui-engineer`)
-- [ ] Hydroplane: violent spin needs per-side water sampling or combined-slip tire (cheapest step: first-order lag on `filmOverTread`); dry-road spin stays gated (decision 2)
+- [x] Hydroplane cheapest step: first-order lag on `filmOverTread` (2026-11-20, `WetGrip.h film_lag`, tau 0.12 s)
+- [ ] Hydroplane: violent spin needs per-side water sampling or combined-slip tire; dry-road spin stays gated (decision 2)
 - [x] `puddleAmount` exists in three hand-synced copies (`lighting.frag`, `ssr.frag`, `CarPhysics.h`); the planned shared GLSL include (Phase 2 step 4) removes this (done: shaders/common/puddle.glsl shared)
 - [ ] Promote the debug Telemetry speed readout to an always-compiled release overlay (user chose debug-gated first)
 
@@ -1098,13 +1187,15 @@ today is unproven.
 - [x] `glass.frag` sun disc has no `#ifdef SWISH_DEBUG_UI` set-4 branch, so debug sun-disc sliders do not move the windshield sky (bind set 4 in `GlassPass.cpp`) (done: lighting L2.6)
 - [x] Composite `Params` push-constant block was measured at 52 bytes (not a 16-byte multiple); re-measure and pad if still true (done: L0.11)
 - [x] Shadow polish: PCSS soft shadows, tighter frustum fit, bias auto-tune (done: L3.1-3.3; release PCSS is the L3.4 owner decision)
-- [ ] SSAA polish (render-scale as key/config; better downsample kernel above 1.5x)
+- [x] SSAA render scale on a key: F3 cycles 1.0/1.5/2.0 (debug, 2026-11-20)
+- [ ] SSAA polish: better downsample kernel above 1.5x
 - [x] Bloom pyramid with Karis firefly suppression (C2) + vignette + film grain (F2) (bloom pyramid done 2026-11-15; vignette/grain still an owner look call)
 - [ ] Analytic sky (D3); multiscatter GGX (E1); layered wet BRDF (E3); puddle ripple normals (E4)
 - [ ] Blue-noise dithering (G1); Halton sequences (G2); Halton temporal upsampling (G3)
 - [ ] GI approximation (H1); environment density + decals (B3); clustered light culling (C6); mesopic night look (C8)
 - [ ] Night-scene lamp tuning; light-coupled rain streaks (A1); windshield lens optics (R-P1-3)
-- [ ] Software robustness: exception-safe subsystem destructors (S-P0-2); `VK_CHECK_LOG` on teardown paths; delete the 0-byte `scripts/glslc_test`
+- [x] `VK_CHECK_LOG` on teardown paths (2026-11-20)
+- [ ] Software robustness: exception-safe subsystem destructors (S-P0-2) (`scripts/glslc_test` already gone)
 
 **Rain (from the 2026-06-30 roadmap)**
 

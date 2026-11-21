@@ -90,6 +90,17 @@ public:
                            float gapLen, float phase, const Vec4& color, MaterialId material = MAT_DEFAULT,
                            float tileSize = 0.0f);
 
+    // C2b: a band between two polylines (same count; `left` is the lower-lateral edge) with free per-vertex
+    // heights, e.g. a cut slope. Smooth normals from the geometry, UVs planar in x/z. One draw.
+    bool emit_strip(const std::vector<Vec3>& left, const std::vector<Vec3>& right, const Vec4& color,
+                    MaterialId material = MAT_DEFAULT, float tileSize = 0.0f);
+
+    // C2b: push_quad calls between batch_mark() and close_batch() become ONE draw (false when none were pushed).
+    uint32_t batch_mark() const { return m_mesh.getIndexCount(); }
+    bool     close_batch(uint32_t mark, const Vec4& color, MaterialId material) {
+        return pushBatchDraw(mark, color, material);
+    }
+
 private:
     void pushDrawCall(uint32_t indexOffset, const Vec4& color, MaterialId material);
 
@@ -111,6 +122,12 @@ private:
 
 // Builds the shared per-station frames for the emit_sweep_* family from a
 // centreline and its unit tangents (both in the same local space).
-std::vector<SweepFrame> build_sweep_frames(const std::vector<Vec3>& centerline, const std::vector<Vec3>& tangents);
+//
+// `banks` (optional, one cross slope per station) tilts the section: a point at
+// lateral t sits at height centre.y - bank * t, and the frame's `up` becomes the
+// true surface normal for the grade (from the centreline's own y) and the bank.
+// Empty = the flat frames the release corridor has always used, bit for bit.
+std::vector<SweepFrame> build_sweep_frames(const std::vector<Vec3>& centerline, const std::vector<Vec3>& tangents,
+                                           const std::vector<float>& banks = {});
 
 }  // namespace swish

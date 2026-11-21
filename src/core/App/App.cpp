@@ -213,7 +213,16 @@ void App::step_car_simulation(float dt, bool debug_edit) {
     if (m_labMode) m_car->set_position(lab_clamp_to_wall(m_car->get_position()));
 #endif
 
-    // Snap Y to the road surface so wheels sit on it as the car steers.
+    // Finite real corridor: origin rebase, visible-segment window,
+    // corridor-space lateral clamp, terminus stops. Replaced the
+    // treadmill's chunk/interchange windows and ribbon-follower.
+#ifdef SWISH_DEBUG_UI
+    if (!m_lookdevMode)
+#endif
+        m_corridor.update(*m_car, *m_renderer, dt, debug_edit);
+
+    // Snap Y to the road surface so wheels sit on it as the car steers. Runs AFTER the corridor
+    // update, which aims the height query at the surface under the car's new station.
     // On the Phase 3a corridor that query is a flat height
     // (RoadGeometry::set_flat_surface) rather than the crown formula,
     // because world X is not a lateral offset on a curving alignment.
@@ -228,14 +237,6 @@ void App::step_car_simulation(float dt, bool debug_edit) {
         pos.y    = RoadGeometry::road_surface_y(pos.x);
         m_car->set_position(pos);
     }
-
-    // Finite real corridor: origin rebase, visible-segment window,
-    // corridor-space lateral clamp, terminus stops. Replaced the
-    // treadmill's chunk/interchange windows and ribbon-follower.
-#ifdef SWISH_DEBUG_UI
-    if (!m_lookdevMode)
-#endif
-        m_corridor.update(*m_car, *m_renderer, dt, debug_edit);
 
     // Phase-B quarter-car suspension (archive/docs/wheels/phase-b-spec.md): a LATE
     // update run after the corridor update so the body's Y-snap and any
@@ -281,6 +282,7 @@ void App::sync_car_with_debug_panel(float dt, bool debug_edit) {
     dp.telemetryRpm      = m_car->get_engine_rpm();
     dp.telemetryRedline  = m_car->get_redline_rpm();
     dp.telemetryMu       = m_car->get_effective_mu();
+    sync_hud(dp);
     if (debug_edit && dp.steerOverride)
         m_car->set_steering_angle(dp.steerAngleDeg);
     else
@@ -294,6 +296,10 @@ void App::sync_car_with_debug_panel(float dt, bool debug_edit) {
     m_car->set_ackermann(dp.wheelAckermann);  // seeded from config/car.toml at startup (AppInit load_car)
     // Physics model (stub): unchecked = bicycle (default / identity). set_physics_model is idempotent.
     m_car->set_physics_model(dp.rigidBodyChassis ? PhysicsModel::RigidBody : PhysicsModel::Bicycle);
+    m_car->set_substep_hz(dp.carSubstepHz);
+    m_car->set_chassis_tuning({dp.carTireShape, dp.carKappaPeak, dp.carLoadSens, dp.carAlphaPeakFront,
+                               dp.carAlphaPeakRear, dp.carArbFront, dp.carArbRear, dp.carBrakeBias, dp.carDownforce,
+                               dp.carTc});
     // Dial needles: the "gauges" sliders over the TOML calibration (the speedo table stays TOML-only).
     GaugeParams gp    = m_car->get_gauge_params();
     gp.tachOffsetDeg  = dp.gaugeTachOffsetDeg;
@@ -306,6 +312,39 @@ void App::sync_car_with_debug_panel(float dt, bool debug_edit) {
     m_car->set_gauge_test(dp.gaugeTestOn, dp.gaugeTestRpm, dp.gaugeTestKmh);
 
     sync_wheel_fx_with_debug_panel(dt);
+
+    // C2b diamonds: segments are built once, so a slider change rebuilds the scene after 0.5 s without edits.
+    const std::array<float, 17> key{dp.corridorDiamonds ? 1.0f : 0.0f,
+                                    dp.corridorDipDepthM,
+                                    dp.corridorDipHalfM,
+                                    dp.corridorSrStripM,
+                                    dp.corridorStubM,
+                                    dp.edgeWideMedianM,
+                                    dp.edgeWallHM,
+                                    dp.edgeDitchM,
+                                    dp.corridorSigns ? 1.0f : 0.0f,
+                                    dp.signSheen,
+                                    dp.corridorBridges ? 1.0f : 0.0f,
+                                    dp.bridgeClearFt,
+                                    dp.corridorDressing ? 1.0f : 0.0f,
+                                    dp.dressDensity,
+                                    dp.dressFarM,
+                                    dp.corridorLandmarks ? 1.0f : 0.0f,
+                                    dp.landmarkGraves};
+    if (key != m_corridorKey) {
+        m_corridorKey  = key;
+        m_corridorIdle = 0.0f;
+    } else if (m_corridorIdle >= 0.0f && (m_corridorIdle += dt) > 0.5f) {
+        m_corridorIdle = -1.0f;
+        m_sceneManager->set_active_scene(0);
+    }
+    // C3a: span-wire signals run a fixed two-phase cycle (props only, no traffic logic)
+    m_signalClock += static_cast<double>(dt);
+    for (const auto& [seg, l] : m_signalLenses) {
+        const bool on = signal_lit(l.group, l.colour, m_signalClock, dp.corridorSignalCycleS);
+        m_renderer->set_corridor_draw_glow(seg, l.draw, signal_lens_color(l.colour, on),
+                                           on ? signal_lens_nits(l.colour) : 0.0f);
+    }
 }
 
 // Wheel Phase C / wet-lens debug wiring. Everything here is debug-only; with perWheelSpray off (default) the
@@ -453,9 +492,13 @@ void App::push_car_to_renderer() {
                 m_paint_look_applied = look.enabled;
             }
             m_car->set_material_fixes(dp.materialFixes);
-            m_car->set_surface_wet(surface == CarSurface::Wet ? 1.f : 0.f);
+            // L10.2 lens rain: with car_rain_wet, a wet road also beads the car's exterior (body and lamp lenses), in
+            // proportion to the road wetness; the showcase "Wet" surface still forces it fully on.
+            const float rainWet = dp.carRainWet ? m_renderer->get_wetness() : 0.0f;
+            m_car->set_surface_wet(std::max(surface == CarSurface::Wet ? 1.f : 0.f, rainWet));
         }
-        m_car->set_exterior_wettable(dp.carWettable || dp.carSurface == 1);  // lighting L10.1
+        m_car->set_exterior_wettable(dp.carWettable || dp.carSurface == 1 ||
+                                     (dp.carRainWet && m_renderer->get_wetness() > 0.02f));  // lighting L10.1 / L10.2
     }
 #endif
 

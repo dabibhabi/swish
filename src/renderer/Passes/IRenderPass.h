@@ -41,6 +41,7 @@ struct DebugParams;
 struct WiperFrame;
 #ifdef SWISH_DEBUG_UI
 class SceneParamsUniform;
+class HudOverlay;
 #endif
 
 // CPU-side values a pass publishes for passes later in the list (a blackboard, not a service). Written in
@@ -73,6 +74,7 @@ struct PassResources {
     MaterialDescriptors*      materials      = nullptr;  // G-buffer draws bind per-material sets
 #ifdef SWISH_DEBUG_UI
     const SceneParamsUniform* sceneParams = nullptr;
+    HudOverlay*               hud         = nullptr;  // C3b in-game HUD (HudOverlayPass)
 #endif
 };
 

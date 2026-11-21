@@ -73,6 +73,9 @@ struct SlipInputs {
     float            delta = 0.f;  // road-wheel steer, rad (right-positive)
     AxleLongitudinal fx{};         // signed per-axle longitudinal tyre force, N
     float            mu = 1.05f;   // effective tyre-road friction this frame
+    // Phase C: per-wheel slip ratio from the visual wheel-speed state (CarEntity m_wheel_slip), 0 FL..3 BR.
+    // Null = the force-utilisation proxy below (kept for callers without a wheel rig).
+    const std::array<float, 4>* kappa = nullptr;
 };
 
 struct SlipAggregate {
@@ -135,8 +138,10 @@ inline CarSlipVisuals compute_slip_visuals(const SlipInputs& in, const CarParams
     const float speed = std::sqrt(in.vx * in.vx + in.vl * in.vl);
 
     CarSlipVisuals out;
-    out.wheel[0] = out.wheel[1] = make_wheel_slip_visual(kF, aF, speed, sp);
-    out.wheel[2] = out.wheel[3] = make_wheel_slip_visual(kR, aR, speed, sp);
+    for (int i = 0; i < 4; ++i) {
+        const float k = in.kappa ? (*in.kappa)[static_cast<std::size_t>(i)] : (i < 2 ? kF : kR);
+        out.wheel[static_cast<std::size_t>(i)] = make_wheel_slip_visual(k, i < 2 ? aF : aR, speed, sp);
+    }
     for (const WheelSlipVisual& w : out.wheel) {
         out.agg.maxAbsSlipRatio = std::max(out.agg.maxAbsSlipRatio, std::fabs(w.slipRatio));
         out.agg.maxAbsSlipAngle = std::max(out.agg.maxAbsSlipAngle, std::fabs(w.slipAngle));

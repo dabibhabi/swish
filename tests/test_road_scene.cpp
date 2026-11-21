@@ -1,6 +1,7 @@
 #include "scene/RoadScene/RoadConfig.h"
 #include "scene/RoadScene/RoadScene.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 using namespace swish;
@@ -227,4 +228,35 @@ TEST_CASE("RoadScene registry order matches the recorded draw order", "[RoadScen
     };
     REQUIRE(RoadScene::intro_element_names() == intro);
     REQUIRE(RoadScene::chunk_element_names() == chunk);
+}
+
+using Catch::Approx;
+
+TEST_CASE("sweep frames: flat by default, tilted by grade and bank", "[road][sweep]") {
+    // Three stations heading -Z, 10 m apart, climbing 0.5 m each (a 5 % grade).
+    const std::vector<Vec3> cl  = {Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 500.0f, -10000.0f),
+                                   Vec3(0.0f, 1000.0f, -20000.0f)};
+    const std::vector<Vec3> tan = {Vec3(0.0f, 0.0f, -1.0f), Vec3(0.0f, 0.0f, -1.0f), Vec3(0.0f, 0.0f, -1.0f)};
+
+    // No banks: exactly the frames the flat corridor has always had.
+    const std::vector<SweepFrame> flat = build_sweep_frames(cl, tan);
+    REQUIRE(flat.size() == 3);
+    CHECK(flat[1].up == Vec3(0.0f, 1.0f, 0.0f));
+    CHECK(flat[1].right.y == 0.0f);
+    // Arc is plan length: 10 m per station, not the 10.0125 m slope length.
+    CHECK(flat[2].arc == Approx(20000.0f));
+
+    // 4 % bank to the right: the right edge is lower, the normal leans right and back up the hill.
+    const std::vector<SweepFrame> f = build_sweep_frames(cl, tan, {0.04f, 0.04f, 0.04f});
+    CHECK(f[1].right.x == Approx(1.0f));
+    CHECK(f[1].right.y == Approx(-0.04f));
+    const Vec3 edge = f[1].center + f[1].right * 5000.0f;  // 5 m right of centre
+    CHECK(edge.y == Approx(500.0f - 200.0f));
+    CHECK(glm::length(f[1].up) == Approx(1.0f));
+    CHECK(f[1].up.y > 0.99f);
+    CHECK(f[1].up.x == Approx(0.04f).margin(0.002f));  // leans toward the low (right) side
+    CHECK(f[1].up.z == Approx(0.05f).margin(0.002f));  // road rises toward -Z, so the normal leans to +Z
+    // The normal is perpendicular to the surface in both directions.
+    CHECK(glm::dot(f[1].up, f[1].right) == Approx(0.0f).margin(1e-4f));
+    CHECK(glm::dot(f[1].up, cl[2] - cl[0]) == Approx(0.0f).margin(1e-1f));
 }

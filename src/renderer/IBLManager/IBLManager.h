@@ -8,7 +8,9 @@
 #include <vulkan/vulkan.h>
 
 #include <array>
+#include <future>
 #include <string>
+#include <vector>
 
 namespace swish {
 
@@ -43,6 +45,12 @@ public:
     // Load/replace HDRI and rebake convolutions. Returns false if load failed.
     bool set_hdri(const std::string& path, float exposure = 1.0f, float yaw_rad = 0.0f);
 
+    // L2.4: decode an HDRI on a worker thread ahead of time and keep the pixels, so a later set_hdri(path) only
+    // uploads and bakes (the ~20 ms stbi_loadf decode was the last frame hitch of a rain-onset sky swap). One slot.
+    void prefetch_hdri(const std::string& path);
+    // Once the prefetch has decoded, upload it as the resident equirect (call once per frame; cheap no-op after).
+    void poll_prefetch();
+
     // Procedural bake — no-op while an HDRI is active.
     void bake(const SkyBakeParams& sky);
 
@@ -52,6 +60,7 @@ public:
 
 private:
     static constexpr uint32_t kEnvDim         = 256;
+    static constexpr uint32_t kEnvMips        = 9;  // 256 .. 1: filtered sampling in the convolutions (L2.4)
     static constexpr uint32_t kIrrDim         = 32;
     static constexpr uint32_t kPrefilterDim   = 256;
     static constexpr uint32_t kPrefilterMips  = 5;
@@ -133,9 +142,20 @@ private:
     void createPipelines();
     void bakeBRDF();
     void destroyEquirect();
-    bool loadEquirect(const std::string& path);
-    void bakeFromHdri();
-    void bakeConvolutions(VkCommandBuffer cmd);
+    struct DecodedHdri {
+        std::vector<float> rgba;  // w * h * 4
+        int                w = 0, h = 0;
+    };
+    static DecodedHdri decode_hdri(const std::string& path);  // stbi_loadf; empty on failure (thread-safe, v2.30)
+    void               uploadEquirect(const DecodedHdri& d, const std::string& path);
+    std::string        m_equirectPath;  // which HDRI the equirect image holds ("" = none)
+    std::string        m_prefetchPath;
+    std::shared_future<DecodedHdri> m_prefetch;
+    bool                            loadEquirect(const std::string& path);
+    void                            bakeFromHdri();
+    void                            bakeConvolutions(VkCommandBuffer cmd);
+    // L2.4: box-filtered mip chain of the env cube (blits), then SHADER_READ; replaces the mip-0-only transition.
+    void buildEnvMips(VkCommandBuffer cmd);
 
     VkImageView makeView(VkImage img, VkImageViewType type, VkFormat fmt, uint32_t baseMip, uint32_t mipCount,
                          uint32_t baseLayer, uint32_t layerCount);

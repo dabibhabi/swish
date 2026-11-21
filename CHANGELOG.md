@@ -103,7 +103,7 @@ Verification: debug target built, all 415 CTest cases passed, and the updated lo
 
 Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest month first.
 
-### 2026-11 (23 entries)
+### 2026-11 (49 entries)
 
 - 2026-11-14 — [Added the lighting plan, stub headers, hidden tests and a chapter per phase](docs/changelog/2026-11.md#2026-11-14--added-the-lighting-plan-stub-headers-hidden-tests-and-a-chapter-per-phase)
 - 2026-11-15 — [Clearcoat energy, one BRDF LUT, and wetness intent (L0.3–L0.5)](docs/changelog/2026-11.md#2026-11-15--clearcoat-energy-one-brdf-lut-and-wetness-intent-l03l05)
@@ -128,6 +128,32 @@ Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest mon
 - 2026-11-20 — [Rain P4: procedural rain ripples on standing water (debug)](docs/changelog/2026-11.md#2026-11-20--rain-p4-procedural-rain-ripples-on-standing-water-debug)
 - 2026-11-20 — [Renderer R8/R10/E3/E4/E5 finished, car-light docs, task pruning](docs/changelog/2026-11.md#2026-11-20--renderer-r8r10e3e4e5-finished-car-light-docs-task-pruning)
 - 2026-11-20 — [E1: HDRI swap hitch measured (bake dominates); prefilter roughness-0 early-out](docs/changelog/2026-11.md#2026-11-20--e1-hdri-swap-hitch-measured-bake-dominates-prefilter-roughness-0-early-out)
+- 2026-11-20 — [L2.4: rain-onset sky swap ~165 ms → ~22 ms (filtered-sampling IBL bake, background HDRI decode + upload)](docs/changelog/2026-11.md#2026-11-20--l24-rain-onset-sky-swap-165-ms--22-ms-filtered-sampling-ibl-bake-background-hdri-decode--upload)
+- 2026-11-20 — [Spray v2: tyre spray reads as water (droplet streaks + faint mist from all four wheels, debug)](docs/changelog/2026-11.md#2026-11-20--spray-v2-tyre-spray-reads-as-water-droplet-streaks--faint-mist-from-all-four-wheels-debug)
+- 2026-11-20 — [L10.2: lamp and car-light reflections streak on the wet road; rain wets and beads the car (lens rain) (debug)](docs/changelog/2026-11.md#2026-11-20--l102-lamp-and-car-light-reflections-streak-on-the-wet-road-rain-wets-and-beads-the-car-lens-rain-debug)
+- 2026-11-20 — [Small items: `VK_CHECK_LOG` on teardown, F3 render-scale key (debug), first-order lag on the hydroplane water film](docs/changelog/2026-11.md#2026-11-20--small-items-vk_check_log-on-teardown-f3-render-scale-key-debug-first-order-lag-on-the-hydroplane-water-film)
+- 2026-11-20 — [Wheel Phase C (wheelspin and lockup visuals) and Phase B2 weight transfer (squat, dive, roll)](docs/changelog/2026-11.md#2026-11-20--wheel-phase-c-wheelspin-and-lockup-visuals-and-phase-b2-weight-transfer-squat-dive-roll)
+- 2026-11-20 — [Extended the LIE corridor to Riverhead (A1, A2)](docs/changelog/2026-11.md#2026-11-20--extended-the-lie-corridor-to-riverhead-a1-a2)
+- 2026-11-20 — [Added real elevation and banking to the corridor asset (A3)](docs/changelog/2026-11.md#2026-11-20--added-real-elevation-and-banking-to-the-corridor-asset-a3)
+- 2026-11-20 — [Added the exit table and districts to the corridor asset (A4)](docs/changelog/2026-11.md#2026-11-20--added-the-exit-table-and-districts-to-the-corridor-asset-a4)
+- 2026-11-20 — [Made the debug corridor mesh and the car follow hills and banking (A5)](docs/changelog/2026-11.md#2026-11-20--made-the-debug-corridor-mesh-and-the-car-follow-hills-and-banking-a5)
+- 2026-11-20 — [Added a fixed-rate physics substep to the debug build (B1)](docs/changelog/2026-11.md#2026-11-20--added-a-fixed-rate-physics-substep-to-the-debug-build-b1)
+- 2026-11-20 — [Gave the 6-DOF chassis spinning wheels, a real tyre curve, ABS, traction control, anti-roll bars, downforce and wall contact (B2-B5a, B5c)](docs/changelog/2026-11.md#2026-11-20--gave-the-6-dof-chassis-spinning-wheels-a-real-tyre-curve-abs-traction-control-anti-roll-bars-downforce-and-wall-contact-b2-b5a-b5c)
+- 2026-11-20 — [Ported the exit ramp, service road and crossover generators to corridor frames (C1)](docs/changelog/2026-11.md#2026-11-20--ported-the-exit-ramp-service-road-and-crossover-generators-to-corridor-frames-c1)
+- 2026-11-20 — [Baked real LIE service-road extents into the corridor asset (C2a)](docs/changelog/2026-11.md#2026-11-20--baked-real-lie-service-road-extents-into-the-corridor-asset-c2a)
+- 2026-11-21 — [Built diamond interchanges, service roads and crossroad cuts on the LIE corridor (C2b)](docs/changelog/2026-11.md#2026-11-21--built-diamond-interchanges-service-roads-and-crossroad-cuts-on-the-lie-corridor-c2b)
+- 2026-11-21 — [Made the LIE ramps, service roads and crossroad run drivable (C3)](docs/changelog/2026-11.md#2026-11-21--made-the-lie-ramps-service-roads-and-crossroad-run-drivable-c3)
+- 2026-11-21 — [Added cross-street stubs, span-wire traffic signals and the HOV lane to the LIE corridor (C3a)](docs/changelog/2026-11.md#2026-11-21--added-cross-street-stubs-span-wire-traffic-signals-and-the-hov-lane-to-the-lie-corridor-c3a)
+- 2026-11-21 — [Added an in-game HUD strip and route minimap to the debug build (C3b)](docs/changelog/2026-11.md#2026-11-21--added-an-in-game-hud-strip-and-route-minimap-to-the-debug-build-c3b)
+- 2026-11-21 — [Built the Queens-Midtown Tunnel, its Queens portal and plaza, and a Riverhead roundabout at the route ends (C4)](docs/changelog/2026-11.md#2026-11-21--built-the-queens-midtown-tunnel-its-queens-portal-and-plaza-and-a-riverhead-roundabout-at-the-route-ends-c4)
+- 2026-11-21 — [Sky test reads only the clear depth (debug)](docs/changelog/2026-11.md#2026-11-21--sky-test-reads-only-the-clear-depth-debug)
+- 2026-11-21 — [Road surface per stretch: concrete joints, patches, worn paint, markers, rumble strips (D1, debug)](docs/changelog/2026-11.md#2026-11-21--road-surface-per-stretch-concrete-joints-patches-worn-paint-markers-rumble-strips-d1-debug)
+- 2026-11-21 — [LIE landmark reference notes (D0)](docs/changelog/2026-11.md#2026-11-21--lie-landmark-reference-notes-d0)
+- 2026-11-21 — [Corridor edges: NJ median barrier, wide grass median east of exit 64, W-beam, sound walls, ditches (D2, debug)](docs/changelog/2026-11.md#2026-11-21--corridor-edges-nj-median-barrier-wide-grass-median-east-of-exit-64-w-beam-sound-walls-ditches-d2-debug)
+- 2026-11-21 — [Guide signs: exit gantries at 1 mile and 1/2 mile, gore signs, mile markers, exit 73 boards (D3, debug)](docs/changelog/2026-11.md#2026-11-21--guide-signs-exit-gantries-at-1-mile-and-12-mile-gore-signs-mile-markers-exit-73-boards-d3-debug)
+- 2026-11-21 — [Overpasses at OSM crossings: steel, concrete, stone-arch and LIRR bridges, LIE bridges over roads, restyled crossroad decks (D4, debug)](docs/changelog/2026-11.md#2026-11-21--overpasses-at-osm-crossings-steel-concrete-stone-arch-and-lirr-bridges-lie-bridges-over-roads-restyled-crossroad-decks-d4-debug)
+- 2026-11-21 — [District kits: street lamps per district, trees and buildings past the edges, a Manhattan skyline card (D5, debug)](docs/changelog/2026-11.md#2026-11-21--district-kits-street-lamps-per-district-trees-and-buildings-past-the-edges-a-manhattan-skyline-card-d5-debug)
+- 2026-11-21 — [Landmarks: Unisphere and NYS Pavilion, Queens vent building, Calvary headstones, landmark boards, stone Cross Island deck, landmark diamonds (D6, debug)](docs/changelog/2026-11.md#2026-11-21--landmarks-unisphere-and-nys-pavilion-queens-vent-building-calvary-headstones-landmark-boards-stone-cross-island-deck-landmark-diamonds-d6-debug)
 
 ### 2026-10 (21 entries)
 

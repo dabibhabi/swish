@@ -98,6 +98,17 @@ void CarEntity::apply_input_frame(const InputFrame& f, float dt) {
 
 void CarEntity::update(float dt) {
 #ifdef SWISH_DEBUG_UI
+    // Equal slices, not an accumulator: no leftover time, so no render interpolation is needed.
+    if (const int n = substep_count(dt, m_substep_hz); n > 1) {
+        for (int i = 0; i < n; ++i) step(dt / static_cast<float>(n));
+        return;
+    }
+#endif
+    step(dt);
+}
+
+void CarEntity::step(float dt) {
+#ifdef SWISH_DEBUG_UI
     if (m_physics_model == PhysicsModel::RigidBody) {
         update_rigid_body(dt);
         return;
@@ -127,8 +138,10 @@ void CarEntity::update(float dt) {
     // position, so the car can actually hydroplane on standing water, not
     // just fade grip with rain. See
     // docs/lessons-from-chrono/07-wet-roads-and-rain.md §4.
-    const float wetness       = std::clamp(m_wetness, 0.0f, 1.0f);
-    const float filmOverTread = film_over_tread(m_position.x, m_position.z, wetness);
+    const float wetness = std::clamp(m_wetness, 0.0f, 1.0f);
+    // Lagged (WetGrip.h film_lag): the tyre feels the film build up over ~kFilmLagTau, not a step at a pool edge.
+    m_film_over_tread         = film_lag(m_film_over_tread, film_over_tread(m_position.x, m_position.z, wetness), dt);
+    const float filmOverTread = m_film_over_tread;
     // Body-speed MAGNITUDE, not the forward component: hydroplaning depends on
     // how fast the tire is travelling over the water, and once the car is
     // sideways those differ enormously. Keying off v_mps alone would make a
@@ -359,7 +372,13 @@ void CarEntity::init_rigid_body() {
     const CarParams&       carParams  = m_profile.car;
     const TireParams&      tireParams = m_profile.tire;
     const SuspensionParams susp;
-    m_rigid.set_params(make_chassis_params(hub, radius, carParams, tireParams, susp));
+    RigidChassisParams     cp = make_chassis_params(hub, radius, carParams, tireParams, susp);
+    cp.spin_model             = true;
+    cp.arb_front_n_per_m      = 30000.f;  // stiffer front bar: keeps the rear-heavy car from snapping
+    cp.arb_rear_n_per_m       = 18000.f;
+    m_rigid.set_params(cp);
+    set_chassis_tuning(m_chassis_tuning);
+    m_rigid.set_rolling_speed(m_forward_speed / kWorldUnitsPerMeter);
 
     // Seed from the entity pose + the bicycle's speed state (R = Ry(yaw) Rx(pitch) Rz(roll), Entity.cpp).
     const quat                q  = glm::angleAxis(glm::radians(m_rotation.y), vec3(0.f, 1.f, 0.f)) *
@@ -376,6 +395,33 @@ void CarEntity::init_rigid_body() {
     b.clear_accumulators();
     m_rigid_last_pos = m_position;
     m_rigid_ready    = true;
+}
+
+void CarEntity::set_chassis_tuning(const ChassisTuning& t) {
+    m_chassis_tuning       = t;
+    RigidChassisParams p   = m_rigid.params();
+    p.tire.shape           = t.tireShape;
+    p.tire.kappaPeak       = t.kappaPeak;
+    p.tire.loadSens        = t.loadSens;
+    p.tan_alpha_peak_front = std::tan(glm::radians(t.alphaPeakFrontDeg));
+    p.tan_alpha_peak_rear  = std::tan(glm::radians(t.alphaPeakRearDeg));
+    p.arb_front_n_per_m    = t.arbFront;
+    p.arb_rear_n_per_m     = t.arbRear;
+    m_rigid.set_params(p);
+}
+
+void CarEntity::wall_contact(const Vec3& n) {
+    if (m_physics_model != PhysicsModel::RigidBody || !m_rigid_ready) return;
+    util::physics::RigidBody& b  = m_rigid.body();
+    vec3                      v  = b.linear_velocity();
+    const float               vn = glm::dot(v, n);
+    if (vn >= 0.f) return;  // already moving away
+    v -= n * vn;            // no bounce: drop the speed into the wall
+    // Scrape: Coulomb friction (mu 0.4) on the impulse that stopped it, capped at a full stop.
+    const float vt = glm::length(v);
+    if (vt > 1e-3f) v *= std::max(0.f, 1.f - 0.4f * -vn / vt);
+    b.set_linear_velocity(v);
+    b.set_angular_velocity(b.angular_velocity() * 0.9f);
 }
 
 void CarEntity::update_rigid_body(float dt) {
@@ -411,29 +457,62 @@ void CarEntity::update_rigid_body(float dt) {
     const float             rWheelRear = rear_wheel_radius();
 
     ChassisInput in;
-    in.mu           = m_effective_mu;
-    in.steer_rad    = glm::radians(std::clamp(m_steering_angle, -m_profile.steerLockDeg, m_profile.steerLockDeg));
-    in.body_force_n = -0.5f * params.airDensity * params.dragCoeff * params.frontalArea * vBody * vHoriz;
+    in.mu        = m_effective_mu;
+    in.steer_rad = glm::radians(std::clamp(m_steering_angle, -m_profile.steerLockDeg, m_profile.steerLockDeg));
+    in.abs       = m_wheel_slip_params.abs;
+    in.tc        = m_chassis_tuning.tc;
+
+    // Aero: drag at the CoG, downforce per axle. The rear wing deploys between 30 and 36 m/s.
+    const float q    = 0.5f * params.airDensity * vBody * vBody;
+    const float wing = glm::smoothstep(30.f, 36.f, vBody);
+    in.body_force_n =
+        -(params.dragCoeff * params.frontalArea + 0.04f * wing) * q * (vBody > 1e-3f ? vHoriz / vBody : vec3(0.f));
+    in.downforce_front_n = m_chassis_tuning.downforce * 0.10f * q;
+    in.downforce_rear_n  = m_chassis_tuning.downforce * (0.18f + 0.22f * wing) * q;
+    // Rolling resistance, faded out near rest so it cannot push the car backwards.
+    in.body_force_n -= fwd * (params.rollResist * params.mass * params.gravity * std::clamp(vFwd / 0.5f, -1.f, 1.f));
+
+    const auto& rr     = m_rigid.params().corner;
+    const float wRear  = 0.5f * (m_rigid.wheel_omega()[2] + m_rigid.wheel_omega()[3]);
+    float       fAxleF = 0.f, fAxleR = 0.f;  // drive force per axle at the tyre radius
     if (m_reverse) {
-        // Bounded low-speed creep, like the bicycle path: constant push until the reverse cap.
         const float push =
             vFwd > -kMaxReverseSpeed / kWorldUnitsPerMeter ? -params.mass * kReverseAccel / kWorldUnitsPerMeter : 0.f;
-        in.fx_front_n = 0.5f * push;
-        in.fx_rear_n  = 0.5f * push;
+        fAxleF = fAxleR = 0.5f * push;
     } else {
         m_gear_state = gearbox_shift_step(m_gear_state, vFwd, gearbox, rWheelRear, dt);
-        AxleLongitudinal split{};
-        longitudinal_accel(vFwd, m_throttle, m_brake, m_gear_state.gear, params, tire, gearbox, rWheelRear, drivetrain,
-                           AxleLateral{}, &split, m_profile.torque);
-        // Brake / rolling resistance flip sign with v: ramp them out below 0.5 m/s so the standstill does
-        // not chatter (TODO(stub): proper static-friction / stick model).
-        const float ramp = m_throttle > 0.f ? 1.f : std::min(1.f, std::fabs(vFwd) / 0.5f);
-        in.fx_front_n    = split.front * ramp;
-        in.fx_rear_n     = split.rear * ramp;
+        // Engine speed follows the driven wheels, so wheelspin runs into the rev limit.
+        const float vDrive = wRear * rWheelRear;
+        const float fDemand =
+            m_throttle * gear_drive_force(vDrive, m_gear_state.gear, gearbox, params, rWheelRear, m_profile.torque);
+        // Engine braking off-throttle: about 90 N m of drag at 7000 rpm, through the gear.
+        const float ratio = gearbox.ratios[static_cast<size_t>(m_gear_state.gear)] * gearbox.finalDrive;
+        const float fEngBrk =
+            (m_throttle <= 0.f && vDrive > 1.f)
+                ? -90.f * engine_rpm(vDrive, m_gear_state.gear, gearbox, rWheelRear) / 7000.f * ratio / rWheelRear
+                : 0.f;
+        const float share = ptu_front_share(drivetrain, ptu_lock_fraction(fDemand, params, tire, drivetrain));
+        fAxleF            = fDemand * share;
+        fAxleR            = fDemand * (1.f - share) + fEngBrk;
+    }
+    // Brakes can lock a wheel on their own (1.4 g of torque, 62 % front); ABS in the chassis holds the peak.
+    const float fBrake = m_brake * 1.4f * params.mass * params.gravity;
+    for (int c = 0; c < 4; ++c) {
+        in.drive_torque_nm[c] = 0.5f * (c < 2 ? fAxleF : fAxleR) * rr[c].radius_m;
+        in.brake_torque_nm[c] = 0.5f *
+                                (c < 2 ? m_chassis_tuning.brakeBiasFront : 1.f - m_chassis_tuning.brakeBiasFront) *
+                                fBrake * rr[c].radius_m;
     }
 
-    // TODO(stub): road height query per wheel; flat plane at the road surface under the entity for now.
-    m_rigid.advance(dt, in, RoadGeometry::road_surface_y(m_position.x) / kWorldUnitsPerMeter);
+    const Vec3  slope = RoadGeometry::surface_slope();  // dimensionless, same in WU and m
+    GroundPlane ground;
+    ground.px   = b.position().x;
+    ground.pz   = b.position().z;
+    ground.y    = RoadGeometry::road_surface_y(ground.px * kWorldUnitsPerMeter, ground.pz * kWorldUnitsPerMeter) /
+                  kWorldUnitsPerMeter;
+    ground.dydx = slope.x;
+    ground.dydz = slope.z;
+    m_rigid.advance(dt, in, ground);
 
     // ── Write back: pose (WU + Euler degrees) and the scalars the rest of the game reads ──
     const mat3 rn = b.rotation();
@@ -487,11 +566,23 @@ float CarEntity::get_wheel_steer_rad(int c) const {
 void CarEntity::advance_wheel_spin(float dt) {
     if (!m_wheels_valid) return;
     const float vx = m_forward_speed / kWorldUnitsPerMeter;
+    // Phase C: axle friction utilisation u = F_x / (mu F_z) from last step's tyre forces (capped at |u| = 1 by the
+    // longitudinal solve), so wheelspin at the traction cap and lockup at the brake cap fall out of existing signals.
+    CarParams carParams = m_profile.car;
+    carParams.tireMu    = m_effective_mu;
+    const float    ax   = (m_long_force.front + m_long_force.rear) / carParams.mass;
+    const AxleLoad load = axle_loads_long(carParams, m_profile.tire, ax);
+    const float    uF   = m_long_force.front / std::max(m_effective_mu * load.front, 1.0f);
+    const float    uR   = m_long_force.rear / std::max(m_effective_mu * load.rear, 1.0f);
     for (int c = 0; c < 4; c++) {
-        const WheelFrame& wf = m_wheel_frames[static_cast<size_t>(c)];
-        const float       v  = wheel_rolling_speed(vx, m_lateral_velocity, m_yaw_rate, wf.frame[3].x, wf.frame[3].z,
-                                                   get_wheel_steer_rad(c));
-        m_wheel_omega[static_cast<size_t>(c)] = v / wf.radius;
+        const WheelFrame& wf     = m_wheel_frames[static_cast<size_t>(c)];
+        const float       v      = wheel_rolling_speed(vx, m_lateral_velocity, m_yaw_rate, wf.frame[3].x, wf.frame[3].z,
+                                                       get_wheel_steer_rad(c));
+        const float       target = wheel_slip_target(c < 2 ? uF : uR, v, m_wheel_slip_params);
+        float&            kappa  = m_wheel_slip[static_cast<size_t>(c)];
+        kappa                    = wheel_slip_step(kappa, target, v, dt, m_wheel_slip_params);
+        m_wheel_omega[static_cast<size_t>(c)] =
+            kappa == 0.0f ? v / wf.radius : wheel_omega_from_slip(v, kappa, wf.radius, m_wheel_slip_params);
     }
     if (!m_wheel_spin_on) return;
     for (size_t c = 0; c < 4; c++)
@@ -570,6 +661,48 @@ void CarEntity::update_wheel_visuals(float dt) {
         m_corner_susp[c] =
             suspension_advance(m_corner_susp[c], x_target_m, k, damp, cornerMass, dt, kHTarget, susp.travelMaxM);
     }
+
+    // ── Phase B2: weight transfer (WheelKinematics.h corner_load_transfer_n) ──
+    // a_x from last step's tyre forces, a_y = v_x r (steady-state centripetal). The springs filter both, so a gear
+    // shift's force step reads as a damped pitch, not a snap. Compression x = dFz / k, plus the same ARB coupling.
+    {
+        constexpr float      kRollCentreM = 0.12f;  // [est] mean roll-centre height; only h - h_rc rolls the body
+        const float          ax           = (m_long_force.front + m_long_force.rear) / carParams.mass;
+        const float          ay           = (m_forward_speed / kWorldUnitsPerMeter) * m_yaw_rate;
+        const CarRigGeometry g  = m_rig_geometry ? *m_rig_geometry : measure_car_rig_geometry(m_wheel_frames, false);
+        const float          wb = g.wheelbase_m > 0.f ? g.wheelbase_m : L;
+        const std::array<CornerSpring, 4> prevBody = m_body_susp;
+        float                             x[4], hx[4], hz[4];
+        for (int c = 0; c < 4; c++) {
+            const bool  front = c < 2;
+            const Vec3  hub   = Vec3(m_wheel_frames[c].frame[3]);
+            const float side  = hub.z >= 0.f ? 1.f : -1.f;
+            const float track = front ? g.track_front_m : g.track_rear_m;
+            const float share = front ? tireParams.b / L : tireParams.a / L;
+            const float dFz = corner_load_transfer_n(front, side, carParams.mass, ax, ay, tireParams.hCg, kRollCentreM,
+                                                     wb, track > 0.f ? track : 1.6f, share);
+            const float k   = front ? kFront : kRear;
+            const int   partner = (c % 2 == 0) ? c + 1 : c - 1;
+            const float target  = dFz / k + arb_target_shift_m(prevBody[c].x_m, prevBody[partner].x_m,
+                                                               front ? arb.frontRatio : arb.rearRatio);
+            m_body_susp[c]      = suspension_advance(m_body_susp[c], target, k, front ? cFront : cRear,
+                                                     front ? massFront : massRear, dt, kHTarget, susp.travelMaxM);
+            x[c]                = m_body_susp[c].x_m;
+            hx[c]               = hub.x;
+            hz[c]               = hub.z;
+        }
+        const BodyAttitude b = body_attitude_from_travel(x, hx, hz);
+        if (b.heave == 0.f && b.sinRotZ == 0.f && b.sinRotX == 0.f) {
+            m_body_attitude = Mat4(1.f);  // exact identity at rest (bit-identical draws)
+        } else {
+            const Vec3 pivot = 0.25f * (Vec3(m_wheel_frames[0].frame[3]) + Vec3(m_wheel_frames[1].frame[3]) +
+                                        Vec3(m_wheel_frames[2].frame[3]) + Vec3(m_wheel_frames[3].frame[3]));
+            m_body_attitude  = glm::translate(Mat4(1.f), pivot + Vec3(0.f, -b.heave, 0.f)) *
+                               glm::rotate(Mat4(1.f), std::asin(b.sinRotZ), Vec3(0.f, 0.f, 1.f)) *
+                               glm::rotate(Mat4(1.f), std::asin(b.sinRotX), Vec3(1.f, 0.f, 0.f)) *
+                               glm::translate(Mat4(1.f), -pivot);
+        }
+    }
 }
 
 void CarEntity::update_gauges(float dt) {
@@ -613,7 +746,8 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
     std::vector<DrawCall> result;
     result.reserve(get_submeshes().size());
 
-    Mat4 car_model = get_model_matrix();
+    Mat4       car_model  = get_model_matrix();
+    const Mat4 body_model = car_model * m_body_attitude;  // Phase B2: everything but the road wheels rides the body
     // Steering wheel = the SAME rate-limited steer angle the fronts are drawn about, times the
     // profile ratio (993: 16.5, ±29.5° lock -> 973.5° = 2.70 turns lock to lock).
     float sw_angle = m_steering_angle * m_profile.steerRatio;
@@ -724,21 +858,21 @@ std::vector<DrawCall> CarEntity::get_draw_calls() const {
             // straight if the model's pivot is tilted. Identity C = unchanged.
             Mat4 C   = glm::mat4_cast(m_steer_axis_correction);
             Mat4 R   = glm::rotate(Mat4(1.f), glm::radians(-sw_angle), Vec3(0.f, 0.f, 1.f));
-            dc.model = car_model * s.sw_pivot_frame * C * R * glm::inverse(s.sw_pivot_frame);
+            dc.model = body_model * s.sw_pivot_frame * C * R * glm::inverse(s.sw_pivot_frame);
         } else if (s.rig_part == RigPart::WiperDriver || s.rig_part == RigPart::WiperPassenger) {
-            dc.model = car_model * rig_part_sweep(s.rig_pivot_frame, s.rig_part, m_wiper_angle);  // S1b wipers
+            dc.model = body_model * rig_part_sweep(s.rig_pivot_frame, s.rig_part, m_wiper_angle);  // S1b wipers
         } else if (m_wheels_valid && s.wheel_corner >= 0) {
             // Road wheels: tire/rim/disc pieces spin (+steer at the front);
             // caliper pieces only steer with the front uprights.
             dc.model = s.wheel_spins ? wheelM[s.wheel_corner] : steerM[s.wheel_corner];
         } else if (s.rig_part == RigPart::NeedleRpm) {  // dial needles (GaugeNeedles.h)
-            dc.model = car_model *
+            dc.model = body_model *
                        needle_pose(s.rig_pivot_frame, s.rig_part, m_gauge_state.rpm.pos, m_gauge_params.rpmRestDeg);
         } else if (s.rig_part == RigPart::NeedleSpeed) {
-            dc.model = car_model *
+            dc.model = body_model *
                        needle_pose(s.rig_pivot_frame, s.rig_part, m_gauge_state.speed.pos, m_gauge_params.speedRestDeg);
         } else {
-            dc.model = car_model;
+            dc.model = body_model;
         }
         result.push_back(dc);
     }

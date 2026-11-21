@@ -29,3 +29,15 @@ The look-dev road half-length, driving bound, camera far plane, and end margin s
 ## Live HDRI selection
 
 [HdriCatalog.h](../src/renderer/IBLManager/HdriCatalog.h) is the shared option list for the Sky panel and [WeatherController](../src/renderer/WeatherController/WeatherController.cpp). Keeping labels, filenames, exposure and yaw in one catalog ensures a debug selection performs one matching environment rebake and can be restored in a saved debug look preset.
+
+## Box-filtered line coverage (D1 pavement, 2026-11-21)
+
+[shaders/common/pavement.glsl](../shaders/common/pavement.glsl) `paveBand`: anti-aliased thin lines (joints, sealant, rumble grooves) that fade to their mean tone when sub-pixel instead of shimmering. Reuse for any procedural stripe keyed to UVs.
+
+```glsl
+float paveBand(float d, float width, float fw) {
+    float f = max(fw, 1e-3);
+    float h = 0.5 * width;
+    return clamp((min(d + 0.5 * f, h) - max(d - 0.5 * f, -h)) / f, 0.0, 1.0);
+}
+```

@@ -62,6 +62,8 @@ void App::init_key_bindings() {
         {GLFW_KEY_GRAVE_ACCENT, {}, &App::on_toggle_debug_edit},
         {GLFW_KEY_F12, {}, &App::on_capture_frame},
         {GLFW_KEY_T, {}, &App::on_cycle_time_of_day},
+        {GLFW_KEY_F3, {}, &App::on_cycle_render_scale},
+        {GLFW_KEY_H, {}, &App::on_toggle_hud},
 #endif
     };
 }
@@ -94,6 +96,20 @@ void App::on_cycle_time_of_day() {
     dp.skyProcedural = true;
     dp.timeOfDay     = (dp.timeOfDay + 1) % static_cast<int>(TimeOfDay::Count);
     std::cout << "[sky] time of day: " << time_of_day_name(static_cast<TimeOfDay>(dp.timeOfDay)) << std::endl;
+}
+
+// SSAA polish: render scale on a key (the panel slider + "Apply" and the saved preset value still work). The
+// renderer rebuilds the offscreen chain at the top of the next frame (ssaaApplyRequested), never mid-frame.
+void App::on_cycle_render_scale() {
+    DebugParams& dp       = m_renderer->debug_params();
+    dp.ssaaScale          = dp.ssaaScale < 1.25f ? 1.5f : (dp.ssaaScale < 1.75f ? 2.0f : 1.0f);
+    dp.ssaaApplyRequested = true;
+    std::cout << "[ssaa] render scale " << dp.ssaaScale << "x" << std::endl;
+}
+
+void App::on_toggle_hud() {
+    DebugParams& dp = m_renderer->debug_params();
+    dp.hudShow      = !dp.hudShow;
 }
 #endif
 

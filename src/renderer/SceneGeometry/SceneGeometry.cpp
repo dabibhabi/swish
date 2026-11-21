@@ -102,7 +102,7 @@ void SceneGeometry::upload(const RendererServices& s, const MeshData& mesh, cons
 void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials,
                                  const MaterialOverride* overrides, const CullParams& cull, Vec3 originOffset,
                                  CullStats* stats, const PaintTuning& paint, float flakeScale, float flakeJitter,
-                                 float emissiveScale) const {
+                                 float emissiveScale, float selfLitScale) const {
     if (!has_geometry()) return;
 
     // Camera-relative rebase (double precision): add the per-batch originOffset (chunk-slot
@@ -147,7 +147,9 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
         // screen-space puddles in lighting.frag/ssr.frag; everything else (car, grass,
         // barriers, signs) stays 0 so only the road pools water. Release writes it too,
         // but reads it with puddle coverage 0 → no effect (byte-identical).
-        pushData.material.w = (dc.material == MAT_ASPHALT) ? 1.0f : 0.0f;
+        // D1: tagged mainline pavement (concrete, fresh asphalt) is road too; markings carry a tag but stay paint.
+        const bool road     = dc.material == MAT_ASPHALT || (dc.surface != 0 && dc.retro == 0.0f);
+        pushData.material.w = road ? 1.0f : 0.0f;
 
         // Clearcoat + flake (car paint BRDF): per-material authored default ×
         // the global debug multiplier, unless a per-slot override is enabled.
@@ -170,8 +172,12 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
             }
         }
         pushData.paint = Vec4(clearcoat, flake, flakeScale, flakeJitter);
-        pushData.extra = Vec4(dc.emissiveNits * emissiveScale, dc.retro, dc.surfaceWet,
-                              dc.material == MAT_ASPHALT ? paint.rutUvTile : 0.0f);
+        pushData.extra = Vec4(dc.emissiveNits * (dc.selfLit ? selfLitScale : emissiveScale), dc.retro, dc.surfaceWet,
+                              road || dc.surface != 0 ? paint.rutUvTile : 0.0f);
+#ifdef SWISH_DEBUG_UI
+        pushData.pave  = Vec4(dc.surface, dc.arc0, paint.jointSpacing, paint.reflectorSpacing);
+        pushData.pave2 = Vec4(paint.polish, paint.wear, paint.sealant, paint.rumble);
+#endif
 
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(PushConstantData), &pushData);
@@ -197,6 +203,7 @@ void SceneGeometry::record_depth(VkCommandBuffer cmd, const DepthOnlyPipeline& p
         const bool cullable = dc.boundsRadius >= 0.0f;
         if (stats && cullable) ++stats->total;
         if (cull.enabled && cullable && isCulled(dc, cull, originOffset)) continue;
+        if (dc.noShadow) continue;  // D5: never set in release
         if (stats && cullable) ++stats->submitted;
 
         Mat4 model = dc.model;

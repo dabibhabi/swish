@@ -19,6 +19,9 @@ layout(set = 1, binding = 0) readonly buffer Particles { Particle particles[]; }
 layout(location = 0) out vec2  vUV;
 layout(location = 1) out float vLife;
 layout(location = 2) out float vSeed;  // stable per-particle random → brightness variation
+#ifdef SWISH_DEBUG_UI
+layout(location = 3) flat out float vMist;  // Spray v2: 1 = capillary mist, 0 = tread droplet (size sign)
+#endif
 
 #include "hash11.glsl"
 
@@ -48,6 +51,11 @@ void main() {
     // its size or thin out, never bloom.
     float shrink = mix(1.0, 0.5, 1.0 - life);
     float size   = pt.velSize.w * shrink;
+#ifdef SWISH_DEBUG_UI
+    vMist = pt.velSize.w < 0.0 ? 1.0 : 0.0;
+    // Spray v2: mist grows as it disperses; droplets keep their small size (the streak length carries the speed).
+    size  = vMist > 0.5 ? -pt.velSize.w * mix(1.0, 2.2, 1.0 - life) : pt.velSize.w;
+#endif
 
     // Velocity-aligned stretch: project world velocity onto the camera-facing
     // (right, up) plane to get the on-screen travel axis, then draw the quad
@@ -63,6 +71,9 @@ void main() {
     vec3  sDir      = (screenSpd > 1.0) ? (right * vRight + up * vUp) / screenSpd : up;
     vec3  sPerp     = (screenSpd > 1.0) ? (right * -vUp + up * vRight) / screenSpd : right;
     float stretch   = 1.0 + clamp(screenSpd / 3500.0, 0.0, 2.0);
+#ifdef SWISH_DEBUG_UI
+    if (vMist < 0.5) stretch = 1.0 + clamp(screenSpd / 1500.0, 0.0, 5.0);  // droplets: motion-blurred streaks
+#endif
     float pinch     = 1.0 / stretch;
 
     vec3  world = pt.posLife.xyz + (c.x * sPerp * pinch + c.y * sDir * stretch) * size;

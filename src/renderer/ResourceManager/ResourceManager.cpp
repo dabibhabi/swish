@@ -2,14 +2,16 @@
 
 #include "utils/vulkan/Check.h"
 
+#include <algorithm>
 #include <stdexcept>
+#include <vector>
 
 // One-time layout transitions / copies and format pickers (see ResourceManager.h).
 
 namespace swish::resource {
 
 void transitionImageLayout(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkImage image,
-                           VkImageLayout oldLayout, VkImageLayout newLayout) {
+                           VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t levels) {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -33,7 +35,7 @@ void transitionImageLayout(VkDevice device, VkCommandPool commandPool, VkQueue q
     barrier.image                           = image;
     barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier.subresourceRange.baseMipLevel   = 0;
-    barrier.subresourceRange.levelCount     = 1;
+    barrier.subresourceRange.levelCount     = levels;
     barrier.subresourceRange.baseArrayLayer = 0;
     barrier.subresourceRange.layerCount     = 1;
 
@@ -69,7 +71,7 @@ void transitionImageLayout(VkDevice device, VkCommandPool commandPool, VkQueue q
 }
 
 void copyBufferToImage(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer buffer, VkImage image,
-                       uint32_t width, uint32_t height) {
+                       uint32_t width, uint32_t height, uint32_t levels) {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -84,18 +86,25 @@ void copyBufferToImage(VkDevice device, VkCommandPool commandPool, VkQueue queue
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
-    VkBufferImageCopy region{};
-    region.bufferOffset                    = 0;
-    region.bufferRowLength                 = 0;
-    region.bufferImageHeight               = 0;
-    region.imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.mipLevel       = 0;
-    region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount     = 1;
-    region.imageOffset                     = {0, 0, 0};
-    region.imageExtent                     = {width, height, 1};
+    std::vector<VkBufferImageCopy> regions(levels);
+    VkDeviceSize                   offset = 0;
+    for (uint32_t l = 0; l < levels; ++l) {
+        VkBufferImageCopy& region              = regions[l];
+        region.bufferOffset                    = offset;
+        region.bufferRowLength                 = 0;
+        region.bufferImageHeight               = 0;
+        region.imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel       = l;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount     = 1;
+        region.imageOffset                     = {0, 0, 0};
+        region.imageExtent                     = {width, height, 1};
+        offset += VkDeviceSize{width} * height * 4;
+        width  = std::max(1u, width / 2);
+        height = std::max(1u, height / 2);
+    }
 
-    vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, levels, regions.data());
 
     VK_CHECK(vkEndCommandBuffer(commandBuffer));
 

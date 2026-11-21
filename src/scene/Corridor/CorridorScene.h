@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CorridorAlignment.h"
+#include "CorridorRamps.h"
 #include "scene/SceneTypes.h"
 
 namespace swish {
@@ -52,6 +53,8 @@ struct CorridorSegment {
     float boundsRadius = 0.0f;
     // Street lamps (lighting L6.1), segment-local like the vertices: one downward spot per pole.
     std::vector<SpotLightDesc> lamps;
+    // C3a: signal lens draws (index into `draws`); App drives their colour + glow each frame (debug).
+    std::vector<SignalLens> signals;
 };
 
 // What CorridorDriver needs to keep about a segment once its mesh has been
@@ -74,11 +77,17 @@ inline CorridorPlacement placement_of(const CorridorSegment& s) {
 // result is uploaded to the renderer and never regenerated (the corridor
 // is finite and static — that is the whole point of Phase 3).
 // (A free function: it was a class with a single static method and no state.)
-// `withLamps` (lighting L6.1, debug first) adds street lamps on the median: a pole every kCorridorLampSpacingM
-// with a glowing head over each carriageway, and one spot light per pole in CorridorSegment::lamps.
-inline constexpr float       kCorridorLampSpacingM = 60.0f;
-inline constexpr float       kCorridorLampHeightM  = 10.0f;
-inline constexpr float       kCorridorLampLumens   = 32000.0f;  // two 16,000 lm sodium luminaires per pole (typical)
-std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& alignment, bool withLamps = false);
+// `withLamps` (lighting L6.1, debug first) adds street lamps per district (D5, CorridorDressing.h): Queens median
+// twin arms every kCorridorLampSpacingM, shoulder singles elsewhere, one spot light per pole in CorridorSegment::lamps.
+inline constexpr float kCorridorLampSpacingM = 60.0f;
+inline constexpr float kCorridorLampHeightM  = 10.0f;
+inline constexpr float kCorridorLampLumens   = 32000.0f;  // two 16,000 lm sodium luminaires per pole (typical)
+// `paths` (C2b diamonds, debug only) are ramps / service roads swept into the segments they cross; crossroads
+// come from alignment.crossroads(). A graded (v2) asset also gets the cut-slope verge (CorridorDiamonds.h).
+// `signs` (D3, debug only): gantries, gore signs and mile markers, batched per segment.
+struct CorridorSigns;
+std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& alignment, bool withLamps = false,
+                                                     const std::vector<CorridorPath>& paths = {},
+                                                     const CorridorSigns*             signs = nullptr);
 
 }  // namespace swish

@@ -326,6 +326,24 @@ When a slot's override is enabled, `SceneGeometry::record_draws` takes an option
 release passes `nullptr`, so `material.z = 1.0` (identity) and release is unaffected.
 Overrides persist as the `[[materials]]` TOML array.
 
+## In-game HUD strip and route minimap (C3b)
+
+The controls panel lives in its own window, so the HUD that sits **on the game window** has a separate path.
+[`HudOverlay`](../src/debug/HudOverlay.cpp) owns a second Dear ImGui context (no GLFW backend, no input, background draw list
+only). It saves and restores the current context on every call, so the panel's context is never disturbed. The debug-only pass
+`HudOverlay` ([HudOverlayPass.cpp](../src/renderer/Passes/HudOverlayPass.cpp)) runs after `Composite`. It records a LOAD render pass
+(PRESENT_SRC in and out) on Composite's framebuffer, which is compatible because it has the same format. `App::sync_hud`
+([AppHud.cpp](../src/core/App/AppHud.cpp)) fills `DebugParams::hud` ([HudFeed.h](../src/debug/HudFeed.h)) each frame.
+
+- **Strip** (bottom centre): speed in mph, district, road piece (`CorridorDriver::piece()`), next exit in the travel direction
+  (tab, route shield, place names, real miles).
+- **Minimap** (top right): the whole route, or 2 km around the car; service roads in amber, exit ticks, car chevron. The map is
+  world-frame $-z$ up, not geographic north.
+- **Toggles:** `HUD strip + minimap` (`[corridor] hud`, default on, also the **H** key) and `Minimap: local 2 km`
+  (`[corridor] hud_map_local`, default off). Both are in the Corridor header and show in drive and edit mode.
+- The layout is authored at 1080 px tall and scales with the window height (floor 0.8). Colours are authored in sRGB and decoded,
+  because the game swapchain is linear.
+
 ## Libraries added
 
 All three are vendored via CMake `FetchContent` **inside the `if(SWISH_DEBUG_UI)` block** —

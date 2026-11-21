@@ -156,9 +156,20 @@ TEST_CASE("CarEntity: wheel_omega hook is per wheel, outer faster in a turn", "[
         car.apply_input_frame(f, dt);
         car.update(dt);
     }
+    // Phase C: full throttle is at the traction cap, so the drawn wheels spin faster than rolling (omega r > v).
+    const float vLaunch = car.get_speed_mps();
+    REQUIRE(vLaunch > 5.f);
+    // The AWD split sends most torque rearward, so the rear axle reaches its cap; the fronts never turn slower.
+    for (int c = 2; c < 4; c++) REQUIRE(car.get_wheel_omega()[static_cast<size_t>(c)] * kR > vLaunch * 1.01f);
+    for (int c = 0; c < 2; c++) REQUIRE(car.get_wheel_omega()[static_cast<size_t>(c)] * kR >= vLaunch * 0.999f);
+
+    f.throttle = 0.f;  // off the pedal: slip decays (tau 0.08 s) and the wheels re-sync to rolling
+    for (int i = 0; i < 60; i++) {
+        car.apply_input_frame(f, dt);
+        car.update(dt);
+    }
     const auto& w0 = car.get_wheel_omega();
     const float v  = car.get_speed_mps();
-    REQUIRE(v > 5.f);
     for (int c = 0; c < 4; c++) REQUIRE_THAT(w0[static_cast<size_t>(c)], WithinAbs(v / kR, 1e-3f * v / kR));
 
     f.throttle = 0.3f;
@@ -181,4 +192,89 @@ TEST_CASE("config/car.toml loads and matches the struct defaults", "[car][config
     REQUIRE(cfg.wheels.ackermann == CarWheelConfig{}.ackermann);
     // A missing file falls back to the defaults instead of throwing.
     REQUIRE(CarConfig::load(CONFIG_DIR "does_not_exist.toml").wheels.ackermann == CarWheelConfig{}.ackermann);
+}
+
+TEST_CASE("Phase C slip: rolling below the cap, spin at drive cap, ABS-off lockup ramps (never snaps)",
+          "[wheel][slip]") {
+    WheelSlipParams p;
+    REQUIRE(wheel_slip_target(0.5f, 20.f, p) == 0.0f);  // ordinary driving: exactly rolling
+    REQUIRE(wheel_slip_target(-0.92f, 20.f, p) == 0.0f);
+    REQUIRE_THAT(wheel_slip_target(1.0f, 20.f, p), WithinAbs(p.spinSlip, 1e-6f));   // drive cap
+    REQUIRE_THAT(wheel_slip_target(-1.0f, 20.f, p), WithinAbs(-p.absSlip, 1e-6f));  // brake cap, ABS
+    p.abs = false;
+    REQUIRE_THAT(wheel_slip_target(-1.0f, 20.f, p), WithinAbs(-1.0f, 1e-6f));  // brake cap, locked
+
+    // Lockup ramp: after one frame the wheel is still turning, ~95 % locked by 0.3 s.
+    const float dt = 1.f / 60.f, r = 0.35f, v = 20.f;
+    float       k = wheel_slip_step(0.f, -1.f, v, dt, p);
+    REQUIRE(wheel_omega_from_slip(v, k, r, p) > 0.5f * v / r);
+    for (int i = 1; i < 18; i++) k = wheel_slip_step(k, -1.f, v, dt, p);
+    REQUIRE(wheel_omega_from_slip(v, k, r, p) < 0.06f * v / r);
+    REQUIRE(wheel_omega_from_slip(v, -1.f, r, p) == 0.0f);  // locked, never backwards
+    REQUIRE(wheel_omega_from_slip(-v, 1.f, r, p) == 0.0f);  // same when reversing
+    REQUIRE(wheel_omega_from_slip(v, 0.f, r, p) == v / r);  // zero slip = rolling exactly
+}
+
+TEST_CASE("Phase B2 weight transfer: dive, squat and roll signs, moment balance, zero at rest", "[wheel][suspension]") {
+    const float m = 1640.f, h = 0.46f, hrc = 0.12f, L = 2.45f, t = 1.6f, sF = 0.38f, sR = 0.62f;
+    // Braking (a_x < 0): fronts gain, rears lose; the four sum to zero and balance m a_x h.
+    float fl = corner_load_transfer_n(true, -1.f, m, -9.81f, 0.f, h, hrc, L, t, sF);
+    float rl = corner_load_transfer_n(false, -1.f, m, -9.81f, 0.f, h, hrc, L, t, sR);
+    REQUIRE(fl > 0.f);
+    REQUIRE(rl < 0.f);
+    REQUIRE_THAT(2.f * fl * L, WithinAbs(m * 9.81f * h, 1.f));
+    // Turning right (a_y > 0): the left (side -1) gains, the right loses.
+    REQUIRE(corner_load_transfer_n(true, -1.f, m, 0.f, 5.f, h, hrc, L, t, sF) > 0.f);
+    REQUIRE(corner_load_transfer_n(true, 1.f, m, 0.f, 5.f, h, hrc, L, t, sF) < 0.f);
+    REQUIRE(corner_load_transfer_n(true, 1.f, m, 0.f, 0.f, h, hrc, L, t, sF) == 0.f);
+
+    // Attitude: fronts compressed -> nose down (y' = x sinRotZ < 0 at the front); zero travel -> zero attitude.
+    const float  hx[4] = {1.2f, 1.2f, -1.25f, -1.25f}, hz[4] = {-0.8f, 0.8f, -0.8f, 0.8f};
+    const float  dive[4] = {0.05f, 0.05f, -0.04f, -0.04f};
+    BodyAttitude b       = body_attitude_from_travel(dive, hx, hz);
+    REQUIRE(1.2f * b.sinRotZ < 0.f);
+    REQUIRE_THAT(std::asin(-b.sinRotZ) * 180.f / 3.14159265f, WithinAbs(0.09f / 2.45f * 180.f / 3.14159265f, 0.01f));
+    const float rollL[4] = {0.03f, -0.03f, 0.03f, -0.03f};  // left compressed
+    b                    = body_attitude_from_travel(rollL, hx, hz);
+    REQUIRE(-(-0.8f) * b.sinRotX < 0.f);  // left side (z < 0) drops
+    const float zero[4] = {0.f, 0.f, 0.f, 0.f};
+    b                   = body_attitude_from_travel(zero, hx, hz);
+    REQUIRE((b.heave == 0.f && b.sinRotZ == 0.f && b.sinRotX == 0.f));
+}
+
+TEST_CASE(
+    "CarEntity weight transfer: braking dives the nose 0.5-3.5 deg, a right turn rolls left side down, rest = identity",
+    "[wheel][suspension][car]") {
+    CarEntity car = make_993();
+    REQUIRE(car.get_body_model_matrix() == car.get_model_matrix());  // nothing has moved yet
+    InputFrame f;
+    f.steer_mode    = SteerMode::Target;
+    const float dt  = 1.f / 60.f;
+    auto        run = [&](int n) {
+        for (int i = 0; i < n; i++) {
+            car.apply_input_frame(f, dt);
+            car.update(dt);
+            car.update_wheel_visuals(dt);
+        }
+    };
+    // Car-local drop of a point: (attitude * p).y - p.y; nose is +X, right is +Z.
+    auto drop = [&](Vec3 p) {
+        const Mat4 a = glm::inverse(car.get_model_matrix()) * car.get_body_model_matrix();
+        return (a * Vec4(p, 1.f)).y - p.y;
+    };
+    f.throttle = 1.f;
+    run(180);
+    REQUIRE(drop(Vec3(1.2f, 0.f, 0.f)) > drop(Vec3(-1.2f, 0.f, 0.f)));  // accelerating: squat (tail lower)
+    f.throttle = 0.f;
+    f.brake    = 1.f;
+    run(30);
+    const float pitchDeg = std::atan2(drop(Vec3(-1.2f, 0.f, 0.f)) - drop(Vec3(1.2f, 0.f, 0.f)), 2.4f) * 57.2958f;
+    REQUIRE(pitchDeg > 0.5f);  // nose down
+    REQUIRE(pitchDeg < 3.5f);
+    f.brake    = 0.f;
+    f.throttle = 0.3f;
+    f.steer    = 0.6f;  // right
+    run(90);
+    REQUIRE(car.get_yaw_rate() > 0.f);
+    REQUIRE(drop(Vec3(0.f, 0.f, -0.8f)) < drop(Vec3(0.f, 0.f, 0.8f)));  // left (outer) side lower
 }

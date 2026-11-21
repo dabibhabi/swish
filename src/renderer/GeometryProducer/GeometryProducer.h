@@ -51,6 +51,14 @@ public:
     void set_interchanges(const std::vector<float>& slotOffsetsZ);
     void add_corridor_segment(const RendererServices& s, const MeshData& mesh, const std::vector<DrawCall>& draws);
     void set_corridor_instances(const std::vector<CorridorInstance>& instances);
+#ifdef SWISH_DEBUG_UI
+    void set_corridor_draw_glow(size_t seg, size_t draw, const Vec4& color, float nits) {
+        if (seg < m_corridorSegments.size()) m_corridorSegments[seg].set_draw_glow(draw, color, nits);
+    }
+    void set_corridor_draw_model(size_t seg, size_t draw, const Mat4& model) {
+        if (seg < m_corridorSegments.size()) m_corridorSegments[seg].set_draw_model(draw, model);
+    }
+#endif
     void upload_dynamic(const RendererServices& s, const MeshData& mesh, const std::vector<DrawCall>& draws);
     void update_dynamic_draw_calls(const std::vector<DrawCall>& draws) { m_dynamic.update_draw_calls(draws); }
     void destroy_dynamic(VkDevice device) { m_dynamic.cleanup(device); }

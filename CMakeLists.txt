@@ -225,6 +225,14 @@ add_library(swish_scene_core STATIC
     ${SWISH_ROAD_SCENE_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorAlignment.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorBounds.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorRamps.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorEnds.cpp      # C4 route-end queries (mesh is CorridorEndsMesh.cpp)
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorDiamonds.cpp  # D2 verge height query (+ C2b mesh helpers)
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorEdges.cpp     # D2 edge ranges + NJ profile
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorSigns.cpp     # D3 sign sites + collapse rule
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorBridges.cpp   # D4 bridge merge rule + deck mesh
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorDressing.cpp  # D5 district lamps, dressing, skyline model
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorLandmarks.cpp # D6 landmark spots, deck styles
     ${CMAKE_SOURCE_DIR}/src/scene/RoadGeometry/RoadGeometry.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/Entity/CarEntity.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/Entity/Entity.cpp

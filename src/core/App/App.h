@@ -3,6 +3,7 @@
 #include "core/CameraController/CameraController.h"
 #include "scene/CameraMode.h"
 #include "scene/Corridor/CorridorDriver.h"  // real LIE corridor (owned by App)
+#include "scene/Corridor/CorridorRamps.h"   // C3a SignalLens
 #include "scene/Entity/Wiper.h"             // WiperState / WiperParams (V-key wipers)
 #include "scene/LightingLab/LightingLab.h"
 #include "scene/WeatherPreset.h"
@@ -12,7 +13,9 @@
 #include "scene/Entity/KeyboardSteer.h"
 #endif
 
+#include <array>
 #include <memory>
+#include <utility>
 #include <vector>
 
 struct GLFWwindow;
@@ -121,6 +124,12 @@ private:
     LensWetnessModel m_lens_wetness;
     bool             m_lens_wetness_ready = false;
     bool             m_wheel_spray_active = false;
+    // C1 demo ramp sliders as last seen (on, ahead m, dy m) and seconds they have been still (<0 = built).
+    std::array<float, 17> m_corridorKey{};
+    float                 m_corridorIdle = -1.0f;
+    // C3a: signal lens draws as (corridor segment, lens) and the clock that cycles them.
+    std::vector<std::pair<size_t, SignalLens>> m_signalLenses;
+    double                                     m_signalClock = 0.0;
 #endif
 
     // Key table (Esc, C, R, V, G, and backtick under SWISH_DEBUG_UI), polled in order.
@@ -171,7 +180,10 @@ private:
     void on_cycle_weather();
 #ifdef SWISH_DEBUG_UI
     void on_toggle_debug_edit();
-    void on_cycle_time_of_day();  // T: next time-of-day preset (procedural sky)
+    void on_cycle_time_of_day();     // T: next time-of-day preset (procedural sky)
+    void on_cycle_render_scale();    // F3: SSAA render scale 1.0 -> 1.5 -> 2.0 (applied next frame)
+    void on_toggle_hud();            // H: in-game HUD strip + minimap (C3b)
+    void sync_hud(DebugParams& dp);  // C3b: speed, district, next exit, road piece, minimap route (AppHud.cpp)
     void on_toggle_debug_controls();
     void on_controls_key(int key, int action);
     void on_capture_frame();  // F12: dump the frame to build-debug/captures/ (Shift also dumps the HDR scene colour)

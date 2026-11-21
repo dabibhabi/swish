@@ -77,6 +77,7 @@ cars/*
 zip_files/
 # cached OSM/SUMO input for tools/lie_corridor.py (reproducible; needs network + netconvert)
 /data/osm/
+/data/osm_backup_*/
 
 # --- runtime assets too large for git (procedural sky is the fallback for missing HDRIs) ---
 /assets/Sky/

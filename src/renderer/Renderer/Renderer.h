@@ -11,6 +11,7 @@
 #include "scene/WeatherPreset.h"
 #ifdef SWISH_DEBUG_UI
 #include "debug/DebugUI.h"
+#include "debug/HudOverlay.h"
 #include "debug/SceneParamsUniform.h"
 #include "renderer/FrameCapture/FrameCapture.h"        // S3: frame dump (debug)
 #include "renderer/GpuProfiler/GpuProfiler.h"          // S2: GPU timestamp profiler (debug)
@@ -91,6 +92,11 @@ public:
 
     void add_corridor_segment(const MeshData& mesh, const std::vector<DrawCall>& draws);
     void set_corridor_instances(const std::vector<CorridorInstance>& instances);
+#ifdef SWISH_DEBUG_UI
+    // C3a: signal lens colour + glow of draw `draw` in corridor segment `seg` (upload order).
+    void set_corridor_draw_glow(size_t seg, size_t draw, const Vec4& color, float nits);
+    void set_corridor_draw_model(size_t seg, size_t draw, const Mat4& model);  // D5 skyline card
+#endif
 
     void upload_dynamic_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws);
     void update_dynamic_draw_calls(const std::vector<DrawCall>& draws);
@@ -184,6 +190,7 @@ private:
 #ifdef SWISH_DEBUG_UI
 
     DebugUI     m_debugUI;
+    HudOverlay  m_hud;  // C3b in-game HUD strip + minimap
     DebugParams m_debugParams;
 
     SceneParamsUniform m_sceneParams;

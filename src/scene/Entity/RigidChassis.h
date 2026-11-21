@@ -32,6 +32,7 @@
 
 #include "CarParams.h"
 #include "Tire.h"
+#include "TireCurve.h"
 #include "WheelKinematics.h"
 #include "utils/physics/RigidBody.h"
 #include "utils/types/Types.h"
@@ -64,6 +65,31 @@ struct RigidChassisParams {
     float                          c_alpha_rear_n_per_rad  = 0.f;   // PER WHEEL
     float                          slip_ref_speed_mps      = 1.5f;  // regularises slip angle at standstill
     float                          gravity                 = 9.81f;
+
+    // Wheel-spin model (off = the original axle-force path, which the stub's tests pin).
+    bool                 spin_model = false;
+    TireCurveParams      tire{};
+    float                tan_alpha_peak_front = 0.123f;  // tan(7 deg)
+    float                tan_alpha_peak_rear  = 0.105f;  // tan(6 deg)
+    float                wheel_inertia_kgm2   = 1.6f;
+    float                arb_front_n_per_m    = 0.f;  // anti-roll bar rate at the wheel
+    float                arb_rear_n_per_m     = 0.f;
+    std::array<float, 4> static_load_n{};
+};
+
+// Ground under the car: height y at (px, pz) plus a slope. SI.
+struct GroundPlane {
+    float y = 0.f, px = 0.f, pz = 0.f, dydx = 0.f, dydz = 0.f;
+    float at(float x, float z) const { return y + dydx * (x - px) + dydz * (z - pz); }
+};
+
+// Live tuning for the wheel-spin model (debug sliders; Tunables.def "car" group).
+struct ChassisTuning {
+    float tireShape = 1.45f, kappaPeak = 0.10f, loadSens = 0.12f;
+    float alphaPeakFrontDeg = 7.f, alphaPeakRearDeg = 6.f;
+    float arbFront = 30000.f, arbRear = 18000.f;  // stiffer front bar keeps the rear-heavy car from snapping
+    float brakeBiasFront = 0.62f, downforce = 1.f;
+    bool  tc = true;
 };
 
 // Per-step driver inputs.
@@ -73,6 +99,11 @@ struct ChassisInput {
     float fx_rear_n  = 0.f;   // same, rear axle
     vec3  body_force_n{0.f};  // extra world force at the CoG (aero drag)
     float mu = CarParams{}.tireMu;
+    // spin_model only: per-wheel torques (brake >= 0), driver aids, aero load per axle.
+    std::array<float, 4> drive_torque_nm{};
+    std::array<float, 4> brake_torque_nm{};
+    bool                 abs = true, tc = true;
+    float                downforce_front_n = 0.f, downforce_rear_n = 0.f;
 };
 
 struct ChassisCornerState {
@@ -114,7 +145,8 @@ inline RigidChassisParams make_chassis_params(const std::array<vec3, 4>&  hub_me
         k.radius_m       = radius_m[c];
         spring_from_ride_freq(k.front ? massFront : massRear, k.front ? sp.fnFrontHz : sp.fnRearHz,
                               k.front ? sp.zetaFront : sp.zetaRear, k.k_n_per_m, k.c_ns_per_m);
-        k.preload_m = (k.front ? loadFront : loadRear) / k.k_n_per_m;
+        k.preload_m          = (k.front ? loadFront : loadRear) / k.k_n_per_m;
+        out.static_load_n[c] = k.front ? loadFront : loadRear;
     }
     out.c_alpha_front_n_per_rad = 0.5f * tp.cAlphaFront;
     out.c_alpha_rear_n_per_rad  = 0.5f * tp.cAlphaRear;
@@ -136,17 +168,23 @@ public:
     util::physics::RigidBody&                body() { return m_body; }
     const util::physics::RigidBody&          body() const { return m_body; }
     const std::array<ChassisCornerState, 4>& corner_state() const { return m_state; }
+    const std::array<float, 4>&              wheel_omega() const { return m_omega; }
+    void                                     set_rolling_speed(float v_mps) {
+        for (int c = 0; c < 4; ++c) m_omega[c] = v_mps / m_p.corner[c].radius_m;
+    }
 
     // Advance by a frame's dt: ceil(dt / h) equal substeps of at most kStepS (count clamped to kMaxSubsteps).
-    void advance(float dt, const ChassisInput& in, float ground_y_m) {
+    void advance(float dt, const ChassisInput& in, float ground_y_m) { advance(dt, in, GroundPlane{ground_y_m}); }
+    void advance(float dt, const ChassisInput& in, const GroundPlane& g) {
         dt            = std::min(dt, kMaxSubsteps * kStepS);
         const int   n = std::max(1, static_cast<int>(std::ceil(dt / kStepS)));
         const float h = dt / static_cast<float>(n);
-        for (int i = 0; i < n; ++i) step(h, in, ground_y_m);
+        for (int i = 0; i < n; ++i) step(h, in, g);
     }
+    void step(float h, const ChassisInput& in, float ground_y_m) { step(h, in, GroundPlane{ground_y_m}); }
 
     // One substep: gravity + contacts + tires into the accumulators, then RigidBody::step.
-    void step(float h, const ChassisInput& in, float ground_y_m) {
+    void step(float h, const ChassisInput& in, const GroundPlane& g) {
         const vec3 up(0.f, 1.f, 0.f);
         const mat3 r   = m_body.rotation();
         const vec3 cog = m_body.position();
@@ -161,12 +199,24 @@ public:
             ChassisCornerState&  s = m_state[c];
             patch[c]               = cog + r * k.hub_body_m - up * k.radius_m;
             s                      = ChassisCornerState{};
-            const float pen        = ground_y_m - patch[c].y + k.preload_m;
+            const float pen        = g.at(patch[c].x, patch[c].z) - patch[c].y + k.preload_m;
             if (pen <= 0.f) continue;
             s.pen_m        = pen;
             const float vy = m_body.point_velocity(patch[c]).y;
             s.fn_n         = std::max(0.f, k.k_n_per_m * pen - k.c_ns_per_m * vy);
-            m_body.add_force_at_point(up * s.fn_n, patch[c]);
+        }
+        // Anti-roll bars move load from the less to the more compressed wheel of an axle; downforce
+        // presses each axle's pair equally.
+        for (int a = 0; a < 4; a += 2) {
+            const float bar =
+                (a == 0 ? m_p.arb_front_n_per_m : m_p.arb_rear_n_per_m) * (m_state[a].pen_m - m_state[a + 1].pen_m);
+            const float down    = 0.5f * (a == 0 ? in.downforce_front_n : in.downforce_rear_n);
+            m_state[a].fn_n     = std::max(0.f, m_state[a].fn_n + bar);
+            m_state[a + 1].fn_n = std::max(0.f, m_state[a + 1].fn_n - bar);
+            for (int c = a; c < a + 2; ++c) {
+                m_body.add_force_at_point(up * m_state[c].fn_n, patch[c]);
+                m_body.add_force_at_point(up * -down, patch[c]);
+            }
         }
 
         // Pass 2: tire forces at the patches.
@@ -185,9 +235,31 @@ public:
             f /= fl;
             const vec3 sdir = glm::cross(f, up);
 
-            const vec3  vc    = m_body.point_velocity(patch[c]);
-            const float vf    = glm::dot(vc, f);
-            const float vs    = glm::dot(vc, sdir);
+            const vec3  vc = m_body.point_velocity(patch[c]);
+            const float vf = glm::dot(vc, f);
+            const float vs = glm::dot(vc, sdir);
+            if (m_p.spin_model) {
+                const float vden  = std::max(std::fabs(vf), 3.f);
+                const float kappa = (m_omega[c] * k.radius_m - vf) / vden;
+                float       td = in.drive_torque_nm[c], tb = in.brake_torque_nm[c];
+                // ABS / traction control: fade the torque out as slip passes the peak.
+                if (in.abs) tb *= 1.f - std::clamp((-kappa - 0.12f) / 0.08f, 0.f, 1.f);
+                if (in.tc && td > 0.f) td *= 1.f - std::clamp((kappa - 0.12f) / 0.10f, 0.f, 1.f);
+                const TireForce tf =
+                    combined_tire_force(kappa, -vs / vden, s.fn_n, m_p.static_load_n[c], in.mu,
+                                        k.front ? m_p.tan_alpha_peak_front : m_p.tan_alpha_peak_rear, m_p.tire);
+                // Implicit in the tyre's slip stiffness: the wheel's own time constant is far below h.
+                const float slope = in.mu * s.fn_n * tire_curve_b(m_p.tire.shape) * m_p.tire.shape * k.radius_m /
+                                    (m_p.tire.kappaPeak * vden);
+                const float denom = m_p.wheel_inertia_kgm2 + h * slope * k.radius_m;
+                const float w     = m_omega[c] + h * (td - tf.fx * k.radius_m) / denom;
+                const float db    = h * tb / denom;
+                m_omega[c]        = std::fabs(w) <= db ? 0.f : w - std::copysign(db, w);
+                s.fx_n            = tf.fx;
+                s.fy_n            = tf.fy;
+                m_body.add_force_at_point(f * tf.fx + sdir * tf.fy, patch[c]);
+                continue;
+            }
             const float cap   = in.mu * s.fn_n;
             const float calph = k.front ? m_p.c_alpha_front_n_per_rad : m_p.c_alpha_rear_n_per_rad;
             const float fy    = std::clamp(-calph * vs / (std::fabs(vf) + m_p.slip_ref_speed_mps), -cap, cap);
@@ -225,6 +297,7 @@ private:
     RigidChassisParams                m_p{};
     util::physics::RigidBody          m_body{};
     std::array<ChassisCornerState, 4> m_state{};
+    std::array<float, 4>              m_omega{};  // wheel spin, rad/s
 };
 
 }  // namespace swish

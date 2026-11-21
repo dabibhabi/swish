@@ -32,6 +32,8 @@ layout(push_constant) uniform PushConstants {
     // Lighting L5 / L8 (debug first): x = emissive strength, already pre-exposed; y = retroreflective (0/1);
     // z = wet car surface (0..1).
     vec4 extra;
+    vec4 pave;   // D1: x = surface tag, y = tile start station (WU), z = joint spacing, w = reflector spacing
+    vec4 pave2;  // D1: x = polish, y = wear, z = sealant, w = rumble
 #endif
 } push;
 
@@ -76,6 +78,10 @@ float hash3(vec3 p) {
     return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
 }
 
+#ifdef SWISH_DEBUG_UI
+#include "pavement.glsl"
+#endif
+
 // Octahedral normal encoding (packs the flake normal into 2 UNORM8 channels).
 #define SWISH_OCT_ENCODE
 #include "oct.glsl"
@@ -107,6 +113,21 @@ void main() {
     // ── Normal mapping via TBN matrix ─────────────────────────────
     vec3 N = normalize(fragTBN * normalMap);
 
+#ifdef SWISH_DEBUG_UI
+    // D1: mainline pavement detail (CorridorScene tags the draw; untagged draws skip it).
+    float retro = push.extra.y;
+    if (push.pave.x > 0.5 && push.extra.w > 0.0) {
+        vec2 uvWU = fragUV * push.extra.w;
+        if (retro < 0.5) {
+            // break the 3 m texture repeat: a rotated second sample under a slow mask, plus a macro tone
+            vec3 a2 = texture(albedoTex, mat2(0.8, 0.6, -0.6, 0.8) * fragUV * 0.61 + 0.37).rgb * push.color.rgb;
+            albedo  = mix(albedo, a2 * variation, 0.5 * smoothstep(0.3, 0.7, noise(fragUV * 0.35)));
+            albedo *= mix(0.9, 1.08, noise(fragUV * 0.05 + 11.0));
+        }
+        pavementDetail(albedo, roughness, N, retro, uvWU, fragTBN[0], push.pave, push.pave2, retro > 0.5);
+    }
+#endif
+
     // Debug per-material roughness multiplier (material.z; 1.0 = unchanged, so
     // release — which always pushes 1.0 — is unaffected).
     roughness = clamp(roughness * push.material.z, 0.0, 1.0);
@@ -120,7 +141,7 @@ void main() {
     // The two spare alpha channels carry the retroreflective flag (8-bit) and the emissive strength (16-bit
     // float); lighting.frag reads them. Release keeps writing 1.0 and never reads them.
     // Alpha: 0.5 = retroreflective (road paint); otherwise 0.25 x the wet-car amount. Never both.
-    outAlbedo   = vec4(albedo, push.extra.y > 0.5 ? 0.5 : 0.25 * clamp(push.extra.z, 0.0, 1.0));
+    outAlbedo   = vec4(albedo, retro > 0.5 ? 0.5 : 0.25 * clamp(push.extra.z, 0.0, 1.0));
     outNormal   = vec4(N * 0.5 + 0.5, push.extra.x);
 #else
     outAlbedo   = vec4(albedo, 1.0);

@@ -6,7 +6,7 @@
 > this plan: per-wheel debug *gizmos* were deferred (the Road Wheels panel ships spin/steer toggles
 > + spin multiplier); reverse-spin direction is pinned by unit test rather than screenshot (aliased
 > stills can't read direction). Phase B shipped 2026-08-15 (spec archived at
-> [archive/docs/wheels/phase-b-spec.md](../../archive/docs/wheels/phase-b-spec.md)); Phase C is still open (`tasks/todo.md`).
+> [archive/docs/wheels/phase-b-spec.md](../../archive/docs/wheels/phase-b-spec.md)); Phase C (visual wheel slip) and Phase B2 (squat/dive/roll weight transfer) shipped 2026-11-20; tuning knobs and sources in [tuning-notes.md](tuning-notes.md).
 >
 > Original planning preamble: this synthesizes three expert research docs
 > ([physics/math](../../archive/docs/wheels/research/01-physics-theory.md) · [rendering/asset](../../archive/docs/wheels/research/02-graphics-vulkan.md) ·
@@ -160,6 +160,12 @@ judge extremes, revert any temp forces, keep `make test` green (52/52 today).
     the one intentional, CHANGELOG'd change, with wet-handling unit tests added alongside the
     untouched dry-physics tests.
   - Window-only screenshots at both rain extremes; `make test` green.
+
+#### Phase C as built (2026-11-20)
+
+Drawn wheel speed = rolling speed plus a per-wheel visual slip $\kappa$ (`WheelKinematics.h` `wheel_slip_target` / `wheel_slip_step` / `wheel_omega_from_slip`, state `CarEntity::m_wheel_slip`). $\kappa$ chases a target keyed off the axle friction use $u = F_x/(\mu F_z)$, which the longitudinal solve already caps at 1. Below $|u| = 0.92$ the target is exactly 0, so normal driving draws exactly the rolling speed. At the drive cap $\kappa \to 0.15$ (wheelspin). At the brake cap $\kappa \to -0.15$ with ABS (the default), or $-1$ (locked) with ABS off (`CarEntity::set_abs(false)`). Wet grip lowers $\mu$ (`WetGrip.h`, decision 4, coupled since Wave 2), so the caps come sooner in rain. `SlipVisuals` now reports this $\kappa$ as the slip ratio. Slip angle is still per axle.
+
+**B2 weight transfer.** A second set of corner springs (`m_body_susp`) is driven by $\Delta F_z/k$ from $a_x$ (last step's tyre forces) and $a_y = v_x r$, plus the same ARB shift. Only the body draws through the resulting attitude (`get_body_model_matrix()`); the road wheels stay on the road, and the seat/hood cameras ride the body.
 
 #### Phase C visual hooks — stub shipped 2026-10-10 (debug-only)
 

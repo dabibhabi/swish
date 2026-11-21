@@ -109,6 +109,15 @@ void Renderer::set_corridor_instances(const std::vector<CorridorInstance>& insta
     m_geometry.set_corridor_instances(instances);
 }
 
+#ifdef SWISH_DEBUG_UI
+void Renderer::set_corridor_draw_glow(size_t seg, size_t draw, const Vec4& color, float nits) {
+    m_geometry.set_corridor_draw_glow(seg, draw, color, nits);
+}
+void Renderer::set_corridor_draw_model(size_t seg, size_t draw, const Mat4& model) {
+    m_geometry.set_corridor_draw_model(seg, draw, model);
+}
+#endif
+
 void Renderer::upload_dynamic_geometry(const MeshData& mesh, const std::vector<DrawCall>& draws) {
     m_geometry.upload_dynamic(services(), mesh, draws);
 }

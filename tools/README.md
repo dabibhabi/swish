@@ -8,7 +8,7 @@ Developer tools that run outside the engine — asset pipeline and mesh analysis
 |------|--------------|------|
 | `toml_baker.cpp` | `config/road.toml` to `road.bin` (below) | automatically, as a CMake custom command (`bake_configs`) |
 | `lie_corridor.py` | OSM extract to `assets/corridor/lie_corridor.bin`, driven by `config/lie_corridor.toml`; subcommands `fetch`, `net`, `bake`, `all` (only `bake` is needed to reproduce the asset from the cached extract; stdlib-only, Python 3.11+) | by hand; the `.bin` and `.toml` are checked in |
-| `sign_generator.py` | Highway sign textures | by hand |
+| `sign_generator.py` | Highway sign textures; `corridor` subcommand runs `sign_corridor.py`: LIE guide-sign atlases from the baked exit table to `assets/signs/` plus `src/scene/Corridor/SignAtlas.h` (D3; needs Pillow) | by hand |
 | `car_analyzer/` | GLB node-hierarchy inspector (below) | `make car-analyze CAR=assets/cars/foo.glb` |
 
 ---

@@ -461,9 +461,11 @@ void printValues(const DebugParams& p) {
     dump_tunable_group(p, "rain_splash");
     dump_tunable_group(p, "ruts");
     dump_tunable_group(p, "ripples");
+    dump_tunable_group(p, "wet_streaks");
     dump_tunable_group(p, "wiper");
     dump_tunable_group(p, "car_lights");
     dump_tunable_group(p, "car");
+    dump_tunable_group(p, "corridor");
     std::printf("carOverride=%d carMetalness=%.3f carPaint={%.3f,%.3f,%.3f} carRoughnessMul=%.3f\n",
                 p.carOverride ? 1 : 0, p.carMetalness, p.carPaint.x, p.carPaint.y, p.carPaint.z, p.carRoughnessMul);
     std::printf("ssaaScale=%.3f\n", p.ssaaScale);
@@ -1127,6 +1129,9 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             draw_tunable_group(p, "car");  // Physics model: rigid body (stub); unchecked = bicycle (Tunables.def)
         }
 
+        // ── Corridor diamonds (C2b; a settled change rebuilds the corridor) ──
+        if (ImGui::CollapsingHeader("Corridor")) draw_tunable_group(p, "corridor");
+
         // ── Fog ───────────────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Fog")) {
             ImGui::ColorEdit3("Fog color", &p.fogColor.x);
@@ -1225,6 +1230,8 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
             draw_tunable_group(p, "ruts");  // wheel-track ruts: water film in the tyre paths (Tunables.def)
             ImGui::Separator();
             draw_tunable_group(p, "ripples");  // rain ripples on standing water (Tunables.def)
+            ImGui::Separator();
+            draw_tunable_group(p, "wet_streaks");  // lamp streaks on the wet road; rain-wet car (Tunables.def)
             ImGui::Separator();
             draw_tunable_group(p, "wiper");  // V cycles the mode; rates / pause / sweep / ease (Tunables.def)
             ImGui::Separator();
@@ -1463,9 +1470,9 @@ void DebugUI::toggle_visible() {
 // cleanup — shut down ImGui and release UI Vulkan objects before device teardown.
 // ══════════════════════════════════════════════════════════════════════
 
-void DebugUI::cleanup() {
+void DebugUI::cleanup() {  // teardown: errors are logged, never thrown (VK_CHECK_LOG)
     if (!m_init) return;
-    VK_CHECK(vkDeviceWaitIdle(m_device));
+    VK_CHECK_LOG(vkDeviceWaitIdle(m_device));
 
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();

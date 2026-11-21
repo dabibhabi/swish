@@ -30,6 +30,10 @@ static constexpr float kSprayDrag      = 0.85f;     // air drag (1/s) — lower 
 static constexpr float kSprayUpSpeed   = 4500.0f;   // launch up speed (WU/s) — taller plume
 static constexpr float kSprayBackSpeed = 3000.0f;   // backward kick relative to travel (WU/s)
 static constexpr float kSpraySpread    = 1200.0f;   // lateral spread at the wheels (WU ≈ 1.2 m)
+#ifdef SWISH_DEBUG_UI
+static constexpr float kSprayDropletFraction = 0.8f;   // share of particles that are tread droplets (rest = mist)
+static constexpr float kSprayDropletSize     = 18.0f;  // droplet billboard half-size (WU ~ 2 cm; a streak when moving)
+#endif
 
 void SpraySystem::init(const PassInitCtx& ctx) {
     create(ctx.services, ctx.images.views(Img::Hdr), ctx.images.views(Img::HdrDepth), ctx.renderExtent,
@@ -57,20 +61,29 @@ void SpraySystem::update(const FrameUpdate& u) {
 #endif
 #ifdef SWISH_DEBUG_UI
     if (m_emitterCount > 0) {
-        // Round-robin: this frame spawns from one wheel only. TODO(stub): see set_emitters().
-        const SprayEmitter& e = m_emitters[m_emitterCursor % m_emitterCount];
-        m_emitterCursor       = (m_emitterCursor + 1) % m_emitterCount;
-        m_frameSeed           = std::fmod(m_frameSeed + 1.0f, 16777216.0f);
-        const float emit =
-            sprayParams.enabled
-                ? glm::clamp(sprayParams.density * e.emitRate * static_cast<float>(m_emitterCount), 0.0f, 1.0f)
-                : 0.0f;
-        m_active  = sprayParams.enabled && e.emitRate > 0.0f;
+        // Spray v2 (issue 2): all wheels emit every frame; particle i spawns from emitter i % count (spray_sim.comp).
+        // Two classes: ~80 % small ballistic tread droplets (streaks), ~20 % slow capillary mist (Gaylard et al.).
+        m_frameSeed   = std::fmod(m_frameSeed + 1.0f, 16777216.0f);
+        float maxRate = 0.0f;
+        for (uint32_t k = 0; k < m_emitterCount; ++k) maxRate = std::max(maxRate, m_emitters[k].emitRate);
+        m_active  = sprayParams.enabled && maxRate > 0.0f;
         m_opacity = sprayParams.opacity;
-        // The shader's two-lobe fake is +-0.65*spread: shrink spread to one tyre; cone widens it a little.
-        // TODO(stub): map coneHalfAngle properly once the sim takes per-emitter cones.
-        const float spread = kSpraySpread * 0.25f * (e.coneHalfAngle / 0.35f);
-        write_sim_ubo(u.frameIndex, u.dt, e.pos, e.vel, emit, spread, sprayParams);
+
+        SpraySimUBO ubo{};
+        ubo.spawnPosDt = Vec4(m_emitters[0].pos, u.dt);
+        ubo.carVel     = Vec4(m_emitters[0].vel, sprayParams.enabled ? sprayParams.density : 0.0f);
+        ubo.params     = Vec4(sprayParams.lifetime, sprayParams.size, kSprayGravity, kSprayDrag);
+        ubo.params2    = Vec4(kSpraySpread * 0.25f, m_frameSeed, kSprayUpSpeed, kSprayBackSpeed);
+        Vec3 centre(0.0f);
+        for (uint32_t k = 0; k < m_emitterCount; ++k) {
+            ubo.wheel[k] = Vec4(m_emitters[k].pos, m_emitters[k].emitRate);
+            centre += m_emitters[k].pos;
+        }
+        centre /= static_cast<float>(m_emitterCount);
+        ubo.wheelInfo = Vec4(static_cast<float>(m_emitterCount), kSprayDropletFraction, kSprayDropletSize, 0.0f);
+        // wheel[k].xz relative to the centre gives each wheel its outward side (spray is thrown away from the car).
+        for (uint32_t k = m_emitterCount; k < 4; ++k) ubo.wheel[k] = Vec4(centre, 0.0f);
+        std::memcpy(m_simUBOs[u.frameIndex].mapped(), &ubo, sizeof(ubo));
         return;
     }
 #endif

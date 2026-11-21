@@ -1,16 +1,22 @@
 #include "CorridorScene.h"
 
-#include "scene/RoadScene/MeshShapes.h"
+#include "CorridorBridges.h"
+#include "CorridorDiamonds.h"
+#include "CorridorDressing.h"
+#include "CorridorEdges.h"
+#include "CorridorEnds.h"
+#include "CorridorLandmarks.h"
+#include "CorridorSigns.h"
 #include "scene/RoadScene/RoadConfig.h"
 #include "scene/RoadScene/RoadScene.h"  // MeshBuilder + emit_sweep_* + build_sweep_frames
 #include "utils/container/VectorOps.h"
 #include "utils/io/AppPaths.h"
-#include "utils/light/Photometry.h"
 #include "utils/units/Units.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace swish {
 
@@ -20,10 +26,7 @@ namespace {
 // retired road used — there is one source of truth for "what LIE asphalt looks
 // like", and it is config/road.toml. config/lie_corridor.toml owns the
 // *geometry* (alignment, cross-section, compaction); this owns the *material*.
-struct Look {
-    Vec4  asphalt, grass, concrete, shoulder, white, yellow;
-    float asphaltTile, grassTile, concreteTile;
-};
+using Look = CorridorLook;
 
 Look look_from(const RoadConfig& c) {
     auto v = [](const float f[4]) { return Vec4(f[0], f[1], f[2], f[3]); };
@@ -39,12 +42,17 @@ struct TileSlice {
     float                   minLanes = 0.0f;
 };
 
+// D1: aged highway PCC is mid grey; Concrete012 alone reads beige (albedo ~0.5, warm).
+const Vec4 kPccTint(0.80f, 0.82f, 0.88f, 1.0f);
+
 using util::container::affine;
 using util::container::filled;
 
 }  // namespace
 
-std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al, bool withLamps) {
+std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al, bool withLamps,
+                                                     const std::vector<CorridorPath>& paths,
+                                                     const CorridorSigns*             signs) {
     std::vector<CorridorSegment> out;
     if (!al.valid()) return out;
 
@@ -70,6 +78,8 @@ std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al
     const float my        = h.roadY + h.markingLift;
     const float dashCycle = h.dashLength + h.dashGap;
 
+    const CorridorHov hov = corridor_hov(al);  // C3a: empty without an exit table (release)
+
     const int nSeg = static_cast<int>(std::ceil(total / segLen));
     out.reserve(static_cast<size_t>(std::max(nSeg, 0)));
 
@@ -90,7 +100,8 @@ std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al
         MeshBuilder builder(seg.mesh, seg.draws);
 
         for (double ts = s0; ts < s1 - 1e-6; ts += tileLen) {
-            const double te = std::min(ts + tileLen, s1);
+            const double te = std::min({ts + tileLen, s1, al.main_end()});  // C4: the roundabout takes over
+            if (al.has_ends() && te - ts < sp) continue;
 
             // ── Build the tile's shared frames ────────────────────────
             // Station samples are taken at exact multiples of the station
@@ -98,9 +109,13 @@ std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al
             // frame is the same alignment sample — the shared edge matches to
             // within a float rounding of the segment origin subtraction
             // (~0.06 WU), which is why tiles join without a crack.
-            TileSlice         sl;
-            std::vector<Vec3> cl, tan;
-            const int         nSta = std::max(2, static_cast<int>(std::llround((te - ts) / sp)) + 1);
+            TileSlice          sl;
+            std::vector<Vec3>  cl, tan;
+            std::vector<float> banks;  // stays empty for the flat (v1) asset: frames are then exactly as before
+            std::vector<float> wide;   // D2: extra median half-width per station (debug, east of exit 64)
+            bool               anyWide = false;
+            const bool         graded  = h.version != CorridorHeader::VERSION_FLAT;
+            const int          nSta    = std::max(2, static_cast<int>(std::llround((te - ts) / sp)) + 1);
             cl.reserve(nSta);
             tan.reserve(nSta);
             sl.lanes.reserve(nSta);
@@ -108,14 +123,31 @@ std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al
             for (int i = 0; i < nSta; ++i) {
                 const double                    s  = std::min(ts + static_cast<double>(i) * sp, te);
                 const CorridorAlignment::Sample sm = al.sample(s);
-                cl.emplace_back(static_cast<float>(sm.x - seg.originX), 0.0f, static_cast<float>(sm.z - seg.originZ));
+                // C2b: the mainline dips under each crossroad (dip is 0 without grading, so release is unchanged)
+                cl.emplace_back(static_cast<float>(sm.x - seg.originX), sm.y - al.dip(s),
+                                static_cast<float>(sm.z - seg.originZ));
+                if (graded) banks.push_back(sm.bank);
                 tan.emplace_back(sm.tx, 0.0f, sm.tz);
                 sl.lanes.push_back(sm.lanes);
                 sl.minLanes = std::min(sl.minLanes, sm.lanes);
+                wide.push_back(sm.med - m);
+                anyWide = anyWide || sm.med > m;
             }
-            sl.frames      = build_sweep_frames(cl, tan);
+            sl.frames      = build_sweep_frames(cl, tan, banks);
             const size_t n = sl.frames.size();
             if (n < 2) continue;
+            // D2: each carriageway sweeps off its own frames, shifted out by the median widening (bank carried)
+            std::vector<SweepFrame> wideFrames[2];
+            if (anyWide)
+                for (const int w : {0, 1}) {
+                    std::vector<Vec3> c  = cl;
+                    const float       sg = w ? 1.0f : -1.0f;
+                    for (size_t i = 0; i < c.size(); ++i)
+                        c[i] += Vec3(-tan[i].z * sg * wide[i], -banks[i] * sg * wide[i], tan[i].x * sg * wide[i]);
+                    wideFrames[w] = build_sweep_frames(c, tan, banks);
+                }
+            const std::vector<SweepFrame>& fE = anyWide ? wideFrames[1] : sl.frames;
+            const std::vector<SweepFrame>& fW = anyWide ? wideFrames[0] : sl.frames;
 
             // Dash phase: arc is tile-local (restarting at 0 keeps UV floats
             // small), so the global dash cycle has to be re-derived per tile or
@@ -132,27 +164,90 @@ std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al
             const std::vector<float> wbGrass    = affine(sl.lanes, -lw, -(m + si + so + g));
 
             // ── Grass verges ──────────────────────────────────────────
-            builder.emit_sweep_band(sl.frames, ebEdge, ebGrass, gy, look.grass, MAT_GRASS, look.grassTile);
-            builder.emit_sweep_band(sl.frames, wbGrass, wbEdge, gy, look.grass, MAT_GRASS, look.grassTile);
+            // Graded asset (C2b): level grass at ground height with cut slopes down to a dipped mainline or a ramp.
+            if (graded) {
+                for (const int side : {+1, -1})  // D4: cut where an LIE-over trench crosses (empty without bridges)
+                    for (const auto& [a, z] : cmesh::minus(ts, te, bridge_verge_holes(al, side)))
+                        if (z - a >= 1.0)
+                            emit_corridor_verge(builder, seg.draws, al, paths, side, a, z, seg.originX, seg.originZ,
+                                                look);
+            } else {
+                builder.emit_sweep_band(sl.frames, ebEdge, ebGrass, gy, look.grass, MAT_GRASS, look.grassTile);
+                builder.emit_sweep_band(sl.frames, wbGrass, wbEdge, gy, look.grass, MAT_GRASS, look.grassTile);
+            }
+            emit_dressing(builder, seg.draws, al, paths, ts, te, seg.originX, seg.originZ);  // D5 (debug asset only)
+
+            // ── D1 pavement (debug asset; Legacy = old look): material per stretch, tag for gbuffer.frag ──
+            // shortcut: kind snaps to 300 m tiles, fine for km-long stretches; split the tile if a seam must be exact.
+            const Pavement pv = al.surface_at(0.5 * (ts + te));
+            const uint8_t  pTag =
+                pv == Pavement::Legacy
+                    ? 0
+                    : static_cast<uint8_t>(static_cast<int>(pv) |
+                                           std::clamp(static_cast<int>(std::lround(sl.minLanes)), 0, 15) << 4);
+            const MaterialId laneMat = pv == Pavement::Concrete ? MAT_CONCRETE
+                                       : pv == Pavement::Fresh  ? MAT_ASPHALT_FRESH
+                                                                : MAT_ASPHALT;
+            const Vec4       laneCol = pv == Pavement::Concrete ? kPccTint : look.asphalt;
+            const auto       tag     = [&](size_t from, bool shoulder) {
+                for (size_t i = from; pTag != 0 && i < seg.draws.size(); ++i) {
+                    seg.draws[i].surface = static_cast<uint8_t>(pTag | (shoulder ? 8 : 0));
+                    seg.draws[i].arc0    = static_cast<float>(ts);
+                }
+            };
+            size_t d = seg.draws.size();
 
             // ── Carriageways: inner shoulder | lanes | outer shoulder ──
-            builder.emit_sweep_band(sl.frames, filled(n, m), filled(n, m + si), ry, look.shoulder, MAT_ASPHALT,
+            builder.emit_sweep_band(fE, filled(n, m), filled(n, m + si), ry, look.shoulder, MAT_ASPHALT,
                                     look.asphaltTile);
-            builder.emit_sweep_band(sl.frames, filled(n, m + si), ebPaintOut, ry, look.asphalt, MAT_ASPHALT,
-                                    look.asphaltTile);
-            builder.emit_sweep_band(sl.frames, ebPaintOut, ebEdge, ry, look.shoulder, MAT_ASPHALT, look.asphaltTile);
+            tag(d, true);
+            // C4: on a banked (graded) asset a lane-wide quad folds along its diagonal up to ~13 WU off the plane, over
+            // the 5 WU paint; one band per lane puts every lane line on a band edge. One draw either way.
+            const int  laneLines  = std::max(0, static_cast<int>(std::lround(sl.minLanes)) - 1);
+            const auto lanes_band = [&](float sg, const std::vector<float>& paintOut) {
+                const uint32_t                 mk = builder.batch_mark();
+                const size_t                   d0 = seg.draws.size();
+                float                          a  = m + si;
+                const std::vector<SweepFrame>& fr = sg > 0.0f ? fE : fW;
+                for (int j = 1; j <= laneLines; ++j, a += lw)
+                    builder.emit_sweep_band(fr, filled(n, std::min(sg * a, sg * (a + lw))),
+                                            filled(n, std::max(sg * a, sg * (a + lw))), ry, laneCol, laneMat,
+                                            look.asphaltTile);
+                const std::vector<float> lo = sg > 0.0f ? filled(n, a) : paintOut;
+                const std::vector<float> hi = sg > 0.0f ? paintOut : filled(n, -a);
+                builder.emit_sweep_band(fr, lo, hi, ry, laneCol, laneMat, look.asphaltTile);
+                seg.draws.resize(d0);  // fold the per-lane draws back into one
+                builder.close_batch(mk, laneCol, laneMat);
+            };
+            d = seg.draws.size();
+            if (graded)
+                lanes_band(1.0f, ebPaintOut);
+            else
+                builder.emit_sweep_band(fE, filled(n, m + si), ebPaintOut, ry, laneCol, laneMat, look.asphaltTile);
+            tag(d, false);
+            d = seg.draws.size();
+            builder.emit_sweep_band(fE, ebPaintOut, ebEdge, ry, look.shoulder, MAT_ASPHALT, look.asphaltTile);
 
-            builder.emit_sweep_band(sl.frames, filled(n, -(m + si)), filled(n, -m), ry, look.shoulder, MAT_ASPHALT,
+            builder.emit_sweep_band(fW, filled(n, -(m + si)), filled(n, -m), ry, look.shoulder, MAT_ASPHALT,
                                     look.asphaltTile);
-            builder.emit_sweep_band(sl.frames, wbPaintOut, filled(n, -(m + si)), ry, look.asphalt, MAT_ASPHALT,
-                                    look.asphaltTile);
-            builder.emit_sweep_band(sl.frames, wbEdge, wbPaintOut, ry, look.shoulder, MAT_ASPHALT, look.asphaltTile);
+            tag(d, true);
+            d = seg.draws.size();
+            if (graded)
+                lanes_band(-1.0f, wbPaintOut);
+            else
+                builder.emit_sweep_band(fW, wbPaintOut, filled(n, -(m + si)), ry, laneCol, laneMat, look.asphaltTile);
+            tag(d, false);
+            d = seg.draws.size();
+            builder.emit_sweep_band(fW, wbEdge, wbPaintOut, ry, look.shoulder, MAT_ASPHALT, look.asphaltTile);
+            tag(d, true);
 
             // ── Median: jersey barrier, or a U-turn pad at the ends ────
             // The pads (spec decision #7) are the only lateral opening in the
             // whole corridor; everywhere else the barrier commits you to your
             // carriageway, exactly as the retired system's drivable_bounds did.
-            if (al.in_turnaround(0.5 * (ts + te))) {
+            if (al.has_ends()) {
+                emit_median(builder, seg.draws, al, ts, te, seg.originX, seg.originZ, look);  // D2 (C4 opening kept)
+            } else if (al.in_turnaround(0.5 * (ts + te))) {
                 builder.emit_sweep_band(sl.frames, filled(n, -m), filled(n, m), ry, look.asphalt, MAT_ASPHALT,
                                         look.asphaltTile);
             } else {
@@ -165,13 +260,15 @@ std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al
             }
 
             const size_t firstMarking = seg.draws.size();
+            const float  pt = pTag != 0 ? look.asphaltTile : 0.0f;  // D1: paint UVs for wear breakup (debug asset only)
             // ── Edge lines ────────────────────────────────────────────
             // On a divided highway the LEFT (median-side) edge line is yellow
             // and the RIGHT is white — per carriageway, both directions.
-            builder.emit_sweep_band(sl.frames, filled(n, m + si), filled(n, m + si + ew), my, look.yellow);
-            builder.emit_sweep_band(sl.frames, affine(ebPaintOut, 1.0f, -ew), ebPaintOut, my, look.white);
-            builder.emit_sweep_band(sl.frames, filled(n, -(m + si + ew)), filled(n, -(m + si)), my, look.yellow);
-            builder.emit_sweep_band(sl.frames, wbPaintOut, affine(wbPaintOut, 1.0f, ew), my, look.white);
+            builder.emit_sweep_band(fE, filled(n, m + si), filled(n, m + si + ew), my, look.yellow, MAT_DEFAULT, pt);
+            builder.emit_sweep_band(fE, affine(ebPaintOut, 1.0f, -ew), ebPaintOut, my, look.white, MAT_DEFAULT, pt);
+            builder.emit_sweep_band(fW, filled(n, -(m + si + ew)), filled(n, -(m + si)), my, look.yellow, MAT_DEFAULT,
+                                    pt);
+            builder.emit_sweep_band(fW, wbPaintOut, affine(wbPaintOut, 1.0f, ew), my, look.white, MAT_DEFAULT, pt);
 
             // ── Dashed lane lines ─────────────────────────────────────
             // Line count from the tile's MINIMUM lane count, so a line never
@@ -180,56 +277,77 @@ std::vector<CorridorSegment> build_corridor_segments(const CorridorAlignment& al
             const int lines = std::max(0, static_cast<int>(std::lround(sl.minLanes)) - 1);
             for (int j = 1; j <= lines; ++j) {
                 const float t = m + si + static_cast<float>(j) * lw;
-                builder.emit_sweep_dashes(sl.frames, t - 0.5f * ew, t + 0.5f * ew, my, h.dashLength, h.dashGap, phase,
-                                          look.white);
-                builder.emit_sweep_dashes(sl.frames, -t - 0.5f * ew, -t + 0.5f * ew, my, h.dashLength, h.dashGap, phase,
-                                          look.white);
+                // C4: solid lane lines in the tunnel (no lane changes), dashes again past the portal
+                if (al.in_tunnel(ts)) {
+                    const double pz = std::min(te, al.ends().portal);
+                    const auto   f  = corridor_mainline_frames(al, ts, pz, seg.originX, seg.originZ);
+                    for (const float c : {t, -t})
+                        builder.emit_sweep_band(f, filled(f.size(), c - 0.5f * ew), filled(f.size(), c + 0.5f * ew), my,
+                                                look.white, MAT_DEFAULT, pt);
+                    if (te - pz > 1.0) {
+                        const auto  g  = corridor_mainline_frames(al, pz, te, seg.originX, seg.originZ);
+                        const float ph = -static_cast<float>(std::fmod(pz, static_cast<double>(dashCycle)));
+                        builder.emit_sweep_dashes(g, t - 0.5f * ew, t + 0.5f * ew, my, h.dashLength, h.dashGap, ph,
+                                                  look.white, MAT_DEFAULT, pt);
+                        builder.emit_sweep_dashes(g, -t - 0.5f * ew, -t + 0.5f * ew, my, h.dashLength, h.dashGap, ph,
+                                                  look.white, MAT_DEFAULT, pt);
+                    }
+                    continue;
+                }
+                // C3a: in the HOV range the lane 1 | 2 line is the HOV buffer (emit_hov); dashes only outside it
+                if (j == 1 && hov.s1 > ts && hov.s0 < te) {
+                    for (const auto& k : {std::pair{ts, std::min(te, hov.s0)}, std::pair{std::max(ts, hov.s1), te}}) {
+                        if (k.second - k.first < 1.0) continue;
+                        const auto  f  = corridor_mainline_frames(al, k.first, k.second, seg.originX, seg.originZ);
+                        const float ph = -static_cast<float>(std::fmod(k.first, static_cast<double>(dashCycle)));
+                        builder.emit_sweep_dashes(f, t - 0.5f * ew, t + 0.5f * ew, my, h.dashLength, h.dashGap, ph,
+                                                  look.white, MAT_DEFAULT, pt);
+                        builder.emit_sweep_dashes(f, -t - 0.5f * ew, -t + 0.5f * ew, my, h.dashLength, h.dashGap, ph,
+                                                  look.white, MAT_DEFAULT, pt);
+                    }
+                    continue;
+                }
+                builder.emit_sweep_dashes(fE, t - 0.5f * ew, t + 0.5f * ew, my, h.dashLength, h.dashGap, phase,
+                                          look.white, MAT_DEFAULT, pt);
+                builder.emit_sweep_dashes(fW, -t - 0.5f * ew, -t + 0.5f * ew, my, h.dashLength, h.dashGap, phase,
+                                          look.white, MAT_DEFAULT, pt);
             }
             // Lighting L8.1: road paint is retroreflective (glass beads). A tag only; the debug shader's spot
             // loop turns it into the glow you see in your own headlights.
             for (size_t i = firstMarking; i < seg.draws.size(); ++i) seg.draws[i].retro = 1.0f;
+            tag(firstMarking, false);  // D1: faded paint per stretch
         }
 
-        // ── Street lamps on the median (lighting L6.1) ────────────────
-        // A pole on the centre-line every kCorridorLampSpacingM, an arm and a glowing head over each
-        // carriageway, and one downward spot per pole (about 2,100 K sodium). Stations are multiples of the
-        // spacing over the whole corridor, so the row does not restart at segment seams.
-        if (withLamps) {
-            namespace ul = util::light;
-            using util::units::m;
-            const double spacing = static_cast<double>(m(kCorridorLampSpacingM));
-            const float  top     = ry + m(kCorridorLampHeightM);
-            const float  reach   = m(3.0f);  // arm length to each side
-            const Vec3   sodium  = ul::kelvin_to_rgb(2100.0f);
-            const float  half    = 70.0f * util::units::kRadPerDeg;
-            const Vec4   steel(0.45f, 0.46f, 0.48f, 1.0f), lens(0.95f, 0.9f, 0.8f, 1.0f);
-            for (double st = std::ceil(s0 / spacing) * spacing; st < s1; st += spacing) {
-                const CorridorAlignment::Sample sm = al.sample(st);
-                if (al.in_turnaround(st)) continue;  // no median there
-                const Vec3  base(static_cast<float>(sm.x - seg.originX), ry, static_cast<float>(sm.z - seg.originZ));
-                const Vec3  fwd(sm.tx, 0.0f, sm.tz), right(-sm.tz, 0.0f, sm.tx), up(0.0f, 1.0f, 0.0f);
-                const float t = m(0.12f);
-                mesh_shapes::oriented_box(builder, base + up * (0.5f * (top - ry)), right * t, up * (0.5f * (top - ry)),
-                                          fwd * t, steel, MAT_METAL);
-                mesh_shapes::oriented_box(builder, base + up * (top - ry), right * reach, up * (0.6f * t),
-                                          fwd * (0.6f * t), steel, MAT_METAL);
-                for (const float side : {-1.0f, 1.0f}) {
-                    const size_t first = seg.draws.size();
-                    mesh_shapes::oriented_box(builder, base + up * (top - ry - m(0.15f)) + right * (side * reach),
-                                              right * m(0.4f), up * m(0.08f), fwd * m(0.25f), lens, MAT_DEFAULT);
-                    for (size_t i = first; i < seg.draws.size(); ++i) seg.draws[i].emissiveNits = 20000.0f;
-                }
-                SpotLightDesc lamp{};
-                lamp.position  = base + up * (top - ry - m(0.3f));
-                lamp.direction = Vec3(0.0f, -1.0f, 0.0f);
-                lamp.color     = sodium;
-                lamp.intensity = ul::cone_candela_from_lumens(kCorridorLampLumens, half);
-                lamp.range     = m(55.0f);
-                lamp.cosInner  = std::cos(55.0f * util::units::kRadPerDeg);
-                lamp.cosOuter  = std::cos(75.0f * util::units::kRadPerDeg);
-                seg.lamps.push_back(lamp);
-            }
+        // ── Ramps / service roads (C1, C2b): clipped to this segment, so one crossing the edge is split ──
+        for (const CorridorPath& p : paths) {
+            if (p.kind == CorridorPath::Kind::Plain)
+                emit_corridor_path(builder, corridor_path_frames(al, p, s0, s1, seg.originX, seg.originZ), p,
+                                   look.asphalt, look.white, look.yellow, look.asphaltTile);
+            else
+                emit_diamond_path(builder, seg.draws, al, p, paths, s0, s1, seg.originX, seg.originZ, look);
         }
+        // ── HOV buffer and diamonds (C3a) ──
+        emit_hov(builder, seg.draws, al, hov, s0, s1, seg.originX, seg.originZ, look);
+        // ── Crossroads (C2b): whole, in the segment holding their station ──
+        for (const CorridorCrossroad& c : al.crossroads())
+            if (c.s >= s0 && c.s < s1)
+                emit_crossroad(builder, seg.draws, al, c, paths, seg.originX, seg.originZ, look, seg.signals);
+        // ── Bridges (D4): whole, in the segment holding their station ──
+        for (const CorridorBridge& br : al.bridges())
+            if (br.s >= s0 && br.s < s1) emit_bridge(builder, seg.draws, al, br, paths, seg.originX, seg.originZ, look);
+
+        // ── Route ends (C4, debug): tunnel, portal; signs and the roundabout. D2 walls + W-beam. D6 landmarks ──
+        if (al.has_ends()) {
+            emit_tunnel(builder, seg.draws, al, s0, s1, seg.originX, seg.originZ, look);
+            emit_road_end(builder, seg.draws, al, s0, s1, seg.originX, seg.originZ, look);
+            emit_edges(builder, al, paths, s0, s1, seg.originX, seg.originZ, look);
+            emit_landmarks(builder, al, s0, s1, seg.originX, seg.originZ, look);
+        }
+        if (signs) emit_signs(builder, seg.draws, al, paths, *signs, s0, s1, seg.originX, seg.originZ, look);  // D3
+
+        // ── Street lamps per district kit (lighting L6.1, D5) ──
+        if (withLamps)
+            emit_lamps(builder, seg.draws, seg.lamps, al, paths, signs, s0, s1, seg.originX, seg.originZ, look);
 
         // Coarse segment bounds (local space) for the "record at all?" test.
         Vec3 mn(std::numeric_limits<float>::max()), mx(-std::numeric_limits<float>::max());

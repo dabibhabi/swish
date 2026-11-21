@@ -11,6 +11,7 @@
 
 #include <stb_image.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstring>
@@ -120,9 +121,9 @@ VkImageView IBLManager::makeView(VkImage img, VkImageViewType type, VkFormat fmt
 }
 
 void IBLManager::createSamplers() {
-    m_cubeSampler = vkx::make_sampler(
-        m_device, {.mipmap = VK_SAMPLER_MIPMAP_MODE_LINEAR, .maxLod = static_cast<float>(kPrefilterMips)});
-    m_lutSampler = vkx::make_sampler(m_device, {.mipmap = VK_SAMPLER_MIPMAP_MODE_LINEAR});
+    m_cubeSampler = vkx::make_sampler(m_device, {.mipmap = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+                                                 .maxLod = static_cast<float>(kEnvMips)});  // env + prefilter
+    m_lutSampler  = vkx::make_sampler(m_device, {.mipmap = VK_SAMPLER_MIPMAP_MODE_LINEAR});
 
     // Equirect: clamp (not repeat) to avoid a seam at ±180°.
     m_equirectSampler = vkx::make_sampler(m_device, {.mipmap = VK_SAMPLER_MIPMAP_MODE_LINEAR});
@@ -143,7 +144,7 @@ void IBLManager::createRenderPasses() {
 }
 
 void IBLManager::createImagesAndViews() {
-    auto makeCube = [&](uint32_t dim, uint32_t mips, GpuImage& img) {
+    auto makeCube = [&](uint32_t dim, uint32_t mips, GpuImage& img, VkImageUsageFlags extraUsage = 0) {
         VkImageCreateInfo ii{};
         ii.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         ii.imageType     = VK_IMAGE_TYPE_2D;
@@ -153,7 +154,7 @@ void IBLManager::createImagesAndViews() {
         ii.format        = kCubeFormat;
         ii.tiling        = VK_IMAGE_TILING_OPTIMAL;
         ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        ii.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        ii.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | extraUsage;
         ii.samples       = VK_SAMPLE_COUNT_1_BIT;
         ii.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
         ii.flags         = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
@@ -161,7 +162,7 @@ void IBLManager::createImagesAndViews() {
         ai.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
         img      = GpuImage(m_svc.allocator, ii, ai);
     };
-    makeCube(kEnvDim, 1, m_envImage);
+    makeCube(kEnvDim, kEnvMips, m_envImage, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
     makeCube(kIrrDim, 1, m_irrImage);
     makeCube(kPrefilterDim, kPrefilterMips, m_prefilterImage);
 
@@ -183,7 +184,7 @@ void IBLManager::createImagesAndViews() {
         m_brdfImage = GpuImage(m_svc.allocator, ii, ai);
     }
 
-    m_envCubeView = makeView(m_envImage.handle(), VK_IMAGE_VIEW_TYPE_CUBE, kCubeFormat, 0, 1, 0, kFaces);
+    m_envCubeView = makeView(m_envImage.handle(), VK_IMAGE_VIEW_TYPE_CUBE, kCubeFormat, 0, kEnvMips, 0, kFaces);
     m_irrCubeView = makeView(m_irrImage.handle(), VK_IMAGE_VIEW_TYPE_CUBE, kCubeFormat, 0, 1, 0, kFaces);
     m_prefilterCubeView =
         makeView(m_prefilterImage.handle(), VK_IMAGE_VIEW_TYPE_CUBE, kCubeFormat, 0, kPrefilterMips, 0, kFaces);
@@ -312,23 +313,71 @@ void IBLManager::createPipelines() {
     m_brdfPipeline      = makePipe("ibl_brdf.frag", m_brdfLayout, m_brdfRenderPass, kBrdfDim);
 }
 
-bool IBLManager::loadEquirect(const std::string& path) {
-    int    w = 0, h = 0, n = 0;
-    float* data = stbi_loadf(path.c_str(), &w, &h, &n, 4);
-    if (!data || w <= 0 || h <= 0) {
+IBLManager::DecodedHdri IBLManager::decode_hdri(const std::string& path) {
+    DecodedHdri out;
+    int         n    = 0;
+    float*      data = stbi_loadf(path.c_str(), &out.w, &out.h, &n, 4);
+    if (!data || out.w <= 0 || out.h <= 0) {
         if (data) stbi_image_free(data);
         std::cerr << "[IBL] Failed to load HDRI: " << path
                   << (stbi_failure_reason() ? std::string(" (") + stbi_failure_reason() + ")" : "") << std::endl;
-        return false;
+        return DecodedHdri{};
     }
+    out.rgba.assign(data, data + static_cast<size_t>(out.w) * static_cast<size_t>(out.h) * 4);
+    stbi_image_free(data);
+    return out;
+}
+
+void IBLManager::prefetch_hdri(const std::string& path) {
+    if (path == m_prefetchPath && m_prefetch.valid()) return;
+    m_prefetchPath = path;
+    m_prefetch     = std::async(std::launch::async, &IBLManager::decode_hdri, path).share();
+}
+
+bool IBLManager::loadEquirect(const std::string& path) {
+    // L2.4: already resident (uploaded by poll_prefetch or a previous swap) -> nothing to load.
+    if (path == m_equirectPath && m_equirectView != VK_NULL_HANDLE) {
+        m_hdriLoaded = true;
+        return true;
+    }
+    // Prefetched pixels (decoded on a worker; waits only if the decode is still running), else decode here.
+    DecodedHdri        local;
+    const DecodedHdri* d = nullptr;
+    if (path == m_prefetchPath && m_prefetch.valid()) {
+        d = &m_prefetch.get();
+    } else {
+        local = decode_hdri(path);
+        d     = &local;
+    }
+    if (d->rgba.empty()) return false;
+    uploadEquirect(*d, path);
+    m_hdriLoaded = true;
+    return true;
+}
+
+void IBLManager::poll_prefetch() {
+    if (!m_prefetch.valid() || m_prefetchPath == m_equirectPath) return;
+    if (m_prefetch.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    const DecodedHdri& d = m_prefetch.get();
+    if (!d.rgba.empty()) uploadEquirect(d, m_prefetchPath);  // the cubes are untouched: only set_hdri bakes from it
+}
+
+// Upload decoded pixels as the equirect source image and point the bake descriptor at it. Does not touch
+// m_hdriLoaded (that says what the CUBES hold).
+void IBLManager::uploadEquirect(const DecodedHdri& d, const std::string& path) {
+    const int    w    = d.w;
+    const int    h    = d.h;
+    const float* data = d.rgba.data();
 
     // Replace any previous equirect before allocating the new one.
-    destroyEquirect();
-
+    if (m_equirectView != VK_NULL_HANDLE) {
+        vkDestroyImageView(m_device, m_equirectView, nullptr);
+        m_equirectView = VK_NULL_HANDLE;
+    }
+    m_equirectImage.reset();
     const VkDeviceSize imageSize = static_cast<VkDeviceSize>(w) * static_cast<VkDeviceSize>(h) * 4 * sizeof(float);
     GpuBuffer          staging   = gpu::hostVisibleBuffer(m_svc.allocator, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
     std::memcpy(staging.mapped(), data, static_cast<size_t>(imageSize));
-    stbi_image_free(data);
 
     m_equirectImage =
         gpu::deviceLocalImage(m_svc.allocator, static_cast<uint32_t>(w), static_cast<uint32_t>(h), kEquirectFormat,
@@ -353,8 +402,7 @@ bool IBLManager::loadEquirect(const std::string& path) {
     wdesc.pImageInfo      = &img;
     vkUpdateDescriptorSets(m_device, 1, &wdesc, 0, nullptr);
 
-    m_hdriLoaded = true;
-    return true;
+    m_equirectPath = path;
 }
 
 void IBLManager::destroyEquirect() {
@@ -363,6 +411,7 @@ void IBLManager::destroyEquirect() {
         m_equirectView = VK_NULL_HANDLE;
     }
     m_equirectImage.reset();
+    m_equirectPath.clear();
     m_hdriLoaded = false;
 }
 
@@ -434,6 +483,31 @@ void IBLManager::bakeConvolutions(VkCommandBuffer cmd) {
     toShaderRead(cmd, m_prefilterImage.handle(), kPrefilterMips, kFaces);
 }
 
+// L2.4: the convolutions read the env cube through filtered importance sampling, so it needs a box-filtered mip chain.
+// Mip 0 was just rendered (COLOR_ATTACHMENT); each next mip is a linear blit of the one above.
+void IBLManager::buildEnvMips(VkCommandBuffer cmd) {
+    const VkImage img = m_envImage.handle();
+    vkx::image_barrier<VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL>(
+        cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, vkx::SubresourceSpan{0, 1, 0, kFaces});
+    for (uint32_t m = 1; m < kEnvMips; ++m) {
+        vkx::image_barrier<VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL>(
+            cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, vkx::SubresourceSpan{m, 1, 0, kFaces});
+        const int32_t src = static_cast<int32_t>(kEnvDim >> (m - 1));
+        const int32_t dst = std::max(1, src / 2);
+        VkImageBlit   b{};
+        b.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, kFaces};
+        b.srcOffsets[1]  = {src, src, 1};
+        b.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m, 0, kFaces};
+        b.dstOffsets[1]  = {dst, dst, 1};
+        vkCmdBlitImage(cmd, img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b,
+                       VK_FILTER_LINEAR);
+        vkx::image_barrier<VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL>(
+            cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, vkx::SubresourceSpan{m, 1, 0, kFaces});
+    }
+    vkx::image_barrier<VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL>(
+        cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, vkx::SubresourceSpan{0, kEnvMips, 0, kFaces});
+}
+
 void IBLManager::bakeFromHdri() {
     if (!m_hdriLoaded) return;
 
@@ -458,7 +532,7 @@ void IBLManager::bakeFromHdri() {
         vkCmdDraw(cmd, 3, 1, 0, 0);
         vkCmdEndRenderPass(cmd);
     }
-    toShaderRead(cmd, m_envImage.handle(), 1, kFaces);
+    buildEnvMips(cmd);
 
     bakeConvolutions(cmd);
     endOneTime(m_device, m_svc.commandPool, m_svc.graphicsQueue, cmd);
@@ -487,7 +561,7 @@ void IBLManager::bake(const SkyBakeParams& sky) {
         vkCmdDraw(cmd, 3, 1, 0, 0);
         vkCmdEndRenderPass(cmd);
     }
-    toShaderRead(cmd, m_envImage.handle(), 1, kFaces);
+    buildEnvMips(cmd);
 
     bakeConvolutions(cmd);
     endOneTime(m_device, m_svc.commandPool, m_svc.graphicsQueue, cmd);
@@ -515,7 +589,7 @@ void IBLManager::bake_atmosphere(const util::light::SkyParams& sky, float cubeSc
         vkCmdDraw(cmd, 3, 1, 0, 0);
         vkCmdEndRenderPass(cmd);
     }
-    toShaderRead(cmd, m_envImage.handle(), 1, kFaces);
+    buildEnvMips(cmd);
 
     bakeConvolutions(cmd);
     endOneTime(m_device, m_svc.commandPool, m_svc.graphicsQueue, cmd);

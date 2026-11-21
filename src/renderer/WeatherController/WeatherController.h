@@ -88,7 +88,8 @@ private:
     float m_bakedClarity  = -1.0f;
     Vec3  m_bakedSunColor = Vec3(-1.0f);
 #ifdef SWISH_DEBUG_UI
-    int m_activeHdriIndex = -1;
+    int m_activeHdriIndex    = -1;
+    int m_prefetchedRainHdri = -1;  // L2.4: rain HDRI index handed to IBLManager::prefetch_hdri
 #endif
 };
 

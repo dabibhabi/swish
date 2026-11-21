@@ -61,12 +61,14 @@ void SceneParamsUniform::update(uint32_t frameIndex, const DebugParams& p) {
         ubo.roofMax[i]                   = glm::vec4(v.max, static_cast<float>(v.openAxis));
         ubo.roofInfo[i]                  = glm::vec4(v.floor, 0.0f, 0.0f, 0.0f);
     }
-    ubo.roofCount                     = glm::vec4(static_cast<float>(roofs), 0.0f, 0.0f, 0.0f);
+    ubo.roofCount = glm::vec4(static_cast<float>(roofs), p.streakEnabled ? 1.0f : 0.0f, p.streakAlong,
+                              p.streakAcross);  // yzw = wet light streaks (L10.2): on, alpha along, alpha across
     const util::light::SkyParams& sky = p.sky;
     ubo.atmoSun                       = glm::vec4(sky.sunDir, sky.sunToaLux);
     ubo.atmoMoon                      = glm::vec4(sky.moonDir, sky.moonToaLux);
     ubo.atmoParams                    = glm::vec4(sky.turbidity, sky.cloud, sky.airglowNits, sky.overcastZenithNits);
-    ubo.atmoFlags  = glm::vec4(procedural_sky_active(p) ? 1.0f : 0.0f, p.skyStars ? 1.0f : 0.0f, p.rainSkyBlend, 0.0f);
+    ubo.atmoFlags  = glm::vec4(procedural_sky_active(p) ? 1.0f : 0.0f, p.skyStars ? 1.0f : 0.0f, p.rainSkyBlend,
+                               p.groundBounce);  // w = D4 ground-bounce albedo
     ubo.lightFlags = glm::vec4(p.cascadeBlend, p.energyCompensation ? 1.0f : 0.0f, p.retroGain, p.sunAngularRadius);
     std::memcpy(m_buffers[frameIndex].mapped(), &ubo, sizeof(ubo));
 }

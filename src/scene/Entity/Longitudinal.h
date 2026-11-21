@@ -137,4 +137,7 @@ inline float longitudinal_accel(float v, float throttle, float brake, int gear, 
     return fNet / p.mass;
 }
 
+// Slices per frame so that no slice is longer than 1/hz. hz <= 0 means one step per frame.
+inline int substep_count(float dt, float hz) { return std::max(1, static_cast<int>(std::ceil(dt * hz))); }
+
 }  // namespace swish

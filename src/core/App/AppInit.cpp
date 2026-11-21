@@ -5,7 +5,13 @@
 #include "renderer/TextureManager/TextureManager.h"
 #include "scene/Camera/Camera.h"
 #include "scene/CarConfig/CarConfig.h"
+#include "scene/Corridor/CorridorBridges.h"
+#include "scene/Corridor/CorridorDressing.h"
+#include "scene/Corridor/CorridorEdges.h"
+#include "scene/Corridor/CorridorEnds.h"
+#include "scene/Corridor/CorridorLandmarks.h"
 #include "scene/Corridor/CorridorScene.h"
+#include "scene/Corridor/CorridorSigns.h"
 #include "scene/Entity/CarEntity.h"
 #include "scene/ModelManager/ModelManager.h"
 #include "scene/RoadGeometry/RoadGeometry.h"
@@ -106,6 +112,11 @@ void App::init_textures() {
     m_textureManager = std::make_unique<TextureManager>(m_renderer->services());
 
     m_textureManager->load_directory(util::paths::texture_dir());
+#ifdef SWISH_DEBUG_UI
+    m_textureManager->load_directory(util::paths::asset_dir() + "signs");       // D3 sign atlases (debug first)
+    m_textureManager->load_directory(util::paths::asset_dir() + "structures");  // D4 bridge stone (debug first)
+    m_textureManager->load_directory(util::paths::asset_dir() + "dressing");    // D5 trees, facades, skyline
+#endif
 
     // Register default textures (1x1 pixels for flat-colored surfaces)
     m_textureManager->register_from_pixels("default", {255, 255, 255, 255}, 1, 1);
@@ -132,7 +143,11 @@ void App::build_road_scene(Renderer& renderer) {
     // A missing or stale asset throws rather than silently falling back to
     // the retired fictional road — shipping a fake corridor while claiming
     // it is the real LIE is the one outcome worse than not booting.
-    m_corridor_alignment.load(util::paths::asset_dir() + "corridor/lie_corridor.bin");
+    // Debug-first (tasks/todo.md "LIE full route"): the debug build drives the
+    // 30 mi tunnel-to-Riverhead bake with elevation; release keeps the shipped
+    // 18 mi flat asset until the owner signs the route off.
+    m_corridor_alignment.load(util::paths::asset_dir() +
+                              (kDebugBuild ? "corridor/lie_corridor_full.bin" : "corridor/lie_corridor.bin"));
     m_corridor.set_alignment(&m_corridor_alignment);
 
     const CorridorHeader& ch = m_corridor_alignment.header();
@@ -144,21 +159,113 @@ void App::build_road_scene(Renderer& renderer) {
     // One vertex buffer + one render offset per 1.2 km segment; see
     // CorridorScene for why the subdivision exists (vertex precision and
     // arc-length UV range, not the 2 m quantisation the design note feared).
+    std::vector<CorridorPath> paths;
 #ifdef SWISH_DEBUG_UI
     const bool withLamps = true;  // lighting L6.1 (debug first): street lamps on the median
+    // C2b: a diamond per exit number; the mainline dips under each crossroad. Sliders in the "Corridor" panel.
+    const DebugParams& dp = renderer.debug_params();
+    m_corridorKey         = {dp.corridorDiamonds ? 1.0f : 0.0f,
+                             dp.corridorDipDepthM,
+                             dp.corridorDipHalfM,
+                             dp.corridorSrStripM,
+                             dp.corridorStubM,
+                             dp.edgeWideMedianM,
+                             dp.edgeWallHM,
+                             dp.edgeDitchM,
+                             dp.corridorSigns ? 1.0f : 0.0f,
+                             dp.signSheen,
+                             dp.corridorBridges ? 1.0f : 0.0f,
+                             dp.bridgeClearFt,
+                             dp.corridorDressing ? 1.0f : 0.0f,
+                             dp.dressDensity,
+                             dp.dressFarM,
+                             dp.corridorLandmarks ? 1.0f : 0.0f,
+                             dp.landmarkGraves};
+    m_corridor_alignment.set_ends(corridor_ends(m_corridor_alignment));  // C4: tunnel + plaza west, roundabout east
+    using util::units::m;
+    // D2: the wide median goes in first (crossroads and paths follow its edges); walls and rails then clear the ramps
+    const float wideExtra =
+        std::max(0.0f, 0.5f * m(dp.edgeWideMedianM) - m_corridor_alignment.header().medianHalfWidth);
+    const auto set_edges = [&] {
+        CorridorEdges e = corridor_edges(m_corridor_alignment, paths, wideExtra);
+        e.ditch         = m(dp.edgeDitchM);
+        e.wallH         = m(dp.edgeWallHM);
+        e.far           = dp.corridorDressing ? m(dp.dressFarM) : 0.0f;  // D5
+        e.dress         = dp.corridorDressing ? dp.dressDensity : 0.0f;
+        e.landmarks     = dp.corridorLandmarks;  // D6
+        e.graves        = dp.corridorLandmarks && dp.corridorDressing ? dp.landmarkGraves : 0.0f;
+        m_corridor_alignment.set_edges(std::move(e));
+    };
+    set_edges();
+    if (dp.corridorDiamonds) {
+        m_corridor_alignment.set_grading(corridor_crossroads(m_corridor_alignment, m(dp.corridorDipDepthM)),
+                                         m(dp.corridorDipHalfM), m(dp.corridorSrStripM));
+        m_corridor_alignment.set_cross_stub(m(dp.corridorStubM));  // C3a
+        paths = corridor_diamond_paths(m_corridor_alignment);
+    }
+    {  // D4: OSM crossings merged with the crossroads (restyled), the rest become bridges; before walls and signs
+        std::vector<CorridorCrossroad> cr = m_corridor_alignment.crossroads();
+        std::vector<CorridorBridge>    br;
+        if (dp.corridorBridges) br = corridor_bridges(m_corridor_alignment, paths, cr, dp.bridgeClearFt);
+        if (dp.corridorLandmarks) landmark_styles(cr);  // D6: Van Wyck / Cross Island / NY-135 decks
+        if (dp.corridorDiamonds)
+            m_corridor_alignment.set_grading(std::move(cr), m(dp.corridorDipHalfM), m(dp.corridorSrStripM));
+        int n[3] = {0, 0, 0}, st[4] = {0, 0, 0, 0};
+        for (const CorridorBridge& b : br) ++n[static_cast<int>(b.kind)], ++st[static_cast<int>(b.style)];
+        std::cout << "[corridor] D4: " << m_corridor_alignment.crossings().size() << " OSM crossings -> " << br.size()
+                  << " bridges (road over " << n[0] << ", rail over " << n[1] << ", LIE over " << n[2] << "; steel "
+                  << st[0] << ", concrete " << st[1] << ", stone " << st[2] << ", through-girder " << st[3] << ")"
+                  << std::endl;
+        m_corridor_alignment.set_bridges(std::move(br));
+    }
+    set_edges();
+    {
+        const CorridorEdges& e    = m_corridor_alignment.edges();
+        double               wall = 0.0;
+        size_t               nw = 0, nr = e.rail[0].size() + e.rail[1].size();
+        for (const auto& v : e.wall)
+            for (const auto& [a, b] : v) wall += b - a, ++nw;
+        std::cout << "[corridor] D2: " << nw << " sound walls (" << wall / 1e6 << " km), " << nr
+                  << " W-beam runs, wide median " << e.wide0 / 1e6 << ".." << e.wide1 / 1e6 << " km" << std::endl;
+    }
+    CorridorSigns signs;  // D3
+    if (dp.corridorSigns) signs = corridor_signs(m_corridor_alignment, paths);
+    signs.sheen = dp.signSheen;
+    if (!dp.corridorLandmarks) signs.boards.clear();  // D6
+    std::cout << "[corridor] D3: " << signs.gantries.size() << " gantries, " << signs.gores.size() << " gore signs, "
+              << signs.markers.size() << " mile markers" << std::endl;
+    std::vector<CorridorSegment> segments = build_corridor_segments(m_corridor_alignment, withLamps, paths, &signs);
 #else
-    const bool withLamps = false;
+    const bool                   withLamps = false;
+    std::vector<CorridorSegment> segments  = build_corridor_segments(m_corridor_alignment, withLamps, paths);
 #endif
-    std::vector<CorridorSegment>   segments = build_corridor_segments(m_corridor_alignment, withLamps);
     std::vector<CorridorPlacement> places;
     places.reserve(segments.size());
     size_t corridorDraws = 0;
+#ifdef SWISH_DEBUG_UI
+    m_signalLenses.clear();
+#endif
     for (const CorridorSegment& s : segments) {
+#ifdef SWISH_DEBUG_UI
+        for (const SignalLens& l : s.signals) m_signalLenses.push_back({places.size(), l});  // index = upload order
+#endif
         renderer.add_corridor_segment(s.mesh, s.draws);
         places.push_back(placement_of(s));
         corridorDraws += s.draws.size();
     }
+#ifdef SWISH_DEBUG_UI
+    {  // D5: the skyline card is its own segment; the driver places it each frame
+        CorridorSegment sky = skyline_segment(m_corridor_alignment);
+        if (!sky.mesh.empty()) {
+            renderer.add_corridor_segment(sky.mesh, sky.draws);
+            m_corridor.set_skyline(places.size());
+            places.push_back(placement_of(sky));
+            corridorDraws += sky.draws.size();
+        }
+    }
+#endif
     m_corridor.set_segments(std::move(places));
+    m_corridor.set_paths(std::move(paths));  // C3: drivable; empty in release
     std::cout << "[corridor] " << segments.size() << " segments, " << corridorDraws << " draw calls" << std::endl;
 
     // Setup POV camera on the eastbound LIE

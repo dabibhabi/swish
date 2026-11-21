@@ -2,6 +2,7 @@
 
 #include "CorridorAlignment.h"
 #include "CorridorScene.h"
+#include "CorridorSurface.h"
 
 namespace swish {
 
@@ -52,6 +53,15 @@ public:
     // `alignment` is borrowed and must outlive this object (App owns it).
     void set_alignment(const CorridorAlignment* alignment);
     void set_segments(std::vector<CorridorPlacement> placements);
+    // C3: the diamond paths the car may drive (empty in release: mainline only).
+    void set_paths(std::vector<CorridorPath> paths) { m_paths = std::move(paths); }
+#ifdef SWISH_DEBUG_UI
+    // D5: segment index of the skyline card (placed each frame, never by the visible-window test).
+    void set_skyline(size_t seg) { m_skyline = seg; }
+#endif
+
+    // Keep the car centre this far inside each piece's paved edge (WU).
+    static constexpr float kLaneInset = 300.0f;
 
     // Puts the car at the west end (Queens-Midtown Tunnel portal), in the
     // right-hand eastbound lane, pointing down-corridor.
@@ -65,10 +75,11 @@ public:
     double origin_shift() const { return m_originShift; }
 
     // Live state, for the debug readout and for tests.
-    double station() const { return m_station; }
-    float  lateral() const { return m_lateral; }
-    float  lanes() const { return m_lanes; }
-    bool   eastbound() const { return m_side >= 0; }
+    double     station() const { return m_station; }
+    float      lateral() const { return m_lateral; }
+    float      lanes() const { return m_lanes; }
+    bool       eastbound() const { return m_side >= 0; }
+    DrivePiece piece() const { return m_prevPiece; }  // road piece under the car last update (C3b HUD)
 
     // The lateral window the car is confined to at station `s` for a car
     // committed to carriageway `side` (+1 eastbound / -1 westbound). Inside a
@@ -79,6 +90,7 @@ public:
 private:
     const CorridorAlignment*       m_al = nullptr;
     std::vector<CorridorPlacement> m_segments;
+    std::vector<CorridorPath>      m_paths;
 
     // Accumulated origin-rebase shift (WU, double; render frame = true + this).
     double m_originShift = 0.0;
@@ -94,10 +106,17 @@ private:
     // ONLY inside a turn-around pad, which is what makes the median barrier
     // impassable — see carriageway_bounds in CorridorBounds.cpp.
     int m_side = +1;
+    // Last frame's clamped position and piece: a side road that ends under the car stops it here (C3 dead end).
+    double     m_prevS     = 0.0;
+    float      m_prevLat   = 0.0f;
+    DrivePiece m_prevPiece = DrivePiece::Mainline;
 
 #ifdef SWISH_DEBUG_UI
     // Throttle for the ~1 Hz corridor telemetry line (see update()).
     float m_logTimer = 0.0f;
+    // C4: the weather preset's EV floor, held while the car is in the tunnel (-1 = outside)
+    float  m_evMinOutside = -1.0f;
+    size_t m_skyline      = static_cast<size_t>(-1);
 #endif
 };
 

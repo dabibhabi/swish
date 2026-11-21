@@ -8,6 +8,7 @@
 #include "scene/Camera/Camera.h"
 #include "utils/geometry/Frustum.h"
 #include "utils/light/ShadowFit.h"
+#include "utils/units/Units.h"
 #include "utils/vulkan/Barrier.h"
 #include "utils/vulkan/RenderScope.h"
 
@@ -182,10 +183,16 @@ void GeometryProducer::compute_cascades(const Camera& camera, const Vec3& sunDir
             center                 = Vec3(glm::inverse(lightRot) * Vec4(snapped, 1.0f));
         }
 
-        const float margin    = radius;  // pull the near plane back to catch occluders behind the slice
-        const Vec3  eye       = center - sunDir * (radius + margin);
-        const Mat4  lightView = glm::lookAt(eye, center, up);
-        const Mat4  lightProj = glm::ortho(-radius, radius, -radius, radius, 0.0f, 2.0f * radius + margin);
+        const float margin = radius;  // pull the near plane back to catch occluders behind the slice
+#ifdef SWISH_DEBUG_UI
+        // D4: sunDir points AT the sun, so the light camera belongs on the sun side; the old sign put it under the
+        // ground and buried geometry (bridge decks, U-walls) shadowed the road above it. Release keeps it: owner call.
+        const Vec3 eye = center + sunDir * (radius + margin);
+#else
+        const Vec3 eye = center - sunDir * (radius + margin);
+#endif
+        const Mat4 lightView = glm::lookAt(eye, center, up);
+        const Mat4 lightProj = glm::ortho(-radius, radius, -radius, radius, 0.0f, 2.0f * radius + margin);
 
         m_cascadeVP[k]     = lightProj * lightView;
         m_cascadeSplits[k] = splitFar[k];
@@ -244,6 +251,12 @@ void GeometryProducer::record_gbuffer(const FrameCtx& c) {
     flakeScale              = c.tune.flakeScale;
     flakeJitter             = c.tune.flakeJitter;
     paint.rutUvTile         = c.tune.rutEnabled ? c.tune.rutUvTile : 0.0f;
+    paint.jointSpacing      = util::units::m(c.tune.surfaceJointM);
+    paint.reflectorSpacing  = util::units::m(c.tune.surfaceReflectorM);
+    paint.polish            = c.tune.surfacePolish;
+    paint.wear              = c.tune.surfaceWear;
+    paint.sealant           = c.tune.surfaceSealant;
+    paint.rumble            = c.tune.surfaceRumble;
 #endif
 
     [[maybe_unused]] CullStats stats;  // read only in debug-UI builds
@@ -261,7 +274,7 @@ void GeometryProducer::record_gbuffer(const FrameCtx& c) {
     MaterialDescriptors& materials = *c.res.materials;
     for_each_static([&](const SceneGeometry& g, const Vec3& offset) {
         g.record_draws(cmd, m_scenePipeline, materials, overrides, cull, offset, sp, paint, flakeScale, flakeJitter,
-                       staticEmissive);
+                       staticEmissive, c.state.preExposure);
     });
     m_dynamic.record_draws(cmd, m_scenePipeline, materials, overrides, cull, Vec3(0.0f), sp, paint, flakeScale,
                            flakeJitter, c.state.preExposure);

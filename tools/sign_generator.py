@@ -18,7 +18,8 @@ RoadScene::generate_sign_posts so legends are not stretched:
   service (blue)  6 ft x 4 ft   ->  480 x 320 (1.5:1)
 
 Usage:
-    python3 tools/sign_generator.py
+    python3 tools/sign_generator.py            # legacy RoadScene set -> textures/sign_0*.png
+    python3 tools/sign_generator.py corridor   # D3: LIE exit table -> assets/signs/*.png + SignAtlas.h
 """
 
 import os
@@ -40,20 +41,20 @@ SHIELD_RED    = (183, 34, 40)      # interstate shield top banner
 SHIELD_BLUE   = (10, 49, 97)       # interstate shield body
 
 
-def load_font(size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(FONT_PATH, size)
+def load_font(size: int, path: str = FONT_PATH) -> ImageFont.FreeTypeFont:
+    return ImageFont.truetype(path, size)
 
 
 def fit_font(draw: ImageDraw.ImageDraw, text: str, max_w: int, start: int,
-             min_size: int = 12) -> ImageFont.FreeTypeFont:
+             min_size: int = 12, path: str = FONT_PATH) -> ImageFont.FreeTypeFont:
     """Return the largest font (<= start px) whose `text` fits within max_w."""
     size = start
     while size > min_size:
-        font = load_font(size)
+        font = load_font(size, path)
         if draw.textlength(text, font=font) <= max_w:
             return font
         size -= 2
-    return load_font(min_size)
+    return load_font(min_size, path)
 
 
 # ── Drawing helpers (Pillow anchors do the centering) ────────────────
@@ -286,4 +287,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if sys.argv[1:] == ["corridor"]:
+        from sign_corridor import main as corridor_main  # D3 corridor atlases
+        corridor_main()
+    else:
+        main()

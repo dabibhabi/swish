@@ -46,6 +46,7 @@ public:
 
     // Advance physics: drag → steering yaw rate → position integration.
     void update(float dt) override;
+    void step(float dt);  // one integration step of the active model
 
     // Switch the car's physics to `profile` (CarProfile.h): chassis, tyres, gearbox, torque curve,
     // driveline, fallback wheel radius, steer lock and steering-wheel ratio. The default is
@@ -157,6 +158,11 @@ public:
     float get_ackermann() const { return m_ackermann; }
     // Phase-B quarter-car state for a corner (x_m travel in m, v_mps), same corner order.
     const CornerSpring& get_corner_suspension(int c) const { return m_corner_susp[static_cast<size_t>(c)]; }
+    // Body draw/attach matrix: the model matrix with the weight-transfer attitude (pitch/roll/heave). Seat and hood
+    // cameras attach here so the eye rides with the dash. Equal to get_model_matrix() at rest.
+    Mat4                        get_body_model_matrix() const { return get_model_matrix() * m_body_attitude; }
+    const std::array<float, 4>& get_wheel_slip() const { return m_wheel_slip; }
+    void                        set_abs(bool on) { m_wheel_slip_params.abs = on; }
 
     // Current gear, 0-indexed (0 = 1st ... 6 = 7th) — GearState has no other
     // public accessor.
@@ -175,7 +181,8 @@ public:
 
     // Phase-C slip/skid/spray-boost summary (SlipVisuals.h), evaluated from the
     // CURRENT state on demand; const, touches no physics state.
-    // TODO(stub): see SlipVisuals.h for what the full version needs.
+    // Slip ratio is the per-wheel visual-wheel-speed kappa (Phase C) once the rig is loaded; slip angle is still per
+    // axle.
     CarSlipVisuals get_wheel_slip_visuals(const SlipVisualParams& sp = SlipVisualParams{}) const {
         SlipInputs in;
         in.vx    = m_forward_speed / kWorldUnitsPerMeter;
@@ -184,6 +191,7 @@ public:
         in.delta = glm::radians(std::clamp(m_steering_angle, -m_profile.steerLockDeg, m_profile.steerLockDeg));
         in.fx    = m_long_force;
         in.mu    = m_effective_mu;
+        in.kappa = m_wheels_valid ? &m_wheel_slip : nullptr;
         return compute_slip_visuals(in, m_profile.car, m_profile.tire, sp);
     }
 
@@ -230,6 +238,11 @@ public:
     // Switching either way hands the speed / yaw state over so the car does not jump.
     void         set_physics_model(PhysicsModel model);
     PhysicsModel get_physics_model() const { return m_physics_model; }
+    // Integrate in equal slices no longer than 1/hz. 0 = one step per frame (the shipped behaviour).
+    void set_substep_hz(float hz) { m_substep_hz = hz; }
+    void set_chassis_tuning(const ChassisTuning& t);
+    // The car was pushed back from a wall whose inward normal is `n` (unit, horizontal). 6-DOF model only.
+    void wall_contact(const Vec3& n);
 #endif
 
     // World-space unit vector pointing toward the car's nose (+X at yaw=0).
@@ -331,6 +344,7 @@ private:
     // between the two axes (see the comment at its use in update()).
     float            m_plane_frac = 0.f;
     AxleLongitudinal m_long_force{};
+    float            m_film_over_tread = 0.f;  // lagged film depth / tread depth (WetGrip.h film_lag)
 
     // Road-wheel state: per-corner spin angle θ, wrapped to [0, 2π) every
     // step (WheelKinematics.h) so float precision holds over km drives.
@@ -345,6 +359,13 @@ private:
     // (WheelKinematics.h). All four start at rest {0,0} — identical to
     // today's rigid pose until the first call moves them (§7).
     std::array<CornerSpring, 4> m_corner_susp{};
+    // Phase B2 weight transfer: a second set of corner springs driven by dFz / k (squat, dive, roll). Linear, so it
+    // superposes with the road springs above; it tilts the BODY draw (m_body_attitude), the wheels stay on the road.
+    std::array<CornerSpring, 4> m_body_susp{};
+    Mat4                        m_body_attitude{1.f};  // car-local, identity at rest
+    // Phase C: per-wheel visual slip ratio kappa (WheelKinematics.h wheel_slip_step); drawn omega follows it.
+    std::array<float, 4> m_wheel_slip{0.f, 0.f, 0.f, 0.f};
+    WheelSlipParams      m_wheel_slip_params{};
     // Debug tuning (defaults = shipped behavior; see set_wheel_tuning).
     bool  m_wheel_spin_on  = true;
     bool  m_wheel_steer_on = true;
@@ -379,12 +400,14 @@ private:
     // Only live while m_physics_model == RigidBody. The body is authoritative for pose: each step it
     // follows any external shift of m_position (origin rebase, teleport) via m_rigid_last_pos, integrates,
     // then writes position (WU), Euler rotation (deg) and the telemetry scalars back to the entity.
-    PhysicsModel m_physics_model = PhysicsModel::Bicycle;
-    RigidChassis m_rigid;
-    bool         m_rigid_ready = false;  // body seeded from the entity pose
-    Vec3         m_rigid_last_pos{0.f};  // m_position as this model last wrote it (WU)
-    void         init_rigid_body();
-    void         update_rigid_body(float dt);
+    PhysicsModel  m_physics_model = PhysicsModel::Bicycle;
+    float         m_substep_hz    = 0.0f;
+    ChassisTuning m_chassis_tuning{};
+    RigidChassis  m_rigid;
+    bool          m_rigid_ready = false;  // body seeded from the entity pose
+    Vec3          m_rigid_last_pos{0.f};  // m_position as this model last wrote it (WU)
+    void          init_rigid_body();
+    void          update_rigid_body(float dt);
 #endif
 
     // Per-frame longitudinal controls, set by handle_input(), applied in update().

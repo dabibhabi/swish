@@ -89,11 +89,11 @@ layout(set = SET_SCENE_PARAMS, binding = BIND_SCENE_PARAMS) uniform SceneParamsU
     vec4 roofMin[12];         // xyz = box min (WU), w = fade distance from an open end (WU)
     vec4 roofMax[12];         // xyz = box max (WU), w = open axis (0 = X, 2 = Z)
     vec4 roofInfo[12];        // x = visibility left deep inside
-    vec4 roofCount;           // x = number of volumes in use
+    vec4 roofCount;           // x = number of volumes in use; yzw = wet streaks: on, alpha along, alpha across
     vec4 atmoSun;             // xyz = sun direction, w = lux at the top of the atmosphere
     vec4 atmoMoon;            // xyz = moon direction, w = its lux
     vec4 atmoParams;          // x = turbidity, y = cloud blend, z = airglow nits, w = overcast zenith nits
-    vec4 atmoFlags;           // x = procedural sky on, y = stars on, z = rain-sky fade (0 procedural .. 1 HDRI)
+    vec4 atmoFlags;           // x = procedural sky on, y = stars on, z = rain-sky fade (0 procedural .. 1 HDRI), w = ground bounce
     vec4 lightFlags;          // x = cascade blend band, y = energy compensation on, z = retro gain, w = sun angular radius
 } sp;
 #include "atmosphere.glsl"
@@ -248,6 +248,27 @@ float carBoxBlock(vec3 from, vec3 to) {
     return smoothstep(0.0, 0.06, tFar - tNear);
 }
 // GGX specular with an explicit alpha (the area-light lobe is widened by the light's size).
+#ifdef SWISH_DEBUG_UI
+// L10.2: a light's reflection on a wet road is a vertical streak, not a dot. The rain-roughened water film spreads
+// its microfacets mostly along the viewing direction, so the lobe is anisotropic GGX (Burley 2012) with the long axis
+// t = V projected onto the surface (alpha_along) and the short axis b = N x t (alpha_across):
+//   D = 1 / (pi aT aB ((h.t / aT)^2 + (h.b / aB)^2 + (h.n)^2)^2),  G = Smith-Schlick with a = sqrt(aT aB).
+vec3 wetStreakSpec(vec3 N, vec3 V, vec3 L, float aT, float aB, vec3 F0) {
+    vec3  H  = normalize(V + L);
+    vec3  t  = V - N * dot(V, N);
+    float tl = length(t);
+    t        = tl > 1.0e-4 ? t / tl : normalize(cross(N, vec3(1.0, 0.0, 0.0)));
+    vec3  b  = cross(N, t);
+    float ht = dot(H, t) / aT, hb = dot(H, b) / aB, hn = max(dot(H, N), 0.0);
+    float dd = ht * ht + hb * hb + hn * hn;
+    float D  = 1.0 / (PI * aT * aB * dd * dd);
+    float NdotV = max(dot(N, V), 1.0e-3), NdotL = max(dot(N, L), 0.0);
+    float k  = sqrt(aT * aB) * 0.5;
+    float G  = (NdotV / (NdotV * (1.0 - k) + k)) * (NdotL / (NdotL * (1.0 - k) + k));
+    vec3  F  = F0 + (1.0 - F0) * pow(1.0 - max(dot(H, V), 0.0), 5.0);
+    return D * G * F / max(4.0 * NdotV * NdotL, 1.0e-3);
+}
+#endif
 vec3 ggxSpecularAlpha(vec3 N, vec3 V, vec3 L, float alpha, vec3 F0) {
     vec3  H     = normalize(V + L);
     float NdotH = max(dot(N, H), 0.0), NdotV = max(dot(N, V), 0.001), NdotL = max(dot(N, L), 0.0);
@@ -346,7 +367,11 @@ void main() {
     // Sky pixels (reverse-Z: far/sky is depth 0.0, no geometry). Sample the
     // prefiltered env at mip 0 so the visible sky matches IBL reflections
     // (HDRI or procedural — whichever filled the cubes).
+#ifdef SWISH_DEBUG_UI
+    if (depth <= 0.0) {  // only the clear value is sky: near 10 WU puts geometry past 100 m below 1e-4
+#else
     if (depth < 0.0001) {
+#endif
         vec3 viewDir = normalize(reconstructWorldPos(fragUV, 0.5) - camera.camPos.xyz);
         vec3 sky     = textureLod(prefilteredMap, viewDir, 0.0).rgb * SP_IBL_SPECULAR * skyScale;
 #ifdef SWISH_DEBUG_UI
@@ -400,6 +425,7 @@ void main() {
     // an open end to the volume's floor. The GLSL copy of util::light::roof_sky_visibility; keep them in step.
     float skyVis = 1.0;
 #ifdef SWISH_DEBUG_UI
+    float roofSun = 1.0;  // C4: closed rooms and one-ended volumes (a tunnel tube) also hide the sun
     for (int i = 0; i < int(sp.roofCount.x); ++i) {
         vec3 lo = sp.roofMin[i].xyz, hi = sp.roofMax[i].xyz;
         if (all(greaterThanEqual(fragWorldPos, lo)) && all(lessThanEqual(fragWorldPos, hi))) {
@@ -410,7 +436,9 @@ void main() {
                           : open < 1.0 ? dx
                           : open > 3.5 ? fragWorldPos.z - lo.z   // only the -Z end is open
                           : open > 2.5 ? min(dx, dz) : dz;
-            skyVis = min(skyVis, mix(1.0, sp.roofInfo[i].x, smoothstep(0.0, sp.roofMin[i].w, depthIn)));
+            float v = mix(1.0, sp.roofInfo[i].x, smoothstep(0.0, sp.roofMin[i].w, depthIn));
+            skyVis  = min(skyVis, v);
+            if (open < -0.5 || open > 3.5) roofSun = min(roofSun, v);
         }
     }
 #endif
@@ -608,7 +636,12 @@ void main() {
 #endif
     // Shadow floor 0.25: ambient still lights shadowed areas, so shadows read as
     // darkened rather than pitch black. Works in all weather (no clarity gate).
+#ifdef SWISH_DEBUG_UI
+    // C4: the floor stands in for sky light, so under a roof (a tunnel) it goes with the sky
+    float sunShadow = mix(SP_SHADOW_FLOOR * skyVis, 1.0, min(vis, roofSun));
+#else
     float sunShadow = mix(SP_SHADOW_FLOOR, 1.0, vis);
+#endif
 
     // ── PBR setup ─────────────────────────────────────────────────
     float a  = roughness * roughness;
@@ -719,6 +752,16 @@ void main() {
 
     vec3  lit_color = (AO_DIFFUSE(albedo * ambient * ambientIrr * kD_amb)
                    + sun_term * sunShadow) * coatKeep;
+#ifdef SWISH_DEBUG_UI
+    // D4 ground bounce: the sky cube's lower half is a dimmed horizon, not the sunlit road, so every face turned
+    // from the sun (bridge fascias and soffits, backlit steel) went black. The road's own rendered irradiance E_g,
+    // reflected by a Lambertian ground of albedo rho, reaches a surface through the lower half-space's view factor:
+    // E_b = rho * E_g * (1 - N.y) / 2.
+    vec3 groundE = texture(irradianceMap, vec3(0.0, 1.0, 0.0)).rgb * (skyScale * skyVis) * SP_IBL_DIFFUSE * ambient
+                 + sun_radiance * max(L.y, 0.0) * roofSun / PI;
+    float groundF = clamp(0.5 - 0.5 * N.y, 0.0, 1.0);  // clamp also drops a NaN normal (car glass) instead of spreading it
+    lit_color += AO_DIFFUSE(albedo * kD_amb * groundE * (sp.atmoFlags.w * groundF)) * coatKeep;
+#endif
 
     // ── Specular IBL: GGX-prefiltered environment × split-sum BRDF LUT ──
     // The dominant "Blender gloss" cue: surfaces mirror the environment. The
@@ -833,6 +876,10 @@ void main() {
         vec3  spec_pt  = (D_pt * G_pt * F_pt) / max(4.0 * NdotV * NdotL_pt, 0.001);
 #ifdef SWISH_DEBUG_UI
         spec_pt *= energyComp;
+        // L10.2: on wet up-facing surfaces the lamp's reflection becomes the stretched streak.
+        float streakMix = sp.roofCount.y * clamp(wetLocal * upFacing, 0.0, 1.0);
+        if (streakMix > 0.0)
+            spec_pt = mix(spec_pt, wetStreakSpec(N, V, L_pt, sp.roofCount.z, sp.roofCount.w, F0) * energyComp, streakMix);
 #endif
 
         vec3 kD_pt = (vec3(1.0) - F_pt) * (1.0 - metallic);
@@ -877,6 +924,11 @@ void main() {
         float NdotL_s = max(dot(N, L_s), 0.0);
         float HdotV_s = max(dot(H_s, V), 0.0);
         vec3  spec_s  = ggxSpecular(max(dot(N, H_s), 0.0), NdotV, NdotL_s, HdotV_s, roughness, F0) * energyComp;
+        {   // L10.2: head/tail/brake light reflections streak on the wet road too
+            float streakMix = sp.roofCount.y * clamp(wetLocal * upFacing, 0.0, 1.0);
+            if (streakMix > 0.0)
+                spec_s = mix(spec_s, wetStreakSpec(N, V, L_s, sp.roofCount.z, sp.roofCount.w, F0) * energyComp, streakMix);
+        }
         vec3  F_s     = F0 + (1.0 - F0) * pow(1.0 - HdotV_s, 5.0);
         vec3  kD_s    = (vec3(1.0) - F_s) * (1.0 - metallic);
 
@@ -984,6 +1036,9 @@ void main() {
     // their own view direction (same cubemap as IBL / background), so haze matches
     // reflections. Near surfaces (cabin ~1000 WU) are ~0.
     float hazeT = (1.0 - exp(-fogDist / SP_HAZE_DIST)) * SP_HAZE_MAX;
+#ifdef SWISH_DEBUG_UI
+    hazeT *= skyVis;  // C4: no sunlit air scatters into a roof volume (a tunnel tube)
+#endif
     lit_color   = mix(lit_color, textureLod(prefilteredMap, normalize(toFrag), 0.0).rgb * SP_IBL_SPECULAR * skyScale, hazeT);
 
     // Rain fog (wet-gated) layered on top toward the cool overcast airlight colour.
@@ -996,6 +1051,7 @@ void main() {
     // path too (the fixed grey matched neither sky).
     vec3 fogColor = textureLod(prefilteredMap, normalize(vec3(toFrag.x, 0.08 * length(toFrag.xz), toFrag.z)), 3.0).rgb
                   * SP_IBL_SPECULAR * skyScale;
+    fogT *= skyVis;  // C4: likewise the rain fog
     lit_color      = mix(lit_color, fogColor, fogT);
 #else
     lit_color      = mix(lit_color, SP_FOG_COLOR, fogT);

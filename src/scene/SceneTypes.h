@@ -26,39 +26,47 @@ enum MaterialId : uint32_t {
     MAT_SIGN_6   = 14,
     MAT_SIGN_7   = 15,
     // ── Car material slots (loaded from GLB, one per glTF material) ──
-    MAT_CAR_0    = 16,
-    MAT_CAR_1    = 17,
-    MAT_CAR_2    = 18,
-    MAT_CAR_3    = 19,
-    MAT_CAR_4    = 20,
-    MAT_CAR_5    = 21,
-    MAT_CAR_6    = 22,
-    MAT_CAR_7    = 23,
-    MAT_CAR_8    = 24,
-    MAT_CAR_9    = 25,
-    MAT_CAR_10   = 26,
-    MAT_CAR_11   = 27,
-    MAT_CAR_12   = 28,
-    MAT_CAR_13   = 29,
-    MAT_CAR_14   = 30,
-    MAT_CAR_15   = 31,
-    MAT_CAR_16   = 32,
-    MAT_CAR_17   = 33,
-    MAT_CAR_18   = 34,
-    MAT_CAR_19   = 35,
-    MAT_CAR_20   = 36,
-    MAT_CAR_21   = 37,
-    MAT_CAR_22   = 38,
-    MAT_CAR_23   = 39,
-    MAT_CAR_24   = 40,
-    MAT_CAR_25   = 41,
-    MAT_CAR_26   = 42,
-    MAT_CAR_27   = 43,
-    MAT_CAR_28   = 44,
-    MAT_CAR_29   = 45,
-    MAT_CAR_30   = 46,
-    MAT_CAR_31   = 47,
-    MAT_CAR_LAST = MAT_CAR_31,  // car slots are contiguous MAT_CAR_0..MAT_CAR_LAST
+    MAT_CAR_0         = 16,
+    MAT_CAR_1         = 17,
+    MAT_CAR_2         = 18,
+    MAT_CAR_3         = 19,
+    MAT_CAR_4         = 20,
+    MAT_CAR_5         = 21,
+    MAT_CAR_6         = 22,
+    MAT_CAR_7         = 23,
+    MAT_CAR_8         = 24,
+    MAT_CAR_9         = 25,
+    MAT_CAR_10        = 26,
+    MAT_CAR_11        = 27,
+    MAT_CAR_12        = 28,
+    MAT_CAR_13        = 29,
+    MAT_CAR_14        = 30,
+    MAT_CAR_15        = 31,
+    MAT_CAR_16        = 32,
+    MAT_CAR_17        = 33,
+    MAT_CAR_18        = 34,
+    MAT_CAR_19        = 35,
+    MAT_CAR_20        = 36,
+    MAT_CAR_21        = 37,
+    MAT_CAR_22        = 38,
+    MAT_CAR_23        = 39,
+    MAT_CAR_24        = 40,
+    MAT_CAR_25        = 41,
+    MAT_CAR_26        = 42,
+    MAT_CAR_27        = 43,
+    MAT_CAR_28        = 44,
+    MAT_CAR_29        = 45,
+    MAT_CAR_30        = 46,
+    MAT_CAR_31        = 47,
+    MAT_CAR_LAST      = MAT_CAR_31,  // car slots are contiguous MAT_CAR_0..MAT_CAR_LAST
+    MAT_TILE          = 48,          // C4: glazed tunnel wall tile (textures/tile*.png, tools/gen_tunnel_tile.py)
+    MAT_ASPHALT_FRESH = 49,          // D1: fresh LIE asphalt (ambientCG Asphalt012, textures/asphalt_fresh*.jpg)
+    MAT_BRICK         = 50,          // D2: brick-textured precast sound wall (ambientCG Bricks054, textures/brick*.jpg)
+    MAT_SIGN_PANEL    = 51,          // D3: guide-sign atlas (assets/signs/sign_panels.png, loaded in debug only)
+    MAT_SIGN_KIT      = 52,          // D3: gore signs, mile markers, exit 73 boards (assets/signs/sign_kit.png)
+    MAT_STONE         = 53,          // D4: ashlar facing on parkway bridges (assets/structures/stone*.jpg, debug only)
+    MAT_DRESSING      = 54,  // D5: tree cards + facades atlas (assets/dressing/, tools/gen_dressing.py, debug only)
+    MAT_SKYLINE       = 55,  // D5: Manhattan skyline card (assets/dressing/skyline.png, debug only)
     MAT_COUNT
 };
 
@@ -104,6 +112,9 @@ struct PaintTuning {
     // Rain P3 (debug): asphalt UV tile in WU, pushed as extra.w on asphalt draws so gbuffer.frag can recover the
     // lateral position for wheel-track ruts (shaders/common/ruts.glsl). 0 = ruts off (release never sets it).
     float rutUvTile = 0.0f;
+    // D1 (debug): pavement sliders, copied into PushConstantData::pave / pave2 (Tunables.def "corridor" group).
+    float jointSpacing = 4572.0f, reflectorSpacing = 24384.0f;
+    float polish = 0.0f, wear = 0.0f, sealant = 0.0f, rumble = 0.0f;
 };
 
 // ── Point Light System (inspired by rind/Light.cpp) ──────────────────
@@ -199,6 +210,7 @@ struct Ribbon {
 struct SweepFrame {
     Vec3  center;
     Vec3  right;
+    Vec3  up  = Vec3(0.0f, 1.0f, 0.0f);  // surface normal; tilts with grade and bank
     float arc = 0.0f;
 };
 
@@ -291,9 +303,14 @@ struct DrawCall {
     // Lighting L5 / L8 / L4.3. Read only by the debug-build shaders (see PushConstantData::extra).
     float emissiveNits = 0.0f;   // surface luminance in cd/m² (a lamp lens, a street-lamp head); 0 = not emissive
     float retro        = 0.0f;   // 1 = retroreflective (lane markings)
+    bool  selfLit      = false;  // C4: glows with the street lamps off too (tunnel luminaires)
     bool  isPaint      = false;  // car body paint: gets the metallic-flake default
     float roughnessMul = 1.0f;   // per-draw roughness multiplier (material fixes); 1 = the texture's value
     float surfaceWet   = 0.0f;   // 1 = a rain-wet car surface with beaded drops (car showcase)
+    // D1 (debug): mainline pavement. surface bits 0-2 = Pavement, bit 3 = shoulder, bits 4-7 = lanes; 0 = untagged.
+    uint8_t surface  = 0;
+    float   arc0     = 0.0f;   // station of the draw's tile start (WU): global phase for joints and markers
+    bool    noShadow = false;  // D5: alpha-tested cards; the depth-only shadow pass has no alpha test
 };
 
 struct PushConstantData {
@@ -303,6 +320,10 @@ struct PushConstantData {
     Vec4 paint;
     Vec4 extra;  // x = emissive strength, already pre-exposed; y = retroreflective (0/1); z = wet car surface (0..1).
                  // Debug shaders only
+#ifdef SWISH_DEBUG_UI
+    Vec4 pave;   // D1: x = DrawCall::surface, y = arc0 (WU), z = joint spacing (WU), w = reflector spacing (WU)
+    Vec4 pave2;  // D1: x = wheel-path polish, y = wear, z = joint sealant strength, w = rumble depth
+#endif
 };
 static_assert(sizeof(PushConstantData) % 16 == 0, "PushConstantData: push-constant block must be a 16-byte multiple");
 

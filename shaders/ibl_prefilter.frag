@@ -54,7 +54,12 @@ void main() {
         outColor = vec4(texture(envMap, N).rgb, 1.0);
         return;
     }
-    const uint SAMPLES = 256u;
+    // L2.4 filtered importance sampling (Colbert & Krivanek, GPU Gems 3 ch. 20): 64 samples (was 256), each read from
+    // the env mip matching its solid angle Omega_s = 1 / (N pdf), pdf = D(NdotH) / 4 with N = V.
+    const uint SAMPLES = 64u;
+    float      envDim  = float(textureSize(envMap, 0).x);
+    float      omegaP  = 4.0 * PI / (6.0 * envDim * envDim);
+    float      a2      = rough * rough * rough * rough;
     vec3  prefiltered  = vec3(0.0);
     float totalWeight  = 0.0;
     for (uint i = 0u; i < SAMPLES; i++) {
@@ -63,7 +68,12 @@ void main() {
         vec3 L  = normalize(2.0 * dot(V, H) * H - V);
         float NdotL = max(dot(N, L), 0.0);
         if (NdotL > 0.0) {
-            prefiltered += texture(envMap, L).rgb * NdotL;
+            float NdotH  = max(dot(N, H), 0.0);
+            float dDen   = NdotH * NdotH * (a2 - 1.0) + 1.0;
+            float D      = a2 / (PI * dDen * dDen);
+            float omegaS = 1.0 / (float(SAMPLES) * max(D * 0.25, 1.0e-6));
+            float lod    = max(0.5 * log2(omegaS / omegaP) + 1.0, 0.0);
+            prefiltered += textureLod(envMap, L, lod).rgb * NdotL;
             totalWeight += NdotL;
         }
     }

@@ -30,3 +30,4 @@ PASS(BloomBlurH, make_bloom_blur_h_pass)
 PASS(BloomBlurV, make_bloom_blur_v_pass)
 PASS_DEBUG(BloomPyramid, make_bloom_pyramid_pass)  // widens the bloom in place (L4.4); BloomBlurV stays readable
 PASS(Composite, make_composite_pass)
+PASS_DEBUG(HudOverlay, make_hud_overlay_pass)  // C3b: HUD strip + minimap over the composited swapchain image

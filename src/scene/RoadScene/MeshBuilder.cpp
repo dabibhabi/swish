@@ -188,7 +188,8 @@ void MeshBuilder::emit_ribbon(const std::vector<Vec3>& centerline, float halfWid
 // Swept cross-section primitives (Phase 3a real corridor)
 // ══════════════════════════════════════════════════════════════════════
 
-std::vector<SweepFrame> build_sweep_frames(const std::vector<Vec3>& centerline, const std::vector<Vec3>& tangents) {
+std::vector<SweepFrame> build_sweep_frames(const std::vector<Vec3>& centerline, const std::vector<Vec3>& tangents,
+                                           const std::vector<float>& banks) {
     const size_t            n = std::min(centerline.size(), tangents.size());
     std::vector<SweepFrame> out(n);
     const Vec3              up(0.0f, 1.0f, 0.0f);
@@ -199,7 +200,19 @@ std::vector<SweepFrame> build_sweep_frames(const std::vector<Vec3>& centerline, 
         t             = glm::normalize(t);
         out[i].center = centerline[i];
         out[i].right  = glm::normalize(glm::cross(t, up));  // +X-ish for −Z travel
-        out[i].arc    = (i == 0) ? 0.0f : out[i - 1].arc + glm::length(centerline[i] - centerline[i - 1]);
+        // Arc is PLAN length (y dropped), so dash phase and UVs keep the station spacing on a grade.
+        Vec3 step  = (i == 0) ? Vec3(0.0f) : centerline[i] - centerline[i - 1];
+        step.y     = 0.0f;
+        out[i].arc = (i == 0) ? 0.0f : out[i - 1].arc + glm::length(step);
+    }
+    if (banks.size() >= n && n >= 2) {
+        for (size_t i = 0; i < n; ++i) {
+            // Not renormalised on purpose: the horizontal part stays unit, so
+            // `lateral` is still a plan distance and height falls by bank * lateral.
+            out[i].right.y   = -banks[i];
+            const Vec3 along = centerline[std::min(i + 1, n - 1)] - centerline[i > 0 ? i - 1 : 0];
+            out[i].up        = glm::normalize(glm::cross(out[i].right, along));
+        }
     }
     return out;
 }
@@ -236,10 +249,35 @@ bool MeshBuilder::emit_sweep_band(const std::vector<SweepFrame>& f, const std::v
 
         // Same winding as emit_ribbon: stations run near→far, so it is flipped
         // relative to addHorizontalQuad to keep the normal up.
-        push_quad({aL, up, uAL, vtan}, {aR, up, uAR, vtan}, {bL, up, uBL, vtan}, {bR, up, uBR, vtan},
-                  QuadWinding::Strip);
+        push_quad({aL, f[i].up, uAL, vtan}, {aR, f[i].up, uAR, vtan}, {bL, f[i + 1].up, uBL, vtan},
+                  {bR, f[i + 1].up, uBR, vtan}, QuadWinding::Strip);
     }
 
+    return pushBatchDraw(idx0, color, material);
+}
+
+bool MeshBuilder::emit_strip(const std::vector<Vec3>& L, const std::vector<Vec3>& R, const Vec4& color,
+                             MaterialId material, float tileSize) {
+    const size_t n = std::min(L.size(), R.size());
+    if (n < 2) return false;
+    const uint32_t idx0 = m_mesh.getIndexCount();
+    const float    inv  = (tileSize > 0.0f) ? 1.0f / tileSize : 0.0f;
+    const auto     nrm  = [&](const std::vector<Vec3>& e, size_t i) {
+        const Vec3 along  = e[std::min(i + 1, n - 1)] - e[i > 0 ? i - 1 : 0];
+        const Vec3 across = R[i] - L[i];
+        const Vec3 c      = glm::cross(across, along);
+        // zero-width row (slope closed up): fall back to up
+        return glm::length(c) > 1e-6f ? glm::normalize(c.y < 0.0f ? -c : c) : Vec3(0.0f, 1.0f, 0.0f);
+    };
+    const auto uv = [&](const Vec3& p) { return Vec2(p.x * inv, p.z * inv); };
+    for (size_t i = 0; i + 1 < n; ++i) {
+        if (glm::length(R[i] - L[i]) < 1e-3f && glm::length(R[i + 1] - L[i + 1]) < 1e-3f) continue;
+        if (glm::length(L[i + 1] - L[i]) < 1e-3f && glm::length(R[i + 1] - R[i]) < 1e-3f) continue;
+        const Vec4 vtan = strip_tangent(L[i], L[i + 1]);
+        push_quad({L[i], nrm(L, i), uv(L[i]), vtan}, {R[i], nrm(R, i), uv(R[i]), vtan},
+                  {L[i + 1], nrm(L, i + 1), uv(L[i + 1]), vtan}, {R[i + 1], nrm(R, i + 1), uv(R[i + 1]), vtan},
+                  QuadWinding::Strip);
+    }
     return pushBatchDraw(idx0, color, material);
 }
 
@@ -294,6 +332,7 @@ void MeshBuilder::emit_sweep_dashes(const std::vector<SweepFrame>& f, float latL
         SweepFrame  out;
         out.center = f[i].center + (f[i + 1].center - f[i].center) * u;
         out.right  = glm::normalize(f[i].right + (f[i + 1].right - f[i].right) * u);
+        out.up     = glm::normalize(f[i].up + (f[i + 1].up - f[i].up) * u);
         out.arc    = s;
         return out;
     };
@@ -310,9 +349,9 @@ void MeshBuilder::emit_sweep_dashes(const std::vector<SweepFrame>& f, float latL
         const float inv  = (tileSize > 0.0f) ? 1.0f / tileSize : 0.0f;
         const Vec4  vtan = strip_tangent(aL, bL);
 
-        push_quad({aL, up, Vec2(latL * inv, s * inv), vtan}, {aR, up, Vec2(latR * inv, s * inv), vtan},
-                  {bL, up, Vec2(latL * inv, (s + dashLen) * inv), vtan},
-                  {bR, up, Vec2(latR * inv, (s + dashLen) * inv), vtan}, QuadWinding::Strip);
+        push_quad({aL, a.up, Vec2(latL * inv, s * inv), vtan}, {aR, a.up, Vec2(latR * inv, s * inv), vtan},
+                  {bL, b.up, Vec2(latL * inv, (s + dashLen) * inv), vtan},
+                  {bR, b.up, Vec2(latR * inv, (s + dashLen) * inv), vtan}, QuadWinding::Strip);
     }
 
     pushBatchDraw(idx0, color, material);

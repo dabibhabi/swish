@@ -19,11 +19,12 @@ namespace resource {
 // Transitions a VkImage between layouts using a pipeline barrier.
 // Used during texture upload: UNDEFINED -> TRANSFER_DST -> SHADER_READ_ONLY
 void transitionImageLayout(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkImage image,
-                           VkImageLayout oldLayout, VkImageLayout newLayout);
+                           VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t levels = 1);
 
 // Copies pixel data from a staging buffer into a VkImage.
+// `levels` > 1: the buffer holds the RGBA8 mip chain back to back, level 0 first (D2 debug mips).
 void copyBufferToImage(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer buffer, VkImage image,
-                       uint32_t width, uint32_t height);
+                       uint32_t width, uint32_t height, uint32_t levels = 1);
 
 // (Inline mid-frame image transitions live in swish::vkx::image_barrier / image_barrier2,
 // utils/vulkan/Barrier.h. The legacy insertImageBarrier was deleted 2026-09-29: no callers left.)

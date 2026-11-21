@@ -5,6 +5,7 @@
 
 #include <stb_image.h>
 
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <stdexcept>
@@ -114,24 +115,49 @@ void TextureManager::upload_texture(const std::string& name, const std::vector<u
     tex.width  = static_cast<int>(w);
     tex.height = static_cast<int>(h);
 
-    VkDeviceSize imageSize = w * h * 4;
+    uint32_t                    levels = 1;
+    const std::vector<uint8_t>* chain  = &pixels;
+#ifdef SWISH_DEBUG_UI
+    // D2: box-filtered mip chain; without it a 1 m brick tile (and every road texture) aliases into moire at range.
+    std::vector<uint8_t> mips = pixels;
+    for (uint32_t lw = w, lh = h; lw > 1 || lh > 1; ++levels) {
+        const uint32_t nw = std::max(1u, lw / 2), nh = std::max(1u, lh / 2);
+        const size_t   src = mips.size() - size_t{lw} * lh * 4;
+        for (uint32_t y = 0; y < nh; ++y)
+            for (uint32_t x = 0; x < nw; ++x)
+                for (uint32_t c = 0; c < 4; ++c) {
+                    const auto px = [&](uint32_t i, uint32_t j) {
+                        return mips[src + (size_t{std::min(j, lh - 1)} * lw + std::min(i, lw - 1)) * 4 + c];
+                    };
+                    mips.push_back(static_cast<uint8_t>((px(2 * x, 2 * y) + px(2 * x + 1, 2 * y) +
+                                                         px(2 * x, 2 * y + 1) + px(2 * x + 1, 2 * y + 1) + 2) /
+                                                        4));
+                }
+        lw = nw;
+        lh = nh;
+    }
+    chain = &mips;
+#endif
+    VkDeviceSize imageSize = chain->size();
 
     // Staging buffer (host-visible, persistently mapped; freed by RAII at scope end).
     GpuBuffer staging = gpu::hostVisibleBuffer(m_allocator, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-    memcpy(staging.mapped(), pixels.data(), static_cast<size_t>(imageSize));
+    memcpy(staging.mapped(), chain->data(), static_cast<size_t>(imageSize));
 
     // Create VkImage in device-local memory (VMA).
     tex.image = gpu::deviceLocalImage(m_allocator, w, h, format, VK_IMAGE_TILING_OPTIMAL,
-                                      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+                                      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, levels);
 
     // Transitions + copy
     resource::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue, tex.image.handle(),
-                                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, levels);
 
-    resource::copyBufferToImage(m_device, m_commandPool, m_graphicsQueue, staging.handle(), tex.image.handle(), w, h);
+    resource::copyBufferToImage(m_device, m_commandPool, m_graphicsQueue, staging.handle(), tex.image.handle(), w, h,
+                                levels);
 
     resource::transitionImageLayout(m_device, m_commandPool, m_graphicsQueue, tex.image.handle(),
-                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                    levels);
 
     // Image view
     VkImageViewCreateInfo viewInfo{};
@@ -141,7 +167,7 @@ void TextureManager::upload_texture(const std::string& name, const std::vector<u
     viewInfo.format                          = format;
     viewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.baseMipLevel   = 0;
-    viewInfo.subresourceRange.levelCount     = 1;
+    viewInfo.subresourceRange.levelCount     = levels;
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount     = 1;
 
@@ -168,6 +194,9 @@ void TextureManager::create_sampler() {
     samplerInfo.unnormalizedCoordinates = VK_FALSE;
     samplerInfo.compareEnable           = VK_FALSE;
     samplerInfo.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+#ifdef SWISH_DEBUG_UI
+    samplerInfo.maxLod = VK_LOD_CLAMP_NONE;  // D2: sample the mip chain (release keeps level 0 only)
+#endif
 
     VK_CHECK(vkCreateSampler(m_device, &samplerInfo, nullptr, &m_sampler));
 }

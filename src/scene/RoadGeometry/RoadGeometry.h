@@ -96,6 +96,11 @@ public:
     // therefore keeps its crown byte-for-byte.
     static float road_surface_y(float x);
     static void  set_flat_surface(float y);
+    // Flat surface with a slope: height y at (px, pz), rising dydx / dydz per WU. The one-argument
+    // query still returns y; the two-argument one follows the slope (per-wheel contacts).
+    static void  set_plane_surface(float y, float px, float pz, float dydx, float dydz);
+    static float road_surface_y(float x, float z);
+    static Vec3  surface_slope() { return Vec3(s_dydx, 0.0f, s_dydz); }
     static void  clear_flat_surface();
     static bool  flat_surface() { return s_flatSurface; }
 
@@ -119,6 +124,7 @@ private:
     // every existing caller is unaffected.
     static bool  s_flatSurface;
     static float s_flatSurfaceY;
+    static float s_px, s_pz, s_dydx, s_dydz;
 };
 
 }  // namespace swish

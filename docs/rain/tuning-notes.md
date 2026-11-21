@@ -498,3 +498,129 @@ the asphalt texture visible outside the puddle.
 - Lagarde, "Water drop 2b – Dynamic rain and its effects", 2013 (**opened**). The procedural animated-circle ripple scheme and the rule that ripples only appear with enough water. Swish uses analytic rings instead of his baked circle texture.
 - Tatarchuk, "Artist-directable real-time rain rendering in city environments", SIGGRAPH 2006 course / ATI ToyShop (**unverified**). A ripple simulation driven by raindrops.
 - Marshall & Palmer, "The distribution of raindrops with size", J. Meteorology 5, 1948, McGill (**unverified** here; used in Phase 0 via Garg & Nayar).
+
+---
+
+## L2.4 — rain-onset sky swap without the hitch (2026-11-20)
+
+### Measured (mid-run rain onset, Misty Morning, M3 Max)
+
+| Stage | Before | After |
+|---|---|---|
+| Decode `.hdr` (stb_image) | ~20 ms | 0 (worker thread, while dry) |
+| Upload (32 MB staging + 3 sync submits) | ~6 ms | 0 (uploaded while dry, kept resident) |
+| Queue idle wait | ~0.05 ms | ~12 ms (frames in flight) |
+| Bake (equirect→cube, irradiance, prefilter) | ~120–140 ms | **~5–10 ms** |
+| **Total frame stall** | **~165 ms** | **~22 ms** |
+
+### Why the bake was slow, and the math that fixed it
+
+Irradiance used fixed 0.025 rad steps: $\frac{2\pi}{0.025}\cdot\frac{\pi/2}{0.025} \approx 15{,}800$ fetches per texel,
+$\times\,32^2\times6$ texels $\approx 97$ M fetches. The prefilter took 256 GGX samples per texel on full-resolution
+env reads (~33 M). Both alias when samples are sparser than texels. The fix is **filtered sampling**: read each sample
+from the env mip whose texel solid angle matches the sample's.
+
+$$\Omega_p = \frac{4\pi}{6\,\text{dim}^2},\qquad \text{lod} = \max\!\Big(\tfrac12\log_2\frac{\Omega_s}{\Omega_p} + 1,\ 0\Big)$$
+
+- **Irradiance:** steps of 0.1 rad (~1,000 samples), with $\Omega_s \approx \Delta\theta\,\Delta\phi\,\overline{\sin\theta}$.
+- **Prefilter:** 64 samples, $\Omega_s = 1/(N\,p)$, $p = D(\mathbf n\!\cdot\!\mathbf h)/4$ (since $\mathbf n = \mathbf v$),
+  $D = \frac{\alpha^2}{\pi((\mathbf n\cdot\mathbf h)^2(\alpha^2-1)+1)^2}$, $\alpha = r^2$.
+- **Roughness 0:** a single fetch, because the lobe is a delta.
+- **Env cube:** now has a 9-level box-filtered mip chain (blits).
+
+### Knobs (shader constants; the release look is affected, so retune carefully)
+
+| Constant | Value | Effect |
+|---|---|---|
+| `ibl_irradiance.frag` dPhi, dTheta | 0.1 rad | Smaller is more samples (slower, marginally smoother). Keep lod matched. |
+| `ibl_prefilter.frag` SAMPLES | 64 | 32 is still clean with filtering; 128 if rough reflections look blotchy. |
+| lod bias `+ 1.0` (both) | 1 | Karis' bias; raise it for blurrier but cheaper results. |
+
+### Sources
+
+- Colbert & Křivánek, "GPU-Based Importance Sampling", GPU Gems 3 ch. 20, 2007, Univ. of Central Florida / Czech Technical Univ. (**unverified** here, standard). Filtered importance sampling, $\text{lod} = \frac12\log_2(\Omega_s/\Omega_p) + 1$.
+- Karis, "Real Shading in Unreal Engine 4", SIGGRAPH 2013 course notes, Epic (**unverified**). Split-sum, prefilter mips per roughness.
+- Křivánek & Colbert, "Real-time Shading with Filtered Importance Sampling", EGSR 2008 (**unverified**).
+
+---
+
+## Spray v2 — tyre spray as droplets + mist from every wheel (2026-11-20, CURRENT.md issue 2)
+
+Before, 4096 additive 0.45 m sprites came from one point behind the rear axle and read as a white fog blob. Now all
+four wheels emit at once (particle $i$ uses emitter $i \bmod n$, from `compute_wheel_spray` contact points, rates and
+cones). There are two physical classes (Gaylard, Kirwan & Lockerby 2017, Warwick: tread pickup gives ballistic drops,
+and capillary adhesion gives a fine mist carrying about 1% of the volume).
+
+| Class | Share | Size | Motion | Life | Look |
+|---|---|---|---|---|---|
+| Tread droplet | 80% | 18 WU half-size (~2 cm) | back $0.5$–$1.4\,v_b$, up $0.35$–$1.15\,v_u$, outward $0.05$–$0.2\,v_u$; full gravity, drag × 0.6 | 0.35 × lifetime; dies on touching the road | hard core, streaked up to ×6 by screen speed |
+| Capillary mist | 20% | `spraySize` × (0.5–1.1), grows to ×2.2 | slow, low; gravity × 0.15, drag × 3 | 1.2 × lifetime | wide faint gaussian (× 0.3 opacity) |
+
+The class rides in the sign of the size (droplet > 0, mist < 0), so the SSBO layout is unchanged.
+
+### Knobs
+
+| Knob | Default | Range | What it does |
+|---|---|---|---|
+| Per-wheel spray `perWheelSpray` | **on** (debug) | on/off | Off gives the legacy single rear-axle emitter (release look). |
+| Spray density | 0.42 | 0.2–0.8 | Spawn chance × wheel rate (× 0.5 droplets, × 0.6 mist). |
+| Spray lifetime (s) | 1.5 | 0.8–2.5 | Droplets live 35% of it, mist 120%. |
+| Spray size (WU) | 450 | 200–800 | Mist only. |
+| Spray opacity | 0.16 | 0.08–0.4 | Droplets × 0.9, mist × 0.3. |
+| `kSprayDropletFraction`, `kSprayDropletSize` (C++ consts) | 0.8, 18 WU | 0.6–0.9, 10–30 | Mix and droplet size. |
+
+Wheel rates come from speed, wetness, standing water (puddle at the contact) and the slip boost (`WheelSpray.h`),
+so wheelspin and puddles throw more.
+
+### Seen
+
+- `spray-v2-first-too-strong.png`: the first pass, a white needle fan (too big, too bright, too wide).
+- `spray-v2-final.png`: fine streaks behind each wheel over a faint mist.
+
+### Sources
+
+- Gaylard, Kirwan & Lockerby, "Surface contamination of cars: a review", Proc. IMechE D, 2017, Warwick. [PDF](https://wrap.warwick.ac.uk/86801/7/WRAP-surface-contamination-cars-Kirwan-2017.pdf) (**opened**). Spray mechanisms and drop sizes.
+- Garg & Nayar 2007 (**opened**). Streak = motion-blurred drop, brightness ∝ exposure fraction.
+
+---
+
+## L10.2 — wet light streaks and lens rain (2026-11-20)
+
+### Streaks
+
+On a wet road, a lamp's or tail light's reflection is a vertical streak, not a dot. The water film, roughened by
+rain, spreads its microfacet normals mostly along the viewing direction. Model: anisotropic GGX (Burley 2012) on wet
+up-facing surfaces, blended in by $w = \text{wetLocal}\cdot\text{upFacing}$:
+
+$$D = \frac{1}{\pi\,\alpha_\parallel\alpha_\perp\,\big((\mathbf h\!\cdot\!\mathbf t/\alpha_\parallel)^2 + (\mathbf h\!\cdot\!\mathbf b/\alpha_\perp)^2 + (\mathbf h\!\cdot\!\mathbf n)^2\big)^2},\qquad \mathbf t = \frac{\mathbf v - \mathbf n(\mathbf n\cdot\mathbf v)}{\lVert\cdot\rVert},\ \mathbf b = \mathbf n\times\mathbf t$$
+
+Smith–Schlick $G$ with $\alpha = \sqrt{\alpha_\parallel\alpha_\perp}$; Fresnel with the wet $F_0$ (0.02). The result is
+`spec = mix(spec_iso, spec_streak, w)`, the same in the street-lamp and car-spot loops.
+
+| Knob (Wet / Rain → wet_streaks) | Default | Range | What it does |
+|---|---|---|---|
+| Wet light streaks | on | on/off | Turns the streak lobe on or off. |
+| Streak roughness along view $\alpha_\parallel$ | 0.45 | 0.2–0.8 | Streak length (toward the viewer). |
+| Streak roughness across $\alpha_\perp$ | 0.05 | 0.02–0.15 | Streak width. Keep it ≪ along. |
+
+### Lens rain
+
+"Rain wets + beads the car" (`carRainWet`, on) gives the car exterior the showcase's beaded wet surface, with lamp
+lenses included and strength = road wetness. That makes the car wettable for the wet BRDF (Lekner–Dorf darkening,
+water F0). The cabin stays dry.
+
+### Seen
+
+`l102-light-streaks-chase.png` (heavy rain, car lights + brake and street lamps forced on for the test): the red
+brake-light reflection streaks toward the camera on the wet road, and the headlight glow is visible ahead.
+
+### Gap
+
+Rain always uses the daytime Misty HDRI, so streaks never get the night contrast where they matter most.
+"Rain at night" (a darker rain HDRI scaled by the time of day) is a follow-up.
+
+### Sources
+
+- Burley, "Physically-Based Shading at Disney", SIGGRAPH 2012 course (**unverified**). Anisotropic GGX with $\alpha_x, \alpha_y$.
+- Lagarde, "Water drop 4a/4b – Reflecting wet world", 2013 (**unverified**). Stretched reflections on wet roads, and the anisotropy toward the viewer.
+- Nakamae et al., SIGGRAPH 1990, Hiroshima Univ. (**unverified**). Wet-road reflections of lights in a drive simulator.

@@ -43,7 +43,11 @@ void main() {
     float depth = texture(depthTex, fragUV).r;
 
     // Skip sky (reverse-Z: far/sky is depth 0.0)
+#ifdef SWISH_DEBUG_UI
+    if (depth <= 0.0) {  // clear value only: geometry past 100 m is below 1e-4
+#else
     if (depth < 0.0001) {
+#endif
 #ifdef SWISH_DEBUG_UI
         outColor = vec4(1.0, kAoSkyDepth, 0.0, 1.0);
 #else
@@ -109,7 +113,11 @@ void main() {
         // along every silhouette against the sky, which shows up as edge speckle.
         if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0) continue;
         float sampleDepth = texture(depthTex, sampleUV).r;
+#ifdef SWISH_DEBUG_UI
+        if (sampleDepth <= 0.0) continue;  // reverse-Z sky: clear value only
+#else
         if (sampleDepth < 0.0001) continue;  // reverse-Z sky (far = 0)
+#endif
         vec3 sampledPos = viewPosFromDepth(sampleUV, sampleDepth);
 
         // Range check + occlusion test

@@ -31,6 +31,11 @@ struct SpraySimUBO {
     Vec4 carVel;      // xyz = car velocity (WU/s), w = emit probability [0,1]
     Vec4 params;      // x = lifetime (s), y = size base (WU), z = gravity (WU/s²), w = drag (1/s)
     Vec4 params2;     // x = lateral spread (WU), y = frame seed, z = up speed (WU/s), w = back speed (WU/s)
+#ifdef SWISH_DEBUG_UI
+    // Spray v2 (issue 2, debug): every wheel emits at once. wheel[k] = contact point (WU), w = emit rate [0,1].
+    Vec4 wheel[4];
+    Vec4 wheelInfo;  // x = emitter count, y = droplet fraction, z = droplet size (WU), w = car-centre lateral ref
+#endif
 };
 
 // Live-tunable spray knobs (mirrors the DebugParams spray block; a release build

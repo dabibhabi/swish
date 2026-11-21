@@ -420,14 +420,16 @@ TEST_CASE("Tunables: registry defaults equal the shipped literals (release-neutr
 
 TEST_CASE("Tunables: descriptor table is consistent", "[tunables]") {
     const DebugParams d{};
-    REQUIRE(tunables::all().size() == 59);  // every TUNE_B / TUNE_F row in Tunables.def (groups: ssr, reflection, wet,
-                                            // rain_splash, ruts, ripples, car_lights, wiper, car, wheels, gauges)
+    REQUIRE(tunables::all().size() ==
+            104);  // every TUNE_B / TUNE_F row in Tunables.def (groups: ssr, reflection, wet,
+                   // rain_splash, ruts, ripples, wet_streaks, car_lights, wiper, car, wheels, gauges, corridor)
     for (const auto& t : tunables::all()) {
         INFO(t.name);
         CHECK(t.in_range(t.def));
         const std::string g = t.group;
         CHECK((g == "ssr" || g == "reflection" || g == "wet" || g == "rain_splash" || g == "ruts" || g == "ripples" ||
-               g == "car_lights" || g == "wiper" || g == "car" || g == "wheels" || g == "gauges"));
+               g == "wet_streaks" || g == "car_lights" || g == "wiper" || g == "car" || g == "wheels" ||
+               g == "gauges" || g == "corridor"));
         if (t.kind == tunables::Kind::Float)
             CHECK(t.get_float(d) == t.def);  // struct default generated from the same line
         else
@@ -513,8 +515,9 @@ TEST_CASE("Tunables: saved file keeps the [reflection] / [wet] TOML key names", 
     const toml::table  tbl  = toml::parse_file(debugio::presets_dir() + pf.name + ".toml");
     const toml::table* refl = tbl["reflection"].as_table();
     REQUIRE(refl != nullptr);
-    CHECK(refl->size() == 3);
+    CHECK(refl->size() == 4);  // D4 added ground_bounce
     CHECK(tbl["reflection"]["env_gloss_exp"].value<double>().has_value());
+    CHECK(tbl["reflection"]["ground_bounce"].value<double>().has_value());
     CHECK(tbl["reflection"]["ibl_diffuse"].value<double>().has_value());
     CHECK(tbl["reflection"]["ibl_specular"].value<double>().has_value());
     // [wet] mixes registry keys (porosity, roughness, puddles_enabled, puddle_coverage) with the hand-written
@@ -648,8 +651,8 @@ TEST_CASE("Tunables: visit dispatches Bool to tag::flag and Float to tag::real (
             }
         });
     }
-    CHECK(flags == 11);  // TUNE_B rows
-    CHECK(reals == 48);  // TUNE_F rows
+    CHECK(flags == 23);  // TUNE_B rows
+    CHECK(reals == 81);  // TUNE_F rows
     // The visitor sees the live field: writing through it changes DebugParams (what load/widget rely on).
     const auto& ssr = tunables::all()[1];  // ssrIntensity
     tunables::visit(ssr, p, [](auto, auto& v) { v = std::remove_reference_t<decltype(v)>(1.25f); });

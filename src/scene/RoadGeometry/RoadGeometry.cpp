@@ -13,9 +13,22 @@ RoadGeometry::~RoadGeometry() = default;
 bool  RoadGeometry::s_flatSurface  = false;
 float RoadGeometry::s_flatSurfaceY = 0.0f;
 
-void RoadGeometry::set_flat_surface(float y) {
+float RoadGeometry::s_px = 0.0f, RoadGeometry::s_pz = 0.0f, RoadGeometry::s_dydx = 0.0f, RoadGeometry::s_dydz = 0.0f;
+
+void RoadGeometry::set_flat_surface(float y) { set_plane_surface(y, 0.0f, 0.0f, 0.0f, 0.0f); }
+
+void RoadGeometry::set_plane_surface(float y, float px, float pz, float dydx, float dydz) {
     s_flatSurface  = true;
     s_flatSurfaceY = y;
+    s_px           = px;
+    s_pz           = pz;
+    s_dydx         = dydx;
+    s_dydz         = dydz;
+}
+
+float RoadGeometry::road_surface_y(float x, float z) {
+    if (!s_flatSurface) return road_surface_y(x);
+    return s_flatSurfaceY + s_dydx * (x - s_px) + s_dydz * (z - s_pz);
 }
 
 void RoadGeometry::clear_flat_surface() { s_flatSurface = false; }

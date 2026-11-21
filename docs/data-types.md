@@ -118,10 +118,20 @@ The two-`vec4` packing of `PointLightData` is the std140 workaround in action: p
 
 ```cpp
 struct PushConstantData {
-    Mat4 model;  // offset  0
-    Vec4 color;  // offset 64
-};               // 80 bytes — well under the 128-byte guaranteed push-constant minimum
+    Mat4 model;     // offset   0
+    Vec4 color;     // offset  64
+    Vec4 material;  // offset  80  x metalness, y wettable, z roughness mul, w road tag
+    Vec4 paint;     // offset  96  clearcoat / flake
+    Vec4 extra;     // offset 112  emissive, retro, wet car, asphalt UV tile (debug shaders read it)
+#ifdef SWISH_DEBUG_UI
+    Vec4 pave;      // offset 128  D1: surface tag, tile start station, joint spacing, reflector spacing
+    Vec4 pave2;     // offset 144  D1: polish, wear, sealant, rumble
+#endif
+};                  // 128 bytes release, 160 debug (MoltenVK allows 4096; release layout unchanged)
 ```
+
+D1 (2026-11-21): the debug-only `pave` / `pave2` rows feed `shaders/common/pavement.glsl`. The G-buffer packing is
+unchanged: pavement detail only edits albedo, roughness, the normal and the existing retroreflective alpha code.
 
 Pushed per draw call in the G-buffer pass. Mirrored in `gbuffer.frag` / `basic.vert` as `layout(push_constant) uniform PushConstants`. The deferred-lighting pass uses a *different* push block (`invView`, `invProj`) — push constants are not shared across pipelines.
 

@@ -61,7 +61,7 @@ void look_at_with_offset(Camera& cam, const Vec3& eye, const Vec3& target, float
 
 // Car-mesh-local point → world (nose +X, ground y≈0, driver −Z; scale via model).
 Vec3 car_local_to_world(const CarEntity& car, const Vec3& local_m) {
-    return Vec3(car.get_model_matrix() * Vec4(local_m, 1.0f));
+    return Vec3(car.get_body_model_matrix() * Vec4(local_m, 1.0f));  // the eye rides the body (weight transfer)
 }
 
 }  // namespace

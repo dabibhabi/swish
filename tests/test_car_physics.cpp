@@ -1789,3 +1789,43 @@ TEST_CASE("Grip returning after a hydroplane slide does not teleport momentum aw
     // Grip really did come back and really is pulling the car straight.
     REQUIRE(std::fabs(std::atan2(s.vl, s.vx) * 180.0f / kEnginePi) < betaMid);
 }
+
+TEST_CASE("film_lag: first-order response, dry stays exactly zero, converges to the target", "[physics][wet]") {
+    REQUIRE(film_lag(0.0f, 0.0f, 1.0f / 60.0f) == 0.0f);  // dry is inert
+    float f = 0.0f;
+    f       = film_lag(f, 2.0f, kFilmLagTau);  // one time constant -> 1 - 1/e of the step
+    REQUIRE_THAT(f, WithinAbs(2.0f * (1.0f - std::exp(-1.0f)), 1e-5f));
+    float g = 0.0f;
+    for (int i = 0; i < 600; ++i) g = film_lag(g, 2.0f, 1.0f / 60.0f);  // 10 s >> tau
+    REQUIRE_THAT(g, WithinAbs(2.0f, 1e-4f));
+    REQUIRE(film_lag(1.0f, 0.0f, 0.0f) == 1.0f);  // dt 0 = no change
+}
+
+TEST_CASE("substep_count: slices are never longer than 1/hz", "[physics][substep]") {
+    CHECK(substep_count(1.0f / 30.0f, 240.0f) == 8);
+    CHECK(substep_count(1.0f / 144.0f, 240.0f) == 2);
+    CHECK(substep_count(1.0f / 480.0f, 240.0f) == 1);
+    CHECK(substep_count(1.0f / 15.0f, 0.0f) == 1);  // 0 Hz = one step per frame
+}
+
+TEST_CASE("substepping makes a step-steer nearly frame-rate independent", "[physics][substep]") {
+    // Bicycle lateral state after 1 s of a 2 deg steer at 30 m/s, integrated at 30 and 144 fps.
+    const CarParams  p{};
+    const TireParams t{};
+    auto             run = [&](float fps, float hz) {
+        float       vl = 0.0f, r = 0.0f;
+        const float dt = 1.0f / fps;
+        for (int f = 0; f < static_cast<int>(fps); ++f) {
+            const int n = substep_count(dt, hz);
+            for (int i = 0; i < n; ++i) {
+                const BicycleDeriv d = dynamic_bicycle_deriv(30.0f, vl, r, 0.035f, p, t, AxleLongitudinal{}, 0.0f);
+                vl += d.vlDot * dt / static_cast<float>(n);
+                r += d.rDot * dt / static_cast<float>(n);
+            }
+        }
+        return r;
+    };
+    const float gapSub = std::abs(run(30.0f, 240.0f) - run(144.0f, 240.0f));
+    const float gapRaw = std::abs(run(30.0f, 0.0f) - run(144.0f, 0.0f));
+    CHECK(gapSub < 0.25f * gapRaw + 1e-6f);
+}

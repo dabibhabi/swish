@@ -300,6 +300,14 @@ void WeatherController::apply_debug(const DebugParams& d, float wetness) {
     else if (wetness < d.rainSkyClearWetness)
         m_debug->rainSkyActive = false;
     const bool rainSky = m_debug->rainSkyActive;
+    // L2.4: keep the rain HDRI decoded AND uploaded in the background while it is dry (before the procedural early
+    // return), so the onset swap is only the ~5 ms bake.
+    if (m_ibl && d.rainEnvironmentHdri != m_prefetchedRainHdri) {
+        const int i = glm::clamp(d.rainEnvironmentHdri, 0, static_cast<int>(kHdriOptions.size()) - 1);
+        m_ibl->prefetch_hdri(util::paths::asset_dir() + "Sky/" + std::string(kHdriOptions[i].file));
+        m_prefetchedRainHdri = d.rainEnvironmentHdri;
+    }
+    if (m_ibl) m_ibl->poll_prefetch();
     {
         const auto  now = std::chrono::steady_clock::now();
         const float dt  = m_lastApply.time_since_epoch().count() == 0

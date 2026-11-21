@@ -143,4 +143,16 @@ inline float film_over_tread(float worldX, float worldZ, float wetness) {
     return kFilmDepthScale * puddle_amount(worldX, worldZ, kPuddleCoveragePhysics) * std::max(wetness, 0.0f);
 }
 
+// First-order lag on the film the tyre actually feels. The sampled puddle mask is a step at a pool's edge; a real
+// tread needs time to load up with (and later squeeze out) water, so the tyre neither planes nor recovers on the
+// very frame it crosses the edge. kFilmLagTau is a tuning value (~3 contact-patch passes at 100 km/h is far
+// smaller; 0.12 s is chosen so the onset reads as a short "float" rather than a switch). Exact steady state: a
+// constant target is reached exactly in the limit, and a zero target from zero stays exactly zero (dry is inert).
+inline constexpr float kFilmLagTau = 0.12f;
+
+inline float film_lag(float prev, float target, float dt, float tau = kFilmLagTau) {
+    const float a = 1.0f - std::exp(-std::max(dt, 0.0f) / std::max(tau, 1e-4f));
+    return prev + (target - prev) * a;
+}
+
 }  // namespace swish

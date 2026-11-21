@@ -282,4 +282,84 @@ inline CornerSpring suspension_advance(CornerSpring s, float x_target_m, float k
     return s;
 }
 
+// ── Phase C: wheel slip (visual wheel speed) ─────────────────────────
+// The bicycle model has no wheel-speed state, so the drawn wheel speed is the kinematic rolling speed plus a
+// visual slip kappa that chases a target keyed off the axle's friction utilisation u = F_x / (mu F_z), which
+// the longitudinal solve already caps at |u| = 1 (traction cap on drive, brake cap on the pedal). Slip ratio
+// convention: kappa = (omega r - v) / max(|v|, vMin). Below utilStart the target is exactly 0, so ordinary
+// driving draws exactly the rolling speed (bit-identical to Phase B).
+struct WheelSlipParams {
+    float utilStart  = 0.92f;  // |u| where slip starts to build (smoothstep to |u| = 1)
+    float spinSlip   = 0.15f;  // kappa at the traction cap on drive (~ peak-mu slip of a road tyre)
+    float lockSlip   = 1.00f;  // kappa at the brake cap with ABS off (-1 = locked wheel)
+    float absSlip    = 0.15f;  // kappa at the brake cap with ABS on (peak-mu slip, the wheel keeps turning)
+    bool  abs        = true;   // the 992 has ABS; off shows full lockup
+    float tauSpin    = 0.12f;  // s, spin-up
+    float tauLock    = 0.10f;  // s, lockup: ~95 % in 0.3 s, a ramp, never a snap
+    float tauRecover = 0.08f;  // s, back to rolling when the cap is released
+    float vMin       = 3.0f;   // m/s, slip reference floor so a launch from rest still spins visibly
+};
+
+// Target slip for one axle. Signed like u: positive = drive force along +x. Braking (force opposing travel) uses
+// the lock slip, drive uses the spin slip.
+inline float wheel_slip_target(float util, float v, const WheelSlipParams& p = WheelSlipParams{}) {
+    const float a = std::fabs(util);
+    if (a <= p.utilStart) return 0.0f;
+    const float t      = std::clamp((a - p.utilStart) / std::max(1.0f - p.utilStart, 1e-6f), 0.0f, 1.0f);
+    const float s      = t * t * (3.0f - 2.0f * t);
+    const bool  brakes = util * v < 0.0f;
+    const float mag    = brakes ? (p.abs ? p.absSlip : p.lockSlip) : p.spinSlip;
+    return std::copysign(s * mag, util);
+}
+
+// Exact first-order chase of kappa toward the target (frame-rate independent).
+inline float wheel_slip_step(float kappa, float target, float v, float dt,
+                             const WheelSlipParams& p = WheelSlipParams{}) {
+    float tau = p.tauRecover;
+    if (std::fabs(target) > std::fabs(kappa)) tau = (target * v < 0.0f) ? p.tauLock : p.tauSpin;
+    return kappa + (target - kappa) * (1.0f - std::exp(-std::max(dt, 0.0f) / std::max(tau, 1e-4f)));
+}
+
+// Drawn wheel speed (rad/s) from the hub's rolling speed and the slip. A braking slip never turns the wheel
+// backwards: it stops at a locked wheel.
+inline float wheel_omega_from_slip(float vRoll, float kappa, float r, const WheelSlipParams& p = WheelSlipParams{}) {
+    float wr = vRoll + kappa * std::max(std::fabs(vRoll), p.vMin);
+    if (kappa * vRoll < 0.0f) wr = vRoll > 0.0f ? std::max(wr, 0.0f) : std::min(wr, 0.0f);
+    return wr / r;
+}
+
+// ── Phase B2: weight transfer (squat / dive / roll) ──────────────────
+// Per-corner vertical load change (N) from the body's acceleration. Moments about the contact plane:
+//   longitudinal  sum dFz_i x_i = -m a_x h        -> per corner  -/+ m a_x h / (2L)   (front / rear)
+//   lateral       sum dFz_i z_i =  m a_y (h - h_rc) per axle -> per corner  -side m_axle a_y (h - h_rc) / t
+// The part through the roll centre (h_rc) goes through the links and does not compress the springs, so only
+// (h - h_rc) rolls the body. side is +1 for a right-hand corner, a_y right-positive (turning right loads the left).
+inline float corner_load_transfer_n(bool front, float side, float mass, float ax, float ay, float hCg,
+                                    float rollCentreM, float wheelbase, float track, float axleShare) {
+    const float dLong = mass * ax * hCg / (2.0f * std::max(wheelbase, 0.1f));
+    const float dLat  = mass * axleShare * ay * std::max(hCg - rollCentreM, 0.0f) / std::max(track, 0.1f);
+    return (front ? -dLong : dLong) - side * dLat;
+}
+
+// Body attitude (small angles) from four corner compressions x_i (m, + = body lower at that corner) at hub
+// positions (hx_i forward, hz_i right, m): heave (m, + = body down), and the sines of pitch about +z and roll
+// about +x that drop the body by the plane through the four corners. All zero when every x_i is zero.
+struct BodyAttitude {
+    float heave   = 0.f;
+    float sinRotZ = 0.f;  // y' = x sinRotZ: the nose drops when the front compresses
+    float sinRotX = 0.f;  // y' = -z sinRotX: the right side drops when the right compresses
+};
+inline BodyAttitude body_attitude_from_travel(const float x[4], const float hx[4], const float hz[4]) {
+    // Corner order 0 FL, 1 FR, 2 BL, 3 BR.
+    BodyAttitude b;
+    b.heave         = 0.25f * (x[0] + x[1] + x[2] + x[3]);
+    const float dxF = 0.5f * (hx[0] + hx[1]) - 0.5f * (hx[2] + hx[3]);
+    const float dzS = 0.5f * (hz[1] + hz[3]) - 0.5f * (hz[0] + hz[2]);
+    if (std::fabs(dxF) > 1e-3f)
+        b.sinRotZ = std::clamp(-(0.5f * (x[0] + x[1]) - 0.5f * (x[2] + x[3])) / dxF, -0.2f, 0.2f);
+    if (std::fabs(dzS) > 1e-3f)
+        b.sinRotX = std::clamp((0.5f * (x[1] + x[3]) - 0.5f * (x[0] + x[2])) / dzS, -0.2f, 0.2f);
+    return b;
+}
+
 }  // namespace swish

@@ -18,6 +18,7 @@
 #include "renderer/VulkanContext/VulkanContext.h"
 #include "scene/Camera/Camera.h"
 #include "utils/types/Types.h"
+#include "utils/vulkan/Check.h"
 
 // stdl includes
 
@@ -93,6 +94,7 @@ void Renderer::init(Window& window) {
     m_passRes.geometry       = &m_geometry;
 #ifdef SWISH_DEBUG_UI
     m_passRes.sceneParams = &m_sceneParams;
+    m_passRes.hud         = &m_hud;
 #endif
     m_passes = make_pass_registry(&m_geometry);
     init_passes();
@@ -133,6 +135,7 @@ void Renderer::cleanup() {
     wait_for_idle();
 
 #ifdef SWISH_DEBUG_UI
+    m_hud.cleanup();                               // C3b HUD context first: it restores the panel context
     m_debugUI.cleanup();                           // ImGui shutdown before device/instance teardown
     m_sceneParams.cleanup(m_device->getDevice());  // set 4 UBO + pool + layout
     m_passes.set_observer(nullptr);
@@ -207,7 +210,9 @@ Camera* Renderer::get_camera() const { return m_camera.get(); }
 // GPU synchronization
 // ══════════════════════════════════════════════════════════════════════
 
-void Renderer::wait_for_idle() { vkDeviceWaitIdle(m_device->getDevice()); }
+void Renderer::wait_for_idle() {
+    VK_CHECK_LOG(vkDeviceWaitIdle(m_device->getDevice()));
+}  // also on teardown: log, never throw
 
 // ══════════════════════════════════════════════════════════════════════
 // recreateSwapchain()
@@ -291,6 +296,9 @@ void Renderer::debug_init(std::function<void(int, int)> keyEvent) {
     info.presentQueueFamily  = m_device->getQueueFamilies().presentFamily.value();
     info.keyEvent            = std::move(keyEvent);
     m_debugUI.init(info);
+    // C3b: in-game HUD overlay (its own ImGui context, drawn by HudOverlayPass after Composite).
+    m_hud.init({info.instance, info.physicalDevice, info.device, info.graphicsQueue, info.graphicsQueueFamily,
+                m_swapchain->getImageFormat(), m_swapchain->getImageCount()});
 }
 
 void Renderer::debug_present() { m_debugUI.present(); }

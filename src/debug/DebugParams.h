@@ -1,5 +1,6 @@
 #pragma once
 
+#include "HudFeed.h"                        // C3b HUD feed (pure header)
 #include "scene/Entity/GaugeNeedles.h"      // kGaugeDefaults (Tunables.def "gauges" defaults)
 #include "scene/LightingLab/LightingLab.h"  // LabProbe
 #include "scene/SceneTypes.h"               // MaterialOverride, MAT_COUNT, MaterialId
@@ -205,7 +206,7 @@ struct DebugParams {
     // ── Per-wheel spray (debug-only; OFF = the legacy single rear-axle emitter, i.e. today's look) ──
     // App builds four wheel emitters (WheelSpray.h) from the car and hands them to SpraySystem::set_emitters
     // while this is on; release never reads it. TOML table [wheel_spray].
-    bool perWheelSpray = false;
+    bool perWheelSpray = true;  // Spray v2 (issue 2): all four wheels emit (debug); off = legacy rear-axle origin
 
     // ── Wet lens model (debug-only CPU model, no renderer upload yet; LensWetness.h) ──
     // Defaults == LensWetnessParams{}. TOML table [lens_wet].
@@ -325,6 +326,9 @@ struct DebugParams {
     float telemetryRpm      = 0.0f;     // CarEntity::get_engine_rpm()
     float telemetryRedline  = 7200.0f;  // CarEntity::get_redline_rpm() (active CarProfile's fuel cut)
     float telemetryMu       = 1.05f;    // CarEntity::get_effective_mu(); matches CarParams::tireMu dry default
+#ifdef SWISH_DEBUG_UI
+    HudFeed hud;  // C3b in-game HUD strip + minimap: App writes it each frame, HudOverlayPass draws it (not in TOML)
+#endif
 
     // ── Driving tools (record / replay / gamepad / FFB readout) ──────
     // Debug-only and transient (NOT in Tunables.def / TOML presets: the registry is for converted

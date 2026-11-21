@@ -8,6 +8,9 @@
 layout(location = 0) in vec2  vUV;
 layout(location = 1) in float vLife;
 layout(location = 2) in float vSeed;
+#ifdef SWISH_DEBUG_UI
+layout(location = 3) flat in float vMist;
+#endif
 
 layout(push_constant) uniform Push {
     vec4 tune;  // x = opacity
@@ -24,6 +27,24 @@ void main() {
     // faster, so a droplet reads as a bright dot with a thin edge instead of one
     // wide soft gaussian haze (the peak at r=0 is unchanged — only the shoulder
     // steepens).
+#ifdef SWISH_DEBUG_UI
+    // Spray v2: a droplet is a small hard bright core (reads as a water streak once stretched); mist is a very faint
+    // wide gaussian. Additive, so the mist only lifts the background slightly, as in the reference photos.
+    if (vMist < 0.5) {
+        float core = 1.0 - smoothstep(0.25, 0.9, r);
+        float fade = smoothstep(0.0, 0.25, vLife);
+        float a    = core * fade * (0.5 + 0.5 * vSeed) * pc.tune.x * 0.9;
+        outColor   = vec4(vec3(0.80, 0.84, 0.90) * a, a);
+        return;
+    }
+    {
+        float g    = exp(-3.0 * r * r);
+        float fade = smoothstep(1.0, 0.7, vLife) * smoothstep(0.0, 0.5, vLife);
+        float a    = g * fade * pc.tune.x * 0.3;
+        outColor   = vec4(vec3(0.70, 0.74, 0.80) * a, a);
+        return;
+    }
+#endif
     float soft    = pow(smoothstep(1.0, 0.0, r), 2.4);
     float fadeIn  = smoothstep(1.0, 0.82, vLife);   // ramp up just after spawn (no pop-in)
     float fadeOut = smoothstep(0.0, 0.30, vLife);   // fade out near death

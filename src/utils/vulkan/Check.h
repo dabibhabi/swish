@@ -12,13 +12,14 @@
 // Purpose        : VK_CHECK(expr) evaluates expr once and throws std::runtime_error with file, line
 //                  and the symbolic VkResult name when it is not VK_SUCCESS. vkResultString() maps
 //                  the common codes to names ("VK_UNKNOWN_ERROR" otherwise).
-// Ownership      : Stateless; the macro keeps its historical name (24 call sites).
+// Ownership      : Stateless; the macro keeps its historical name (24 call sites). VK_CHECK_LOG: teardown paths.
 // Test           : tests/utils/test_vulkan_Check.cpp
 // See also       : Init.h, README.md in this directory.
 // ============================================================================
 
 #include <vulkan/vulkan.h>
 
+#include <cstdio>
 #include <stdexcept>
 #include <string>
 
@@ -71,3 +72,15 @@ inline const char* vkResultString(VkResult r) {
                                      " Vulkan error: " + swish::vkx::vkResultString(_vkr));   \
         }                                                                                     \
     } while (0)
+
+// VK_CHECK_LOG(x): the teardown-path variant. It evaluates x once and, on failure, prints file, line and the symbolic
+// VkResult to stderr instead of throwing: cleanup() runs from destructors, where a throw would std::terminate and skip
+// the rest of the teardown. Yields the VkResult, so the caller can still branch on it.
+#define VK_CHECK_LOG(x)                                                                                \
+    ([&]() -> VkResult {                                                                               \
+        const VkResult _vkr = (x);                                                                     \
+        if (_vkr != VK_SUCCESS)                                                                        \
+            std::fprintf(stderr, "%s:%d Vulkan error (ignored on teardown): %s\n", __FILE__, __LINE__, \
+                         swish::vkx::vkResultString(_vkr));                                            \
+        return _vkr;                                                                                   \
+    }())

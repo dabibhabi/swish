@@ -37,3 +37,16 @@ TEST_CASE("VK_CHECK evaluates its expression exactly once", "[vulkan]") {
     VK_CHECK(f());
     CHECK(calls == 1);
 }
+
+TEST_CASE("VK_CHECK_LOG never throws, evaluates once and yields the result", "[vulkan]") {
+    int  calls = 0;
+    auto f     = [&]() {
+        ++calls;
+        return VK_ERROR_DEVICE_LOST;
+    };
+    VkResult r = VK_SUCCESS;
+    REQUIRE_NOTHROW(r = VK_CHECK_LOG(f()));
+    CHECK(calls == 1);
+    CHECK(r == VK_ERROR_DEVICE_LOST);
+    CHECK(VK_CHECK_LOG(VK_SUCCESS) == VK_SUCCESS);
+}

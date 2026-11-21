@@ -77,9 +77,10 @@ public:
     void record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials,
                       const MaterialOverride* overrides, const CullParams& cull, Vec3 originOffset = Vec3(0.0f),
                       CullStats* stats = nullptr, const PaintTuning& paint = PaintTuning{}, float flakeScale = 8.0f,
-                      float flakeJitter = 0.35f, float emissiveScale = 0.0f) const;
+                      float flakeJitter = 0.35f, float emissiveScale = 0.0f, float selfLitScale = 0.0f) const;
     // `emissiveScale` multiplies each draw's emissiveNits before it is pushed: the frame's pre-exposure, or 0
     // when this geometry's lamps are switched off (lighting L5). Only the debug shaders read the result.
+    // `selfLitScale` replaces it for DrawCall::selfLit draws (C4 tunnel luminaires, lit by day too).
 
     // Depth-only pass (shadow map): bind vertex/index buffers, then for each
     // draw call push only the per-object model matrix (no material/descriptor
@@ -110,6 +111,15 @@ public:
     // velocity buffer") can pair this frame's model matrices with CarEntity's cached
     // previous-frame matrices. Not used by any release-path code.
     const std::vector<DrawCall>& get_draw_calls() const { return m_drawCalls; }
+    // C3a: signal lens on/off without re-uploading (colour + emissive of one draw).
+    void set_draw_glow(size_t i, const Vec4& color, float nits) {
+        if (i >= m_drawCalls.size()) return;
+        m_drawCalls[i].color        = color;
+        m_drawCalls[i].emissiveNits = nits;
+    }
+    void set_draw_model(size_t i, const Mat4& model) {  // D5: the skyline card follows the camera
+        if (i < m_drawCalls.size()) m_drawCalls[i].model = model;
+    }
 #endif
 
 private:

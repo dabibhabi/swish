@@ -27,7 +27,7 @@ CMakeLists.txt CMakePresets.json Makefile
 # --- tracked directories
 src shaders tests tools scripts include config assets textures docs tasks archive
 .github .claude .agents .codex .obsidian
-# owner's own tracked notes / tools (allowlisted 2026-11-20 rather than moved: todo.md cites goals.md)
+# owner own tracked notes / tools (allowlisted 2026-11-20 rather than moved: todo.md cites goals.md)
 goals.md .cursor shader-playground
 # --- git internals / generated / local-only (most are gitignored)
 .git .mcp.json .DS_Store imgui.ini .cache .conductor .dist .vscode .idea
