@@ -68,7 +68,7 @@ class CarLoader:
     resulting bpy object tree into a CarModel.
 
     Usage:
-        model = CarLoader().load("cars/1999_honda_civic_si.glb")
+        model = CarLoader().load("assets/cars/1999_honda_civic_si.glb")
     """
 
     def __init__(self) -> None:

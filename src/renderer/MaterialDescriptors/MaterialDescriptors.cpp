@@ -1,7 +1,7 @@
 #include "MaterialDescriptors.h"
 
-#include "../../utils/VulkanCheck.h"
-#include "../TextureManager/TextureManager.h"
+#include "renderer/TextureManager/TextureManager.h"
+#include "utils/vulkan/Check.h"
 
 #include <array>
 #include <cassert>
@@ -15,42 +15,62 @@ namespace {
 // MaterialId → texture base name in TextureManager. Suffixes ("", "_normal",
 // "_roughness") are appended to pick the per-binding texture.
 constexpr const char* kMaterialNames[MAT_COUNT] = {
-    "asphalt",      // MAT_ASPHALT
-    "grass",        // MAT_GRASS
-    "concrete",     // MAT_CONCRETE
-    "metal",        // MAT_METAL
-    "default",      // MAT_DEFAULT
-    "rumble",       // MAT_RUMBLE
-    "dirt",         // MAT_DIRT
-    "tree_leaves",  // MAT_TREE
-    "sign_00",      // MAT_SIGN_0
-    "sign_01",      // MAT_SIGN_1
-    "sign_02",      // MAT_SIGN_2
-    "sign_03",      // MAT_SIGN_3
-    "sign_04",      // MAT_SIGN_4
-    "sign_05",      // MAT_SIGN_5
-    "sign_06",      // MAT_SIGN_6
-    "sign_07",      // MAT_SIGN_7
-    "car_0",        // MAT_CAR_0
-    "car_1",        // MAT_CAR_1
-    "car_2",        // MAT_CAR_2
-    "car_3",        // MAT_CAR_3
-    "car_4",        // MAT_CAR_4
-    "car_5",        // MAT_CAR_5
-    "car_6",        // MAT_CAR_6
-    "car_7",        // MAT_CAR_7
-    "car_8",        // MAT_CAR_8
-    "car_9",        // MAT_CAR_9
-    "car_10",       // MAT_CAR_10
-    "car_11",       // MAT_CAR_11
-    "car_12",       // MAT_CAR_12
-    "car_13",       // MAT_CAR_13
-    "car_14",       // MAT_CAR_14
-    "car_15",       // MAT_CAR_15
-    "car_16",       // MAT_CAR_16
-    "car_17",       // MAT_CAR_17
-    "car_18",       // MAT_CAR_18
-    "car_19",       // MAT_CAR_19
+    "asphalt",        // MAT_ASPHALT
+    "grass",          // MAT_GRASS
+    "concrete",       // MAT_CONCRETE
+    "metal",          // MAT_METAL
+    "default",        // MAT_DEFAULT
+    "rumble",         // MAT_RUMBLE
+    "dirt",           // MAT_DIRT
+    "tree_leaves",    // MAT_TREE
+    "sign_00",        // MAT_SIGN_0
+    "sign_01",        // MAT_SIGN_1
+    "sign_02",        // MAT_SIGN_2
+    "sign_03",        // MAT_SIGN_3
+    "sign_04",        // MAT_SIGN_4
+    "sign_05",        // MAT_SIGN_5
+    "sign_06",        // MAT_SIGN_6
+    "sign_07",        // MAT_SIGN_7
+    "car_0",          // MAT_CAR_0
+    "car_1",          // MAT_CAR_1
+    "car_2",          // MAT_CAR_2
+    "car_3",          // MAT_CAR_3
+    "car_4",          // MAT_CAR_4
+    "car_5",          // MAT_CAR_5
+    "car_6",          // MAT_CAR_6
+    "car_7",          // MAT_CAR_7
+    "car_8",          // MAT_CAR_8
+    "car_9",          // MAT_CAR_9
+    "car_10",         // MAT_CAR_10
+    "car_11",         // MAT_CAR_11
+    "car_12",         // MAT_CAR_12
+    "car_13",         // MAT_CAR_13
+    "car_14",         // MAT_CAR_14
+    "car_15",         // MAT_CAR_15
+    "car_16",         // MAT_CAR_16
+    "car_17",         // MAT_CAR_17
+    "car_18",         // MAT_CAR_18
+    "car_19",         // MAT_CAR_19
+    "car_20",         // MAT_CAR_20
+    "car_21",         // MAT_CAR_21
+    "car_22",         // MAT_CAR_22
+    "car_23",         // MAT_CAR_23
+    "car_24",         // MAT_CAR_24
+    "car_25",         // MAT_CAR_25
+    "car_26",         // MAT_CAR_26
+    "car_27",         // MAT_CAR_27
+    "car_28",         // MAT_CAR_28
+    "car_29",         // MAT_CAR_29
+    "car_30",         // MAT_CAR_30
+    "car_31",         // MAT_CAR_31
+    "tile",           // MAT_TILE
+    "asphalt_fresh",  // MAT_ASPHALT_FRESH
+    "brick",          // MAT_BRICK
+    "sign_panels",    // MAT_SIGN_PANEL
+    "sign_kit",       // MAT_SIGN_KIT
+    "stone",          // MAT_STONE
+    "dressing",       // MAT_DRESSING
+    "skyline",        // MAT_SKYLINE
 };
 
 constexpr uint32_t    kTexturesPerMaterial            = 3;
@@ -131,12 +151,8 @@ void MaterialDescriptors::rebuild(VkDevice device, TextureManager& textures) {
             Texture* tex = textures.get_texture(texName);
 
             // Fall back to the 1×1 white "default" if a normal/roughness map is missing.
-            if (!tex) {
-                tex = textures.get_texture("default");
-            }
-            if (!tex) {
-                throw std::runtime_error("MaterialDescriptors::rebuild: missing texture '" + texName + "'");
-            }
+            if (!tex) { tex = textures.get_texture("default"); }
+            if (!tex) { throw std::runtime_error("MaterialDescriptors::rebuild: missing texture '" + texName + "'"); }
 
             VkDescriptorImageInfo imgInfo{};
             imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

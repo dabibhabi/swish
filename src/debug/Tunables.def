@@ -1,0 +1,217 @@
+// Tunables.def -- single-source registry of live tunables (X-macro, no include guard).
+//
+// HOW TO ADD A TUNABLE (converted groups: ssr, reflection, and the wet material pair + puddles; every
+// other group is still hand-written in DebugParams.h / DebugParamsIO.cpp / DebugUI.cpp):
+//   1. Add ONE line below, inside the right group (keep a group's lines together; the
+//      order here is the ImGui slider order, the save order and the printf-dump order).
+//   2. That is all for: the DebugParams field + default, TOML save, TOML load, the ImGui
+//      control, the "name=value" dump line, and the push-constant field copy.
+//   3. If the value goes to a push block, name the SsrParams-style member with PUSH(member)
+//      and make sure the C++ struct + GLSL block have it (PostProcessManager.h / shader).
+//      Use NOPUSH when it is not copied by a generated push copy: either it never reaches the
+//      GPU, or it is packed by hand elsewhere (the reflection / wet entries below go to the
+//      set-4 scene-params UBO in SceneParamsUniform.cpp::update, and release ignores them:
+//      lighting.frag's `#else` SP_* literals are the release values). Derived logic (e.g.
+//      ssrEnabled zeroing intensity) stays hand-written next to the generated copy in
+//      renderer/Passes/SsrPass.cpp (SsrPass::describe).
+//      DO NOT change the TUNE_B/TUNE_F arity: renderer/Passes/SsrPass.cpp includes this file with its own
+//      definitions of both macros.
+//   4. Release default differs from the debug default? Put the release value in the last
+//      slot instead of NOREL (e.g. `0.5f`). Release builds (SWISH_DEBUG_UI=OFF) then default
+//      the DebugParams field to it; the debug default is the `def` slot. Leave NOREL when
+//      they match (the byte-identical-release rule). Keep hand-written GLSL release macros
+//      in sync: tests/test_debug_params_io.cpp diffs them against this table.
+//   5. Keep `lo <= def <= hi` (tested). Existing TOML keys must never be renamed.
+//
+// Line formats (consumers define these before #include, this file #undefs them after):
+//   TUNE_B(name, group, key, def, label, rel)
+//   TUNE_F(name, group, key, def, lo, hi, label, sliderFmt, dumpPrecision, push, rel)
+// Consumers: DebugParams.h (fields), Tunables.h (descriptor table -> IO / UI / dump),
+//            renderer/Passes/SsrPass.cpp SsrPass::describe (push packing; NOPUSH rows expand to a
+//            no-op `(void) d.x;`).
+
+#define NOREL std::nullopt
+
+// ── SSR (screen-space reflections) ─ ImGui header "SSR", TOML table [ssr] ──
+TUNE_B(ssrEnabled, "ssr", "enabled", true, "Enabled##ssr", NOREL)
+TUNE_F(ssrIntensity, "ssr", "intensity", 0.714f, 0.0f, 2.0f, "Intensity##ssr", "%.3f", 3, PUSH(intensity), NOREL)
+TUNE_F(ssrMaxDist, "ssr", "max_dist", 36018.0f, 10000.0f, 500000.0f, "Max dist (WU)", "%.0f", 1, PUSH(maxDist), NOREL)
+TUNE_F(ssrThickness, "ssr", "thickness", 1835.0f, 200.0f, 20000.0f, "Thickness (WU)", "%.0f", 1, PUSH(thickness), NOREL)
+TUNE_F(ssrStride, "ssr", "stride", 400.0f, 200.0f, 10000.0f, "Stride (WU)", "%.0f", 1, PUSH(stride), 8063.0f)
+
+// ── Reflections / IBL ─ ImGui header "Reflections / IBL", TOML table [reflection] ──
+// Debug builds pack these into SceneParamsUBO.iblParams.xy / fogParams.z (set 4); the release
+// literals are lighting.frag SP_IBL_DIFFUSE / SP_IBL_SPECULAR / SP_ENV_GLOSS_EXP (== these defaults).
+TUNE_F(iblDiffuse, "reflection", "ibl_diffuse", 1.30f, 0.0f, 3.0f, "IBL diffuse", "%.3f", 3, NOPUSH, NOREL)
+// D4: light bounced off the sunlit road onto faces turned from the sun (ground albedo; 0 = old look).
+TUNE_F(groundBounce, "reflection", "ground_bounce", 0.15f, 0.0f, 0.4f, "Ground bounce albedo", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(iblSpecular, "reflection", "ibl_specular", 1.0f, 0.0f, 3.0f, "IBL specular", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(envGlossExp, "reflection", "env_gloss_exp", 3.0f, 0.5f, 8.0f, "Env gloss exp (legacy)", "%.3f", 3, NOPUSH, NOREL)
+
+// ── Wet surface material ─ ImGui header "Wet / Rain" (the two rows between "Rain intensity" and
+// "Streak length"), TOML table [wet] (shared with the hand-written rain / puddle / spray keys).
+// SceneParamsUBO.wetParams.xy; release literals SP_WET_POROSITY / SP_WET_ROUGHNESS (== defaults).
+// Puddles (owner decision C2, 2026-09-29): puddleCoverage is the ONE source for the lit pass and SSR.
+// lighting.frag: debug packs it into SceneParamsUBO.wetParams.z (0 when puddles are disabled), release uses the
+// SP_PUDDLE_COVERAGE literal (== this default, pinned by tests/test_debug_params_io.cpp). SSR: PUSH copy into
+// SsrParams::puddleCoverage in BOTH builds (release uses this default too), zeroed by !puddlesEnabled in
+// SsrPass::describe (renderer/Passes/SsrPass.cpp), so SSR reflects in exactly the pools the lit pass turns to mirrors.
+TUNE_F(wetPorosity, "wet", "porosity", 0.631f, 0.0f, 1.0f, "Wet porosity (release; debug = Lekner-Dorf)", "%.3f", 3, NOPUSH, NOREL)
+// wetRoughness: debug 0.35 (Lagarde: gloss x2.5 when wet; reference photos read glossy), release stays 1.0 (SP_WET_ROUGHNESS).
+TUNE_F(wetRoughness, "wet", "roughness", 0.35f, 0.0f, 1.0f, "Wet roughness", "%.3f", 3, NOPUSH, 1.0f)
+TUNE_B(puddlesEnabled, "wet", "puddles_enabled", true, "Puddles##puddle", NOREL)
+TUNE_F(puddleCoverage, "wet", "puddle_coverage", 0.501f, 0.0f, 1.0f, "Puddle coverage", "%.3f", 3, PUSH(puddleCoverage), NOREL)
+
+// ── Rain impact splashes ─ ImGui header "Wet / Rain", TOML table [rain_splash] (tasks/todo.md "Rain impact
+// splashes") ── Debug-only draw: RainSystem::beginFrame packs these into the SplashPush block (rain_splash.vert/.frag).
+// NOPUSH: packed by hand. Release never draws splashes. Splashes scale with rain intensity, so intensity 0 = none.
+TUNE_B(splashEnabled, "rain_splash", "enabled", true, "Splashes##splash", NOREL)
+TUNE_F(splashCellSize, "rain_splash", "cell_size", 600.0f, 200.0f, 3000.0f, "Splash cell (WU)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(splashDensity, "rain_splash", "density", 0.5f, 0.0f, 1.0f, "Splash density", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(splashPeriod, "rain_splash", "period_s", 0.6f, 0.1f, 3.0f, "Splash period (s)", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(splashLife, "rain_splash", "life_s", 0.35f, 0.05f, 1.0f, "Splash life (s)", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(splashRingRadius, "rain_splash", "ring_radius", 80.0f, 20.0f, 1000.0f, "Ring radius (WU)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(splashRingTau, "rain_splash", "ring_tau_s", 0.06f, 0.01f, 0.5f, "Ring growth tau (s)", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(splashRingWidth, "rain_splash", "ring_width", 0.12f, 0.01f, 0.3f, "Ring band width", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(splashDropCount, "rain_splash", "drop_count", 3.0f, 0.0f, 4.0f, "Droplets per splash", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(splashDropSpeed, "rain_splash", "drop_speed", 1500.0f, 0.0f, 5000.0f, "Droplet speed (WU/s)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(splashDropSize, "rain_splash", "drop_size", 25.0f, 5.0f, 200.0f, "Droplet size (WU)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(splashBrightness, "rain_splash", "brightness", 0.35f, 0.0f, 3.0f, "Splash brightness", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(splashRoadOffset, "rain_splash", "road_offset", 0.0f, -500.0f, 500.0f, "Splash height offset (WU)", "%.0f", 0, NOPUSH, NOREL)
+
+// ── Wheel-track ruts ─ ImGui header "Wet / Rain", TOML table [ruts] (rain round 3, P3) ── Debug-only: GeometryProducer
+// pushes the asphalt UV tile (extra.w) so gbuffer.frag can find the lanes; lighting.frag / ssr.frag turn the decoded rut
+// into standing water. NOPUSH: packed by hand. rut_uv_tile MUST equal road.toml [tiling] asphalt (3000 WU).
+TUNE_B(rutEnabled, "ruts", "enabled", true, "Wheel-track ruts##ruts", NOREL)
+TUNE_F(rutUvTile, "ruts", "uv_tile", 3000.0f, 500.0f, 10000.0f, "Asphalt UV tile (WU, = road.toml)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(rutWater, "ruts", "water", 0.85f, 0.0f, 1.0f, "Rut water", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(rutRoughness, "ruts", "roughness", 0.06f, 0.02f, 0.5f, "Rut water roughness", "%.3f", 3, NOPUSH, NOREL)
+
+// ── Rain ripples ─ ImGui header "Wet / Rain", TOML table [ripples] (rain round 3, P4) ── Debug-only: procedural rings
+// on standing water (puddles + ruts) in lighting.frag; packed into iblParams.zw + shadowParams.w (rain clock).
+TUNE_B(rippleEnabled, "ripples", "enabled", true, "Rain ripples##ripples", NOREL)
+TUNE_F(rippleStrength, "ripples", "strength", 0.6f, 0.0f, 2.0f, "Ripple strength", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(rippleCell, "ripples", "cell", 350.0f, 150.0f, 1500.0f, "Ripple cell (WU)", "%.0f", 0, NOPUSH, NOREL)
+
+// ── Wet streaks + rain-wet car ─ ImGui header "Wet / Rain", TOML table [wet_streaks] (L10.2, 2026-11-20) ── Debug-only.
+// Lamp and car-light reflections on wet up-facing surfaces use an anisotropic GGX lobe stretched toward the viewer
+// (packed into roofCount.yzw). car_rain_wet: a wet road also wets and beads the car's exterior, lamp lenses included.
+TUNE_B(streakEnabled, "wet_streaks", "enabled", true, "Wet light streaks##streaks", NOREL)
+TUNE_F(streakAlong, "wet_streaks", "alpha_along", 0.45f, 0.05f, 1.0f, "Streak roughness along view", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(streakAcross, "wet_streaks", "alpha_across", 0.05f, 0.01f, 0.5f, "Streak roughness across", "%.3f", 3, NOPUSH, NOREL)
+TUNE_B(carRainWet, "wet_streaks", "car_rain_wet", true, "Rain wets + beads the car (lens rain)##streaks", NOREL)
+
+// ── Car lights ─ ImGui header "Car Lights", TOML table [car_lights] (tasks/todo.md "Car lights") ──
+// CPU-only (NOPUSH): App::push_car_to_renderer builds CarLightParams/CarLightState from these and
+// uploads world spot lights via Renderer::set_car_spot_lights. Debug-only feature; enabled = false
+// reproduces today's image. Only assets with `<Anchor>_Lamp` nodes (porsche_rigged.glb) have lamps.
+TUNE_B(carLightsEnabled, "car_lights", "enabled", false, "Car lights##cl", NOREL)
+TUNE_B(carHeadlightsOn, "car_lights", "headlights_on", true, "Headlights##cl", NOREL)
+TUNE_B(carTailLightsOn, "car_lights", "tail_lights_on", true, "Tail lights##cl", NOREL)
+TUNE_B(carBrakeForce, "car_lights", "brake_force", false, "Hold brake lights##cl", NOREL)
+TUNE_F(carHeadLumens, "car_lights", "head_lumens", 1200.0f, 0.0f, 4000.0f, "Headlight flux (lm)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(carHeadRangeM, "car_lights", "head_range_m", 60.0f, 5.0f, 150.0f, "Headlight range (m)", "%.0f", 1, NOPUSH, NOREL)
+TUNE_F(carHeadInnerDeg, "car_lights", "head_inner_deg", 8.0f, 1.0f, 45.0f, "Beam inner (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carHeadOuterDeg, "car_lights", "head_outer_deg", 16.0f, 2.0f, 60.0f, "Beam outer (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carTailLumens, "car_lights", "tail_lumens", 20.0f, 0.0f, 200.0f, "Tail flux (lm)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(carBrakeLumens, "car_lights", "brake_lumens", 300.0f, 0.0f, 1000.0f, "Brake flux (lm)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(carTailRangeM, "car_lights", "tail_range_m", 6.0f, 1.0f, 30.0f, "Tail range (m)", "%.1f", 1, NOPUSH, NOREL)
+// ── Wipers ─ ImGui header "Wet / Rain", config/car.toml table [wipers] (tasks/todo.md "Rigged Porsche" S1b) ──
+// CPU-only (NOPUSH): App::update_wiper copies these into WiperParams each frame. The shipped values live in
+// config/car.toml [wipers] (the release values); App::load_car seeds these from it.
+TUNE_F(wiperLowWpm, "wiper", "low_wipes_per_min", 45.0f, 10.0f, 90.0f, "Wiper Low (wipes/min)", "%.0f", 1, NOPUSH, NOREL)
+TUNE_F(wiperHighWpm, "wiper", "high_wipes_per_min", 65.0f, 10.0f, 120.0f, "Wiper High (wipes/min)", "%.0f", 1, NOPUSH, NOREL)
+TUNE_F(wiperDwellS, "wiper", "intermittent_dwell_s", 4.0f, 0.0f, 15.0f, "Wiper intermittent pause (s)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(wiperSweepDeg, "wiper", "sweep_deg", 105.0f, 30.0f, 120.0f, "Wiper sweep (deg)", "%.0f", 1, NOPUSH, NOREL)
+TUNE_F(wiperEase, "wiper", "ease", 1.0f, 0.0f, 1.0f, "Wiper ease (0 linear, 1 cosine)", "%.2f", 2, NOPUSH, NOREL)
+
+// ── Physics model (stub) ─ ImGui header "Physics", TOML table [car] ──
+// Debug-only: App::apply_debug_params maps it to CarEntity::set_physics_model (false = bicycle, the
+// shipped model; true = 6-DOF rigid-body chassis stub). NOPUSH: never reaches the GPU. Release has no
+// UI and never calls set_physics_model, so the bicycle model always runs (byte-identical).
+TUNE_B(rigidBodyChassis, "car", "rigid_body_chassis", false, "Physics model: rigid body (stub)", NOREL)
+// Debug-only (CarEntity::set_substep_hz). 0 = one step per frame, which is what release always does.
+TUNE_F(carSubstepHz, "car", "substep_hz", 240.0f, 0.0f, 1000.0f, "Physics substep (Hz, 0 = per frame)", "%.0f", 0, NOPUSH, NOREL)
+// 6-DOF wheel-spin model only (CarEntity::set_chassis_tuning). Defaults = ChassisTuning{}.
+TUNE_B(carTc, "car", "traction_control", true, "Traction control", NOREL)
+TUNE_F(carTireShape, "car", "tire_shape", 1.45f, 1.1f, 1.9f, "Tyre curve shape C (higher = more grip lost in a slide)", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(carKappaPeak, "car", "tire_kappa_peak", 0.10f, 0.05f, 0.20f, "Slip ratio at peak grip", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(carAlphaPeakFront, "car", "tire_alpha_peak_front_deg", 7.0f, 3.0f, 12.0f, "Front slip angle at peak (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carAlphaPeakRear, "car", "tire_alpha_peak_rear_deg", 6.0f, 3.0f, 12.0f, "Rear slip angle at peak (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carLoadSens, "car", "tire_load_sens", 0.12f, 0.0f, 0.3f, "Tyre load sensitivity", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(carArbFront, "car", "arb_front", 30000.0f, 0.0f, 80000.0f, "Front anti-roll bar (N/m)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(carArbRear, "car", "arb_rear", 18000.0f, 0.0f, 80000.0f, "Rear anti-roll bar (N/m)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(carBrakeBias, "car", "brake_bias_front", 0.62f, 0.4f, 0.8f, "Brake bias to the front", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(carDownforce, "car", "downforce", 1.0f, 0.0f, 3.0f, "Downforce multiplier", "%.2f", 2, NOPUSH, NOREL)
+
+// ── Road wheels ─ ImGui header "Road Wheels", TOML table [wheels] (S1a, tasks/todo.md "Rigged Porsche") ──
+// Draw-only Ackermann blend (0 = parallel, 1 = pure). The release value is config/car.toml [wheels] ackermann
+// (CarConfig); App::load_car seeds this field from that file at startup, so `def` is only the no-file fallback.
+TUNE_F(wheelAckermann, "wheels", "ackermann", 1.0f, 0.0f, 1.0f, "Ackermann##wheels", "%.2f", 2, NOPUSH, NOREL)
+
+// ── Dial needles ─ ImGui header "Gauge Needles", TOML table [gauges] (tasks/todo.md "Rigged Porsche" S1c) ──
+// CPU-only (NOPUSH). The defaults read kGaugeDefaults (scene/Entity/GaugeNeedles.h); App::load_car then
+// seeds these from config/car.toml [gauges] (the release source of truth, same keys) and App pushes them into
+// CarEntity::set_gauge_params each frame. The speedo lookup table stays TOML-only (arrays). Only cars with
+// Needle_* pivots (porsche_rigged.glb) have needles.
+TUNE_F(gaugeTachOffsetDeg, "gauges", "tach_offset_deg", kGaugeDefaults.tachOffsetDeg, -180.0f, -90.0f, "Tach offset (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(gaugeTachDegPerKrpm, "gauges", "tach_deg_per_krpm", kGaugeDefaults.tachDegPerKrpm, 20.0f, 50.0f, "Tach deg / 1000 rpm", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(gaugeRpmRestDeg, "gauges", "rpm_rest_deg", kGaugeDefaults.rpmRestDeg, -180.0f, 180.0f, "Tach needle rest (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(gaugeSpeedRestDeg, "gauges", "speed_rest_deg", kGaugeDefaults.speedRestDeg, -180.0f, 180.0f, "Speedo needle rest (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(gaugeNeedleTauMs, "gauges", "needle_tau_ms", kGaugeDefaults.needleTauS * 1000.0f, 5.0f, 500.0f, "Needle damping tau (ms)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(gaugeSweepDurationS, "gauges", "sweep_duration_s", kGaugeDefaults.sweepDurationS, 0.0f, 5.0f, "Startup sweep (s)", "%.2f", 2, NOPUSH, NOREL)
+TUNE_B(gaugeTestOn, "gauges", "test_on", false, "Force test readings##gauge", NOREL)
+TUNE_F(gaugeTestRpm, "gauges", "test_rpm", 4000.0f, 0.0f, 8000.0f, "Test rpm", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(gaugeTestKmh, "gauges", "test_kmh", 140.0f, 0.0f, 320.0f, "Test km/h", "%.0f", 0, NOPUSH, NOREL)
+
+// ── Corridor diamonds ─ ImGui header "Corridor", TOML table [corridor] (C2b, tasks/todo.md "LIE full route") ──
+// Debug-only: a diamond per exit number. A settled change rebuilds the corridor (App::update, 0.5 s idle).
+TUNE_B(corridorDiamonds, "corridor", "diamonds", true, "Diamonds + service roads", NOREL)
+TUNE_F(corridorDipDepthM, "corridor", "dip_depth_m", 6.5f, 0.0f, 10.0f, "Mainline dip under crossroad (m)", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(corridorDipHalfM, "corridor", "dip_half_m", 350.0f, 100.0f, 800.0f, "Dip half-length (m)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(corridorSrStripM, "corridor", "sr_strip_m", 10.0f, 5.0f, 20.0f, "Grass strip to service road (m)", "%.1f", 1, NOPUSH, NOREL)
+// C3a: cross-street stub past each service road (rebuilds) and the span-wire signal cycle (live).
+TUNE_F(corridorStubM, "corridor", "stub_m", 90.0f, 60.0f, 150.0f, "Cross-street stub (m)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(corridorSignalCycleS, "corridor", "signal_cycle_s", 60.0f, 20.0f, 180.0f, "Signal cycle (s)", "%.0f", 0, NOPUSH, NOREL)
+// C3: off = the old per-side carriageway clamp (A/B the drivable ramps and service roads; takes effect at once).
+TUNE_B(corridorDriveOff, "corridor", "drive_off", true, "Drive ramps + service roads", NOREL)
+// C3b: in-game HUD strip + route minimap (H toggles hudShow); local = 2 km around the car, off = whole route.
+TUNE_B(hudShow, "corridor", "hud", true, "HUD strip + minimap (H)", NOREL)
+TUNE_B(hudMapLocal, "corridor", "hud_map_local", false, "Minimap: local 2 km (off = whole route)", NOREL)
+// C4: tunnel interior road illuminance (lux, live); CIE 88 interior zone, boosted at the portal in code.
+TUNE_F(corridorTunnelLux, "corridor", "tunnel_lux", 120.0f, 20.0f, 400.0f, "Tunnel lighting (lux)", "%.0f", 0, NOPUSH, NOREL)
+// D1: pavement detail (live, pushed per draw as PushConstantData::pave/pave2; docs/surface/tuning-notes.md).
+// Joints 15 ft = NYSDOT JPCP; reflectors 80 ft = MUTCD 3B.11 (2N on a 40 ft broken-line cycle).
+TUNE_F(surfaceJointM, "corridor", "surface_joint_m", 4.572f, 3.0f, 20.0f, "Slab joint spacing (m)", "%.2f", 3, NOPUSH, NOREL)
+TUNE_F(surfaceSealant, "corridor", "surface_sealant", 0.6f, 0.0f, 1.0f, "Joint / crack sealant", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(surfacePolish, "corridor", "surface_polish", 0.6f, 0.0f, 1.0f, "Wheel-path polish", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(surfaceWear, "corridor", "surface_wear", 0.7f, 0.0f, 1.0f, "Wear (patches, cracks, faded paint)", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(surfaceReflectorM, "corridor", "surface_reflector_m", 24.384f, 12.192f, 48.768f, "Reflector spacing (m)", "%.2f", 3, NOPUSH, NOREL)
+TUNE_F(surfaceRumble, "corridor", "surface_rumble", 1.0f, 0.0f, 2.0f, "Shoulder rumble strips", "%.2f", 2, NOPUSH, NOREL)
+// D2 edges (rebuild on settle; docs/corridor/tuning-notes.md): wide median east of exit 64 (between inner shoulder
+// edges), sound-wall height (FHWA LIE walls 10-17 ft), roadside ditch depth.
+TUNE_F(edgeWideMedianM, "corridor", "edge_wide_median_m", 20.0f, 2.0f, 40.0f, "Wide median east of 64 (m)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(edgeWallHM, "corridor", "edge_wall_h_m", 4.5f, 3.0f, 6.0f, "Sound wall height (m)", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(edgeDitchM, "corridor", "edge_ditch_m", 0.45f, 0.0f, 1.0f, "Roadside ditch depth (m)", "%.2f", 2, NOPUSH, NOREL)
+// D3 signs (rebuild on settle): gantries at 1 mile / 1/2 mile, gore signs, mile markers; sheeting sheen (roughness x).
+TUNE_B(corridorSigns, "corridor", "signs", true, "Signs, gantries, mile markers", NOREL)
+TUNE_F(signSheen, "corridor", "sign_sheen", 0.45f, 0.2f, 1.0f, "Sign sheeting roughness x", "%.2f", 2, NOPUSH, NOREL)
+// D4 overpasses (rebuild on settle): OSM crossings as girder / arch / through-girder bridges; vertical clearance over
+// the mainline (NYSDOT 16 ft 6 in over an Interstate).
+TUNE_B(corridorBridges, "corridor", "bridges", true, "Overpasses + LIE bridges", NOREL)
+TUNE_F(bridgeClearFt, "corridor", "bridge_clear_ft", 16.5f, 14.0f, 20.0f, "Overpass clearance (ft)", "%.1f", 1, NOPUSH, NOREL)
+// D5 district kits (rebuild on settle): trees + buildings past the edges, far ground; the skyline card is per frame.
+TUNE_B(corridorDressing, "corridor", "dressing", true, "Trees + buildings (district kits)", NOREL)
+TUNE_F(dressDensity, "corridor", "dress_density", 1.0f, 0.0f, 2.0f, "Tree / building density x", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(dressFarM, "corridor", "dress_far_m", 250.0f, 0.0f, 500.0f, "Far ground past the grass (m)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_B(skylineShow, "corridor", "skyline", true, "Manhattan skyline card", NOREL)
+// D6 landmarks (rebuild on settle; docs/corridor/tuning-notes.md D6): Unisphere, NYS Pavilion, Queens vent building,
+// boards (county line, HOV, exit 33, 62N attractions), deck styles at exits 22 / 31 / 44; Calvary headstones.
+TUNE_B(corridorLandmarks, "corridor", "landmarks", true, "Landmarks (props, boards, deck styles)", NOREL)
+TUNE_F(landmarkGraves, "corridor", "landmark_graves", 1.0f, 0.0f, 2.0f, "Cemetery headstone density x", "%.2f", 2, NOPUSH, NOREL)
+
+#undef NOREL
+#undef TUNE_B
+#undef TUNE_F
+#undef PUSH
+#undef NOPUSH

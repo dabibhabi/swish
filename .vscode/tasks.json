@@ -1,0 +1,150 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Shader: Validate current OpenGL GLSL",
+      "type": "process",
+      "command": "${workspaceFolder}/tools/shader-tools.sh",
+      "args": [
+        "validate-gl",
+        "${file}"
+      ],
+      "problemMatcher": [
+        "$gcc",
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^ERROR: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "error",
+            "message": 3
+          }
+        },
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^WARNING: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "warning",
+            "message": 3
+          }
+        }
+      ]
+    },
+    {
+      "label": "Shader: Validate OpenGL example project",
+      "type": "process",
+      "command": "${workspaceFolder}/tools/shader-tools.sh",
+      "args": [
+        "validate-gl-project"
+      ],
+      "problemMatcher": [
+        "$gcc",
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^ERROR: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "error",
+            "message": 3
+          }
+        },
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^WARNING: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "warning",
+            "message": 3
+          }
+        }
+      ]
+    },
+    {
+      "label": "Shader: Compile current Vulkan GLSL to SPIR-V",
+      "type": "process",
+      "command": "${workspaceFolder}/tools/shader-tools.sh",
+      "args": [
+        "compile-vulkan",
+        "${file}"
+      ],
+      "problemMatcher": [
+        "$gcc",
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^ERROR: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "error",
+            "message": 3
+          }
+        },
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^WARNING: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "warning",
+            "message": 3
+          }
+        }
+      ]
+    },
+    {
+      "label": "Shader: Compile all Vulkan GLSL to SPIR-V",
+      "type": "process",
+      "command": "${workspaceFolder}/tools/shader-tools.sh",
+      "args": [
+        "compile-vulkan-project"
+      ],
+      "problemMatcher": [
+        "$gcc",
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^ERROR: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "error",
+            "message": 3
+          }
+        },
+        {
+          "owner": "glslang",
+          "pattern": {
+            "regexp": "^WARNING: (.*):([0-9]+): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": "warning",
+            "message": 3
+          }
+        }
+      ]
+    },
+    {
+      "label": "Shader: Validate current SPIR-V",
+      "type": "process",
+      "command": "${workspaceFolder}/tools/shader-tools.sh",
+      "args": [
+        "validate-spirv",
+        "${file}"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Shader: Validate all generated SPIR-V",
+      "type": "process",
+      "command": "${workspaceFolder}/tools/shader-tools.sh",
+      "args": [
+        "validate-spirv-project"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

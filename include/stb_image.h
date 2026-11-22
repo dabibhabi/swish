@@ -4178,7 +4178,7 @@ static stbi_uc* load_jpeg_image(stbi__jpeg* z, int* out_x, int* out_y, int* comp
                 stbi__resample* r     = &res_comp[k];
                 int             y_bot = r->ystep >= (r->vs >> 1);
                 coutput[k]            = r->resample(z->img_comp[k].linebuf, y_bot ? r->line1 : r->line0,
-                                         y_bot ? r->line0 : r->line1, r->w_lores, r->hs);
+                                                    y_bot ? r->line0 : r->line1, r->w_lores, r->hs);
                 if (++r->ystep >= r->vs) {
                     r->ystep = 0;
                     r->line0 = r->line1;

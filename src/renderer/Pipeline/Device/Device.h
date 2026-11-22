@@ -43,11 +43,17 @@ public:
     // vkAllocateMemory per resource (which risks maxMemoryAllocationCount).
     VmaAllocator getAllocator() const { return m_allocator; }
 
-    // Process-wide pipeline cache, created (and loaded from disk) during init and
-    // saved + destroyed during cleanup. Wired into Pipeline::create via
-    // Pipeline::set_cache so repeat launches / swapchain recreations skip
-    // recompiling identical pipelines.
+    // Pipeline cache, created (and loaded from disk) during init and saved + destroyed during cleanup. Owned here,
+    // published as RendererServices::pipelineCache and passed to pipeline::create_graphics / create_compute so
+    // repeat launches / swapchain recreations skip recompiling identical pipelines.
     VkPipelineCache getPipelineCache() const { return m_pipelineCache; }
+
+    // Vulkan 1.3 features that were actually ENABLED on the logical device (queried via
+    // vkGetPhysicalDeviceFeatures2 + VkPhysicalDeviceVulkan13Features in init()). False means the
+    // device lacks the feature (or SWISH_CLASSIC_VULKAN=1 forced the classic path); callers must then
+    // use VkRenderPass/VkFramebuffer and classic vkCmdPipelineBarrier. Never a hard failure.
+    bool supportsDynamicRendering() const { return m_dynamicRendering; }
+    bool supportsSynchronization2() const { return m_synchronization2; }
 
     // Cached result of the queue family search performed during init().
     // Use this instead of calling findQueueFamilies() after init completes.
@@ -71,6 +77,8 @@ private:
     VkQueue            m_graphicsQueue  = VK_NULL_HANDLE;
     VkQueue            m_presentQueue   = VK_NULL_HANDLE;
     QueueFamilyIndices m_queueFamilies;
+    bool               m_dynamicRendering = false;
+    bool               m_synchronization2 = false;
 
     int rateDevice(VkPhysicalDevice device, VkSurfaceKHR surface) const;
 

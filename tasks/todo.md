@@ -1,625 +1,1333 @@
-# 🎬 Wow-factor weighting — calibrated to the UE reference (2026-07-02)
-
-Reference: four Unreal Engine cinematic stills the user supplied as the visual bar (black 911 GT3 R,
-city / wet-industrial streets). **Weight = pure visual wow toward *that* look (1–10), NOT effort.**
-Effort + status sit alongside so ROI ≈ weight ÷ effort is legible. Cues that recur across all four
-frames, strongest first: **DOF/bokeh → mirror-gloss paint reflecting a real environment → wet puddle
-reflections → motion blur → dense environment + GI → atmosphere/haze + volumetric shafts → bloom +
-cinematic grade/vignette/grain → clean temporal AA.**
-
-**Honest read:** these shots are ~half *cinematic camera + post* (DOF, motion blur, bloom, grade) and
-~half *environment richness + GI*. Swish's **materials** are already close (wet PBR · IBL · SSR landed);
-the biggest deltas to this bar are **DOF, motion blur + TAA, real HDRI reflections, environment density +
-GI, and the post stack** — NOT another BRDF tweak. So the weights below deliberately float **C9 DOF and
-HDRI IBL to the top**, and rate environment/GI (B3 + new H1) high — a bare road with lamps will never read
-as a dense city block on shaders alone.
-
-| W | Item (code) | Reference cue it delivers | Effort | Status |
-|---|---|---|---|---|
-| 10 | **Real HDRI IBL** | mirror paint reflects a *real* environment (buildings/trees) | L | deferred |
-| 10 | **Circular-bokeh DOF** (C9) | the #1 visible cue — foreground+background melt in all 4 | M | planned |
-| 9 | **Puddles + reflections** (deferred) | standing water throwing the scene back | L | deferred |
-| 9 | **Motion blur + velocity buffer** (C7 / deferred) | the chase-frame signature | L | deferred |
-| 8 | **TAA** (temporal AA) | shimmer-free AAA edges; substrate for clean SSR/SSAO | L | deferred |
-| 8 | **GI approximation** (H1, NEW) | bounce light, filled shadows, dappled tree light | L | NEW |
-| 8 | **Environment density + decals** (B3) | trees / clutter / props → "a real place" | M | planned |
-| 8 | **Froxel volumetric fog + headlight cones** (C4) | backlit shafts, rainy-night air | L | planned |
-| 8 | **SSR on wet road** (C5) | on-screen lamps/geo mirrored in asphalt | — | ✓ landed |
-| 8 | **Layered wet BRDF** (E3) | asphalt reads genuinely wet, not just shiny | M | planned |
-| 7 | **God-rays / light shafts** (deferred) | backlit sun/fire shafts (frame 1) | M | deferred |
-| 7 | **Karis bloom pyramid** (C2) | glowing taillights / fire / bright sky | S | planned |
-| 7 | **Height fog** (D1) | aerial perspective down the street | S | planned |
-| 7 | **Vignette + film grain** (F2) | "shot on a lens" cinematic layer | S | planned |
-| 7 | **Soft shadows / PCSS** (shadow polish) | soft grounded contact shadows | M | planned |
-| 6 | **Sun-tinted airlight** (D2) | directional glow through haze | S | planned |
-| 6 | **FOV kick + camera shake** (F1) | speed *feel* in motion | S | planned |
-| 6 | **LOD impostors** (B2) | dense skyline without a frame-time hit | M | planned |
-| 6 | **Puddle ripple normals** (E4) | animated concentric ripples on puddles | S | planned |
-| 5 | **Filmic grade / auto-exposure** | exposure balance sky ↔ street | — | ✓ landed |
-| 5 | **Analytic sky** Preetham/Hošek (D3) | coupled sky+sun+fog colour from one knob | M | planned |
-| 5 | **Fresnel-bounded sheen** (E2) | fixes the over-exposed far road | S | planned |
-| 5 | **Multiscatter GGX** (E1) | rough wet keeps energy, not muddy | S | planned |
-| 5 | **Curved centerline** (B1) | road geometry reads as a real place | M | planned |
-| 5 | **Wet BRDF (C1) · SSAO · CSM** | wet road · contact AO · crisp shadows | — | ✓ landed |
-| 4 | **Blue-noise dithering** (G1) | de-banded gradients / clean screen-space | S | planned |
-| 4 | **Mesopic night look** (C8) | night read (refs are mostly day) | S | planned |
-| 4 | **Light-coupled streaks (A1) · windshield optics (R-P1-3)** | rain interacts with lamps | M | planned |
-| 3 | **Clustered light culling** (C6) | invisible enabler for many lamps | L | planned |
-| 3 | **Halton (G2) · temporal upsample (G3) · network refactor (B4)** | sampling + perf plumbing | var | planned |
-| 2 | **Smoothing helper** (F3) | infra for F1 / weather / wiper transitions | S | planned |
-
-Effort: **S** = shader/post tweak · **M** = new pass/system · **L** = multi-pass / asset / compute.
-
-### If the goal is literally *these four frames*, build in this order
-**C9 DOF → HDRI IBL → C7 motion blur + TAA → C4 volumetrics / D1 height fog → C2 bloom + F2 vignette/grain
-→ B3 + H1 environment/GI.** This front-loads the cues the eye reads first (DOF, reflections, motion,
-atmosphere, post) before the subtler PBR/energy items — which is where "quality and how it looks" in the
-reference actually comes from. (This table is the authoritative per-item weight — every roadmap item
-below is a row here; the deferred features and the newest Tracks D–H are additionally tagged inline as `[W#]`.)
-
-## ▶ Recommended next batch — cheap-wow-first (2026-07-02)
-
-Curated from the weight table, tiered by ROI. **Bank the cheap 50% before the expensive 50%.** The math
-+ algorithms behind each are in [`docs/learning-path.md`](../docs/learning-path.md).
-
-**Tier 1 — very achievable now (cheap, high wow):**
-- [ ] **DOF / bokeh** (C9, W10) — pure composite pass; the single biggest visible win. The blurred
-      foreground / soft skyline *is* the reference look.
-- [ ] **Bloom pyramid + vignette + film grain** (C2 / F2, W7) — shader/post only; the "shot on a lens" layer.
-- [ ] **Height fog + sun-tinted airlight** (D1 / D2, W6–7) — one closed-form eval in `lighting.frag`; instant atmospheric depth.
-- [ ] **Fresnel-bounded sheen** (E2) — small fix that *also* cures the over-exposed far road.
-
-**Tier 2 — worth it, but real work:**
-- [ ] **Real HDRI IBL** (W10) — reuse the existing IBL hooks; paint reflects a real place instead of a gradient. Medium effort, huge payoff.
-- [ ] **Motion blur + TAA** (C7, W9) — needs a velocity buffer + history. Do after DOF.
-- [ ] **Froxel volumetrics** (C4, W8) — the rainy-night shafts; wants clustered light culling first.
-
----
-
-# ACTIVE — "Blender-look" realism pass (2026-07-01)
-
-Goal: close the gap to Blender Material-Preview realism on the glossy black 911. Root cue is
-**environment reflection** (paint mirroring the sky), NOT tonemapping (AgX already present) nor raw
-resolution. Four features, user-approved, worked with agents on the isolated parts.
-
-Orchestration: shared hot files (`lighting.frag`, `Renderer.cpp`, `PostProcessManager`,
-`CameraUniforms`) force serial edits → agents author isolated NEW files; I integrate shared files
-sequentially, building between each.
-
-- [x] **1. Clear-day preset** — `G` toggles bright sunny day (deep-blue sky, high white sun, brighter
-      ambient); dry (rain forced off, mutually exclusive with `R`). `weather.x`=clarity in CameraUBO.
-      DONE: build clean, ctest 52/52, validation-clean. Visual taste-check pending.
-- [x] **2. Sky reflections (IBL-lite)** — reflect `compute_sky_color()` about N, Fresnel + roughness
-      weighted → the Blender gloss. `lighting.frag` only. DONE (build/tests/validation clean).
-- [x] **(fog fix, mid-stream)** — rain fog was ~8× too dense (63% @ 150 m). Thinned to ~1.2 km, capped
-      0.65, gated to 0 on clear day. Cabin re-wash from clear-day fixed (ambient 0.45→0.33 + cubic
-      roughness-gate on reflection). Verified in-app (clear-day + heavy-rain cockpit screenshots).
-- [x] **3. Sun shadows** — DONE + verified. Shadow map + light matrix + PCF wired. MoltenVK has NO
-      comparison samplers → used plain sampler2D + manual PCF compare (the sampler2DShadow path was
-      rejected). Roof self-shadows the cabin → fixed the interior overexposure. Works in all weather.
-- [x] **Exposure trim** — composite exposure 1.0 → 0.45 + interior ambient 0.30→0.22 (clear 0.24) per
-      user ("too conservative"). Verified darker in-app.
-- [x] **4. SSAA** — DONE + verified. renderExtent = swap×1.5 (clamped to maxImageDimension2D);
-      offscreen chain (G-buffer/HDR/lighting/forward/bloom) render-sized, composite downsamples to
-      swapchain. Build clean, ctest 52/52, validation-clean.
-
-## Review
-All four features + fog/exposure fixes landed, each build-clean / ctest 52/52 / validation-clean and
-visually verified via screenshots. Clear-day cabin now dark + contrasty (was over-exposed): the fix
-chain was (a) whole-car dry mask, (b) roughness-gated sky reflection, (c) sun shadows binding (roof
-self-shadows cabin — the real fix; MoltenVK has no compare samplers so manual PCF), (d) exposure 1.0→
-0.45 + ambient cut. Fog thinned ~8× + capped + off on clear day. Bonus (reflections+shadows in rain):
-reflections show on the wet road; shadows are weather-independent. NOT committed (awaiting user).
-Tunables if further taste passes wanted: exposure 0.45, SSAA scale 1.5, shadow bias/frustum, reflection
-strength.
-- [x] **4. Supersampling (SSAA)** — render offscreen chain at scale×, composite downsamples.
-
-Rules: full-execution (user-authorized for Swish); CHANGELOG per feature; verify each (build, ctest
-52/52, validation-clean) before next; update Obsidian RFI note (G-P1-2/G-P0-3/G-P1-3) when landed.
-
-## Deferred — big GPU features (paused 2026-07-02, user requested, do 1 per turn)
-
-All debug-UI tunable + release-safe like the landed realism features. Order = ROI/effort.
-- [x] **[W7] God-rays / volumetric light shafts** — sun screen-pos → occlusion-masked radial-blur pass,
-      composited additively; later froxel volumetric fog. Debug density/decay/weight sliders. (Medium.)
-      **✓ LANDED 2026-07-03** — `shaders/godrays.frag` half-res radial blur (Mitchell), sky-gated occlusion,
-      added at composite (binding 4). Ships in release (un-gated, defaults density 0.9 / decay 0.95 / weight 0.35 /
-      intensity 0.04) + debug sliders. Build clean both configs · ctest 52/52 · validation-clean · verified.
-      Froxel volumetric fog remains the future upgrade. **The other 3 GPU features below stay paused.**
-- [x] **[W10] Real HDRI IBL** — load an `.hdr` equirect → cubemap → irradiance convolution + specular
-      prefilter mips + BRDF LUT → sample via the existing `skyIrradiance`/reflection hooks in
-      `lighting.frag`. Needs an `.hdr` asset (or bake the procedural sky into the cubemap). (Large.)
-      **✓ LANDED 2026-07-03** — user chose to **bake the procedural sky** (no `.hdr` asset). New `IBLManager`
-      (env→irradiance→GGX-prefilter→BRDF LUT), sampled in `lighting.frag` set 3 (scene-params UBO → set 4).
-      Baked at init + re-baked on weather change. Ships in release. Build clean both configs · ctest 52/52 ·
-      validation-clean · reflections verified (overcast grey + clear-day blue, coherent). A real `.hdr` asset
-      could later feed the same cubemap hooks. **Puddles+spray and motion-vectors→TAA remain paused.**
-- [x] **[W9] Puddles + road spray** — screen-space puddle mask reflecting through the existing SSR; GPU
-      particle spray/mist behind the car (compute). (Large.)
-      **✓ LANDED 2026-07-03** — puddles: road tag in `gbMaterial.a` + world-space procedural pool mask in
-      `lighting.frag` (rides the wet model → IBL sky mirror) and the `ssr.frag` reflectivity gate (debug).
-      Spray: the renderer's **first compute pipeline** — `Pipeline::createCompute`, a 4096-particle SSBO
-      simulated by `spray_sim.comp`, drawn as additive billboards (`SpraySystem`). Both wetness-gated →
-      dry release byte-identical. Validation-clean, 52/52, spray billboards verified. **Only TAA remains.**
-- [x] **[W9] Motion vectors → TAA + motion blur** — velocity G-buffer target (prev vs cur clip pos),
-      history buffer + reproject/neighborhood-clamp TAA (replacing SSAA), per-pixel motion blur. (Largest.)
-      **✓ LANDED 2026-07-03 (debug-gated)** — reprojection TAA (Halton jitter → depth-reproject → 3×3
-      neighborhood-clamp blend) + per-pixel motion blur, as a self-contained `TaaPass` that copies back
-      into HDR (bloom/composite untouched). Motion vectors are derived from depth + prev/cur VP (no
-      velocity G-buffer / push-constant change — MoltenVK-safe). Per user decision **SSAA stays the
-      release default**; TAA is a debug toggle to trial in motion, then flip `taaEnabled` + drop SSAA to
-      1.0 to promote it. Validation-clean, 52/52, static TAA + motion blur verified. **ALL 4 DEFERRED
-      GPU FEATURES NOW COMPLETE.** Follow-up (optional): jittered TAA fully replacing SSAA in release
-      once validated in motion; per-object velocity for correct dynamic-object motion vectors.
-
-Already landed this run (branch `debug-ui`, not pushed): live SSAA · toml presets · SSAO · CSM · IBL ·
-SSR (+roughness gate) · per-material editor · sun gizmo · steering gizmo (+pitch/roll/quat) · auto-exposure.
-
-## Next plans (post realism-pass, 2026-07-01)
-
-Ordered by visual-impact-per-effort, building on what just landed.
-
-**Lighting / reflections**
-- [ ] **Reflection ↔ ambient energy rebalance** (Cursor "lever 2"): the sky reflection and the
-      hemispheric sky-ambient (`skyFacing·skyTint·0.5`) both model sky light and aren't discounted
-      against each other. Drop/shrink the ambient sky term now that the reflection covers it — prevents
-      bright panels stacking past AgX's shoulder.
-- [ ] **Live exposure control + auto-exposure**: bind keys to nudge exposure; then log-average /
-      histogram auto-exposure so night vs day self-levels (Cursor "lever 3"; RFI C3).
-- [ ] **Full HDRI IBL** — prefiltered environment cubemap + irradiance map + BRDF LUT so glossy paint
-      reflects a *real* environment (trees/buildings), not just the analytic sky. The "true Blender"
-      reflection (RFI G-P1-2 / G-P0-3).
-- [ ] **SSR on the wet road** — screen-space reflections of on-screen lamps/geometry in wet asphalt
-      (RFI C5 / G-P1-2); reuses the wet-road material.
-- [ ] **SSAO** — wire ambient occlusion for contact/crevice darkening (RFI G-P1-4); the correct tool
-      the sun shadow map doesn't cover (under the car, dash recesses).
-
-**Shadows**
-- [ ] **CSM (cascaded shadow maps)** — the current single 2048² frustum follows the camera (~45 m).
-      Cascades for crisp long-range shadows down the 4.2 km highway (RFI G-P1-3).
-- [ ] **Shadow polish** — soft shadows (PCSS), tighter frustum fit, bias auto-tune; confirm the car's
-      ground shadow in free-fly and tune `halfExtent`/`depthRange`/bias/floor.
-
-**AA / perf**
-- [ ] **SSAA polish** — make render-scale a key/config; consider TAA or a proper downsample kernel
-      for >1.5×; watch VRAM/frame-time at 2×.
-
-**Weather / rain (bonus follow-through)**
-- [ ] **Night-scene lamp tuning** (RFI G-P1-1 follow-up) — lamp intensity/falloff for a proper wet night.
-- [ ] **Light-coupled rain streaks** (RFI R-P1-2) — streaks brighten/tint near lamps.
-- [ ] **Windshield lens optics** (RFI R-P1-3) — refracted-ray displacement, TIR, chromatic aberration.
-
-**Software robustness (deferred RFI)**
-- [ ] Exception-safe subsystem destructors (S-P0-2); std140 `static_assert`s; delete dead `glslc_test`
-      stub; `VK_CHECK_LOG` for teardown paths.
-
----
-
-# Wow-factor additions — analytic atmosphere · PBR energy · perceptual polish (2026-07-02)
-
-Brainstorm triage (planning conversation, **nothing started**). Split by *realistic* (physically-based
-light transport) vs *magical* (perceptual tricks that exploit how the eye reads a scene). Cross-refs to
-existing codes are noted so we never double-add: froxel volumetrics = **C4**, clustered culling = **C6**,
-motion blur/velocity buffer = **C7** + Deferred:TAA, Purkinje/mesopic = **C8**, bokeh DOF = **C9**,
-Karis bloom pyramid = **C2**, windshield chromatic aberration = **R-P1-3**, full HDRI IBL = Deferred.
-Everything below is genuinely NEW or an upgrade to a landed feature. All debug-UI tunable + release-safe.
-
-## Track D — Analytic atmosphere & sky (NEW; highest cheap-realism ROI)
-- [ ] **[W7] D1. Height fog** — extend the existing Beer–Lambert fog in `lighting.frag` ($1-e^{-\beta d}$) with
-      exponential altitude falloff so mist pools on the low road and thins upward. Closed-form, one eval/px:
-      $\;\text{fog}=\dfrac{\rho_0\, e^{-k\,h_{cam}}}{k\cos\theta}\bigl(1-e^{-k\,d\cos\theta}\bigr)$. Debug: $\rho_0$, $k$. **Do first — biggest realism-per-line.**
-- [ ] **[W6] D2. Sun-tinted airlight (Henyey–Greenstein)** — tint the fog airlight by $\hat v\!\cdot\!\hat s$ through the
-      HG phase ($g\approx0.3$) so looking toward the sun through mist glows, away stays flat. Cheap analytic
-      precursor to the **C4** froxel volumetrics — makes fog read as volumetric, not a painted veil.
-- [ ] **[W5] D3. Analytic sky (Preetham / Hošek–Wilkie)** — replace the hand-tuned sky gradient with a
-      turbidity-driven model so sky + sun aureole + fog colour all shift *together* from one knob. Debug:
-      turbidity slider. Physically couples with D1/D2 and feeds the existing IBL `skyIrradiance` hook.
-
-## Track E — PBR energy & wet-surface upgrades (fixes the look AND the known over-exposure)
-- [ ] **[W5] E1. Energy-preserving multiscatter GGX (Kulla–Conty)** — a compensation term on the existing GGX
-      spec so rough wet surfaces keep energy and stop going muddy.
-- [ ] **[W5] E2. Fresnel-bounded grazing sheen** — feed the wet grazing sheen through a proper Fresnel-weighted
-      reflectance so horizon brightening is physically bounded, not an unbounded add. **Fixes the
-      over-exposed far road.** Pairs with "reflection ↔ ambient energy rebalance" (Next-plans, above).
-- [ ] **[W8] E3. Layered wet BRDF (water-film clear-coat)** — model wet asphalt as a thin smooth water layer over
-      the rough diffuse base (clear-coat lobe + refracted diffuse) instead of a roughness lerp; darkening +
-      sharp specular fall out of ONE physical param (film thickness). Upgrade to landed wet BRDF / **C1**.
-- [ ] **[W6] E4. Puddle ripple normals** — superpose a few expanding radial sinusoids (Gerstner-style) into a
-      normal map for rain-struck puddles: animated concentric ripples. Sub-item of Deferred:Puddles+spray.
-
-## Track F — Perceptual polish & speed feel (tiny cost, big "feel")
-- [ ] **[W6] F1. FOV kick + camera shake on acceleration** — near-zero cost, the strongest speed cue after motion
-      blur; the sim feels floaty at 200 mph without it. Uses F3 easing. NEW standalone (C7 only notes *budgeting* speed cues).
-- [ ] **[W7] F2. Vignette + animated film grain** — a gentle vignette + subtle animated grain on top of the
-      existing AgX → "captured through a lens" cinematic quality. Composite-pass, debug-toggleable.
-- [ ] **[W2] F3. Framerate-independent exponential-smoothing helper** — formalise
-      $x \mathrel{+}= (x_{target}-x)\,(1-e^{-k\,\Delta t})$ as one shared util for FOV/shake/weather/wiper
-      transitions (auto-exposure + wetness already use this shape). "Polished vs janky" is mostly this.
-
-## Track G — Sampling quality (supporting; makes the above clean)
-- [ ] **[W4] G1. Blue-noise dithering** — swap white-noise sample offsets for blue noise in SSAO/SSR and the
-      sky/fog gradients; visibly de-noises for ~free.
-- [ ] **[W3] G2. Halton / low-discrepancy sequences** — TAA jitter + SSAO hemisphere sampling; better coverage
-      than random. Pairs with Deferred:TAA.
-- [ ] **[W3] G3. Halton-jittered temporal upsampling** — render the expensive passes (C4 volumetrics, SSR) at
-      lower res and reconstruct with the TAA history; buys back the perf the volumetrics cost.
-
-## Track H — the honest gaps the reference reveals (NEW)
-- [ ] **[W8] H1. Global-illumination approximation** — the reference's filled shadows, dappled tree light,
-      and bounce onto the car are *GI*, not direct light. Rising cost: (a) stronger IBL-driven ambient + AO
-      (cheap, reuses landed IBL/SSAO), (b) screen-space GI (SSGI, one bounce), (c) DDGI probe volumes
-      (Majercik 2019). Hardest item — content + lighting, not one pass; a bare road with lamps won't read as
-      a dense city block on shaders alone. Pairs with **B3** (environment density). *No shader-only shortcut.*
-
-### "Magic five" for *this* project (rainy, night-capable, wet-PBR already landed)
-1. **D1 height fog + D2 sun-tinted airlight** — best realism-per-line; instant atmosphere on the wet road.
-2. **C4 froxel volumetrics + headlight cones** *(already coded)* — the defining rainy-night image.
-3. **Deferred TAA + C7 velocity motion blur**, amplified by **F1 FOV/shake** — clean *and* fast-feeling.
-4. **E2 Fresnel-bounded sheen + E3 layered wet BRDF** — makes wet look wet *and* kills the over-exposure.
-5. **Perceptual stack: F2 vignette/grain + C8 Purkinje + G1 blue-noise + C2 Karis bloom** — the
-   "demo → magical" delta; each tiny, collectively decisive.
-
----
-
-# Roadmap — rain realism · LIE extension · night-scene visual realism (2026-06-30)
-
-Research-driven plan. Grounded in two cited briefs (AI-assisted research artifacts):
-[`docs/research-rain-rendering.md`](../docs/research-rain-rendering.md) and
-[`docs/research-night-scene-realism.md`](../docs/research-night-scene-realism.md). Each item links the
-technique that motivates it. Ordered by **visual-impact-per-effort** within each track. Nothing here is
-started yet — this is the plan to verify before implementation.
-
-> Current baseline (committed this pass): rain = 2-layer parallax streaks + Heartfelt-style refractive
-> windshield drops (small/dense beads) + persistent wetness map + visible wiper; road = 4.22 km LIE,
-> nearest-N lamp lighting (`MAX_POINT_LIGHTS=32`); composite already does ACES tone-map + bloom; car =
-> 911 Turbo S physics.
-
----
-
-## Track A — Rain realism (next steps)
-
-- [ ] **A1. Light-source-dependent streaks** — make falling-streak brightness/tint depend on the
-      nearest deferred point lights so streaks *ignite* near streetlamps (Garg–Nayar photometric model;
-      Halder ICCV 2019, rain brief §1). Feed the streak frag the same nearest-N lamp list `CameraUniforms`
-      already builds. **Highest rain ROI.**
-- [ ] **A2. Impact splashes / road spray** — short-lived splash sprites where streaks "hit" the road
-      plane + a faint up-spray near the car (R4 collision splashes, rain brief §3). Adaptive density
-      near the cockpit only (LOD).
-- [ ] **A3. Lens raindrops as a final overlay** — distinct from the windshield pass: screen-space drops
-      on the *virtual camera lens*, NOT cleared by wipers (Heartfelt as a lens pass; night brief §6).
-      Subtle, gated low so it doesn't fight the windshield drops.
-- [ ] **A4. Validate windshield drops vs Heartfelt reference** — confirm trail-cutting-through-fog and
-      normal→UV-offset refraction match the canonical behaviour; check the von Bernuth contact-angle
-      drop shape $h=\tan(\theta/2)\cdot d$ ($\theta\approx 87°$) for bead bulge (rain brief §2).
-- [ ] **A5. Wetness-map mip blur** — the snapshot is single-LOD; wire `screenAndRefr.z` (already
-      reserved) to a wetness-driven blur once the snapshot generates mips (rain/README "future work").
-
-## Track B — Extend & enrich the Long Island Expressway
-
-- [ ] **B1. Curved centerline** — replace the straight road with gentle arcs/clothoids so it reads as
-      real I-495 (OpenDRIVE reference-line + $(s,t)$ model; Galin curvature constraints; night brief §5).
-      Express lanes, lamps, signs as offsets along arc-length $s$ — one 1-D parameter drives the layout.
-- [ ] **B2. Distance LOD + billboard impostors** for lamps/signs/guardrail posts marching to the
-      horizon; geomorph/alpha-fade transitions, select by projected screen coverage (RTR4 Ch.19, night
-      brief §5). Needed before extending further than 4.22 km without a frame-time hit.
-- [ ] **B3. Roadside enrichment** — guardrails swept along the spline, more sign sets, an overpass or
-      two, lane-wear/tire decals via deferred screen-space decals against the G-buffer (Wronski 2015,
-      night brief §5).
-- [ ] **B4. Network-first refactor** — treat the baked centerline as the single source of truth and
-      *derive* lane stripes, lamp spacing, sign placement, and the exit-ramp split from it (Parish &
-      Müller "network drives everything", night brief §5), instead of hand-placed Z positions.
-- [ ] **B5. Optional further extension** — only after B2; with LOD in place, length becomes a config
-      number again (`road.toml`).
-
-## Track C — Night-scene visual realism (biggest "looks AAA" wins)
-
-- [ ] **C1. Wet-asphalt BRDF** — single-pass dry↔wet lerp on diffuse/roughness/normal driven by
-      `WetLevel` (reuse `RainSystem::get_wetness()`); porosity-masked so lane paint/metal barely change
-      (Lagarde 3a/3b; Nakamae 1990 drive-sim wet-road; night brief §2). **Highest night-scene ROI** —
-      turns the road from "dim grey" to "wet & reflective", reusing existing point lights for the
-      stretched specular streaks.
-- [ ] **C2. Bloom firefly suppression / quality pass** — confirm the existing bloom uses a
-      downsample/upsample mip pyramid with Karis-average firefly suppression (bright lamps vs dark sky
-      flicker without it) (Jimenez 2014, night brief §1). Upgrade if it's a naive blur.
-- [ ] **C3. Verify/upgrade tone map** — composite is ACES per docs; confirm + add log-average
-      **auto-exposure** so the dark road doesn't wash out or clip headlights (Hable/Narkowicz/Reinhard,
-      night brief §3).
-- [ ] **C4. Froxel volumetric fog** — view-aligned froxel volume, inject in-scattering from each lamp +
-      headlight cone with a forward Henyey–Greenstein phase ($g\approx0.2$–$0.6$); composites as one
-      texture lookup, cost independent of light count (Wronski 2014, Hillaire 2015, night brief §4).
-      The defining rainy-night atmosphere. *(Cheap interim: Mitchell screen-space god-rays for the one
-      hero on-screen lamp, night brief §4.)*
-- [ ] **C5. SSR on the wet road** — half-res stochastic SSR (McGuire–Mara tracer + Stachowiak BRDF
-      sampling + temporal/spatial filter) so wet asphalt reflects on-screen lamps; reuses C1's wet
-      material (night brief §2). Planar-reflection RTT as the cheaper artifact-free fallback.
-- [ ] **C6. Clustered light culling** — froxel light-assignment compute pass so dozens–hundreds of
-      lamps down the road don't blow up the per-fragment light loop (Olsson 2012; UPenn CIS 565). The
-      scalability backbone for B5 + C4. Pairs with **IES / range-windowed point lights** in physical
-      units (Lagarde & de Rousiers 2014, night brief §1) for correct falloff + tight bounding spheres.
-- [ ] **C7. Camera motion blur** — reconstruction filter from a reprojection velocity buffer; strongest
-      per-frame speed cue (McGuire 2012). Budget speed cues across FOV/shake/streaks — the Disney study
-      shows blur alone doesn't sell speed (Sharan 2013, night brief §6).
-- [ ] **C8. Mesopic night look** — subtle rod/cone desaturation + Purkinje blue-shift on dark regions so
-      the road *reads* as night, not just dim (Jensen 2000; Kirk & O'Brien 2011, night brief §3).
-- [ ] **C9. Circular-bokeh DOF** (optional/cinematic) — keep dash in focus, distant headlights bloom
-      into clean bokeh discs (Garcia GDC 2018, night brief §6).
-
-## Sequencing notes
-- **Do C1 + C2 + C3 first** — three mostly-shader changes that transform the look fast and underpin
-  everything else (wet road needs the tone map/bloom to show).
-- **C6 (clustered) gates B5 + C4** — get many-lights scalability before adding more lamps or per-light
-  fog.
-- **A1 reuses** the nearest-N lamp list already in `CameraUniforms` — cheap, high-impact, do early.
-- Per the visual-feature lesson ([`lessons.md`](lessons.md)): "clean build ≠ done" — every item here is
-  visually verified in-app (screenshot workflow) before being checked off, at rain extremes 0 and 1.0.
-
----
-
-# Three-task pass — rain bugs/realism · 911 Turbo perf · +2 mi road (2026-06-29)
-
-Plan: `~/.claude/plans/three-agents-to-work-encapsulated-stroustrup.md`. Three agents on disjoint
-file sets (physics + road in parallel; rain last since it shares CarEntity/SceneTypes regions).
-
-## Agent 2 — Porsche 911 Turbo performance ✅
-- [x] Root cause: drag trap (`kAccel/kDragCoeff = 18000/2.5 ≈ 7200 WU/s ≈ 16 mph`), not the 30k clamp
-- [x] `kDragCoeff 2.5→0.12`, `kMaxForwardSpeed 30000→92000` (205 mph), `kAccel 18000→12000` (0–60 ≈2.6 s), `kBrakeAccel 24000→36000`
-- [x] Variable steering ratio `kSteerRefSpeed/(kSteerRefSpeed+|v|)` → stable at top speed, sharp when parking
-
-## Agent 3 — Extend LIE +2 miles ✅
-- [x] `road.toml` length_m 1000→4218.688; auto-baked via CMake `bake_configs`
-- [x] Exit ramp + 6 signs re-expressed relative to `z_far` (ramp ~75%, signs 10–90%)
-- [x] Lamp gen cap removed; nearest-N lamp selection in `CameraUniforms`; `MAX_POINT_LIGHTS 16→32` + arrays in lighting/basic.frag
-
-## Agent 1 — Rain realism + bugs ✅
-- [x] "Up at rest" was windshield mesh-UV gravity sign (NOT the mod wrap) → flipped gravity/aero Y
-- [x] Blobs→streaks (less speckle, `kStreakLen 1200→3200`); animated gust wind
-- [x] Visible wiper blade SDF + wider swept-sector clear + slower re-wet (manual V)
-- [x] Whole-cabin light-gray wash via gbuffer alpha-sentinel + `is_interior` tag (world untouched)
-- [x] Tuning round: fixed heavy-rain opaque veil → see-through beads; fixed near-white cabin → light gray
-
-## Review
-- **Verified in-app** (screencapture + CGEvent driving): build clean; app runs validation-clean; car
-  loads (bbox 4.57×1.29×2.03 m). Car drives (was drag-capped); heavy rain road visible (veil fixed);
-  interior reads light gray (white-out fixed); wiper blade sweeps + clears; road extends to horizon.
-- **Two regressions caught in QA and fixed by a second Agent-1 pass**: heavy-rain windshield went
-  opaque (the project's known "too thick" mode) and interior washed near-white. Lesson: always test
-  rain at the **intensity extremes** (0 and 1.0), not just mid.
-- **Tests:** 32/34 (2 pre-existing `RoadScene zero-*-config` failures, unrelated to these tasks).
-- **Pending live taste-check by user**: heavy-rain bead *density* is conservative (kept usable); the
-  windshield-drop "down at rest / up at speed" crawl is a deterministic sign flip — best confirmed by
-  watching live motion.
-
----
-
-# Realistic Rain Overhaul — parallax + retinal streaks + windshield trails + halos (2026-06-29)
-
-## Context
-Four disjoint improvements to the two rain systems. Agent 2 kept in RainSystem.cpp/.h
-(two-draw far layer, no shader edit) so rain.frag stays exclusive to Agent 3 — all four
-workstreams are parallel-safe. "premons" → full implementation.
-
-## Plan
-- [x] Agent 1 — `shaders/windshield_rain.frag`: lower l1 threshold + reduce l0 so clinging→
-      sliding trails show at light/medium rain; verify trail/fog read.
-- [x] Agent 2 — `RainSystem.cpp/.h`: second "far" parallax layer via 2nd draw + 2nd UBO
-      (halfExt×2, dropSpeed×0.7, intensity×0.55, streakLen×0.8, time+kFarTimePhase); double
-      descriptor pool size; cleanup far buffers. No shader/pipeline/Renderer/CMake change.
-- [x] Agent 3 — `shaders/rain.frag`: average N=7 samples along the oscillation outline for
-      multi-highlight speckled streaks (Rousseau). Kept additive + head/tail fade.
-- [x] Agent 4 — `shaders/lighting.frag`: subtle additive halo around point lights scaled by
-      wetness (rainy streetlight glow), in the point-light loop.
-- [x] `./scripts/format.sh`, `make build` (clean — all 3 shaders compile, swish+tests link).
-- [x] `make test` — 32/34 pass; 2 failures (`RoadScene zero-*-config`) are PRE-EXISTING and
-      unrelated (working-tree RoadScene.cpp changes predating this work; no rain/lighting refs).
-- [x] **Visual verification done in-app** (forced m_rainIntensity=1.0, screenshot, iterate, revert).
-- [x] **Realism tuning pass** (windshield drops were ring outlines): folded trail into the height
-      field (rivulets now refract), per-drop sky glint (was using macro normal → no per-bead glint),
-      darkened lens body + cut haze; density 60→85, refraction 0.065→0.080; brighter falling streaks.
-- [x] Docs: CHANGELOG.md (2 entries 2026-06-29), docs/rain/README.md (Part 1 + tunables incl. lens model).
-- [x] **Realism round 2 — "too thick" → thin/translucent/delicate** (user feedback, grounded in
-      Garg & Nayar / Rousseau / in-repo examples/DownPour). Windshield: combine drop layers with
-      `max` not sum (the key fix), semi-transparent alpha cap (≤0.62), smaller drops, thinner
-      rivulets, lighter haze/glint, refraction 0.080→0.070. Streaks: thinner width (3–8), lower
-      opacity, thin core + head taper, drop the ×1.6 boost→×1.15, deeper internal speckle.
-      Verified in-app at heavy AND light rain (overshot to near-clear, dialed back to delicate).
-      CHANGELOG + docs/rain tunables updated. Build clean; same 2 pre-existing RoadScene failures.
-
-## Review
-- **Disjoint-files conflict resolved:** the task framed Agent 2 + Agent 3 as both touching
-  `rain.frag`. Implemented Agent 2 entirely in `RainSystem.cpp/.h` (two-draw far layer, no shader
-  edit) so `rain.frag` stayed exclusive to Agent 3 — all four workstreams ran as truly parallel
-  subagents on disjoint files.
-- **Agent 2 (parallax):** validated "two-draw" approach (Plan agent). One render pass, one pipeline,
-  same instance buffer; the second draw binds a far UBO with scaled params. The one correctness
-  pitfall — doubling the descriptor pool `descriptorCount` + `maxSets` to `2·MAX_FRAMES_IN_FLIGHT` —
-  is in. Verified by reading `createDescriptors`/`update`/`record_draws`/`cleanup` post-build.
-- **Compile/link verified:** `make build` clean; lighting.frag, rain.frag, windshield_rain.frag all
-  recompiled via glslc; RainSystem.cpp relinked. `clang-format` clean.
-- **Not yet verified:** on-screen appearance (needs interactive `make run`). Tuning constants
-  (windshield weights, kHaloStrength, far-layer scales, N) are documented and easy to iterate.
-
----
-
-# Persistent wetness map — real wipe-off + speed flow (2026-06-28)
-
-## Done
-- [x] New fullscreen wetness pass `windshield_wetness.frag` (registered in CMake): accumulate rain +
-      semi-Lagrangian advection along flow + wiper clear + evaporation; R16F ping-pong A/B + copy.
-- [x] `WindshieldRainPass`: wetness images/views/FB/render pass/pipeline/descriptors, `record_wetness_update`,
-      CPU flow + advect params, one-time clear; rain frag gates drops by sampled `wetMap` (binding 2);
-      analytic wiper removed from rain frag (now persistent in the wetness pass).
-- [x] **Fixed unreachable speed crossover**: car terminal speedFactor ≈ 0.24 (drag-limited), so
-      `smoothstep(0.1,0.6)` never went up → retuned to `smoothstep(0.05,0.20)` in both CPU + frag.
-- [x] Renderer calls `record_wetness_update` before the snapshot.
-- [x] Build green (swish + tests); validation-clean at runtime (ping-pong + barriers + binding-2 sampler).
-- [x] Docs: CHANGELOG entry, docs/rain/README updated (Part 3 = wetness map), diagram text updated.
-
-## Review
-- Rain now accumulates and the wiper **genuinely wipes water off** — visually confirmed: a cleared
-  swath persists and rebuilds as rain re-wets (wfinal*.png). The drops are gated by the wetness map.
-- Water flows down at rest / up at speed; the real blocker was the crossover being above the car's
-  drag-limited top speed — fixed. Up-direction visual not cleanly screenshotted this session (an
-  unrelated foreground app, ComfyUI, occluded the swish window); confirm live by driving (hold ↑) with rain on.
-- Architecture: screen-space map (cockpit view is fixed; mesh UVs are degenerate). Ping-pong A/B + a
-  B→A copy keeps the rain descriptor's wetness binding fixed (no per-frame churn).
-
----
-
-# Refractive windshield rain + wiper (2026-06-28)
-
-## Plan (multi-agent per prompt.md → approved plan)
-- [x] ModelManager: `isWindshield` excludes `WindowInside_Geo` (outer pane only)
-- [x] PostProcessManager: HDR image gains `TRANSFER_SRC` usage
-- [x] WindshieldRainPass.h/.cpp: 4-Vec4 UBO, refraction-source image + sampler, descriptor
-      binding 1, `record_scene_snapshot` (transfer barriers + copy), wiper state, alpha+back-cull pipeline
-- [x] windshield_rain.vert: glass-space `fragUV` + object-space normal
-- [x] windshield_rain.frag: layered Voronoi drops, stick-slip, finite-diff normal, scene
-      refraction, Fresnel rim + glint, front-normal mask, analytic wiper clear
-- [x] Renderer.h/.cpp: snapshot call (glass→windshield), `set_wiper_enabled`, wiper threaded into update
-- [x] App.h/.cpp: `V` key edge-detected wiper toggle
-- [x] Docs: CHANGELOG, shaders/README, src/renderer/README, docs/rain/*.md
-- [x] Build green (swish + tests); shaders compile; app runs validation-clean; `windshield: 1`
-- [x] **Visual verification DONE** (permissions restored): drops are small refractive beads (not
-      blobs), confined to the front windshield (no cabin/side-glass rain), wiper sweeps a clear streak.
-      Real path confirmed: default-off → `R` rain → `V` wiper (held CGEvent keys). See
-      `docs/images/windshield-rain-fixed.png`.
-- [x] Tuning applied: cull `FRONT` (BACK culled the cabin-facing surface — drops were invisible);
-      density 60, refractStrength 0.030, Fresnel rim 0.15; wiper moved to **screen space** (windshield
-      mesh UV is ~constant near (1,1), so glass-UV pivot missed the glass), pivot (0.5,0.92), band 0.12.
-
-## Review
-- Root causes from `issue.md` addressed structurally: additive→refraction (alpha blend +
-  HDR snapshot), screen-space→glass-space drop field, low→high density, inner-pane untagged +
-  single-sided cull + forward-normal mask, and a `V`-toggle analytic wiper.
-- **Feedback-loop avoided:** the pass renders into HDR, so it samples a per-frame *copy* of HDR
-  (`vkCmdCopyImage`) made after the glass pass; explicit transfer barriers (insertImageBarrier
-  doesn't cover TRANSFER layouts).
-- **Verified:** clean build incl. tests; shaders compile; app runs many frames validation-clean
-  (snapshot + binding-1 sampler + barriers exercised); loader logs exactly 1 windshield submesh.
-- **Not verified (env limitation):** on-screen appearance — Screen Recording + Accessibility are
-  denied here, so screenshots/synthetic keystrokes fail. The remaining `[ ]` is pure visual tuning
-  with the tunables listed above; everything is parameterized for quick iteration.
-- **Side fix:** `swish_tests` failed to link (`_glfwGetKey` in `Camera.cpp`) — pre-existing, unrelated
-  to rain; fixed by linking `glfw` into the test target.
-
----
-
-# Car-on-road correctness + documentation
-
-## Context
-Car system (Entity/CarEntity, ModelManager::load_car, dynamic geometry path,
-App wiring) already existed and built clean. GLB inspection + live screenshots
-revealed two placement bugs: the mesh origin is at axle height (car sank 36cm
-into the asphalt) and the mesh nose points mesh +Z while the old yaw convention
-put it at world −X (car drove sideways, and visual yaw mirrored the physics
-heading in Z).
-
-## Plan
-- [x] Add mutable `getVertices()` to MeshData (SceneTypes.h)
-- [x] Normalize mesh in ModelManager::load_car: rotate +90° about Y so nose
-      +Z → +X (positions, normals, tangents), then ground min.y → 0; log bbox
-      (gate: 4.57 × 1.66 × 2.03 m ✓, grounded by 0.362 m)
-- [x] Make physics match the visual convention: forward = R_y(yaw)·(+X)
-      = (cos, 0, −sin); yaw −= ω·dt (positive steer = right) — CarEntity.cpp
-- [x] Spawn yaw −90° → +90° (nose down −Z) — App.cpp
-- [x] Rebuild + tests: 32/32 pass
-- [x] Visual verification via screenshots + synthetic CGEvent key input:
-      rear view from camera ✓, tires on asphalt ✓, throttle drives down the
-      lane ✓, left steer curves left with matching body yaw ✓, X clamp holds
-      car on roadway ✓
-- [x] docs/car_system.md: new convention section + load-normalization mermaid
-      flowchart; fixed spawn snippet and yaw table row
-- [x] architecture.excalidraw: updated loader box, driving-model box, and
-      asset-facts box with implemented normalization + convention
-
-## Round 2: cockpit camera + full interior rendering (2026-06-10)
-
-- [x] Node-walk loader: bake inverse(W_RootNode)·W_node into vertices
-      (normals inv-transpose, tangents mat3) — 1665/1667 mesh nodes had
-      non-identity transforms; steering wheel + interior now render
-- [x] Skip alphaMode==BLEND prims (3 glass) so cockpit can see out
-      (interim until Phase 5 forward pass)
-- [x] Cockpit camera in App: default mode, C toggles free-fly; eye =
-      M_car · kSeatEye(−0.32, 1.05, −0.34 m); yaw = −heading + look;
-      mouse look clamped ±150°/±60°
-- [x] Verified via screenshots: full dash/wheel/gauges render, road
-      visible through windshield, camera rides car while driving,
-      free-fly detaches, exterior intact, no stray geometry
-      (white road marks = pre-existing lane markings)
-- [x] Bbox gate after baking: 4.57 × 1.29 × 2.03 m (1.29 = real 911
-      height; old 1.66 was misplaced geometry), grounded by ~0.001
-- [x] Docs: car_system.md node-walk + cockpit sections; excalidraw
-      loader/cockpit/glass boxes updated
-
-## Review
-- The "drive on the road correctly" bug was two independent convention
-  mismatches (vertical origin, heading axis), both fixed at the loader level
-  so entity transforms keep clean semantics: position.y = 0 means tires on
-  road; R_y(yaw)·(+X) is both the nose direction and the velocity direction.
-- Verified live: app runs with validation layers clean; bbox gate logged at
-  load. Screenshots: /tmp/swish_fix2_zoom.png (grounded, rear view),
-  /tmp/swish_drive1.png (drove down lane), /tmp/swish_steer2_zoom.png
-  (left turn, body yawed with the curve).
-- Deferred (per plan/car_system_port.md): config-driven tunables, cockpit
-  camera, FSM physics upgrade, articulated steering wheel, glass pass.
-
----
-
-## 🛣️ Endless LIE epic — streaming corridor + service roads + drivable interchanges (2026-07-05)
-
-User goal: make the drive feel 20–30 miles on a believable LIE corridor. Decisions locked with the user:
-endless **treadmill** (recycle chunks + origin-rebase → precision solved for free); keep the authored
-4.2 km as the **intro**, procedural beyond; **elevated diamond/cloverleaf** interchanges (graded ramps +
-car pitch on grade); **service roads both sides, continuous**; **guided network** (bounds follow the
-current surface — no free-roam). Full design: `~/.claude/plans/resilient-bubbling-honey.md`.
-
-- [x] **Layer 0 — Per-draw distance + frustum culling.** `DrawCall` bounding sphere (−1 = never-cull
-      sentinel); `CullParams`/`CullStats` + cull filter in `SceneGeometry::record_draws` (frustum+dist)
-      and `record_depth` (dist-from-camera only). Gribb–Hartmann planes in `Renderer`. Debug "Culling"
-      panel. Ships in release with image-identical defaults. **Verified:** default 6000/6046 drawn
-      (unchanged look); 250 m stress → 388/6046 (93.6%) with no visible wall. 52/52 tests; both configs
-      build. (CHANGELOG 2026-07-05.)
-- [x] **Layer 1 — Endless road: tiled chunks + origin-rebase treadmill.** Chose a UNIFORM canonical
-      tile (one `RoadScene::generate_chunk(300k)` mesh instanced per frame at a sliding window of world
-      offsets via a per-draw `originOffset`) instead of the full per-chunk upload/fence/deferred-destroy
-      machinery — that's only needed once chunks VARY (Layer 4). Double origin rebase in whole-chunk
-      steps keeps float32 bounded; `renderZ = trueZ + m_originShift`. Far plane 4.3M→2.4M. **Verified:**
-      intro start unchanged; 6 km out tiles seamlessly + survives a 6M rebase; ~110 fps; 52/52; both
-      configs build. (CHANGELOG 2026-07-05.) Follow-ups: post-spacing seam hiccup, intro→chunk UV seam,
-      per-slot chunk lights, spray/TAA rebase — see CHANGELOG "Known follow-ups".
-- [x] **Layer 2 — Continuous service roads, both sides.** `RoadScene::generate_service_roads` — 2-lane
-      frontage road each side beyond the sound barriers (double-yellow centre + white edges, all
-      full-length spans → seamless), lifted 6 WU above grass to avoid coplanar z-fight. Called from
-      `generate_chunk` only (endless region); intro + its exit-ramp marginal road left untouched.
-      **Verified** from a drone view: both frontage roads parallel to horizon, clean markings, no
-      z-fight; intro start unchanged. 52/52; both configs. (CHANGELOG 2026-07-05.) Deferred: curbs,
-      service-road lamps, drivability (Layer 3).
-- [x] **Layer 3 — Ribbon primitive + guided EB↔WB crossover.** `MeshBuilder::emit_ribbon` (3D
-      centreline → up-facing strip, arc-length UVs — building block for curved/graded ramps);
-      `generate_crossover` (smoothstep S-curve connector across a jersey-barrier gap, per chunk);
-      `drivable_bounds` in App feeds the car per-frame lateral bounds that open across the median at
-      crossover windows (else EB/WB by side); symmetric `road_surface_y`. Car physics untouched (free
-      bicycle + existing X-clamp; only the bounds/Y SOURCE generalized → EB byte-identical).
-      **Verified:** ribbon renders (winding-checked w/ temp colour); bounds open [-20526,20526] at a
-      crossover; car drives WB with [-20526,-1828]; intro unchanged; 52/52; both configs.
-      (CHANGELOG 2026-07-05.) Follow-ups: grade (L4), one-maneuver U-turn tuning, per-chunk demo cadence,
-      full (ribbonId,s,t) tracking for overlapping decks (L4).
-- [x] **Layer 4 — Elevated diamond interchanges (geometry).** `generate_interchange` — over-the-mainline
-      cross-street deck (19.5 ft) on piers + FOUR graded on/off ramps via `emit_ribbon` (smoothstep 3D
-      centreline climbing y:6→deck_top, ~4.6% grade). Instanced as a 2nd canonical geometry SPARSELY
-      (~1.5 mi = 8 chunks apart) via the treadmill (reuses chunk cull/rebase/originOffset path).
-      **Verified** from a close drone view: deck + piers + curved rising ramps render (temp-red/orange
-      checked); intro unchanged; 52/52; both configs. (CHANGELOG 2026-07-05.) NOT drivable yet — ramps/deck
-      need the car to track a ribbon (Y/pitch from the graded surface; overlapping decks defeat (x,z)→y).
-      "Drive the other direction" already works via the L3 median crossover. Deferred: ramp markings,
-      embankment fill, wire ramps into the guided surface-network, drivable grade physics.
-- [x] **Layer 4b — Drivable interchanges + ramp to frontage road.** `RoadScene::interchange_ribbons()`
-      exposes the 4 drivable centrelines (shared by geometry + physics). App ribbon-follower: car attaches
-      to an on-ramp, then Y/pitch/heading come from the ribbon (arc-length s by speed, lateral t by steer,
-      pitch→rotation.z since nose is +X); junctions via next/branch; exits to free driving. Frontage road
-      made drivable (road_surface_y + drivable_bounds window) so the service off-ramp lands there.
-      **Verified by driving:** climb 6→5944 (pitch→3.9°), deck flat, descend 5944→16 (pitch→−3.9°) → WB
-      opposite direction; steer at top → service ramp → frontage road. 52/52; both configs; intro/EB
-      unchanged. (CHANGELOG 2026-07-05.) Follow-ups: one-way service road (no on-ramp back), attach/junction
-      UX basic, deck/ramp markings.
-- [ ] **Layer 5 — Polish** (exit signage, network lights, junction UX, haze/far-plane tuning).
+# Active plan
+
+> Reorganised 2026-09-29. Finished and shipped sections were moved **verbatim** to
+> [`archive/2026-06.md`](archive/2026-06.md), [`archive/2026-07.md`](archive/2026-07.md) and
+> [`archive/2026-08.md`](archive/2026-08.md) and (2026-11-20 pruning) [`archive/2026-11.md`](archive/2026-11.md);
+> open items from them are carried below.
+> Checkbox state inside the archive is a **snapshot** and some open boxes there shipped later — the
+> "Verify before starting" note at the bottom lists the ones known to be stale. Ground truth for what
+> shipped: `git log` and [`CHANGELOG.md`](../CHANGELOG.md). Current user goal:
+> [`docs/user-goals/CURRENT.md`](../docs/user-goals/CURRENT.md).
+
+## Perf: cut invisible GPU/CPU work (planned 2026-11-21, grilling session; plan drafted by AI)
+
+Full write-up with code, math and alternatives: [`perf-todo.md`](perf-todo.md). Trigger: the fan runs loud under `make debug`. Two static audits were done; nothing was built or profiled.
+**Step 0 (owner, in the app):** record `GpuProfiler` per-pass ms, plus the swapchain extent and refresh rate from the
+startup log, before any change. Repeat after each item.
+
+Decisions (owner, 2026-11-21):
+
+- Build focus: `make debug` first; release is also checked.
+- Frame cap: 60 fps with vsync.
+- Quality bar: no visible change. Every cut gets an A/B toggle. Release stays byte-identical unless signed off.
+- SSAA: keep 2.0 as the default and add a live 1.0/1.25/1.5/2.0 A/B. The owner picks the new default by eye.
+- Sky: bake a sky-view LUT when time of day or weather changes (sun disc and stars stay per pixel); toggle back to the raymarch for A/B.
+- SSR: half render resolution and skip when dry, with a full-res toggle.
+- God-rays: gate on `sunLux == 0` (bug fix: rain means no god-ray source).
+
+Items, ranked by expected saving:
+
+- [ ] **P1** SSAA A/B: `kRenderScale = 2.0` ([PostProcessManager.h:229](../src/renderer/PostProcessManager/PostProcessManager.h)) shades 4x the Retina panel pixels (~24 MP maximized). Already wired: F3 cycles 1.0/1.5/2.0, plus the panel slider. Owner A/B, then pick the default.
+- [x] **P2** 60 fps limiter in `App::run` ([App.cpp:93](../src/core/App/App.cpp)), because FIFO = 120 on ProMotion ([Swapchain.cpp:123](../src/renderer/Swapchain/Swapchain.cpp)). Sleep while iconified or invisible (`glfwWaitEventsTimeout(0.1)`, reset `last_frame_time`).
+- [ ] **P3** Windshield at rain 0: skip `record_wetness_update` + `record_scene_snapshot` ([WindshieldRainPass.cpp:140](../src/renderer/WindshieldRainPass/WindshieldRainPass.cpp)) once rain = 0 and the lens is dry. Ping-pong the wetness images instead of `vkCmdCopyImage`. ~185-570 MB/frame of copies.
+- [ ] **P4** Sun off: skip `record_shadow` when `sunLux == 0` ([GeometryProducer.cpp:101](../src/renderer/GeometryProducer/GeometryProducer.cpp)); in `lighting.frag:556-626` wrap the shadow block in `if (sunScale > 0.0)` (uniform branch). Debug defaults to rain 1.0, so this applies at startup.
+- [ ] **P5** Per-cascade shadow cull: test each caster's sphere against the 4 side planes of `m_cascadeVP[k]` (`extract_frustum_planes`, skip the near plane). Today every caster within 600 m goes into all 3 cascades.
+- [ ] **P6** Sky-view LUT ([atmosphere.glsl:22](../shaders/common/atmosphere.glsl), [lighting.frag:377](../shaders/lighting.frag)): 20x6 steps per sky pixel per frame, doubled with the moon. Bake on the same dirty flag as `maybe_rebake_ibl`. Toggle back to the raymarch.
+- [ ] **P7** SSR: half render resolution + CPU skip when `wetness < 0.02` ([SsrPass.cpp:32](../src/renderer/Passes/SsrPass.cpp), [ssr.frag:101](../shaders/ssr.frag)); also apply the wet-only gate in debug. Full-res toggle.
+- [ ] **P8** God-rays: skip when `sunLux == 0` ([GodRaysPass.cpp:57](../src/renderer/Passes/GodRaysPass.cpp)). 48 taps at half res.
+- [ ] **P9** SSAO blur: separable H+V (10 taps) instead of 5x5 (25 taps with `exp`) ([ao_blur.frag:22](../shaders/ao_blur.frag)).
+- [ ] **P10** CPU: skip `vkCmdBindDescriptorSets` when the material is unchanged ([SceneGeometry.cpp:128](../src/renderer/SceneGeometry/SceneGeometry.cpp)); skip ImGui `begin_frame` while the panel is hidden ([Renderer_Frame.cpp:128](../src/renderer/Renderer/Renderer_Frame.cpp)).
+- [ ] Gates after each item: `make test-debug`, release goldens untouched, changelog entry, owner A/B in the app.
+
+Not a problem (checked): corridor is uploaded once, no per-frame `vkQueueWaitIdle`, 2 frames in flight with a blocking fence, profiler readback without waits, physics 1 step (release) / 240 Hz (debug), rain/spray simulated on the GPU and gated at 0, IBL rebakes only on change, bloom 1/4 res, DoF/TAA/velocity off.
+
+## Queens network: BQE + GCP + Van Wyck / Clearview / Cross Island (planned 2026-11-21, grilling session; plan drafted by AI)
+
+Extends the shipped LIE corridor (`8c17065`) into a small Queens road network. Plan confirmed by the owner on 2026-11-21; nothing built yet. Next step: N0. The LIE locked decisions above still hold (debug-first, release byte-identical until sign-off, traffic out, one code agent at a time, owner tests in the app), except where a decision below overrides them.
+
+Code facts this plan builds on (checked 2026-11-21):
+
+- The corridor is one road. `CorridorAlignment` is one station table with an `(s, t)` frame ([CorridorAlignment.h:74](../src/scene/Corridor/CorridorAlignment.h)). Every `CorridorPath` is a band whose lateral offset is a function of the LIE's `s` ([CorridorRamps.h:14](../src/scene/Corridor/CorridorRamps.h)). `CorridorDriver` tracks a single `m_station` ([CorridorDriver.h:98](../src/scene/Corridor/CorridorDriver.h)). There is no graph and no junction concept.
+- The asset blocks are EXIT, DIST, SRVR, SURF and XING ([CorridorAsset.h:196](../src/scene/Corridor/CorridorAsset.h)). The debug build loads `lie_corridor_full.bin` and release loads `lie_corridor.bin` ([AppInit.cpp:150](../src/core/App/AppInit.cpp)).
+- No OSM mainline data exists yet for the GCP, BQE, Van Wyck, Clearview or Cross Island. The LIE extract has them only as ramp `destination` tags.
+- The HUD feed is one route polyline ([HudFeed.h:23](../src/debug/HudFeed.h)).
+- Reusable props: `nj_profile()` ([CorridorEdges.h:25](../src/scene/Corridor/CorridorEdges.h)), the attenuator colour, the end boards and the W1-8 chevron (`tools/sign_corridor.py`). There are no cones, drums or ROAD CLOSED signs yet.
+
+Decisions (owner, 2026-11-21):
+
+1. **Network: the Queens loop plus a ladder.**
+   - The BQE runs from exit 17 north to the GCP in Astoria.
+   - The GCP runs from Astoria past LaGuardia, crosses the LIE at exit 22, and continues parallel to the LIE to the Nassau line.
+   - Rungs between the LIE and the GCP: Van Wyck (22 to Kew Gardens), Clearview (27) and Cross Island (31).
+   - Every outer end is a work zone: BQE south of 17, GCP west at the RFK approach, GCP east at the Nassau line, Van Wyck south of Kew Gardens, Clearview north (Throgs Neck) and south (Hillside), and Cross Island north and south.
+2. **Dead ends use a work-zone taper.** The sequence is ROAD WORK AHEAD and LANE CLOSED signs at 1500 ft and 500 ft, a cone taper that merges the lanes, then a full-width jersey-barrier wall with ROAD CLOSED boards and a flashing arrow board. A U-turn gap in the median lets the car drive back.
+3. **The Van Wyck is a road of its own.** It is a second rung from exit 22 to Kew Gardens, with real junctions at both ends.
+4. **One alignment per road.** Each road (GCP, BQE, Van Wyck, Clearview, Cross Island) is baked as its own `CorridorAlignment` by the same tool and asset format. A junction table links `(road, s)` pairs. The driver tracks road id plus `s` and hands off at connector ramps. Lane counts, widths and ramp shapes are measured from Google Maps aerials and Street View (Chrome) for the compact version.
+5. **Per-link compression fit.** Each road is split at its junctions. Junction points are placed through the LIE `(s, lateral)` warp. Each link's real OSM shape is fitted between its two junctions with a rotate plus scale of about 1.7:1. The 500 m curvature floor applies.
+6. **Every junction has its real layout:** flyovers, loops, the stacked ramps at exit 22 and the Kew Gardens interchange. These replace the LIE diamonds at exits 17, 22, 27 and 31. This overrides "ramps lead only to service roads" for freeway-to-freeway movements.
+7. **Ramp shapes come from OSM, checked against photos.** The tool fetches the `motorway_link` ways at each junction and warps them with the per-link fit. Ramp ends snap to the two roads, and levels come from the OSM `layer` and `bridge` tags. Each ramp is checked and hand-fixed against Google Maps. This needs a new free-path type: a world-space spline with height that joins two alignments.
+8. **Local exits on the new roads are signed but closed.** They get real gores and exit signs. Each ramp ends in a short work zone after the gore, with an EXIT CLOSED board.
+9. **Look: reuse the kits and add landmarks.**
+   - The same builders run per alignment. A per-road table sets lanes (from OSM), median type, lamp kit, bridge style and parkway or Interstate signs, measured from Street View. Scenery uses the Queens district kit. Bridges and elevation come from OSM and USGS, as on the LIE.
+   - Landmarks: the GCP gas station by the 188th St exit, the bridge over the Cross Island Pkwy, the Astoria and Jamaica underpasses, the LaGuardia edge, Citi Field, the Kew Gardens interchange and the Throgs Neck view. Each one is verified in N0.
+10. **HUD and minimap draw all roads, with the current road lit.** The minimap draws every alignment and junction ramp, with the current road brighter. The HUD adds the road name (LIE / GCP / BQE / I-678 / I-295 / CIP) and the next exit or junction on that road. A debug panel adds a "jump to road" teleport.
+11. **Thin slice first.** The build order is below. Each phase ends drivable in `make debug`.
+12. **Road to the horizon past each wall.** Past every work-zone wall, an undrivable road mesh continues to the far plane with district scenery beside it, so the world never looks cut off.
+
+Agent defaults (not owner calls; change if wrong):
+
+- Assets: one `.bin` per road in the existing format, debug-only (`<road>_full.bin`), plus a `JNCT` block or a small network file for the junction table. Release loads nothing new.
+- Surface choice where roads overlap in plan view at different heights: stay on the current road's piece, and switch only through a ramp handoff (a height-continuity rule, not nearest-`xz`).
+- Data: back up `data/osm/` before every fetch, and never overwrite `lie_i495.osm.xml`.
+
+Order (one code agent at a time; gates after each item: `make test-debug`, `make check`, changelog in `docs/changelog/2026-11.md`, tuning notes in `docs/corridor/tuning-notes.md`, architecture in `docs/endless-road.md`, owner check in the app):
+
+- [ ] **N0** Reference sheet `docs/queens-network-reference/`: per road, the lanes, median, barrier, lamps, bridge styles and sign type. Per junction, an aerial layout sketch. Per landmark (decision 9), a note. Uses the Chrome connector, Google Maps aerials and Street View. Saved photos must be CC-licensed; otherwise save links and measurements only.
+- [ ] **N1** Multi-road bake in `tools/lie_corridor.py`:
+  - Per-road `[roads.<id>]` config (ref regex, bbox, ends).
+  - Fetch the mainline and `motorway_link` ways.
+  - Place the junctions through the LIE warp.
+  - Per-link rotate-and-scale fit with the curvature floor.
+  - Elevation from USGS plus OSM `layer` and `bridge` tags.
+  - Write `<road>_full.bin` and the junction table.
+  - Checks: link endpoints meet their junctions within 0.5 m; minimum radius at least 500 m except real tight curves; the LIE asset is unchanged byte for byte.
+- [ ] **N2** Network runtime:
+  - `CorridorNetwork` holds the alignments and junctions. Segments are built per road.
+  - Add the free-path ramp type (world spline with height, joining two alignments).
+  - The driver tracks road id plus `s`, and the handoff follows the height-continuity rule.
+  - Work-zone kit: cones, drums, signs, arrow board, barrier wall, U-turn gap, and the horizon tail.
+  - `jump to road` debug teleport.
+  - Unit tests: handoff continuity, and that the car is never held at a junction.
+- [ ] **N3** First drivable slice: the BQE from exit 17 to a temporary work zone short of Astoria. The real LIE x BQE junction replaces the exit 17 diamond. A work zone south of 17. Drive the loop between the LIE and the BQE in both directions.
+- [ ] **N4** GCP: from the RFK work zone to the Nassau-line work zone. Junctions with the BQE (which replaces the N3 temporary end) and with the LIE at exit 22 (which replaces the diamond). The loop closes.
+- [ ] **N5** Rungs: Van Wyck (exit 22 to Kew Gardens, plus the Kew Gardens junction and its south work zone), Clearview (exit 27 x GCP, work zones north and south) and Cross Island (exit 31 x GCP, work zones north and south). This replaces the diamonds at 27 and 31.
+- [ ] **N6** Closed local exits on the new roads (gore, exit sign, EXIT CLOSED work zone), plus guide signs and gantries per road from the N0 table (parkway or Interstate).
+- [ ] **N7** Look per road: surfaces, medians, edges, lamps, bridges and the Queens kit from the per-road table.
+- [ ] **N8** Landmarks from decision 9.
+- [ ] **N9** HUD and minimap for all roads (decision 10).
+
+Risks:
+
+1. Overlapping roads at different heights break the single-surface assumption in `CorridorBounds`. N2 must test handoffs at every junction.
+2. Real-layout junctions on warped OSM links can kink at the fit seams. N1 checks the radius per ramp, and Google Maps is the tie-break.
+3. Draw calls: five more roads plus horizon tails may push past the 30 fps floor at dense Queens spots. Record `GpuProfiler` numbers per phase.
+4. The shared branch has many uncommitted files from other tasks (perf, `App.cpp`).
+
+## LIE full route + 6-DOF physics + real road (planned 2026-11-20, grilling session; plan drafted by AI)
+
+Reference sheet: [`docs/lie-reference/README.md`](../docs/lie-reference/README.md). Status: **phase A done; B1-B5a and B5c built (6-DOF still off by default). Open in B: B5b, B5d, B6, B7. Then C.** Tuning notes: [`docs/corridor/tuning-notes.md`](../docs/corridor/tuning-notes.md).
+
+Decisions (owner, 2026-11-20):
+
+- Route: Queens-Midtown Tunnel to Riverhead (exit 73), about 30 scene miles. Real OSM centreline and lane counts.
+- Compression: tunnel to exit 49 stays as built (31.2 real mi -> 18 mi). Exits 49-73 (about 40 real mi) get about 12 mi (3.3:1); length is cut from straights first so curves keep a highway radius.
+- Elevation: real USGS 3DEP terrain along the centreline, smoothed, plus bridge/tunnel heights from OSM tags.
+- Exits: every exit is drivable. Ramps lead only to the parallel service roads and back. East of exit 64, where no real service road exists, a fictional tree-lined one is invented.
+- Ends: drive the tunnel interior, emerge at the plaza; Riverhead ends at the CR-58 merge with a turnaround.
+- Physics: finish the 6-DOF rigid chassis with per-wheel tyres. Feel: sim-cade, keyboard first, ABS and traction control on by default.
+- Surface: real LIE variety per stretch (concrete slabs, fresh/patched asphalt), wheel paths, sealant, worn paint, rumble strips, reflectors.
+- Scenery: three procedural kits (Queens urban, Nassau suburban, Suffolk pine), skyline billboard. No OSM building footprints.
+- Detail: 12 hand-checked landmarks; the other exits get generated signs and a standard interchange.
+- References: Street View links and notes only; saved photos must be CC-licensed.
+- Gating: everything debug-first (`make debug`); release stays byte-identical until the owner signs off each phase.
+- Out: traffic, manual shifting, scripted time/weather (conditions stay player-set).
+
+Decisions, round 2 (owner, 2026-11-20):
+
+- Who builds: agents, **one code item at a time, in order, no parallel code agents** (parallel is for research only). Run until done or the limit is hit. Work is organised by track (A-D).
+- Every item ships: debug sliders in `Tunables.def`, tuning notes, and an architecture write-up with university slide references (`docs/<topic>/`).
+- Research on the real LIE uses the Chrome connector and other machine tools.
+- HOV lane (about exits 32-64): diamond symbols, double-white buffer, gap openings from OSM; freely drivable.
+- Service roads: two-lane one-way each side; cross streets are dead-end stubs with cycling traffic lights as props; crossing only at each exit's overpass or underpass.
+- Collision: slide along barriers and walls with friction and speed loss; no damage; grass drivable but slow and bumpy.
+- Performance floor: 30 fps at the densest Queens spot; record `GpuProfiler` numbers per phase.
+- HUD: speed, gear, next exit number/name/distance, town, plus a small route minimap that does not distract (edge-anchored, low contrast, no animation).
+- Physics extras in: aero downforce with active rear spoiler, road bumps fed to the suspension, skid marks and tyre smoke.
+- Branch: stay on `bug/fix-camera-ownership`, uncommitted, no commits unless asked.
+- Verification: for this plan agents may launch `make debug` and take window-only screenshots. Simple unit tests only; complex tests go to the queue in [`upcoming-tests.md`](upcoming-tests.md) for the owner.
+
+Order (each phase ends drivable; owner checks in the app, agents run unit tests only):
+
+**A. Route data**
+- [x] **A1** (done 2026-11-20: 70.41 real mi chain, ramps in the extract, frame pinned) Widen the bbox to Riverhead in `config/lie_corridor.toml`, `fetch --force` + `net --force` in `tools/lie_corridor.py`. Check: exit 73 junction present.
+- [x] **A2** (done 2026-11-20: two-zone solve, 29.999 mi, tightest curve still the real 99 m; west differs from the August bake by up to 6.6 m because the old OSM cache was overwritten) Piecewise compression: keep the west anchors, add east anchors (53, 62, 64, 68, 73). Check: west stations unchanged to 1 mm (`tests/test_corridor.cpp`), total length 30 mi +/- 0.5; minimum curve radius test for 70 mph.
+- [x] **A3** (done 2026-11-20: USGS cache, profile 5.00 % / 0.59 m/s², asset v2 as debug-only `lie_corridor_full.bin`; release asset restored) Elevation bake: sample 3DEP per station, low-pass, clamp grade to 6%, vertical-curve fit; add `y` and bank to the station record; bump the asset version in `CorridorAsset.h` and the packer together. Check: max grade and max vertical acceleration at 70 mph in a test.
+- [x] **A4** (done 2026-11-20: 108 exits with sign text, 3 districts, trailing blocks, `next_exit` / `district_at`, debug log readout) Exit table block in the asset: number, name, destinations, side, district tag per station. Names come from the OSM `motorway_link` `destination` tags, with a hand table for gaps.
+- [x] **A5** (done 2026-11-20: mesh, lamps and car height follow grade and bank in debug; car does not pitch or roll until B4) `CorridorScene` sweeps with grade and bank; the bicycle car follows road height (stop-gap until B).
+
+**B. Physics (debug toggle, bicycle stays the default)**
+- [x] **B1** (done 2026-11-20: equal slices of at most 1/240 s instead of an accumulator, debug slider `carSubstepHz`) Fixed 1/240 s substep with accumulator for both models. Check: same result at 30 and 144 fps.
+- [x] **B2** (done 2026-11-20) Wheel-spin state per wheel, slip ratio, brake and drive torque at the wheel.
+- [x] **B3** (done 2026-11-20: similarity-method magic formula, load-sensitive) Combined-slip tyre (Pacejka magic formula, load-sensitive peak), replacing the linear clamp. Check: peak then fall-off, friction-ellipse test.
+- [x] **B4** (done 2026-11-20: anti-roll bars, sloped ground plane per wheel; static split test) Suspension forces feed tyre load (spring, damper, anti-roll bars); raycast per wheel against the corridor surface. Check: static corner weights match the 911 39/61 split.
+- [x] **B5** (done 2026-11-20: ABS, traction control, engine braking; engine inertia not modelled) Real ABS and traction control acting on wheel torque; engine braking and inertia.
+- [x] **B5a** (done 2026-11-20: axle loads at 150 mph not tested) Aero: speed-squared downforce front/rear, active spoiler above a set speed. Check: axle loads at 150 mph.
+- [ ] **B5b** Road bumps: slab joints, rumble strips and patches as a height signal under each wheel (from the D1 material id; stub profile until D1).
+- [x] **B5c** (done 2026-11-20 for walls; grass drag not done) Wall contact: push-out plus friction impulse; grass rolling resistance and bump noise.
+- [ ] **B5d** Skid marks and tyre smoke from per-wheel slip.
+- [ ] **B6** Keyboard feel pass: speed-sensitive steer filter, counter-steer assist, throttle ramp. Check: lift-off oversteer is catchable on arrow keys.
+- [ ] **B7** Owner A/B against the bicycle, then flip the default. Tuning notes in `docs/wheels/tuning-notes.md`.
+
+**C. Exits and service roads**
+- [x] **C1** Port ramp and service-road generators from the retired `RoadScene`/treadmill to corridor frames; delete the unused originals once ported.
+  Grilled 2026-11-20: (1) copy `generate_exit_ramp` / `generate_service_roads` / `generate_crossover` into Corridor; keep `RoadScene` (golden mesh test + lighting lab use it), delete in a later item. (2) Furniture stays with D2-D4. (3) Procedural ramps sized from `RoadParams`; no asset format change. (4) Output = free sweep functions over an s-range + lateral offset, unit tests on frame/height, one debug-only demo placement at a slider-chosen s. (5) Service road y = `surface_y(s)` + tunable dy (default 0), smoothstep blend along the ramp, bank 0. (6) Emit into the segment's MeshBuilder; split ramps at segment edges. Not drivable until C3. Release byte-identical.
+  Done 2026-11-20: `src/scene/Corridor/CorridorRamps.{h,cpp}` (one smoothstep path type for ramp, service road, crossover), debug demo in the "Corridor" panel, 4 unit tests; originals kept (deletion deferred as grilled).
+- [x] **C2** Standard diamond from the exit table: off-ramp, service road segment, on-ramp, overpass for the crossroad. Fictional service road east of exit 64.
+  Grilled 2026-11-20: (1) every exit record gets the same diamond template (off-ramp at its station, crossroad, on-ramp after). (2) Crossroad = plain box deck + road strip, piers at median and edges; D4 restyles. (3) Service roads are real continuous marginal roads, not per-exit stubs: extents from a new Overpass fetch of the service-road ways (back up `data/osm/` first, separate file) baked into a new optional asset block; exit-number rule fills gaps and the fictional stretch east of 64. Direction, lanes and grade per research (pending).
+  C2a done 2026-11-20: `fetch_srvr` -> `data/osm/lie_service_roads.json` (512 ways; backup in `data/osm_backup_2026-11-20/`), bake merges per side (gap < 150 m), lanes = median OSM 1..3, rule fill Queens + east to exit 68; `SRVR` block in `lie_corridor_full.bin`, `CorridorAlignment::service_roads()`. EB 6 osm + 2 rule, WB 5 osm + 2 rule. Nothing drawn yet. Next: C2b geometry.
+  C2b done 2026-11-21: `CorridorDiamonds.{h,cpp}` + `corridor_crossroads` / `corridor_diamond_paths`; 30 crossroads (58 exit numbers, 900 m spacing), mainline dip `CorridorAlignment::dip` (6.5 m, 350 m half), service roads with curbs and MUTCD paint, 4 ramps each with gore chevrons, crossroad deck/parapets/piers/crosswalks; demo sliders retired. Found: `lighting.frag` treats depth < 1e-4 as sky = nothing drawn past ~100 m (not fixed, owner call).
+- [x] **C3** Drivable surface query covers ramps and service roads; barriers elsewhere.
+  Done 2026-11-21: `CorridorSurface.h` (`drive_surface` / `drive_spans` over mainline, ramps, service roads, crossroad run) drives the clamp and height for both car models; dead-end hold; slider `corridorDriveOff`; driven lane-ramp-SR-cross-ramp-lane (bicycle + 6-DOF); 13 cm seam step at ramp starts on 5-6 % banks (C2b mesh trait).
+- [x] **C3a** Service-road cross-street stubs with prop traffic lights; HOV buffer, diamonds and gaps.
+  Done 2026-11-21: 90 m stubs past each service road (crest hides the end, walks, apron, stop bars), Long Island span-wire signals with a fixed two-phase lens cycle, HOV exits 32-64 with double-white buffer, broken access zones and 1,000 ft diamonds; +679 draws (+2.7 %); stubs not drivable.
+- [x] **C3b** HUD strip and route minimap (2D, debug build first). Done 2026-11-21: second ImGui context drawn after Composite; speed/district/piece/next exit + route or 2 km minimap; H key; viewed in app.
+- [x] **C4** Tunnel interior and plaza; Riverhead turnaround.
+  Done 2026-11-21: drive starts 1.08 km inside the Queens-Midtown tube (white tile with blue and gold stripes, own lights, roof sky occlusion, tube EV floor), portal with cover, widened plaza with gantry and U-turn opening; Riverhead lane drop, splitter and fictional roundabout to WB; both drivable; ring not driven in the app.
+
+**D. Looks**
+- [x] **D0** Fill the 12 landmark notes and save CC photos with credits (reference sheet template). Done 2026-11-21: 12 notes (5 partial), corridor-wide kit, 15 CC photos; Street View unvisited.
+- [x] **D1** Surface: per-stretch material id in the asset; concrete slab joints, wheel-path polish (promote the debug ruts shader), sealant, worn paint, rumble strips, reflectors. Wire the unused `Asphalt012`/`Concrete012` sets.
+  Done 2026-11-21 (debug): `[surface]` toml -> `SURF` block -> `CorridorAlignment::surface_at`; concrete east of exit 64, asphalt grades guessed; `shaders/common/pavement.glsl`; six `surface_*` sliders; [docs/surface/](../docs/surface/README.md). B5b can read `surface_at` now.
+- [x] **D2** Edges: sloped Jersey barrier profile, guardrail, sound walls, embankments in place of the flat grass plane.
+  Done 2026-11-21 (debug): 32 in NJ median with toe clamp; wide grass median + cable east of exit 64 (carriageways part); W-beam pier shields; Nassau brick sound walls (9, 13.2 km); ditch + rounded cut; debug mip chain; [CorridorEdges.h](../src/scene/Corridor/CorridorEdges.h).
+- [x] **D3** Signs: `tools/sign_generator.py` reads the exit table; overhead gantries at 1 mile, 1/2 mile and the gore; mile markers. Unblocks L8.3 retroreflective signs.
+  Done 2026-11-21 (debug): `tools/sign_corridor.py` atlases (Overpass OFL) + `CorridorSigns.{h,cpp}`; 119 gantries (real-mile distances, collapse rule), 60 gore signs, 493 mile markers, exit 73 boards filled; +186 draws; westbound faces and night retro not viewed.
+- [x] **D4** Overpasses at every crossing from OSM bridge tags; three girder styles. Done 2026-11-21: 145 OSM crossings (XING block), 38 bridges kept after the crossroad merge (steel, concrete, Sagtikos stone arch, LIRR through-girder, 15 LIE-over), 30 crossroad decks restyled; debug CSM light-side fix + ground bounce; 512 / 487 tests.
+- [x] **D5** District kits and skyline billboard; lamps per district. Done 2026-11-21: 13 kits by exit number (lamps, trees, buildings), Queens median twins + outer, Nassau/west Suffolk shoulder shoebox/cobra, none east of 64; far ground; Midtown card scaled about the camera; draws 23,840 → 8,674 (lamps batched); 515 / 490 tests.
+- [x] **D6** Hand-detail the 12 landmarks from the notes. Done 2026-11-21: Unisphere + NYS Pavilion (sightline wedge), QMT vent tower, Queens gantry removed, Calvary headstones, stone exit 31 deck, 5 boards (county line, HOV, Great Neck, 62N), Melville street trees, pine-oak kit; landmark exits 17 / 39 / 44 keep their diamonds; draws 8,674 → 8,710; 516 / 491 tests.
+
+Gates after each item: `make test-debug`, `make check`, changelog in `docs/changelog/2026-11.md`, tuning notes for B and D1.
+
+Risks: (1) Work shares a branch with about 40 uncommitted files from other tasks; a bad item cannot be reverted cleanly. (2) About 70 drivable interchanges is the largest item; C2 must be one generator, not hand work. (3) Asset format change must keep the Python packer and `CorridorAsset.h` byte-identical.
+
+## Renderer roadmap: R7-R10 + E1-E5 (planned 2026-11-01, branch `bug/fix-camera-ownership`)
+
+Source: [`renderer-next-steps-README.md`](renderer-next-steps-README.md) plus the grilling session on 2026-11-01. The owner writes the code. Manual checks: [`upcoming-tests.md`](upcoming-tests.md). The visual guide is a private artifact with the same checklist.
+
+Decisions:
+
+- Scope: E1-E5 plus four small Renderer-class fixes. FrameInputs struct, geometry passthrough removal, header diet and the minimize `waitEvents` loop are out.
+- No new unit tests now; candidates are listed in `upcoming-tests.md`.
+- E3 acquire timeout: log once, then skip. E4: title bar, both builds (intended release change). E5: `.tmp` + `rename`.
+
+Order:
+
+- [x] **R7** Assert `m_window` at the top of `recreateSwapchain()`; keep the pointer (no `Window&` member). (done)
+- [x] **R8** `cleanup()`: device block under `if (m_device && m_device->getDevice())`, `m_device.reset()`, then `m_context->cleanup()` guarded on `getInstance()` and `m_context.reset()`. `~Renderer` calls `cleanup()`. (fixed 2026-11-20: the committed half-step reset m_device before using it; teardown now device-users -> device -> instance; clean exit code 0 in both builds)
+- [x] **R9** `cleanup()` and `recreateSwapchain()` call `wait_for_idle()` instead of `vkDeviceWaitIdle`. (done)
+- [x] **R10** Split `init_passes(bool)` into `init_passes()` / `resize_passes()` with `pass_init_ctx(const RendererServices&)`. The ctx holds a reference, so keep `svc` local in the caller. (done 2026-11-20: callers switched, old overload removed)
+- [x] **E1 measure** Time load / idle-wait / bake in `IBLManager::set_hdri` (:368) and `bakeFromHdri` (:426). (done 2026-11-20: load ~20 ms, idle wait ~0.05 ms, bake ~120-140 ms -> the bake dominates; [IBL] log line now prints all three)
+- [x] **E5** Atomic pipeline cache write in `Device::savePipelineCache` (:196). (done 2026-11-20: .tmp + std::filesystem::rename)
+- [x] **E3** Fence: 5 s, throw. Acquire: 5 s, log once and skip, checked before the `is_presentable` throw. (done 2026-11-20)
+- [x] **E4** fps in the title bar from `glfwGetTime()` in `App::run`; `frame_delta` untouched. (done 2026-11-20: title "swish  |  N fps", 0.5 s window)
+- [x] **E1 fix** Option A pre-staged (roughness-0 early return in `ibl_prefilter.frag`; regenerate the `.spv` golden on purpose). B/C/D if the load dominates. (option A done 2026-11-20: roughness-0 early return, bake 140 -> 132 ms, ~6 %; the hitch needs B/C/D = async or frame-split bake, see L2.4)
+- [ ] **E2** Measure fence vs acquire, then pick A/B/C/D; feel test.
+- [ ] Gates after each item; changelog in `docs/changelog/2026-11.md` (R1-R6, R7-R10, one per E item).
+
+## Rain impact splashes, burn-style phases (planned 2026-11-20, debug-only)
+
+Source: the technique behind the "burn to Gaussians" effect in `willeastcott/splat-walk` (studied, not copied: the repo has no licence). That effect evaluates a stateless per-instance phase function (rest data + stable hash + time since event) each frame, packs the phase weights into one `uint` and lets the fragment shader choose between gaussian, outline ring and dot. Here, the same idea draws rain impact splashes on the road. This closes todo A2 (see "Open items by area").
+
+Decisions (grilling 2026-11-20):
+
+- First slice: rain impact splashes. Tire-spray droplets, puddle bow wave, dust and smoke come later.
+- No 3D Gaussian splat renderer: Swish scenes are meshes.
+- Impact point: an analytic road plane. No depth-buffer hits, so no splashes on the hood or roof yet.
+- Run it in the vertex shader inside `RainSystem`: a second instanced draw. No compute pass, no new buffers, no new pass in `PassList.def`.
+- Phases: an expanding crown ring outline on the road, then 2-4 hashed droplet dots on short ballistic arcs. No impact flash.
+- Debug-only: the draw and its tunables live under `#ifdef SWISH_DEBUG_UI`. Release output stays byte-identical. Promote to release after the owner's app check.
+- Blend: additive like the rain streaks. Brightness scales with sun and ambient from the camera UBO.
+- Event slots (burn's origin + time uniforms): not now. They arrive with the puddle-hit slice.
+
+Design note found while planning: `rain.vert` wraps drops in a box centred on the camera, so a drop never "lands". A splash derived from a drop would slide with the car. Splashes therefore come from their own field. It is a grid snapped to world coordinates around the camera. Each cell fires at hashed times with period $P$ and offset $h_0 P$, so splashes stay fixed in the world. Visual sync with the individual streaks is not needed: nobody can follow one drop.
+
+$$t_{\text{local}} = \operatorname{fract}\!\left(\frac{t}{P} + h_0\right) P, \qquad \text{ring radius } r(t_{\text{local}}) = r_{\max}\left(1 - e^{-t_{\text{local}}/\tau}\right)$$
+
+Steps:
+
+- [x] **S1** Check that `tests/golden/release_spv.sha256` (34 pinned files) ignores unlisted `.spv` files. Result (2026-11-20): the check is `shasum -a 256 -c` over the listed files only (no ctest). A probe `.spv` added to `build/shaders/` still exits 0, so the new `rain_splash.*.spv` needs no glob filter. The release build will compile and package two unused `.spv` files, and the executable stays the same.
+- [x] **S2** Road height near the camera. Done without plumbing: `FrameUpdate::carPosition.y` plus the `road_offset` tunable (spray treats carPosition as ground level too). Values go in a 64 B push block, not a UBO. shortcut: plane is flat around the car, so ramps and interchanges will be slightly off; upgrade to depth-buffer hits later.
+- [x] **S3** Tunables in `src/debug/Tunables.def` (one group): cell size, density scale (× rain intensity), period, ring max radius, ring τ, ring band width, droplet count, droplet speed, droplet size, brightness. Defaults must give zero splashes at intensity 0.
+- [x] **S4** `shaders/rain_splash.vert`: `gl_InstanceIndex` maps to a cell and a sub-instance (0 = ring quad lying flat on the road, 1-4 = droplet billboards). Hash the cell's world coordinate for spawn chance, phase offset and droplet directions. Compute the phase weights and pack ring, dot, fade and spare as 4 bytes into one `flat uint`. Drop dead instances to a degenerate position (as `spray.vert` does).
+- [x] **S5** `shaders/rain_splash.frag`: unpack the weights. The ring is a thin band at the expanding radius, anti-aliased with `fwidth`. A dot is a hard disc with a soft edge. Output is additive and scaled by sun and ambient.
+- [x] **S6** `RainSystem`: add a second pipeline (same blend and depth state as the rain streaks) and `vkCmdDraw(6, cells × 5)` with no vertex buffer, all under `#ifdef SWISH_DEBUG_UI`. Use `vkx` builders and keep push constants 16-byte aligned.
+- [ ] **S7** (owner, in the app) Measure GPU time with the existing `GpuProfiler` (`Rain` pass), with splashes on and off. Agents do not launch the app.
+- [x] **S8** Gates: `make test`, `make test-debug`, `make format-check`, `make check`. Release `.spv` goldens unchanged.
+- [x] **S9** Changelog entry in `docs/changelog/2026-11.md`, then `python3 scripts/changelog_index.py`.
+- [ ] **Owner check in the app** (`make debug`): at rain 0 there are no splashes. At rain 1.0 the ring and droplets show on the road. Splashes stay put while the car drives. They are dim at night. Window resize still works.
+
+### Rain round 3: wet road + rain sky (grilling 2026-11-20, not started)
+
+Decisions:
+
+- Priority: the wet road comes first. Traffic tail lights and cabin exposure come later.
+- Scope: debug-only (`SWISH_DEBUG_UI`), so the release output stays byte-identical. Promote after the owner's sign-off.
+- Road features, all four:
+  1. Procedural rain ripples (Lagarde-style ring normals in puddles and the water film, scaled by rain intensity, no texture).
+  2. Wheel-track ruts (darker, glossier water bands where tyres run in each lane).
+  3. Reflection tuning (SSR plus wet Fresnel, so lane lines and the sky reflect).
+  4. Lekner–Dorf wet darkening $A_w = 1 - \frac{(1-R_1)(1-A)}{1-pA}$, with $R_1 \approx 0.02$ and $p \approx 0.475$.
+- Rain sky: use the HDRI path with rain coupling. That means fog, clarity 0, EV shift and sun off, the same as the procedural path. Fix the weather preset overriding the chosen HDRI (rain loaded Quarry Cloudy).
+- Rain HDRI: Misty Morning (`kloofendal_misty_morning_puresky_2k`) by default. It is selectable live in the debug HDRI combo.
+- Light rain (0.35): any rain switches to the overcast HDRI. Fog, gloss and ripples scale with wetness.
+- References: the owner's 5 photos plus Google Images captures in `scratch/rain-refs/` (gitignored, never committed). From them:
+  - head- and tail-light reflections stretch into long vertical streaks;
+  - the road reads mid-to-light grey because it reflects the sky;
+  - bright impact sparkle covers the whole surface;
+  - concrete jersey barriers line the road.
+- Verification: the agent runs the debug build and takes window-only screenshots (the owner allowed Mac control, 2026-11-20). Rain is checked at 0, 0.35 and 1.0.
+- **After EVERY phase** (owner, 2026-11-20): append a section to [`docs/rain/tuning-notes.md`](../docs/rain/tuning-notes.md). Each section covers:
+  - every knob the phase added or changed, with its default, its safe range, and what moving it does;
+  - the formula behind it, in LaTeX;
+  - the university slides, course notes or papers it rests on, with links and an opened/unverified mark;
+  - the screenshots taken.
+  The goal is that the owner can fine-tune with precision without re-reading the code. A phase is not done until its notes are in.
+
+Phases (each ends with its tuning-notes section):
+
+- [x] **P1** (2026-11-20) Rain-coupled HDRI sky: Misty Morning on any rain; fog / clarity / EV / sun-off on the HDRI path; fix the preset overriding the chosen HDRI.
+- [x] **P1b** (2026-11-20) Tweaks: wetness latch (fixes dark noon after rain), 20 s sky fade-in, Kloofendal Overcast + Storm Sky added, HDRI comparison.
+- [x] **UI1** (owner, 2026-11-20; done same day: Roboto 17 px HiDPI, high-contrast linear style, full-window panel) Debug ImGui panel ("Swish Lighting Controls" window) is thin and hard to read: bigger font / HiDPI scale, higher-contrast style, wider window. Same for the debug viewer.
+- [x] **P2** (2026-11-20; root cause of the black road was an SSAO normal-sign bug) Lekner–Dorf wet darkening plus reflection tuning (SSR, wet Fresnel).
+- [x] **P2b** (2026-11-20) SSR first step 8 m -> 0.4 m (debug) + normal fix, SSAO radius 1000, splash brightness 0.35.
+- [x] **P2c** (2026-11-20) Analytic car-underbody sky visibility (8 cosine rays + mirror ray vs car box).
+- [x] **P2d** (2026-11-20) SSR swaps the env reflection via HDR alpha; car-occluded reflections mirror the body (k_car 0.45).
+- [x] **P3** (2026-11-20) Wheel-track ruts (corridor lanes 1-3; subtle under uniform overcast, strongest against lights/structure).
+- [x] **P4** (2026-11-20) Procedural rain ripples on puddles + rut water (analytic wave packets, no texture).
+
+Later slices (not planned yet): tire-spray droplets with the same shape switch (CURRENT.md issue 2), puddle hits / bow wave with event slots, dust and smoke (needs sort or OIT plus lighting).
+
+## Lighting: time-of-day presets on physical units (planned 2026-11-14)
+
+Source: codebase survey plus the grilling session on 2026-11-14. Goal: a realistic 18-mile compact LIE with the
+1995 911 Carrera RS (993), lit by PBR at any time of day. Golden hour is the first preset to sign off.
+This section replaces the scattered lighting items further down (car lights S5, "Rendering / lighting" list, feature
+table rows 6 and 7); those stay in place for history.
+
+Decisions:
+
+- **Presets:** dawn, morning, noon, golden hour, evening, midnight. Chosen in `config/*.toml` for release; switchable live in the debug UI.
+- **Sky:** procedural, with an IBL rebake on preset switch. The HDRI path stays as a debug-UI option only.
+- **Units:** physical. Sun in lux, local lights in lumens, exposure in EV100 with auto-exposure.
+- **Night lights:** headlights, tail and brake lights, expressway street lamps, retroreflective signs and lane markings.
+- **Local shadows:** both headlights plus the nearest 2 to 4 street lamps.
+- **Wet road:** dry first; every preset is re-verified at rain 0 and 1.0 in the last phase.
+- **Release:** features leave the `SWISH_DEBUG_UI` gate phase by phase. Each promotion regenerates the `.spv` golden on purpose and gets its own changelog entry.
+- **Corridor:** stays 18 miles (`config/lie_corridor.toml:63`). **Car:** already the 993 (`config/car.toml:17`).
+
+Scaffold (2026-11-14, second grilling round): the owner implements; Claude scaffolded stubs, hidden tests and one
+short chapter per phase. Start at [`docs/tutorials/lighting/00-index.md`](../docs/tutorials/lighting/00-index.md)
+and open only the chapter for the phase you are on.
+
+- **Stubs** (bodies are `TODO(learning Lx)`, nothing in the app includes them yet):
+[`Photometry.h`](../src/utils/light/Photometry.h) (L1, L5, L6), [`ShadowFit.h`](../src/utils/light/ShadowFit.h) (L3, L7),
+[`TimeOfDay.h`](../src/scene/TimeOfDay/TimeOfDay.h) (L0.7, L2), [`CorridorLamps.h`](../src/scene/Corridor/CorridorLamps.h) (L6),
+[`config/time_of_day.toml`](../config/time_of_day.toml) (L2.3, not loaded yet).
+- **Hidden tests** (`[.learning][lighting]`, skipped by `make test`): `build/tests/utils/swish_utils_tests "[learning][lighting]"`
+and `build/tests/swish_tests "[learning][lighting]"`. Drop `.learning` from a phase's tags when it passes.
+- **GLSL** snippets are in the chapters only; no shader file was touched.
+- **Sky model (L2.1): decided**, Hillaire LUT sky. **Emissive (L5.1): decided**, one scalar in a free G-buffer alpha
+(`gbuffer.frag:110-111`), glow colour = albedo; check the target format first.
+
+Gate after every phase: `make test` + `make test-debug` green, 0 warnings, `make check`, changelog in
+`docs/changelog/2026-11.md`, and an owner check in the app (agents run unit tests only and hand over a checklist).
+
+### L0: fix structural bugs before tuning anything
+
+- [x] **L0.1** Sun colour is added to the unshadowed ambient term (`lighting.frag:445`), so shadows cannot go dark. Remove it from ambient.
+- [x] **L0.2** Ambient diffuse ignores `kD` and uses `(1 - metallic*0.5)` (`lighting.frag:448`), so metals get diffuse light. Use `kD`.
+- [x] **L0.3** Clearcoat IBL uses the analytic `envBRDFApprox` while the base layer uses the BRDF LUT (`lighting.frag:482` vs `:461`). Use the LUT for both. Done: coat uses `texture(brdfLUT, …)`, `envBRDFApprox` deleted.
+- [x] **L0.4** Clearcoat takes no energy from the base layer (`lighting.frag:469`). Attenuate the base by `1 - F_coat`. Done: `coatKeep = 1 - strength·(0.04 + 0.96(1-N·V)^5)` scales the base lobes (ambient, sun, base IBL, point/spot BRDF, wet sheen, flake).
+- [x] **L0.5** The wetness dim is applied to the environment reflection as well (`lighting.frag:460`). Confirm intent, then remove or keep. Done: kept. The sky background is dimmed by the same term (sky shader), so reflections must match it. Comment records this.
+- [x] **L0.6** `sunDir.w` (sun intensity) is uploaded and never read by the shader. Wire it; L1 needs it. Done: `sun_radiance = sunColor.rgb * sunDir.w` in `lighting.frag`. C++ still sends 1.0, so output is unchanged until L1 sets a real value.
+- [x] **L0.7** Sun azimuth and elevation sliders are never read (`WeatherController.cpp:127`); only the gizmo moves the sun. Wire them; L2 and L3 need them. Done (debug build): with no gizmo, `apply_debug` sets `m_sunDir` from the sliders via `sun_dir_from_az_el` (now implemented, test un-hidden). Slider defaults are the angles of the shipped sun. The gizmo still wins while shown.
+- [x] **L0.8** Release composite multiplies by `aoTex` (`composite.frag:99-103`) but no SSAO pass runs in release. Find what the texture is bound to. Found: `PostProcessManager::primeAOTexture` clears the AO blur image (R8) to white once at start-up, so `hdr *= ao` multiplies by 1.0 and costs one wasted texture fetch. No code change; L4.5 decides remove vs promote.
+- [x] **L0.9** The GLB metallic channel is ignored; metalness is 1 only for `MAT_METAL` (`SceneGeometry.cpp:138`), so chrome and wheels shade as plastic. Read metallic from the asset. Done: scalar glTF `metallicFactor` rides on `Submesh::metalness` to `DrawCall::metalness` to the push constant. The B channel of the metallicRoughness texture is not read. Owner: check the Porsche cabin (see changelog).
+- [x] **L0.10** Delete or reuse the dead `compute_sky_color` / `skyIrradiance` (`lighting.frag:178-201`); decide once the L2 sky model is chosen. Done: deleted (both were unreferenced; git history keeps them). The `SP_SKY_`* / `SP_SUN_DISC_*` macros stay for the L2 sky decision.
+- [x] **L0.11** Re-measure the composite `Params` push-constant block (measured 52 bytes, not a 16-byte multiple) and pad it. Done: re-measured 52 B with `spirv-dis`; added `_pad3`..`_pad5` to `composite.frag` (now 64 B, last offset 60) and `offsetof` asserts on `PostProcessParams`.
+
+#### L0.2 tutor walkthrough: ambient diffuse and `kD`
+
+**Step 1. Know what is wrong.** Current code (`lighting.frag:447-448`, line numbers drift):
+
+```cpp
+vec3 lit_color = AO_DIFFUSE(albedo * ambient * ambientIrr * (1.0 - metallic * 0.5))
+               + sun_term * sunShadow;
+```
+
+- `(1.0 - metallic * 0.5)` is a magic number. At `metallic = 1` it keeps **half** the diffuse. A metal has no diffuse, so it should keep **zero**.
+- The sun term two lines below already does it right: `kD = (1 - F) * (1 - metallic)`. The ambient term ignores that work.
+
+**Step 2. Learn the energy rule.** A surface splits incoming light in two. Fraction `F` is reflected as specular. The rest, `1 - F`, enters the surface and comes back out as diffuse. Metals (`metallic = 1`) have no diffuse at all, so the diffuse share is multiplied by `(1 - metallic)`. In short:
+
+$$
+k_D = (1 - F)\,(1 - \text{metallic})
+$$
+
+**Step 3. Do not just reuse** `kD`**.** Line 427 defines `kD` with `F_sun`, which is Fresnel evaluated at the sun half-vector `H` (`HdotV`). The sun is one direction. Ambient light arrives from the whole sky hemisphere, so there is no single `H`. If you reuse `kD`, the ambient diffuse depends on where the sun is. That breaks as soon as L0.7 wires the sun sliders, so the wrong answer will show up later.
+
+For ambient, evaluate Fresnel from the view angle `N·V` instead, with roughness awareness (Lagarde / Filament style). This is one line:
+
+$$
+F_{\text{env}} = F_0 + \bigl(\max(1 - \rho,\ F_0) - F_0\bigr)\,(1 - N\!\cdot\!V)^5
+$$
+
+where $\rho$ is `roughness`. Then:
+
+$$
+k_{D,\text{amb}} = (1 - F_{\text{env}})\,(1 - \text{metallic})
+$$
+
+**Step 4. Check the numbers by hand before you touch GLSL.**
+
+| Case | `N·V` | `metallic` | `F_env` | `k_D,amb` |
+|------|-------|------------|---------|-----------|
+| Dielectric, face-on (`F0 = 0.04`) | 1.0 | 0 | 0.04 | 0.96 |
+| Dielectric, grazing | 0.05 | 0 | ~0.9 | ~0.1 |
+| Metal (any angle) | any | 1 | any | 0 |
+
+The metal row must be exactly zero. If it is not, the fix is wrong.
+
+**Step 5. Write the fix.** Use the same `F0` the shader already has (line 402, a `vec3`). Shape of the change:
+
+```glsl
+// Ambient Fresnel from the view angle, not the sun half-vector (L0.2).
+vec3 F_env  = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - NdotV, 5.0);
+vec3 kD_amb = (vec3(1.0) - F_env) * (1.0 - metallic);
+vec3 lit_color = AO_DIFFUSE(albedo * ambient * ambientIrr * kD_amb)
+               + sun_term * sunShadow;
+```
+
+**Step 6. Fix the broken line above it first.** The working tree has an L0.1 leftover. `ambientIrr` was deleted from line 445 but is still used on line 447, so the shader will not compile. L0.1 says to drop the sun colour from ambient, so the intended definition is `vec3 ambientIrr = skyIrr * SP_IBL_DIFFUSE;`. Confirm that, then do L0.2.
+
+**Step 7. Know what this changes.**
+
+- Release output changes on purpose. Under CLAUDE.md, that needs a changelog entry and an intended golden update (`SWISH_UPDATE_GOLDENS=1`). Never regenerate a golden just to make a refactor pass. `release_spv.sha256` is bound to the SDK glslc.
+- Possible follow-up, after L0.3 lands: the exact split-sum reflectance is `F0 * envBRDF.x + envBRDF.y` (`envBRDF` comes from the LUT). It is more accurate than `F_env`, but it needs `envBRDF` moved above line 447. Keep `F_env` for L0.2 so the change stays small.
+
+**Step 8. Verify by looking (owner runs the app).**
+
+- Temporarily force `metallic = 1` on the body paint. Take a window-only screenshot (`screencapture -R`). The shadowed side should be dark, with no grey matte lift.
+- Restore `metallic`. Check that the dielectric body still reads with its diffuse.
+- Remove the temporary force before you commit.
+
+**Try it yourself:** why does `F_env` use `N·V` and not `H·V`? Answer in one sentence before you change the code.
+
+**Solution (to apply):** lines 445-448 of `shaders/lighting.frag` become:
+
+```cpp
+    vec3  sun_radiance = camera.sunColor.rgb;
+    vec3  skyIrr       = texture(irradianceMap, N).rgb;   // baked-sky diffuse irradiance (set 3)
+    vec3  ambientIrr   = skyIrr * SP_IBL_DIFFUSE;         // L0.1: no sun colour in ambient
+    // Sun (direct) term is shadowed; ambient/sky fill is not (see sunShadow above).
+    vec3  sun_term  = (kD * albedo / PI + specular_sun) * NdotL * sun_radiance;
+
+    // Ambient Fresnel from the view angle, roughness-aware (L0.2). Not F_sun: ambient has no single H.
+    vec3  F_env   = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - NdotV, 5.0);
+    vec3  kD_amb  = (vec3(1.0) - F_env) * (1.0 - metallic);
+    vec3  lit_color = AO_DIFFUSE(albedo * ambient * ambientIrr * kD_amb)
+                   + sun_term * sunShadow;
+```
+
+Only the `ambientIrr` definition and the `kD_amb` term change. `sun_term`, `kD` and `specular_sun` stay as they are.
+
+**How it works (reference):**
+
+- **Energy split.** Each light sample is split: `F_env` goes to specular (the IBL specular term further down already adds it), the rest `1 - F_env` is diffuse. Diffuse is then scaled by `(1 - metallic)` because metals have no diffuse.
+- **Why** `N·V`**.** Ambient light comes from the whole hemisphere, so there is no single half-vector. The view angle is the only angle that is fixed per pixel. Using `H·V` (sun) ties ambient to sun position.
+- **Why** `max(1 - ρ, F0)`**.** Rough surfaces have a flatter, weaker Fresnel peak. Clamping the grazing value to `1 - ρ` keeps rough dielectrics from going fully specular at the rim. With `ρ = 0` it reduces to plain Schlick.
+- **Metals.** `F0 = albedo` for metal (line 402), so `kD_amb` is zero whatever `F_env` is. Result: no diffuse on metal, by construction, not by a magic number.
+- **Reference values:** `F0 = 0.04` dielectric, face-on `kD_amb ≈ 0.96`; grazing `N·V → 0` gives `kD_amb → 0`.
+
+**Checks before commit:**
+
+1. `glslc` compiles `lighting.frag` with 0 errors.
+2. Table in Step 4 holds (metal row exactly 0).
+3. Release output changes on purpose. Add changelog entry in `docs/changelog/2026-11.md`. Update the golden only with `SWISH_UPDATE_GOLDENS=1` and a changelog line. Never regenerate a golden to make an unrelated refactor pass.
+4. Owner app check: Step 8 screenshots (metal dark in shadow, dielectric paint still diffuse). Remove temporary `metallic` force before commit.
+
+**Upgrade path (after L0.3):** replace `F_env` with the split-sum reflectance `F0 * envBRDF.x + envBRDF.y`. That needs `envBRDF` moved above the ambient line.
+
+#### L0.11 tutor walkthrough: the composite push-constant block
+
+**Step 1. Know the rule.** A push-constant block is a small struct sent with `vkCmdPushConstants`. Swish's MoltenVK rule: the block must be a multiple of 16 bytes (`vec4`-aligned), or MoltenVK can silently misbehave. `vkx::push_range<T>` (`utils/vulkan/PushConstants.h`) enforces this on the C++ struct with a `static_assert`.
+
+**Step 2. Re-measure, do not trust the todo.** The shader block is in `shaders/composite.frag:14-28`. Count it by hand, in bytes (a `float` is 4, a `vec2` is 8 and must start on an 8-byte boundary):
+
+| Member | Offset | Size |
+|--------|--------|------|
+| `threshold`, `bloom_intensity`, `exposure`, `rain_intensity` | 0, 4, 8, 12 | 16 |
+| `texelSize` (`vec2`) | 16 | 8 |
+| `fog_density` | 24 | 4 |
+| `_pad1` | 28 | 4 |
+| `brightness`, `contrast`, `saturation`, `temperature`, `tint` | 32 to 48 | 20 |
+| **End** | **52** | not a multiple of 16 |
+
+Check your count against the compiler, not your head. After a build:
+
+```sh
+~/VulkanSDK/1.4.321.0/macOS/bin/spirv-dis build/shaders/composite.frag.spv | grep "MemberDecorate %Params"
+```
+
+The last line should read `Offset 48` for `tint`, which ends at 52. I ran this and it matches the table.
+
+**Step 3. Find what is already fixed.** The host struct `PostProcessParams` (`PostProcessManager.h:30-51`) is already padded to 64 B with three trailing floats, and line 53 `static_assert`s `sizeof == 64`. The pipeline layout pushes that whole 64 B range (`PostProcessManager_Descriptors.cpp:37`). So the pushed range is safe. What is left is the **shader side**: its block still ends at 52, and nothing checks that the host and shader layouts agree.
+
+**Step 4. Pad the shader block to match.** Add three floats after `tint` in `composite.frag`:
+
+```glsl
+    float tint;
+    // Tail padding: 52 B -> 64 B, matching PostProcessParams (host). Never read.
+    float _pad3;
+    float _pad4;
+    float _pad5;
+} params;
+```
+
+Then update the comment above the host struct (`PostProcessManager.h:27-29`). It says the shader block is 52 B and the trailing 12 B are never read; it should now say the two blocks are the same size.
+
+**Step 5. Guard the layout so it cannot drift.** A size check does not catch a reordered member. Add `offsetof` checks next to the existing `static_assert` in `PostProcessManager.h`, using the offsets from the table (and include `<cstddef>`):
+
+```cpp
+static_assert(offsetof(PostProcessParams, texel_x) == 16 && offsetof(PostProcessParams, fog_density) == 24 &&
+                  offsetof(PostProcessParams, brightness) == 32 && offsetof(PostProcessParams, tint) == 48,
+              "PostProcessParams must match the push_constant block in composite.frag");
+```
+
+**Step 6. Know what you are not changing.** `bloom_extract.frag` (12 B block) and `bloom_blur.frag` (32 B block) share the same host struct and the same 64 B range. They are not 16-byte multiples either (12 is not, 32 is). That is harmless today because the pushed range is 64 B, which is larger than their block. They are out of scope for L0.11; pad them only if you want all three to match.
+
+**Step 7. Gates.**
+
+1. `make test` and `make test-debug` green (the `static_assert`s run at compile time).
+2. Re-run the `spirv-dis` command: the last offset must be `Offset 60` (the final pad float), and the block ends at 64.
+3. This edits a shader, so `composite.frag.spv` changes. Re-record only that line of `tests/golden/release_spv.sha256`, deliberately, with a changelog entry.
+4. Output must be pixel-identical: padding adds no reads. Owner check in the app: the frame looks the same, including with the debug grade sliders at identity.
+
+**Try it yourself:** `texelSize` is a `vec2` at offset 16. What would happen to every member after it if you moved it to offset 12? Answer before you edit the shader.
+
+### L1: physical units and exposure
+
+- [x] **L1.1** One exposure model: $\text{exposure} = \dfrac{1}{1.2 \cdot 2^{EV_{100}}}$. Replace the fixed 1.55 in `CompositePass.cpp:42`.
+- [x] **L1.2** Promote auto-exposure to release (`HdrFinalizePass.cpp:31-44`), with per-preset EV100 min/max clamps. Done: auto-exposure runs in both builds (default on), compensation is subtracted from the metered EV, and the clamps come from the weather preset through `FrameState`. See [`docs/lighting-l1.md`](../docs/lighting-l1.md).
+- [x] **L1.3** Sun in lux, sky in cd/m². Replace sun ≈ 1.0 and ambient 0.42 (`WeatherController.cpp:29`). Done with a fixed pre-exposure: sun 100,000 lux in `sunDir.w`, sky scale 100,000 in `weather.y`, `kPreExposure` 1e-5 in `weather.z`, so the frame is unchanged. The ambient gain (0.42) is kept on purpose: it also scales diffuse sky only, and removing it would change the look. Per-preset physical values and the night-time pre-exposure belong to L2.
+- [x] **L1.4** Local lights in lumens, converted to candela: point $I = \Phi / 4\pi$, spot $I = \Phi / \pi$. Replace lamp 5.0 (`RoadScene_Furniture.cpp:586`) and headlight 30 (`CarLights.h:49`). Done: lamps are 16,000 lm (1,273 cd) and the car lights are lumens through `spot_candela_from_lumens`; the debug keys are now `head_lumens`, `tail_lumens`, `brake_lumens`.
+- [x] **L1.5** Inverse-square falloff must run in metres, not world units (1 m = 1000 WU, use `Units.h`). Add a unit test for the conversion. Done: point and spot falloff is `I / d_m^2` with metres from `camera.weather.w`; the wet halo keeps its old shape through `kHaloPerCd`. The road golden's `generate.light_hash` was re-recorded on purpose.
+- [x] **L1.6** Re-tune bloom threshold and intensity (0.45) for the new range. Done: bloom multiplies by the shared `frame_exposure` before the threshold, which is now 2.74 in exposed space (1.77 x 1.55); the intensity needed no retune.
+
+#### L1.1 tutor walkthrough: one exposure model
+
+**Step 1. Know what exposure is.** The HDR frame holds scene luminance, which can be any positive number. The screen can only show 0 to 1. **Exposure** is the single multiplier applied before tone mapping that decides which part of that range lands on screen. Today it is a magic number, `pp.exposure = 1.55f` (`CompositePass.cpp:42`). L1.1 replaces it with a physical model, so later phases (sun in lux, auto-exposure) can drive it from one place.
+
+**Step 2. Learn the model.** Photographers measure the scene with **EV100**, the exposure value at ISO 100. Each +1 EV is one stop, which halves the amount of light let in. For a saturation-based sensor, the brightest luminance that does not clip is
+
+$$
+L_{\max} = 1.2 \cdot 2^{EV_{100}}
+$$
+
+and the multiplier that maps $L_{\max}$ to 1.0 is its inverse:
+
+$$
+\text{exposure} = \frac{1}{1.2 \cdot 2^{EV_{100}}}
+$$
+
+Anchor values to remember:
+
+| Scene | $EV_{100}$ | exposure |
+|-------|-----------|----------|
+| Sunny noon | 15 | $\approx 2.5 \times 10^{-5}$ |
+| Overcast day | 12 | $\approx 2.0 \times 10^{-4}$ |
+| Dusk | 8 | $\approx 3.3 \times 10^{-3}$ |
+| EV 0 | 0 | $1/1.2 \approx 0.83$ |
+
+Check the halving rule yourself: going from EV 3 to EV 4 must exactly halve the exposure.
+
+**Step 3. Implement the formula (your learning stub).** In `src/utils/light/Photometry.h`, replace the body of `exposure_from_ev100`:
+
+```cpp
+[[nodiscard]] inline float exposure_from_ev100(float ev100) {
+    return 1.0f / (1.2f * std::exp2(ev100));
+}
+```
+
+Add `#include <cmath>` at the top if it is missing, and drop the `[[maybe_unused]]` on the parameter. Then in `tests/utils/test_light_Photometry.cpp` remove `.learning` from the tags of `"L1: exposure halves for every EV100 stop"` so `ctest` guards it. Run it first on its own: `build/tests/utils/swish_utils_tests "[photometry][L1]"`.
+
+**Step 4. Do not plug in a real EV100 yet. This is the trap.** Your scene is not in physical units: the sun is about 1.0, not about 100000 lux (that is L1.3). With a noon value of 15 the exposure is $\approx 2.5 \times 10^{-5}$, and the frame goes black. So L1.1 must keep today's look. Solve for the EV100 that reproduces 1.55:
+
+$$
+EV_{100} = -\log_2(1.2 \cdot 1.55) = -\log_2(1.86) \approx -0.8953
+$$
+
+Check the round trip before you trust it:
+
+$$
+\frac{1}{1.2 \cdot 2^{-0.8953}} = \frac{1}{1.2 \cdot 0.5376} \approx 1.5500
+$$
+
+A negative EV100 looks odd for a sunny scene. That is the point: it is a placeholder for "the old magic number, expressed in the new model". L1.3 will make it a real value.
+
+**Step 5. Make the edit in `CompositePass.cpp`.** Add the include with the others, then replace line 42:
+
+```cpp
+#include "utils/light/Photometry.h"
+```
+
+```cpp
+// Shipped EV100. -0.8953 reproduces the old fixed 1.55 exactly; raise it (about 14 for noon)
+// once L1.3 moves the lights to lux and nits.
+constexpr float kShippedEv100 = -0.8953f;
+```
+
+Put the constant in the anonymous namespace above `CompositePass`. Then in `describe()`:
+
+```cpp
+pp.exposure = util::light::exposure_from_ev100(kShippedEv100);  // was 1.55f
+```
+
+The shader's `params.exposure` just receives a different float. There is **no shader edit and no `.spv` hash change**. The result is 1.549997 against 1.55, a difference of about $3 \times 10^{-6}$ that you cannot see.
+
+**Step 6. Leave the debug path alone, for now.** Lines 46 to 55 (`#ifdef SWISH_DEBUG_UI`) still use `c.tune.exposure`, a linear slider, and `c.state.exposure` from auto-exposure. That is a second exposure model. Convert the slider to EV100 in **L1.2**, which already reworks auto-exposure and its `aeMin` / `aeMax` clamps. Doing it now would mix two phases.
+
+**Step 7. Gates.**
+
+1. The `[photometry][L1]` test passes, then `make test` and `make test-debug` stay green with 0 warnings.
+2. A changelog entry in `docs/changelog/2026-11.md` (use the LaTeX from Step 2 and Step 4).
+3. Owner check in the app: the frame looks the same as before.
+4. Tick L1.1 above and note the placeholder EV100 so L1.3 knows to replace it.
+
+**Try it yourself:** if you set `kShippedEv100 = 15.0f` and ran the app, what would you see, and which later phase fixes it? Answer before you edit.
+
+#### L1 tutor guide: the whole chapter
+
+**Start here.** The interactive lesson for this chapter is the artifact [The L1 Light Lab](https://claude.ai/artifact/SuJigQuwpRJwmhwnnpF2Fq). It has a live WebGPU scene (falls back to a 2D canvas), one animated lesson per item, the code to write, and the alternatives with their trade-offs. This section is the same plan in the repo, so you can work offline. L1.1 is already walked through above.
+
+*Generated with Claude Code from the Swish source. Review it before relying on it. Photometric figures (lamp lumens, lux tables) are typical values for sanity checks; confirm them against a datasheet before shipping.*
+
+**The idea in one paragraph.** Swish stores light in made-up numbers: a sun of about 1.0, a lamp of 5.0, an exposure of 1.55. L1 replaces each with a physical unit (lux, candela, EV100) so one exposure can span noon and midnight. Most of the work is small. Three traps are not, and they are marked below.
+
+```mermaid
+graph LR
+    A[L1.1 exposure from EV100] --> B[L1.2 auto-exposure in release]
+    A --> C[L1.3 sun in lux, sky in nits]
+    C --> F[half-float ceiling]
+    D[L1.4 lumens to candela] --> E[L1.5 inverse square in metres]
+    E --> G[L1.6 bloom after exposure]
+    B --> G
+    C --> G
+```
+
+| Item | Main files | What changes | Depends on |
+|------|-----------|--------------|------------|
+| L1.1 | `Photometry.h`, `CompositePass.cpp` | One exposure formula, placeholder EV | L0.6 done |
+| L1.2 | `Photometry.h`, `HdrFinalizePass.cpp` | EV-based auto-exposure, in release | L1.1 |
+| L1.3 | `WeatherController.cpp`, `lighting.frag` | Sun in lux, sky in cd/m², half-float guard | L1.1, L0.6 |
+| L1.4 | `Photometry.h`, `RoadScene_Furniture.cpp`, `CarLights.h` | Lamps in lumens, converted to candela | none |
+| L1.5 | `Photometry.h`, `lighting.frag` | Inverse square in metres | L1.4 |
+| L1.6 | `bloom_extract.frag`, `BloomPasses.cpp`, `CompositePass.cpp` | Threshold after exposure | L1.1 to L1.3 |
+
+Do them in table order, but do L1.4 and L1.5 as one change: candela means nothing until the shader treats it as candela.
+
+##### L1.2 walkthrough: auto-exposure in release
+
+**Know the law.** A light meter reads EV100 from average scene luminance $L$ (calibration constant $K = 12.5$, ISO 100):
+
+$$
+EV_{100} = \log_2\!\left(\frac{L \cdot 100}{12.5}\right) = \log_2(8L)
+$$
+
+Feed that into the L1.1 formula and a lovely thing happens:
+
+$$
+\text{exposure} \cdot L = \frac{L}{1.2 \cdot 2^{\log_2(8L)}} = \frac{L}{9.6\,L} = \frac{1}{9.6} \approx 0.104
+$$
+
+So the current rule `exposure = aeKey / luminance` is the **same law** with a key of 0.104. Today's default `aeKey = 0.30` is brighter by $\log_2(0.30/0.104) \approx 1.53$ stops. Keep that as an exposure compensation if you want the old look. **Sign:** a positive compensation brightens, so it is *subtracted* from the metered EV (an earlier version of this guide added it, which darkens).
+
+**Implement the stub** in `Photometry.h`:
+
+```cpp
+[[nodiscard]] inline float ev100_from_luminance(float avgLuminance) {
+    const float L = std::max(avgLuminance, 1e-4f);   // a black frame must not give -inf
+    return std::log2(L * 100.0f / 12.5f);
+}
+```
+
+**Use it** in `HdrFinalizePass::beginFrame`. Keep the readback and the exponential chase exactly as they are (`m_adaptedLum += (lum - m_adaptedLum) * rate`), and replace the last line:
+
+```cpp
+// compensation brightens when positive, so it is SUBTRACTED from the metered EV
+const float ev = glm::clamp(ul::ev100_from_luminance(m_adaptedLum / ul::kPreExposure) - u.tune.evCompensation,
+                            u.state.evMin, u.state.evMax);
+u.state.exposure = ul::exposure_from_ev100(ev);   // was: clamp(aeKey / m_adaptedLum, aeMin, aeMax)
+```
+
+**Promote it to release.** Today `beginFrame`, `record_luminance_pyramid` and the luminance readback sit under `#ifdef SWISH_DEBUG_UI`. The move is: build the 1x1 readback resources in release, drop the `#ifdef`, and take `evMin` / `evMax` from the active preset (`TimeOfDayPreset` already has `ev100Min` / `ev100Max`). Read `HdrFinalizePass.cpp` and `PostProcessManager` before you start; the names above are what I found, not an API I added.
+
+**Alternatives.**
+
+| Metering | Cost | Note |
+|----------|------|------|
+| Arithmetic mean (today) | none | The sun disc and lamp heads drag the frame dark |
+| Log-average (geometric mean) | two small shader edits | Recommended. Store `log2(lum)` in the first downsample, `exp2` after the readback |
+| Histogram, 10 to 90 percent clip | a compute pass | Most robust, overkill for L1 |
+| Centre-weighted | a weight mask | Cheap, odd when the car turns |
+
+**Check.** In a steady scene, `exposure * luminance` settles at 0.104 for any luminance. Leaving a tunnel gives a short flash, then it settles. With `evMax` too low, a sunlit scene stays blown out, which is why the clamps belong to the preset.
+
+##### L1.3 walkthrough: sun in lux, sky in cd/m²
+
+**The numbers.** A clear noon sun gives about $E = 100\,000$ lux on a surface facing it. A full moon gives about 0.3 lux. A Lambertian surface of albedo $\rho$ turns illuminance into luminance:
+
+$$
+L = \frac{\rho\,E}{\pi}
+$$
+
+Sunlit asphalt ($\rho = 0.1$) is about 3,183 nits. The EV that exposes it well is $\log_2(8L) \approx 14.6$, which is the old "sunny 16" rule showing up on its own. A lamp pool of 15 lux needs about EV 1.9, and moonlight about EV $-3.7$.
+
+**Wire it (as built).** L0.6 made `lighting.frag` read `sunColor.rgb * sunDir.w`, so the sun amount rides in `sunDir.w` and the colour is only a tint. `Look` in `WeatherController.cpp` gained `sunLux` and `skyNits`, and `set_weather` passes both plus a fixed pre-exposure:
+
+```cpp
+// every preset keeps its old look, so all carry one old scene unit = 100,000 lux until L2 calibrates them
+constexpr float kSunLux  = util::light::kLegacyUnitLux;
+constexpr float kSkyNits = util::light::kLegacyUnitLux;
+
+m_cameraUniforms->set_weather(Vec4(m_sunDir, m_sunLux), Vec4(m_sunColor, look.ambient), m_clarity, m_skyNits,
+                              util::light::kPreExposure);
+```
+
+```glsl
+// lighting.frag: each light is multiplied by its pre-exposed amount where it is defined
+float sunScale = camera.sunDir.w * camera.weather.z;    // lux  * pre-exposure
+float skyScale = camera.weather.y * camera.weather.z;   // nits * pre-exposure
+vec3  sun_radiance = camera.sunColor.rgb * sunScale;
+vec3  skyIrr       = texture(irradianceMap, N).rgb * skyScale;   // likewise envColor, ccEnv, the haze and the sky pixels
+```
+
+The sky cubes are **not** rescaled in the bake (that would overflow half-float cubes). The scale is applied when they are sampled, so changing `skyNits` needs no rebake. The ambient gain 0.42 stays: it scales diffuse sky only, and removing it would change the look.
+
+**Trap 1: the half-float ceiling (solved with the fixed pre-exposure above).** The HDR target is `R16G16B16A16_SFLOAT` (see the comment in `PostProcessManager.h`), whose largest finite value is 65,504. A white diffuse card in full sun is $\rho E/\pi = 31\,831$, so one stop of headroom. A GGX sun glint or the sun disc (about $1.6 \times 10^9$) overflows to infinity, and infinity poisons bloom and TAA. Choose one:
+
+| Option | Cost | Verdict |
+|--------|------|---------|
+| Clamp the final lit colour at about 60,000 | one line, `min(lit_color, vec3(60000.0))` | Quick start. Highlights lose energy |
+| **Pre-exposure** | multiply light by last frame's exposure in `lighting.frag`, divide it back out in the composite | **Recommended.** Values stay near 1 at noon and at midnight. One frame of lag |
+| Divide all lights by a constant | none | Fails at night: the dark road becomes denormal and bands |
+| Float32 target | doubles post-pass bandwidth | Debugging only |
+
+**Check.** Noon asphalt at EV 14.6 exposes to about 0.1. Look for black blotches in the bloom, which are the sign of an `inf`. With sun lux 0 (overcast), shadows must vanish.
+
+##### L1.4 walkthrough: lumens to candela
+
+**The idea.** A datasheet gives flux $\Phi$ in lumens, the total light out. The shader needs intensity $I$ in candela, the light per steradian. A bare bulb spreads over the whole sphere ($4\pi$ sr):
+
+$$
+I_{\text{point}} = \frac{\Phi}{4\pi}
+$$
+
+A spot needs a rule. Frostbite uses $I = \Phi / \pi$ whatever the cone angle, so a tighter beam does not look brighter. The physical rule divides by the cone's solid angle:
+
+$$
+I_{\text{cone}} = \frac{\Phi}{2\pi\,(1 - \cos\theta)}
+$$
+
+They agree at exactly $\theta = 60^\circ$, because then $2\pi(1 - \cos\theta) = \pi$. For a 1,200 lm headlight the Frostbite rule gives 382 cd, the cone rule gives 1,631 cd at Swish's 28 degree outer angle, and about 25,600 cd for a tight 7 degree hot spot, close to a real low beam. **For headlights the cone rule is the more honest one.** The scaffold's `spot_candela_from_lumens` header documents the Frostbite rule, so implement that, and add a cone variant only if you want the other.
+
+**Implement the stubs** (`Photometry.h`):
+
+```cpp
+[[nodiscard]] inline float point_candela_from_lumens(float lumens) { return lumens / (4.0f * units::kPi); }
+[[nodiscard]] inline float spot_candela_from_lumens(float lumens)  { return lumens / units::kPi; }
+```
+
+**Replace the magic numbers.**
+
+```cpp
+// RoadScene_Furniture.cpp: was 5.0f. A 150 W high-pressure sodium lamp is about 16,000 lm (typical).
+constexpr float kLampLumens = 16000.0f;
+lights.push_back({pos, Vec3(1.0f, 0.9f, 0.7f), util::light::point_candela_from_lumens(kLampLumens), 50000.0f});  // about 1,273 cd
+
+// CarLights.h: was headIntensity = 30.0f. One low beam is about 1,000 to 1,500 lm (typical).
+float headLumens = 1200.0f;
+```
+
+Two things to know. The car's spot lights exist **only in debug builds** (`SpotLightData` is under `#ifdef SWISH_DEBUG_UI` in `SceneTypes.h`), so the headlight change is not visible in release. And the debug slider in `Tunables.def` (group `car_lights`) changes meaning from a multiplier to lumens, so rename it.
+
+**Check.** 1,000 lm gives 79.58 cd as a point and 318.3 cd as a Frostbite spot. Zero lumens gives zero, never NaN.
+
+##### L1.5 walkthrough: inverse square in metres
+
+**The law, and the trap.** Illuminance at a surface from a point source is
+
+$$
+E = \frac{I \cos\theta_s}{d^2}, \qquad d_m = \frac{d_{\mathrm{WU}}}{1000}
+$$
+
+**Trap 2: units.** Swish measures distance in world units, where 1 m is 1000 WU. Divide candela by $d_{\mathrm{WU}}^2$ and the lamp is $10^6$ times too dim, so the frame goes black. Today's falloff, `att = win * dRef² / (dRef² + dist²)`, is dimensionless, so it never mentioned metres. That was safe, and it has to change.
+
+**A satisfying check before you write any GLSL.** A 16,000 lm lamp is 1,273 cd. On a 9 m pole the ground directly below gets $1273 / 81 = 15.7$ lux. Real roads sit around 10 to 30 lux. If your numbers land there, the units are right.
+
+**Implement the stub:**
+
+```cpp
+[[nodiscard]] inline float inverse_square_m(float distanceWu) {
+    const float d = units::to_m(distanceWu);       // never re-type 1000
+    return 1.0f / std::max(d * d, 1e-4f);          // 1 cm floor, 0.01^2
+}
+```
+
+**Change the shader** (the point-light loop in `lighting.frag`):
+
+```glsl
+float d_m = dist * camera.weather.w;                   // metres per WU, from Units.h through the camera UBO
+float inv = 1.0 / max(d_m * d_m, 1e-4);
+float win = clamp(1.0 - pow(dist / lRad, 4.0), 0.0, 1.0);   // Karis window keeps the lamp local
+win *= win;
+vec3 radiance = lCol * lInt * inv * win;               // lux at the surface, lInt is candela
+```
+
+Careful with what else reads `att`: the `if (att < 0.001) continue;` early-out and the wet halo (`att * att`) both assume a value in [0, 1]. As built, the halo keeps its old bounded shape in its own `haloAtt` and its own reach, and the direct light is skipped when its pre-exposed illuminance falls under `kMinLocalHdr`. The metres-per-WU factor travels in `camera.weather.w`, taken from `util::units::to_m(1.0f)`, so the number 1000 is never typed in GLSL.
+
+**Alternative worth knowing.** Derive each lamp's radius from its own brightness, $r_{\text{cut}} = \sqrt{I / E_{\min}}$. With a floor of 0.5 lux, 1,273 cd gives 50.5 m, which is the hand-set 50 m radius used today. Also: the old curve is not far from the physical one in shape (about twice as bright at 20 m once scaled to the same peak). What changes most is the peak and the units.
+
+**Check.** Doubling the distance quarters the illuminance. Passing WU instead of metres gives a result $10^6$ too small, which the unit test above catches.
+
+##### L1.6 walkthrough: bloom for the new range
+
+**Trap 3: bloom thresholds the raw image.** `bloom_extract.frag` compares raw HDR luminance with `params.threshold` (1.77) and ignores exposure; `BloomExtractPass` even sets `pp.exposure = 1.0f`. With the sun at 100,000 lux, every pixel is far above 1.77 and the whole frame glows. The composite adds bloom first and multiplies by exposure after, so the **intensity** (0.45) needs no retune. Only the threshold moves.
+
+$$
+x = \max(Y\,e - \tau,\ 0), \qquad c = \frac{x}{x + 1}
+$$
+
+**Edit the shader.** Threshold in exposed space, keep the output in raw units:
+
+```glsl
+float brightness = dot(color, LUMA_709) * params.exposure;
+float contribution = max(brightness - params.threshold, 0.0);
+contribution = contribution / (contribution + 1.0);
+outColor = vec4(color * contribution, 1.0);
+```
+
+**One source of truth for exposure.** Both passes must use the same number. Add a small helper and call it from `BloomExtractPass::describe` and `CompositePass::describe`:
+
+```cpp
+// renderer/Passes/Exposure.h (as built); BloomExtractPass and CompositePass both call it
+inline float frame_exposure(const FrameCtx& c) {
+    if (c.tune.autoExposure) return c.state.exposure;
+#ifdef SWISH_DEBUG_UI
+    return c.tune.exposure;
+#else
+    return util::light::hdr_exposure_from_ev100(kShippedEv100);
+#endif
+}
+```
+
+**Keep today's look.** Raw 1.77 at composite exposure 1.55 is $\tau' = 1.77 \times 1.55 \approx 2.74$ in exposed space, so set `pp.threshold = 2.74f` in `BloomPasses.cpp` first, then retune by eye. Around 1.0 means "brighter than display white".
+
+**Alternatives.** A soft-knee prefilter (smooth onset, no popping), a threshold-less bloom that scatters about 4 percent of the whole image through a mip chain (physically closer, replaces the extract pass, a later phase), and a Karis average on the first downsample (stops lamp-head sparkle).
+
+**Check.** At EV 15 a lamp head of 960,000 nits exposes to about 24 and sunlit asphalt to about 0.08, so only the lamp should glow. The glow must follow auto-exposure.
+
+##### L1 gates
+
+1. `make test` and `make test-debug` green with 0 warnings after each item.
+2. Un-hide each `[.learning]` test as you implement its function (L1.1, L1.2, L1.4, L1.5 in `tests/utils/test_light_Photometry.cpp`).
+3. A changelog entry per item in `docs/changelog/2026-11.md`, with the LaTeX above.
+4. Shader edits change `.spv` hashes. Re-record only the touched lines of `tests/golden/release_spv.sha256`, on purpose, from a release build (it is a manual `shasum -c`, not part of `ctest`).
+5. Owner check in the app after L1.1 (looks the same), L1.3 (noon, dusk, night), L1.5 (lamp pools on the road), L1.6 (glow on lamps only).
+
+### Lighting lab (built 2026-11-15; decisions from the owner interview)
+
+Why: the LIE corridor has no tunnel, no overpass and no lamps, so L1 (auto-exposure, clamps, lumens, bloom) could not be seen working. Reference: [`docs/lighting-lab.md`](../docs/lighting-lab.md). Launch: `SWISH_LAB=1 make debug`.
+
+- [x] **Purpose:** a debug-only lab (`SWISH_DEBUG_UI` builds). The normal launch is unchanged.
+- [x] **Layout:** one lab world chosen at launch. A walled, paved box 3.2 km (about 2 miles) on a side; the car is clamped 3 m inside the wall.
+- [x] **Stations:** two parallel 400 m tunnels (unlit; lit with a 12,000 lm luminaire every 12.5 m), four overpasses 10/20/40/80 m wide and 150 m apart, a 600 m lamp stretch (16,000 lm every 40 m), a calibration lot (white, 18% grey and black cards, a matte and a metal ball, one lamp), and the open pavement.
+- [x] **Sky under a roof:** roof volumes (up to 8 boxes in the debug scene-params UBO); sky ambient and reflections fade inside them, for the car too.
+- [x] **Night:** log sun-lux and sky-scale sliders with Day / Dusk / Night buttons, and a pre-exposure that follows the exposure (`adaptivePreExposure`, on in the lab).
+- [x] **Read-outs:** exposure meter with EV history, false-colour view, bloom mask view, light probe under the car.
+- [x] **Teleport** buttons, one per station.
+- [x] Unit tests for the pure parts; `docs/lighting-lab.md`; changelog entry.
+- [ ] **Owner check in the app** (nothing here has been looked at): the list is in `docs/changelog/2026-11.md`, entry "Lighting lab".
+
+Changed from the plan: the lit tunnel's lamps went from one every 25 m to one every 12.5 m at 12,000 lm, because a test showed only about 2 lux between lamps at the wider spacing.
+
+Known limits (details in the doc): TAA lags in brightness while the exposure moves; windshield rain, wet halos and rain-fog colour ignore dusk and night; the probe's sun figure is unshadowed; roofs are hand-placed boxes.
+
+### Car showcase: places, looks and lighting detail (decisions from the 2026-11-15 interview; built the same day, debug only; reference [`docs/car-showcase.md`](../docs/car-showcase.md))
+
+- [x] Four places, rectangle area lights, grounding shadow, paint looks, material fixes, forced car lights, turntable, wet car surface, bloom pyramid, tests, doc, changelog.
+- [ ] Owner check in the app (list in [`tasks/upcoming-tests.md`](upcoming-tests.md), "Car showcase"). Nothing has been looked at.
+- Deviations: the third surface state is "Dusty" (rougher, dull clear coat, dust tint), not a textured dirt layer. The defaults below were confirmed.
+
+Why: judge the car's lighting properly. The lab has roads and lamps but no place built to look at a car, and soft light sources do not exist in the engine.
+
+Decided by the owner:
+
+- **Scope:** both showcase places and car look presets, so any look can be judged in any place.
+- **Places** (new lab stations): a studio with a turntable, a parking garage, a gas station canopy at night, a wet night street.
+- **Soft lights:** a new rectangle area light (lights softly, appears in glossy paint as a rectangle highlight).
+- **Car looks:** paint finishes (solid gloss, metallic, pearl, satin, matte), paint colours (black, white, silver, red, deep blue, yellow), lights state (off, parking, low beam, brake held), clean / wet / dirty.
+- **Details:** a grounding shadow under the car for area lights, corrected car materials (rubber, glass, chrome, plastic, leather by name), the bloom pyramid, a rain-wet car surface with drops.
+- The pending app checks and later unit tests live in [`tasks/upcoming-tests.md`](upcoming-tests.md).
+
+Defaults (confirmed):
+
+- Debug first again (`SWISH_LAB=1 make debug`); `make run` unchanged.
+- Up to 16 rectangle lights, nearest first, in the debug light UBO. Diffuse plus a representative-point specular. They cast no shadows except the car's grounding shadow (the car body as a box occluder).
+- The turntable orbits the camera around the parked car (a panel toggle); the car does not spin.
+- Teleporting to a place applies the time of day it is built for: Midnight for the canopy and the street; the studio and garage are enclosed, so the sky does not reach them at any time. Rain stays on the R key.
+- Lamp colour temperatures: 5,600 K studio panels, 4,000 K garage tubes, 6,500 K canopy LEDs, 2,100 K sodium street lamps, warm 3,000 K shop windows.
+- Looks are a finish and a colour applied to the body-paint slots through the existing material overrides; material corrections are a name table, debug only.
+- Unit tests for the pure parts, a reference doc, a changelog entry, and the app checks appended to `tasks/upcoming-tests.md`.
+
+### L2 to L10: decisions from the 2026-11-15 interview (built the same day, debug first; reference [`docs/lighting-l2-l10.md`](../docs/lighting-l2-l10.md))
+
+Decided by the owner:
+
+- **Lab and L1 status:** run in the app, looks right.
+- **Delivery:** everything in one run, one check list at the end.
+- **Sky model (L2.1):** raymarched atmosphere (Rayleigh, Mie, ozone) in the bake shader and for visible sky pixels. No lookup tables.
+- **Where it lands:** debug first, promote later. `make run` keeps today's HDRI look.
+- **Presets:** time of day drives the sky (sun position, lux, EV clamps, lamps); the weather preset drives haze / cloud cover and rain. Any time with any weather.
+- **Debug start:** noon.
+- **Emissive (L5.1):** strength in the normal buffer's alpha (16-bit float); emissive colour is albedo times strength.
+- **Corridor lamps (L6.1):** on the median, an arm over each carriageway, every 60 m.
+- **Left out of this run:** L7 (lamp and headlight shadows), L8.3 (signs), L9.4 (mesopic look), L10.2 (lens rain and the layered wet BRDF).
+
+Proposed defaults, to confirm:
+
+- A key cycles time of day (T if free), plus a panel selector. The lab gets the same control.
+- Weather becomes cloud cover on the procedural sky: PartlyCloudy 0.3, Cloudy 0.6, VeryCloudy 0.9. The GoldenHour weather becomes "clear"; the hour comes from the time of day. The HDRI selector stays as a debug override (L2.8).
+- A preset switch does one synchronous sky rebake, so a short hitch. The bake is made cheaper (fewer irradiance taps). No continuous time slider.
+- Corridor lamps are downward spot lights at about 2,100 K; the spot limit grows from 8 to 40 with nearest-first selection. Lamps and headlights switch on per preset.
+- Because of "debug first", these stay open after the run: L2.2 (procedural sky as the release default), L3.4 (PCSS in release), L4.5 (SSAO in release, or remove the release multiply), L6.3 (car spot lights in release), and L4.6 (owner sign-off).
+- Unit tests for the pure parts, a reference doc, changelog entries. Release shader hashes are re-recorded only if a release shader changes.
+
+Changed from the defaults above: the bake was **not** made cheaper (the irradiance convolution is shared with release, so it was left alone); the L4.4 mip pyramid was not built, only the Karis extract; headlights use the cone rule with a tighter 8 to 16 degree beam. Nothing was run in the app: the check list is at the end of the reference doc.
+
+### L2: procedural sky and time-of-day presets
+
+- [x] **L2.1** Pick the sky model. Recommended: a Hillaire-style transmittance + sky-view LUT, because it stays correct with the sun at and below the horizon. This is the old "analytic sky (D3)" item. Done (debug): raymarched Rayleigh + Mie + ozone, no LUTs (`atmosphere.glsl`, `Atmosphere.h`).
+- [ ] **L2.2** Make the procedural bake the default path; today it only runs when the HDRI file is missing (`WeatherController.cpp:61-66`) and the rebake is skipped when an HDRI is loaded (`:90-93`). Open by decision (debug first): the procedural sky is the debug default; release still loads the HDRI.
+- [x] **L2.3** Presets as data: one TOML table per time of day (sun elevation and azimuth, lux, turbidity, EV100 clamps, lamps on/off). This also closes "weather presets as data files" (`WeatherPreset.h` enum). Done (debug): six presets loaded from `config/time_of_day.toml`; T key and panel.
+- [x] **L2.4** Rebake IBL on preset switch without a hitch. (done 2026-11-20: filtered importance sampling + env mips, bake 130 -> ~5-10 ms; rain HDRI decoded + uploaded in the background while dry; mid-run rain swap ~165 -> ~22 ms. Next, optional: fence-based async submit to drop the ~12 ms queue-idle wait.)
+- [x] **L2.5** Draw the visible sky from the sky model instead of prefiltered mip 0, which is only 256² (`lighting.frag:261`). Done (debug): sky pixels evaluate the model, plus the sun or moon disc and stars.
+- [x] **L2.6** One sun disc for exterior and cockpit: `glass.frag` needs the set-4 branch (`GlassPass.cpp`), which also fixes the cockpit sky mismatch in `docs/user-goals/CURRENT.md:50-53`. Done (debug): `glass.frag` reflects the same physical disc. It needs no set 4; the inputs ride in the camera UBO.
+- [x] **L2.7** Moon as the directional light for midnight (about 0.2 lux), plus a star/night-sky term. Done (debug): moon as the directional light when the sun is down, airglow, stars.
+- [x] **L2.8** Keep the HDRI selector as a debug-only override. Done: "Procedural sky" off returns to the HDRI weather presets.
+
+### L3: sun shadows that hold at every elevation
+
+- [x] **L3.1** CSM blackout when the sun rises: `lookAt` with up = (0,1,0) degenerates near zenith (`GeometryProducer.cpp:175`), and one bias is shared by all cascades (`lighting.frag:342`). Fix both. The repro in `tasks/today.md:39` used the unwired slider, so redo it after L0.7. Done (debug): stable up vector (`stable_light_up`) and a slope-scaled bias. The bias is in normalised cascade depth, so it already grows with the cascade's texel size.
+- [x] **L3.2** Texel snapping of the cascade origin (stops shadow shimmer while driving). Done (debug): cascade centre snapped to whole texels in light space.
+- [x] **L3.3** Cascade blend band. Done (debug): `cascadeBlend` band, blended with a 3x3 PCF of the next cascade.
+- [ ] **L3.4** Promote PCSS to release with a real sun angular size (`SP_SHADOW_LIGHT_SIZE` is 0 today), using manual PCF. Half done: the PCSS penumbra now uses the sun's real angular radius (debug). Release promotion is open by decision.
+- [x] **L3.5** Review the shadow floor 0.25 once L0.1 lands; it may no longer be needed. Done (debug): floor 0, since the sky fills shadows. Release keeps 0.25.
+
+### L4: golden hour sign-off (first target)
+
+- [x] **L4.1** Multiscatter GGX energy compensation (old E1). Done (debug): Kulla-Conty style compensation from the split-sum LUT.
+- [x] **L4.2** Reflection / ambient energy rebalance and Fresnel-bounded sheen (old feature row 6); cures the over-exposed far road. Done (debug): the wet sheen adds only the reflection the base lobe did not take, of the mirror environment. The ambient gain is 1.0 with the procedural sky. Needs tuning by eye.
+- [x] **L4.3** Turn metallic flakes on: flake density defaults to 0 (`SceneTypes.h:89`). Done (debug): `paintFlakeDensity` 0.3 on body paint, found by material name.
+- [ ] **L4.4** Bloom pyramid with Karis firefly suppression (old C2). Half done: Karis-weighted 4-tap extract (debug). The mip pyramid is not built; bloom is still one quarter-res level.
+  Research 2026-11-21 (AI): the debug `BloomPyramidPass` (1/8-1/32) has two faults. (a) Each level shrinks the one above with one bilinear tap per Gaussian tap, so small lights shimmer. (b) The 1/32 level is enlarged 8x in one bilinear step onto the 1/4 image, so wide halos look blocky. Fix: the down/upsample chain from Jimenez 2014, "Next Generation Post Processing in Call of Duty: Advanced Warfare" (SIGGRAPH), also used by Bevy, Unity URP and LearnOpenGL "Physically Based Bloom". Cost is about 4/3 of one pass at the start size, about the same as today.
+  - [ ] **L4.4a** `shaders/bloom_down.frag`: 13-tap downsample made of 5 overlapping 2x2 boxes, centre box 0.5 and the four corner boxes 0.125 each. The Karis average applies only on the first step, which stays in `BloomExtract`.
+  - [ ] **L4.4b** `shaders/bloom_up.frag`: 3x3 tent upsample with a radius in texels, additive blend (ONE, ONE) into the next larger level, 1/128 to 1/4.
+  - [ ] **L4.4c** Rebuild the inside of `src/renderer/Passes/BloomPyramidPass.cpp` (its level images, framebuffers and sets are the scaffold): 5 levels from the extract image, one draw per level each way. Change the combine from alpha to additive. In debug, `BloomBlurH/V` skip recording while the chain is on. Release stays byte-identical (`PASS_DEBUG`).
+  - [ ] **L4.4d** Sliders in `src/debug/Tunables.def`: `bloom_up_radius`, `bloom_levels`, optional `bloom_no_threshold` (the CoD-style energy-conserving mix `lerp(hdr, bloom, k)`, k about 0.04). Bump the counts in `tests/test_debug_params_io.cpp`. Keep the extract threshold as the default, so the lighting lab presets need no retune.
+  - [ ] **L4.4e** Look at it: night D5 sodium lamps, headlights on a wet road (rain 0 and 1.0), C3a signal lenses, sun glint on the clearcoat. Check that distant lamp heads do not flicker while driving. Watch the D5 twin-pole lens discs (20,000 cd/m²): the real fix there is lens luminance, not the filter. Changelog, tuning notes and owner checks go in `tasks/upcoming-tests.md`.
+  - [ ] **L4.4f** (owner) GPU time with the existing `GpuProfiler`: old pyramid vs the new chain.
+- [ ] **L4.5** Promote SSAO to release, or remove the release `aoTex` multiply (follows L0.8). Open by decision (debug first).
+- [ ] **L4.6** Owner sign-off in the app on a dry road: chase, hood and cockpit views. Open: the owner's.
+
+### L5: emissive surfaces
+
+- [x] **L5.1** Add an emissive channel. The G-buffer has none; decide between a new attachment and a spare channel. Done (debug): emissive strength in the normal buffer's alpha (16-bit float), carried by `PushConstantData::extra`.
+- [x] **L5.2** Car lens glow from the GLB `emissiveFactor` and the `*_Lens` / `_Emitter` submeshes (old car-lights S5). Done (debug): `*_Lens` / `*_Emitter` nodes glow while their lamp is on. The GLB has no `emissiveFactor`, so the luminances are `lensNits*` in the panel.
+- [x] **L5.3** Emissive street-lamp heads; emissive values in cd/m² so bloom responds correctly. Done (debug): lamp heads on the corridor and in the lab, 20,000 cd/m².
+
+### L6: local lights on the driven corridor
+
+- [x] **L6.1** Street lamps on the corridor. Lamp placement exists only in the retired road (`RoadScene_Furniture.cpp:535-589`), and `set_scene_lights` is called only from `Treadmill.cpp:42`. Port placement into `CorridorScene` and feed the renderer. Done (debug): poles on the median every 60 m, one spot per pole, from `build_corridor_segments(al, withLamps)`.
+- [x] **L6.2** 1990s high-pressure sodium colour (about 2100 K) and a downward cone, so lamps should be spots, not points. Done: `kelvin_to_rgb(2100)`, downward cones (55 to 75 degrees).
+- [ ] **L6.3** Promote car spot lights to release (`lighting.frag:552`, `App.cpp:354`); the 8-spot limit must grow to hold 7 car lights plus shadowed lamps. Half done: the limit is 40 and world lamps are chosen nearest first. Release promotion is open by decision.
+- [x] **L6.4** Headlight low-beam pattern with a horizontal cutoff; brake lamps keep following `m_brake`. Done (debug): cutoff above the beam axis; headlights use the cone rule with an 8 to 16 degree beam.
+- [x] **L6.5** Keep nearest-N light selection (`CameraUniforms.cpp:54-60`); measure the count visible inside the far plane before considering clustered culling. Done: nearest-first kept; the panel shows spots uploaded against the total.
+- [x] **L6.6** Lamps and headlights switch on per preset (L2.3). Done (debug): `lamps_on` in the preset drives the corridor lamps, the car's lights and the lens glow.
+
+### L7: local-light shadows
+
+- [ ] **L7.1** Spot shadow atlas: 2 headlights plus the nearest 2 to 4 lamps, manual PCF. Left out of this run by decision.
+- [ ] **L7.2** Pick lamp shadow casters by distance with hysteresis, so shadows do not pop as lamps pass. Left out of this run by decision (`pick_shadow_casters` stays a stub).
+- [ ] **L7.3** GPU cost budget per shadowed light; fps check with all on. Left out of this run by decision.
+
+### L8: retroreflection
+
+- [x] **L8.1** A retroreflective material tag. Lane markings use the default material today (`CorridorScene.cpp:167-180`). Done: lane and edge markings carry `DrawCall::retro`, written to the albedo buffer's alpha (debug).
+- [x] **L8.2** Retro lobe in the spot-light loop: brightness peaks when the view direction is close to the light direction. Done (debug): `pow(dot(V, L), 64)` lobe in the spot loop, `retroGain`.
+- [ ] **L8.3** Signs: the corridor has none. Depends on Layer 5 / Phase 3c exit signage. Left out of this run by decision (no signs exist). D3 (2026-11-21) built the signs: faces carry `retro = 1` and `sign_sheen`; L8.3 can give sheeting its own lobe.
+
+### L9: remaining presets
+
+- [x] **L9.1** Noon and morning (need L3). **L9.2** Evening and dawn (need L6). **L9.3** Midnight (needs L5 to L8). Wired (debug): all six presets are selectable; tuning each by eye is the owner's.
+- [ ] **L9.4** Optional mesopic night look (old C8). Left out of this run by decision.
+
+### L10: wet pass
+
+- [ ] **L10.1** Every preset at rain 0 and 1.0; whole car is tagged `dry` today (`CarEntity.cpp:707`). Half done: rain fog takes the sky's colour, and "Rain wets the car's exterior" is a panel option. Checking every preset at rain 0 and 1 is the owner's.
+- [x] **L10.2** Wet halo and puddle reflections of lamps and headlights; layered wet BRDF (old E3); lens rain (old car-lights S6). Left out of this run by decision (wet halos and puddles are unchanged). (done 2026-11-20: anisotropic wet streak lobe for lamps + car lights; layered wet BRDF = rain P2 Lekner-Dorf + water F0; lens rain = rain wets/beads the car exterior incl. lenses. Gap found: rain is always the daytime Misty HDRI, so no rain-at-night yet.)
+
+Not surveyed yet, check before the phase that touches them: `ssr.frag`, `godrays.frag`, `glass.frag` lighting, the IBL bake shaders, road roughness textures.
+
+## Rigged Porsche: first-class car (started 2026-10-12, source `goals.md`)
+
+Owner decisions, grill round 1 (2026-10-12):
+
+- **"Precise" means all three:** (a) it looks the same as `assets/Porsche/porsche.glb` (paint and materials, nothing missing),
+(b) it's dimensionally accurate to the real 911 variant, and (c) pivots sit at the real hinge points.
+Mesh vs physics: the mesh wheelbase is 2.259 m against `kWheelbase` 2.45 m, and the tyre radius is 0.320 m against 0.363 m. Round 2 decides which one moves.
+- **Default car:** build and verify behind `SWISH_CAR`. Once verified, it **becomes the new default**, as a separate labelled change.
+- **Steering wheel:** realistic ratio, driven by the same smoothed steer angle as the front wheels.
+- **Wheels: all four behaviours.** Spin at wheel speed; front steer with Ackermann; suspension travel (Phase B);
+calipers steer and bounce but don't spin.
+- **Wipers:** one key cycles Off → Intermittent → Low → High. The 3D blades are synced with the windshield-rain wipe.
+- **Dials:** animate only the two needles, calibrated to the painted dial face. Units and range get confirmed from the face.
+- **Explanation:** both an animated artifact (LaTeX, SVG diagrams, motion design: the math and how it looks in-game) and
+`docs/car-rig.md`.
+- **Agents:** the shared named-rig loader lands first. Then three specialists run in parallel: wheels + steering, wipers,
+needles. Verification and docs run in sequence after that.
+
+Owner decisions, grill round 2 (2026-10-12):
+
+- **Wheel spin:** per-wheel kinematic speeds ($v_i = v + \dot\psi \times r_i$), plus a `wheel_omega[4]` hook for Phase C slip and lockup.
+- **Ackermann:** tunable 0–100%, default 100%. It changes only how the front wheels are drawn; the physics is untouched.
+- **Wiper key:** V cycles Off → Intermittent (~4 s pause) → Low (~45/min) → High (~65/min) → Off.
+- **Wiper motion:** real park-and-sweep with eased ends. One angle drives both the 3D blades and the rain-clearing shader.
+This is an intended release visual change and gets a changelog entry.
+- **Needles:** critically-damped spring (~80 ms) plus a startup sweep to full scale and back.
+- **Old heuristic loader** (`Combined3DWheel`*, `Steering_Wheel`): **delete it once the rigged car is the default.**
+- **Tunables:** defaults in `config/*.toml`, live via `Tunables.def` in debug builds; release reads only the TOML.
+
+Facts (Blender, 2026-10-12): the model is a **1995 911 Carrera RS (993)** by ddiaz-design, licence CC BY-NC-SA 4.0, at true 1:1 scale
+(wheelbase 2.259 m vs a real 2.272 m; tyre radius 0.32 m).
+
+- Tach: θ = −145° + 36°/1000 rpm, red zone 6800–7600.
+- Speedo: km/h 0–300, non-linear.
+- Needle sweep axis: pivot glTF −Z.
+- Wiper spindle: glTF Y; parked at 0°; on-glass up to about 123°.
+- Wheel axle: local X at the hub.
+
+Owner decisions, grill round 3 (2026-10-12):
+
+- **Physics:** a full **993 RS car profile**. Geometry (wheelbase, track, tyre radius) is measured from the GLB; the powertrain uses 993 RS specs, with the redline matched to the dial.
+- **Speedo:** a lookup table from the measured dial marks (piecewise linear), stored in TOML.
+- **Wiper axis:** fix it in Blender. Re-align the `Wiper_`* spindles to the glass normal, working on a **fresh headless copy** of the committed
+`.blend`. Leave the open, unsaved Blender session untouched.
+- **Licence:** add `assets/CREDITS.md` (author, source, CC BY-NC-SA 4.0, the non-commercial limit) and link it from the car docs.
+- **Gearbox:** `GearboxParams` gets a `gearCount` (6 for the 993, 7 for the 992). The ratios array keeps 7 slots, and the Ch01 validators and
+`gear_for_speed` / `gearbox_shift_step` loop to `gearCount`. The 992 path stays bit-identical; add a note in the Ch01 tutorial.
+- **Workflow:** branch `feature/rigged-porsche` (from `debug-ui`). Agents make **local commits** on worktree branches, and I merge them
+into it. **No push;** `debug-ui` **stays untouched until the owner says so.**
+
+### Stages
+
+- [x] S0a Blender: re-align the `Wiper_*` spindles to the glass normal (headless copy), re-export the GLB
+- [x] S0b `assets/CREDITS.md`
+- [x] S0c Named-rig loader branch in `ModelManager::load_car` (`Wheel_*`, `Caliper_*`, `SteeringWheel`, `Needle_*`, `Wiper_*`)
+- [x] S0d 993 RS `CarProfile` + `gearCount` (992 Turbo S stays the bit-identical profile for tests)
+- [x] S1a Wheels: per-wheel ω + `wheel_omega[4]` hook, Ackermann, travel, calipers; steering wheel at the real ratio
+- [x] S1b Wipers: V cycles 4 modes; park-and-sweep; blades + rain shader share one angle
+- [x] S1c Needles: tach fit, speedo lookup table, damped spring, startup sweep
+- [ ] S2 Owner verifies in the app ([checklist](rigged-porsche-app-checks.md); unit tests green 352/377) → make rigged the default → delete the heuristic loader
+- [x] S3 Changelog + [`docs/car-rig.md`](../docs/car-rig.md) + animated explainer artifact (https://claude.ai/artifact/55BYHrUrXZQZLmLBeQCKh3)
+
+## Car lights: headlights, tail/brake lights, rain on the lenses (started 2026-10-10)
+
+Branch `feature/car-lights` (worktree `.worktrees/car-lights`, off `debug-ui`). Asset: `assets/blend/porsche_rigged.blend`
+→ `porsche_rigged.glb` (Blender rig with named nodes; real scale, wheelbase 2.259 m). Test with
+`SWISH_CAR=<abs path>/assets/blend/porsche_rigged.glb make debug`.
+
+### Feature: car lights
+
+- **Player sees:** at night or in rain the Porsche's headlights throw two warm beams down the road; red tail
+lights glow at the back and brighten when braking; in rain the beams show a wet halo and the lenses bead with water.
+- **Done when:** debug build shows headlight pools on the asphalt and red brake glow behind the car (window-only
+screenshots, rain 0 and 1.0, day and night); toggles off = today's image exactly; release 33/33 `.spv` hashes and
+goldens unchanged; fps within 2% of before with lights on.
+- **Builds:** debug-only first (`#ifdef SWISH_DEBUG_UI`); release enable is a separate, later step.
+- **Default:** `car_lights.enabled = false` → identical output to today.
+- **Cost:** ≤ 8 extra spot lights in the existing set-0 lights UBO (debug layout only); one extra loop in `lighting.frag`.
+- **Touches:** car asset (`ModelManager` loader), `scene/Entity/CarLights.h` (new), `CarEntity`, `SceneTypes.h`
+(`LightsUBO`), `shaders/common/lights.glsl`, `shaders/lighting.frag`, `CameraUniforms`, `Renderer`, `App`,
+`debug/Tunables.def` + one `draw_tunable_group` line.
+- **Owner:** `car-asset-engineer` (loader) → `lighting-materials-engineer` (spots) → `rain-weather-engineer` (lenses).
+- **Out of scope (v1):** headlight shadows, volumetric beams, turn signals / fog lamps (still in the bumper mesh),
+per-light emissive materials (the 20-slot car material table has 1 free slot), the original `porsche.glb`
+(no light nodes; gets no car lights).
+- **Math:** spot cone $c = \mathrm{smoothstep}(\cos\theta_o, \cos\theta_i, -\hat L\cdot\hat d)$; distance falloff = the point
+lights' windowed bounded inverse-square, $att = \mathrm{win}(d/R)\frac{d_{ref}^2}{d_{ref}^2+d^2}$, $d_{ref}=0.15R$;
+radiance $= CIattc$; wet halo $= CIatt^2cwk_{halo}$ (same $k_{halo}$ as street lamps).
+
+- [x] S0 Asset: named light nodes (`Headlight_L/R`, `TailLight_L/R`, `BrakeLight_L/R`, `RearLightBar` + `_Lens`,
+  `_Housing`, `_Emitter`, `_Lamp` children), root scale fixed to real size (2026-10-10, Blender)
+- [x] S1 (2026-10-10) Loader + CPU logic: `ModelManager::load_car` reads light anchors by exact node name into car space;
+  `CarLights.h` turns anchors + car model matrix + state into world spot lights; Catch2 test (GPU-free)
+- [x] S2 (2026-10-10) GPU: `SpotLightData` array in `LightsUBO` + `lights.glsl`, spot loop in `lighting.frag`, all `#ifdef SWISH_DEBUG_UI`
+- [x] S3 (2026-10-10) Wiring + tunables: `car_lights` group in `Tunables.def`; brake lamps follow `m_brake`; App pushes spots each frame
+- [ ] S4 Verify (night chase screenshots, tests, 33/33 .spv done 2026-10-10; rain 0/1.0 pair + fps numbers open): debug + release builds, `make test` / `make test-debug`, 33/33 `.spv`, screenshots night/day × rain 0/1.0
+- [x] S5 Lens glow: headlight / tail / brake lens submeshes tagged by node name and lit emissive when on (done as lighting L5.2 emissive lens glow)
+- [x] S7 Changelog + `docs/car_system.md` + `docs/car-asset-pipeline.md` (light node convention) (done 2026-11-20)
+- [x] Review: what shipped, what did not, lessons (folded into S7)
+
+## Typed C++ system refactor + tutorial (started 2026-10-01)
+
+Mirrors the approved plan (`~/.claude/plans/im-figuring-out-with-sunny-unicorn.md`). Each tutorial chapter
+(`docs/tutorials/typed-cpp/NN-*.md`) is the spec for one phase. Owner implements chapters; Claude scaffolds
+(chapter + skeleton + failing tests), reviews and verifies; renderer = owner pilot, Claude rollout. One branch
+per phase (`refactor/NN-topic` off `debug-ui`); refactor phases are behaviour-preserving, **B-phases** carry
+intended changes. Gate per phase: `make test` + `make test-debug` green, 0 warnings, Arch GCC builds + unit
+tests, 33 `.spv` + goldens + pass-order/bindings tests, `make check` + `make format-check`, screenshots for
+anything visible, changelog. Commit/merge only when the owner asks. **Arch GCC gate deferred** (owner, 2026-10-01): macOS AppleClang + CI clang gate each phase; Arch is reconciled later in one pass.
+
+### M0 — baseline and hygiene (Claude)
+
+- [x] P0.0 Baseline: release 218/218, debug-UI 241/241, 33/33 `.spv`, `make check` OK — committed `aab1c9c` (2026-10-01)
+- [x] P0.1 (B) Quick fixes (2026-10-01, branch `refactor/00-quick-fixes`; tests green, manual key/resize check still open): cursor/edit-mode desync; weather preset desync; resize flag cleared before renderer reads it; fog "km" label; duplicated shadow dump line; double `glfwTerminate`; `EnumCycle` `Count == 0`; dead Treadmill gantry message + stale comments; stale `Window.h` TODOs
+- [x] P0.2 (2026-10-01, Apple+debug green; Arch GCC gate deferred by owner until the Arch reconciliation) C++23 bump alone (`CMakeLists.txt:4`, `toml_baker`); all hashes/goldens unchanged, 0 warnings on 3 compilers
+- [x] P0.3 Build: `swish_scene_core` static lib, `swish_utils` INTERFACE, warnings on tests/`toml_baker`, CI builds both test targets (clang Release) + `make check` + format-check, compiler guard on golden mesh test — done 2026-10-11 (uncommitted; format-check is report-only in CI)
+- [x] P0.4 Test seam: replace `#define private public` in `test_golden_car.cpp` (done 2026-10-11: `friend struct CarEntityTestAccess`, defined only in the test; goldens untouched)
+- [x] P0.5 Doc drift fixes (Units.h test path, golden README contradiction, CODING_RULES rule 9, `rel`/`NOREL`, DESIGN_PATTERNS line ref, restore `docs/utils-component-design.md`) — done 2026-10-11, docs only
+- [x] P0.6 (2026-10-01, branch `docs/typed-cpp-tutorial`; chapters 01-12 written, owner review pending (one precedence bug in `upshift_lands_above_downshift` fixed at merge, `68140d8`)) Tutorial scaffold: `docs/tutorials/typed-cpp/00-index.md` + `docs/README.md` row
+
+### M1 — foundations, core, car (owner implements)
+
+- [~] Ch01 `static_assert` / constexpr validators (GearboxParams, MAX_FRAMES_IN_FLIGHT) — work-in-progress committed `d5d3b78` on request (2026-10-11), owner review pending
+
+- [ ] Ch02 type_traits / `if constexpr` / concepts (`utils/meta/Concepts.h`)
+- [ ] Ch03 Strong types: `Quantity<Tag>`, `Gear`, `Corner` + `PerCorner<T>`, `Direction` (car golden bit-identical)
+- [ ] Ch04 `swish::fsm` engine (`src/utils/fsm/Fsm.h`), test-first, constexpr table validation
+- [ ] Ch05 Gearbox on the FSM (equivalence sweep vs `gearbox_shift_step`)
+- [ ] Ch06 `std::variant` event queue (`src/core/Events/`)
+- [ ] Ch07 `Commands.def` + `InputSampler`/`InputFrame`; remove 5 GLFW polling sites
+- [ ] Ch08 `InputMode` FSM, actions-as-data; ImGui pushes `SetEditMode`
+- [ ] Ch09 `WeatherState` reducer, `RainLevel`
+- [ ] Ch10 `CameraController` variant-of-states
+- [ ] Ch11 RAII/ownership: `GlfwContext`, `unique_ptr<Camera>`, `RoadSurface`, `CorridorDriver` value result
+- [ ] Ch12 Pure step split of `CarEntity::update`; `utils/math/Angle.h`
+
+### M2 — debug, config, data
+
+- [ ] Ch13 Tunables: `TUNE_V`; owner converts sky, Claude the other 9 groups; split `DebugUI.cpp`
+- [ ] B2 Persist the 14 unsaved sliders
+- [ ] Ch14 `RoadSchema.def` + `std::expected` validation (`road.bin` byte-identical)
+- [ ] B3 Fix road-config narrowing + fallbacks
+- [ ] Ch15 `std::expected` across loaders
+- [ ] Cleanup: `io/Paths.h`, `FrameClock`, `puddle_hash` move, split `test_car_physics.cpp`, format 20 files, missing utils tests
+
+### M3 — renderer (owner pilot, Claude rollout)
+
+- [ ] Ch16 RAII handles (stable `services()` first; pilot IBLManager)
+- [ ] Ch17 `OneTimeSubmit`, `RenderScope` rollout, `record_car_draws()`
+- [ ] Ch18 `enum class Set`, typed binding builder
+- [ ] Ch19 `PushBlock<T, Stages>` + `PushConstantBlock` concept
+- [ ] Ch20 Swapchain/frame FSM, `RendererCommand` queue
+- [ ] Ch21 `TrackedImage` + declarative pass reads/writes
+- [ ] B4 Drop redundant SSR/GodRays HDR round trip
+- [ ] Ch22 TAA history FSM, IBL `SkySource`
+- [ ] Ch23 `BlendMode` + depth bias in `PipelineConfig`
+- [ ] Ch24 PostProcessManager façade breakup + small ownership fixes
+
+### M4 — wrap-up
+
+- [ ] Ch25 Patterns recap, ADRs, doc sync, CLAUDE.md conventions, archive finished items
+
+## Cleanup program (started 2026-09-29)
+
+Mirrors the approved plan (`~/.claude/plans/i-just-answered-my-typed-shore.md`). The main session ticks
+boxes when work is verified. **Order is fixed: 0 → 1 → 2 → 3;** a divergent hash or screenshot means stop
+and re-plan. Release build (`SWISH_DEBUG_UI=OFF`) stays byte-identical unless deliberately changed.
+
+### Phase 0 — safety net (must be green before any refactor)
+
+- [x] 1. Flip project to C++20 (++`CMakeLists.txt:4` ++and++ `:198`++,++ `.clang-format:9`++); both configs build, 137/137 tests, 33++ `.spv` ++hashes identical to the C++17 baseline (2026-09-29)
+
+- [~] 2. Baselines: 33 release `.spv` hashes saved in `tests/golden/release_spv.sha256` (Vulkan SDK glslc 1.4.321.0, macOS) — DONE; window-only release screenshots at rain 0 and 1.0 — STILL OPEN (needs a human-visible run)
+
+- [x] 3. Golden tests in `tests/golden/`: trajectories against the real `CarEntity::update`; meshes for `generate()`, `generate_chunk()`, `generate_interchange_scene()` (done 2026-09-29: release 141 / debug-UI 149 tests pass; see `tests/golden/README.md`)
+- [x] 4. `DebugParamsIO` round-trip / unknown-key / range tests; `static_assert`s on `SsrParams`, `GodRaysParams`, `SsaoParams`
+- [x] 5. Investigated (report only, nothing changed): **C2 is a real mismatch** — `Renderer.cpp` forces SSR `puddleCoverage` to 0 in release (its comment says release is puddle-free) but `lighting.frag` `SP_PUDDLE_COVERAGE` is 0.501 in release, so the lit pass draws puddles that SSR never reflects in; **needs an owner decision**. R8: `LUMA_601` (0.299/0.587/0.114) is only the wet-albedo desaturation in `lighting.frag:322`, present since the first commit; keep as a separate named constant
+- [x] 6. MoltenVK on Apple M3 Max reports `maxPushConstantsSize = 4096` (device API 1.3.313); the 224 B SSR block is far below it. Still to copy into the docs
+
+### Phase 1 — hygiene and docs
+
+- [x] `.gitignore` rewritten (large asset dirs, `data/osm`, `review_*/`, `build-debug/`, presets outside `build/`); corridor `.bin`/`.toml` left unignored (still untracked — `git add` them when committing)
+- [x] `git rm --cached References/` (3 PDFs) — done in the owner-approved follow-ups (index deletions staged); files now in `archive/local/References/`
+
+- [~] Docs: CLAUDE.md slim + AGENTS.md stub, REPO_MAP, RECIPES, stale-fact fixes, `.cursorrules`/`.cursor/` removed (backup in scratchpad), monthly CHANGELOG split + generated index (`scripts/changelog_index.py`, all 103 entries verified preserved) — done 2026-09-29; still open: freshness front-matter on the remaining core docs
+
+- [x] Agent merge 20 -> 12 (local `.claude/`, `traffic-engineer` kept; backup in scratchpad), dispatch depth <= 1 rule in `.claude/README.md`
+- [x] Prune `.claude/worktrees/thirsty-darwin` — done in the owner-approved follow-ups (backup in scratchpad)
+- [x] CI (unproven on Linux — not runnable here): Linux job building `swish` + debug-UI config; `make help`; `make run` builds first; `build-debug/` + `CMakePresets.json`; drop Windows backend
+
+### Deep clean (owner request 2026-09-29, running while owner is away)
+
+- [x] Wave A (parallel, split by directory; verified: release 149/149, debug-UI 168/168, 33/33 `.spv`, 0 warnings with `-Werror`, runtime first frame pixel-identical to the pre-refactor binary, 0 validation messages): A1 scene (RoadScene.cpp split, delete dead `generate_trees`, element registry, CarPhysics.h topic headers); A2 renderer (Renderer.cpp split, migrate the 6 identical-mask barrier pairs to `vkx`, shader-module dedupe; 2 differing pairs held for sync validation); A3 core/debug (App::run split + CameraController, presets out of `build/`, more registry groups); A4 hygiene (root clutter -> `archive/docs/notes/` or backup, script portability, `make check` + size guard + pre-commit sample)
+- [x] Wave B (serial, touches includes everywhere; verified: release 181/181, debug-UI 203/203, 33/33 `.spv`, 0 warnings, smoke test identical): `src/utils/<topic>/` layout + `swish::util` namespaces + include-path cleanup
+- [x] Wave C: docs — cleanup report (what was cleaned / reorganized), "keeping it clean" guide, directory README + Excalidraw of the new tree, REPO_MAP/RECIPES/CLAUDE.md refresh, changelog entries
+
+- Follow-up found by verification: golden mesh intro hashes are bit-exact to Release/Clang codegen and fail at `-O0`, with `-ffp-contract=off`, and under GCC — make them tolerance-based outside optimized Clang before Arch/GCC CI can be green
+- Held for the owner: C2 puddle mismatch, `References/` untrack, `.claude/worktrees/thirsty-darwin`, the 2 differing barrier pairs, V5 dynamic rendering, pass registry, Arch reconciliation (plans in `archive/local/review_2026-09-29/docs/arch-plan-*.md`), any commit/push
+
+### Phase 2 — single sources of truth
+
+- [x] 1. `src/utils/units/Units.h` replacing the 4-6 duplicated unit constants; `toml_baker` includes shared `RoadConfig.h` (done, verified 2026-11-20)
+- [x] 2. `src/utils/<topic>/` layout per `docs/utils-component-design.md` (done, verified 2026-11-20)
+- [x] 3. Tunable registry (`src/debug/Tunables.def`), start with the `ssr` group (done, verified 2026-11-20)
+- [x] 4. `shaders/common/*.glsl` in verified batches (`.spv` hashes must match) (done, verified 2026-11-20)
+- [x] 5. `utils/vulkan/` (`vkx`), starting with `Barrier.h` (done, verified 2026-11-20)
+
+### Phase 3 — structural (only after 0-2 are green)
+
+- [x] V5 gate: Vulkan 1.3 dynamic rendering + sync2, TAA first (done: cleanup R2)
+- [x] Pass architecture (`IRenderPass`, `FrameCtx`, `PassRegistry`, `enum class Img`, ...) (done: cleanup R3)
+- [x] Pure file splits: `RoadScene.cpp`, `Renderer.cpp`, `CarPhysics.h`; delete dead `generate_trees` (done: wave A)
+- [x] Build/module split; split `App::run()` (~515 lines today; see `archive/src/core/App/REFACTOR.md`) (done: wave A, App::run ~25 lines)
+
+### Owner-approved follow-ups (2026-09-29, in progress)
+
+- [x] Delete stale `.claude/worktrees/thirsty-darwin` (backup `scratchpad/deepclean-backup/thirsty-darwin-worktree.tgz`); branch `claude/thirsty-darwin` left for the owner
+- [x] Untrack `.obsidian/` and `References/` (index-only, 12 deletions STAGED; files still on disk; gitignored)
+- [x] C2 puddle fix: SSR uses the same puddle coverage as the lit pass (0.501) from one registry entry; test pins `lighting.frag`'s literal. Verified: dry and fully-wet frames pixel-identical, 0 validation messages
+- [x] C2 visual proof (2026-09-29): at forced wetness 0.3, old (SSR coverage 0) vs new (0.501) differ in ~300 px/frame by ≤6/255 in cockpit/chase/hood views — correct but subtle: puddles become more reflective (~0.11 -> ~0.33) yet SSR can only reflect on-screen geometry and road reflections from these cameras mostly hit the off-screen sky (IBL fallback, unchanged). Would show more with a low camera across puddles toward objects
+- [x] DRY: puddle coverage single C++ source `swish::road::kPuddleCoverage` (`src/scene/RoadScene/RoadParams.h`); physics aliases it; tests pin registry default == scene constant and `lighting.frag` literal == registry
+- [x] R1: PostProcessManager split (1063 -> 5 files, pure move; runtime check pixel-identical)
+- [x] R2: dynamic rendering + sync2 (TAA first) + all legacy barrier helpers removed; fixed 14 pre-existing barrier/blit sync hazards (luminance chain) that the original code produced with TAA+auto-exposure on
+- [x] R2 follow-up: 0 validation messages in all 4 configs (debug-UI TAA off / TAA+AE dynamic / TAA+AE classic / release-look). Fixes: ImGui render pass external dependency now includes COLOR_ATTACHMENT_READ (pre-existing), VelocityPass colour subpass dependency + vertex input trimmed to location 0 (new), per-frame bloom-extract descriptor sets (pre-existing cross-frame race: odd frames sampled frame 0's HDR). Release first frame pixel-identical inside the window
+- [x] R3: pass registry (`src/renderer/Passes/`: IRenderPass, PassRegistry, PassList.def, FullscreenPass; GeometryProducer, WeatherController; vkx builders). Add a pass = 2 files. Verified: 218/241 tests, 33/33 .spv, release first frame pixel-identical, 0 validation messages in 4 configs
+- [x] Tag dispatch for tunable value kinds (`utils/meta/Tags.h`, `tunables::visit`) + MeshBuilder `push_quad`/`add_quad` (mesh dump byte-identical at -O3 and -O0)
+- [x] class/struct audit applied (ResourceManager -> `swish::resource`, Pipeline -> `swish::pipeline` with Device-owned cache, CorridorScene/Scene/MeshData fixed); PostProcessParams padded to 64 B; every push range uses `vkx::push_range<T>`
+
+- [x] GCC 16 sweep clean for Arch (DebugUI sign-compare, VmaUsage pragmas, test unused fn); GCC runs all tests except the known Clang-bound golden-mesh hash
+- [x] Warnings: `-Wall -Wextra -Wpedantic` now also applies on AppleClang (was GNU/Clang only — earlier macOS "0 warnings" claims lacked these flags); VMA + `include/` marked SYSTEM; 4 real warnings fixed; 0 first-party warnings with `-Werror`
+- [x] Final docs pass: changelog entry, CLEANUP "Later updates", DIRECTORY.md + Excalidraw for `Passes/`, stale refs fixed across docs
+- [ ] Owner decisions left: delete branch `claude/thirsty-darwin`?; commit plan (see `archive/local/review_2026-09-29/docs/arch-plan-git-reconciliation.md`; corridor `.bin`/`.toml` need `git add`; moved notes need `git add -A`); Arch reconciliation incl. swapchain fix `6d9d920` (must be platform-gated); golden-mesh portability for GCC/Arch
+- [ ] Still over the size limit / not clang-formatted: see `make check` (report-only)
+
+### Archive reorganisation (owner request 2026-09-29)
+
+Owner chose: every local-only folder into `archive/local/` (gitignored); archive the 19 stale docs + 3 borderline
+(wheels research 01, both research surveys, metal_debugging) + 6 stale diagrams into `archive/` with their folder
+structure; fix every inbound link. Nothing deleted.
+
+- [x] Baselines: 25 pre-existing broken links, 33/33 `.spv` OK
+- [x] Carry `archive/src/core/App/REFACTOR.md` "What remains" into Open items (below) before archiving it
+- [x] Move local-only dirs: examples, blender_builder, zip_files, new_assets, durango, References, review_2026-09-29, car_internals, build-xcode, .conductor, .dist, imgui.ini
+- [x] `git mv` / `mv` the stale docs and diagrams into `archive/`, `archive/README.md` index
+- [x] Repoint inbound links (docs, code comments, shader comment) + the moved files' own outbound links
+- [x] `.gitignore` (`archive/local/`), `scripts/check_root.sh` (`archive`), notes rule -> `scratch/`, docs index / REPO_MAP / DIRECTORY / CODING_RULES
+- [x] Verify: broken links <= baseline, 33/33 `.spv`, `make test`, `make check`; changelog entry
+
+- **Review:** 29 docs/diagrams to `archive/`, 12 local folders to `archive/local/`, links 25 -> 13 broken (13 = placeholders + changelog history), 218/218 + 241/241 tests, 33/33 `.spv`, `make check` OK. Adapted to the owner's own moves (`docs/user-goals/`, `assets/cars/` now gitignored, `AGENTS.md` removed). Lesson: a plain-text path rewrite must skip text inside links it just rewrote, and must not touch paths that name git-index or other-worktree state.
+
+### CI fixes (deferred by owner 2026-09-29 — do later)
+
+**Why it's needed:** today's refactor changed the test layout, but `.github/workflows/ci.yml` was not updated
+(an agent's edit was blocked by permissions and the owner chose to defer). As written, CI will most likely fail:
+
+- **Job 1 builds only** `swish_tests` (`cmake --build build --target swish_tests`) but then runs `ctest` over the
+whole build dir — the new `swish_utils_tests` target is never built, so ctest reports it as `NOT_BUILT` → failure.
+- **Job 1 uses Ubuntu's default GCC.** The golden-mesh intro hashes (`generate.vertex_hash`,
+`generate.drawcall_hash` in `tests/test_golden_mesh.cpp`) are bit-exact to optimized Apple-Clang codegen; they were
+proven to fail at `-O0`, with `-ffp-contract=off`, and under GCC 16. Linux Clang on x86_64 is also unverified.
+- **No repo-hygiene gate:** `make check` / `scripts/check_repo.sh` exist but CI never runs them, so clutter,
+stale changelog index or ignored-but-tracked files can slip in.
+- **Stale header comment** in `ci.yml` still mentions `FileIO` (removed in the refactor).
+- **Nothing has run on Actions yet** — the Linux matrix job (release + debug-ui, clang, `-DSWISH_WERROR=ON`) added
+today is unproven.
+
+**Checklist:**
+
+- [x] Job 1: build all test targets (`cmake --build build` or `--target swish_tests swish_utils_tests`), or scope (done: ci.yml builds both test targets)
+  ```
+  ctest to built targets
+  ```
+- [x] Make the golden-mesh hash checks portable: assert exact hashes only in optimized Clang builds; elsewhere check (done: test_golden_mesh.cpp kHashesComparable)
+  ```
+  counts/bounds/tolerances (keep `make test` on macOS strict)
+  ```
+- [x] Add a `bash scripts/check_repo.sh --quick` step (hard checks only) (done: ci.yml make check)
+- [x] Fix the stale `FileIO` comment in `ci.yml` (done: no FileIO comment left)
+- [ ] Decide the `.spv` hash policy for CI (the golden file is tied to macOS Vulkan SDK glslc 1.4.321.0; Linux glslc
+  ```
+  differs — per-platform baseline or skip in CI; see `archive/local/review_2026-09-29/docs/arch-plan-toolchain-build-assets.md`)
+  ```
+- [ ] Push to a branch and confirm both CI jobs go green (release + debug-ui matrix, `-Werror` on first-party code)
+- [ ] Optional: add `make check --strict` once the tree is clang-formatted and no file exceeds the size limits
+
+## Open feature work (roughly by ROI; verify each against `git log` before starting)
+
+| # | Item | Notes |
+|---|------|-------|
+| 1 | Endless-road **Layer 5 polish** | exit signage, network lights, junction UX, haze/far-plane tuning |
+| 2 | Wheel **Phase C** | SHIPPED 2026-11-20: visual wheel slip from axle friction use (spin at the drive cap, ABS or lockup at the brake cap); wet mu coupled; owner check in the app at rain 0 and 1.0 pending |
+| 3 | Phase 3 corridor **3b / 3c** | 3b: real interchange ramps + service-road connections, then delete unwired `generate_interchange` / `generate_service_roads` / `generate_chunk`; 3c: exit-number signage + HOV markings from OSM tags |
+| 4 | **Per-wheel spray emitters** | debug stub merged 2026-10-11 (`WheelSpray.h`, round-robin on the single sim); real version needs a `CarEntity` wheel-matrix accessor, `App.cpp` wiring, `Renderer` setter, 4 spawn points in `SpraySimUBO` |
+| 5 | **TAA as release default** vs SSAA | user decision pending; TAA and `VelocityPass` are debug-gated today |
+| 6 | Reflection / ambient energy rebalance; ~~Fresnel-bounded sheen (E2)~~ (sheen done: L4.2, rain P2/P2d) | stops bright panels stacking past AgX's shoulder; also cures over-exposed far road |
+| 7 | Height fog (D1) + sun-tinted airlight (D2); froxel volumetrics (C4) | C4 wants clustered light culling (C6) first |
+
+## Open items by area (carried verbatim in meaning from the archives)
+
+**Vehicle**
+
+- [x] Squat / dive / roll load transfer (Phase B2), 2026-11-20: second spring set from dFz/k, body-only attitude (`WheelKinematics.h` `corner_load_transfer_n`, `body_attitude_from_travel`)
+- [ ] Phase C follow-ups: per-wheel slip angle (load + Ackermann), skid marks, tyre load sensitivity (lateral transfer cuts axle grip)
+- [ ] Wheel Phase B spec section 11 debug sliders (`debug-ui-engineer`)
+- [x] Hydroplane cheapest step: first-order lag on `filmOverTread` (2026-11-20, `WetGrip.h film_lag`, tau 0.12 s)
+- [ ] Hydroplane: violent spin needs per-side water sampling or combined-slip tire; dry-road spin stays gated (decision 2)
+- [x] `puddleAmount` exists in three hand-synced copies (`lighting.frag`, `ssr.frag`, `CarPhysics.h`); the planned shared GLSL include (Phase 2 step 4) removes this (done: shaders/common/puddle.glsl shared)
+- [ ] Promote the debug Telemetry speed readout to an always-compiled release overlay (user chose debug-gated first)
+
+**Core / App** (from the archived `REFACTOR.md`, 2026-09-29)
+
+- [ ] Input injection: `Camera::process_keyboard` and `CarEntity::handle_input` still read GLFW directly; gather input into a plain struct in `core/`
+- [ ] No automated test drives `App` (needs a window); verify with a scripted screenshot run
+
+**Rendering / lighting** (lighting items are now planned in the "Lighting" section near the top, 2026-11-14)
+
+- [x] `glass.frag` sun disc has no `#ifdef SWISH_DEBUG_UI` set-4 branch, so debug sun-disc sliders do not move the windshield sky (bind set 4 in `GlassPass.cpp`) (done: lighting L2.6)
+- [x] Composite `Params` push-constant block was measured at 52 bytes (not a 16-byte multiple); re-measure and pad if still true (done: L0.11)
+- [x] Shadow polish: PCSS soft shadows, tighter frustum fit, bias auto-tune (done: L3.1-3.3; release PCSS is the L3.4 owner decision)
+- [x] SSAA render scale on a key: F3 cycles 1.0/1.5/2.0 (debug, 2026-11-20)
+- [ ] SSAA polish: better downsample kernel above 1.5x
+- [x] Bloom pyramid with Karis firefly suppression (C2) + vignette + film grain (F2) (bloom pyramid done 2026-11-15; vignette/grain still an owner look call)
+- [ ] Analytic sky (D3); multiscatter GGX (E1); layered wet BRDF (E3); puddle ripple normals (E4)
+- [ ] Blue-noise dithering (G1); Halton sequences (G2); Halton temporal upsampling (G3)
+- [ ] GI approximation (H1); environment density + decals (B3); clustered light culling (C6); mesopic night look (C8)
+- [ ] Night-scene lamp tuning; light-coupled rain streaks (A1); windshield lens optics (R-P1-3)
+- [x] `VK_CHECK_LOG` on teardown paths (2026-11-20)
+- [ ] Software robustness: exception-safe subsystem destructors (S-P0-2) (`scripts/glslc_test` already gone)
+
+**Rain (from the 2026-06-30 roadmap)**
+
+- [ ] ~~A2 impact splashes~~ (done 2026-11-20, rain_splash.*); A3 lens raindrops overlay; A4 validate windshield drops vs Heartfelt; A5 wetness-map mip blur
+
+**Road / LIE (from the 2026-06-30 roadmap)**
+
+- [ ] B2 distance LOD + billboard impostors; B4 network-first refactor; B5 further extension after B2
+
+**Car and environment assets (planned, nothing built;** `docs/car-asset-pipeline.md`**,** `docs/environment-asset-pipeline.md`**)**
+
+- [ ] A/B Tripo3D vs Hunyuan3D on an exterior shell; budget real Blender retopo
+- [x] Interior shapes (steering wheel + dashboard) to the naming convention in `docs/car-asset-pipeline.md` section 2 (done: rigged loader S0c)
+- [x] GLB export from Blender, name-based loader path with heuristic fallback (additive) (done: rigged loader S0c)
+- [x] Hand-model wiper blade (two materials, WORLD_SCALE standoff gap) (done: Wiper_* nodes)
+- [ ] Leaf-card texture atlases (species-referenced) before any tree LOD; B2 = nearer mesh LOD geomorphing into the billboard
+
+## Verify before starting (archive checkboxes known to be stale)
+
+These read as open in the archives but shipped later (evidence in `CHANGELOG.md` / code): real HDRI IBL,
+SSR, SSAO, CSM, auto-exposure, DoF (`src/renderer/DofPass/`), god-rays, puddles + spray, TAA + motion blur
+(debug-gated), FOV kick + shake (F1), `Smoothing.h` (F3), wet-asphalt BRDF (C1), clearcoat + flake,
+per-object velocity buffer, Wheel Phase B, ADR `docs/adr/0001-*` (the "ADR candidate" box). The C++ standard
+is now 20. Re-check any other older box before treating it as open.

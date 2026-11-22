@@ -30,30 +30,34 @@ struct PipelineConfig {
     uint32_t colorAttachmentCount = 1;
 
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+
+    // Dynamic rendering (Vulkan 1.3): when true, create() chains a VkPipelineRenderingCreateInfo built from
+    // the fields below and IGNORES the VkRenderPass argument (pass VK_NULL_HANDLE). Only valid when the
+    // device enabled dynamicRendering (RendererServices::dynamicRendering). Default false = classic path.
+    bool                  dynamicRendering = false;
+    std::vector<VkFormat> dynamicColorFormats;                       // one per colour attachment
+    VkFormat              dynamicDepthFormat = VK_FORMAT_UNDEFINED;  // UNDEFINED = no depth attachment
 };
 
-// Static factory — creates pipelines from a config.
-class Pipeline {
-public:
-    static VkPipeline create(VkDevice device, const PipelineConfig& config, VkRenderPass renderPass, VkExtent2D extent);
+// Free functions, no state (was an all-static `class Pipeline` with a hidden process-wide cache global).
+//
+// The VkPipelineCache is owned by `Device` (loaded from / saved to config/pipeline_cache.bin), published to the
+// subsystems through `RendererServices::pipelineCache`, and passed to `create_graphics` / `create_compute`
+// explicitly. VK_NULL_HANDLE is valid: the driver then compiles from scratch.
+namespace pipeline {
 
-    static VkPipelineLayout createLayout(VkDevice device, const std::vector<VkDescriptorSetLayout>& setLayouts,
-                                         const std::vector<VkPushConstantRange>& pushConstants = {});
+// `renderPass` is ignored (may be VK_NULL_HANDLE) when config.dynamicRendering is set.
+VkPipeline create_graphics(VkDevice device, VkPipelineCache cache, const PipelineConfig& config,
+                           VkRenderPass renderPass, VkExtent2D extent);
 
-    // Compute pipeline from a single .comp SPIR-V module + a prebuilt layout. Feeds
-    // the same process-wide cache as create(). Used by SpraySystem (the first — and
-    // so far only — compute pass in the renderer).
-    static VkPipeline createCompute(VkDevice device, const std::string& compShaderPath, VkPipelineLayout layout);
+VkPipelineLayout create_layout(VkDevice device, const std::vector<VkDescriptorSetLayout>& setLayouts,
+                               const std::vector<VkPushConstantRange>& pushConstants = {});
 
-    // Process-wide VkPipelineCache. Owned/loaded/saved by Device; set here once
-    // after the device is up so every create() feeds the same cache — repeat
-    // launches and swapchain recreations reuse compiled pipelines instead of
-    // re-compiling identical SPIR-V. VK_NULL_HANDLE (the default) is valid: the
-    // driver just compiles from scratch.
-    static void set_cache(VkPipelineCache cache);
+// Compute pipeline from a single .comp SPIR-V module + a prebuilt layout. Used by SpraySystem (the first, and so
+// far only, compute pass in the renderer).
+VkPipeline create_compute(VkDevice device, VkPipelineCache cache, const std::string& compShaderPath,
+                          VkPipelineLayout layout);
 
-private:
-    static VkShaderModule createShaderModule(VkDevice device, const std::vector<char>& code);
-};
+}  // namespace pipeline
 
 }  // namespace swish

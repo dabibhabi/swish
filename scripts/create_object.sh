@@ -4,6 +4,7 @@
 # the existing module layout (see src/scene/Camera/).
 #
 # Usage:   scripts/create_object.sh <dir-under-src> <ObjectName>
+#          make new-class NAME=<ObjectName> DIR=<dir-under-src>
 # Example: scripts/create_object.sh scene RoadGeometry
 #            -> src/scene/RoadGeometry/RoadGeometry.h
 #            -> src/scene/RoadGeometry/RoadGeometry.cpp
@@ -24,6 +25,20 @@ DIRECTORY="${1#src/}"
 DIRECTORY="${DIRECTORY%/}"
 OBJECT_NAME="${2%.h}"
 OBJECT_NAME="${OBJECT_NAME%.cpp}"
+
+# Guardrails: PascalCase class name (it becomes the folder, the files and the C++ type),
+# and a directory that stays inside src/.
+case "$OBJECT_NAME" in
+    [[:upper:]]*) ;;
+    *) echo "Object name must start with an uppercase letter (PascalCase): $OBJECT_NAME" >&2; exit 1 ;;
+esac
+if printf '%s' "$OBJECT_NAME" | grep -q '[^A-Za-z0-9]'; then
+    echo "Object name must be alphanumeric (no '_', '/', '.', spaces): $OBJECT_NAME" >&2
+    exit 1
+fi
+case "$DIRECTORY" in
+    ""|/*|*..*) echo "Directory must be a relative path inside src/ (e.g. scene, renderer, utils/units): $DIRECTORY" >&2; exit 1 ;;
+esac
 
 # Resolve paths relative to the repo root (parent of this script's dir), so the
 # script works no matter what directory you invoke it from.
@@ -68,29 +83,8 @@ echo "Created:"
 echo "  ${HEADER#"$REPO_ROOT"/}"
 echo "  ${SOURCE#"$REPO_ROOT"/}"
 
-# ── Register the .cpp in the swish target's source list ────────────────
-# Insert "    src/<dir>/<Name>/<Name>.cpp" as the last entry before the ")"
-# that closes the `add_executable(swish ...)` block. Only the .cpp is added;
-# headers aren't compilation units and aren't listed in the block today.
-CMAKE="$REPO_ROOT/CMakeLists.txt"
-REL_SOURCE="src/$DIRECTORY/$OBJECT_NAME/$OBJECT_NAME.cpp"
-
-if [ ! -f "$CMAKE" ]; then
-    echo
-    echo "Warning: $CMAKE not found — add $REL_SOURCE to the build manually." >&2
-elif grep -qF "$REL_SOURCE" "$CMAKE"; then
-    echo
-    echo "Already listed in CMakeLists.txt: $REL_SOURCE"
-else
-    # awk: within the add_executable(swish ...) block, remember the last line;
-    # when the closing ")" arrives, emit the new source line before it.
-    tmp="$(mktemp)"
-    awk -v newsrc="    $REL_SOURCE" '
-        /^add_executable\(swish/ { inblock = 1 }
-        inblock && /^\)/         { print newsrc; inblock = 0 }
-        { print }
-    ' "$CMAKE" > "$tmp" && mv "$tmp" "$CMAKE"
-    echo
-    echo "Added to CMakeLists.txt (swish target): $REL_SOURCE"
-    echo "Reconfigure to pick it up:  make build   (or your usual configure step)"
-fi
+# ── Registration ───────────────────────────────────────────────────────
+# Sources under src/ are globbed by CMake (file(GLOB_RECURSE ... CONFIGURE_DEPENDS)),
+# so no CMakeLists.txt edit is needed; the next build re-globs automatically.
+echo
+echo "CMake globs src/**/*.cpp - no registration needed. Just run: make build"

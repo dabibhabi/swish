@@ -32,9 +32,7 @@ VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMes
 void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger,
                                    const VkAllocationCallbacks* pAllocator) {
     auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
-    if (func != nullptr) {
-        func(instance, debugMessenger, pAllocator);
-    }
+    if (func != nullptr) { func(instance, debugMessenger, pAllocator); }
 }
 
 static void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& info) {
@@ -56,19 +54,13 @@ void VulkanContext::init(GLFWwindow* window) {
 
 void VulkanContext::cleanup() {
     vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
-    if (kEnableValidationLayers) {
-        DestroyDebugUtilsMessengerEXT(m_instance, m_debugMessenger, nullptr);
-    }
+    if (kEnableValidationLayers) { DestroyDebugUtilsMessengerEXT(m_instance, m_debugMessenger, nullptr); }
     vkDestroyInstance(m_instance, nullptr);
 }
 
-VkInstance VulkanContext::getInstance() const {
-    return m_instance;
-}
+VkInstance VulkanContext::getInstance() const { return m_instance; }
 
-VkSurfaceKHR VulkanContext::getSurface() const {
-    return m_surface;
-}
+VkSurfaceKHR VulkanContext::getSurface() const { return m_surface; }
 
 void VulkanContext::createInstance() {
     VkApplicationInfo appInfo{};
@@ -88,9 +80,7 @@ void VulkanContext::createInstance() {
 
     std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
 
-    if (kEnableValidationLayers) {
-        extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-    }
+    if (kEnableValidationLayers) { extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME); }
 
     // MoltenVK on macOS requires the portability enumeration extension
 #ifdef SWISH_BACKEND_APPLE
@@ -133,8 +123,7 @@ void VulkanContext::createInstance() {
 }
 
 void VulkanContext::setupDebugMessenger() {
-    if (!kEnableValidationLayers)
-        return;
+    if (!kEnableValidationLayers) return;
 
     VkDebugUtilsMessengerCreateInfoEXT createInfo{};
     populateDebugMessengerCreateInfo(createInfo);

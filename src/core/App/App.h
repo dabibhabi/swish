@@ -1,8 +1,22 @@
 #pragma once
 
-#include "../../scene/Treadmill/Treadmill.h"  // endless-road state (owned by App)
+#include "core/CameraController/CameraController.h"
+#include "scene/CameraMode.h"
+#include "scene/Corridor/CorridorDriver.h"  // real LIE corridor (owned by App)
+#include "scene/Corridor/CorridorRamps.h"   // C3a SignalLens
+#include "scene/Entity/Wiper.h"             // WiperState / WiperParams (V-key wipers)
+#include "scene/LightingLab/LightingLab.h"
+#include "scene/WeatherPreset.h"
+#include "utils/input/InputFrame.h"
+#ifdef SWISH_DEBUG_UI
+#include "renderer/WindshieldRainPass/LensWetness.h"  // debug-only CPU lamp-lens wetness model
+#include "scene/Entity/KeyboardSteer.h"
+#endif
 
+#include <array>
 #include <memory>
+#include <utility>
+#include <vector>
 
 struct GLFWwindow;
 
@@ -15,6 +29,11 @@ class SceneManager;
 class ModelManager;
 class Camera;
 class CarEntity;
+#ifdef SWISH_DEBUG_UI
+class GlfwGamepadSource;
+class TelemetryRecorder;
+struct DebugParams;
+#endif
 
 class App {
 public:
@@ -24,12 +43,19 @@ public:
     int run();
 
 private:
-    // Small edge-detect helper: collapses the repeated "down && !prev" pattern
-    // used by every key toggle in run() into a single call —
-    // `if (m_r_key.pressed(window, GLFW_KEY_R)) { ... }`.
+    // Small edge-detect helper: `pressed()` is true once per key-down transition,
+    // so a held key fires exactly once. Each key binding below owns one.
     struct KeyEdge {
         bool prev = false;
         bool pressed(GLFWwindow* window, int key);
+    };
+
+    // One row of the data-driven key table (`m_key_bindings`, built by
+    // init_key_bindings()). Rows are polled in table order every frame.
+    struct KeyBinding {
+        int     key;
+        KeyEdge edge;
+        void (App::*action)();
     };
 
     // Owned subsystems. unique_ptr gives deterministic, exception-safe teardown:
@@ -48,36 +74,124 @@ private:
     float m_last_mouse_x    = 0.0f;
     float m_last_mouse_y    = 0.0f;
     bool  m_cursor_captured = true;
-    KeyEdge m_esc_key;
 
-    // Endless-road illusion (origin rebase, chunk window, interchanges, ribbon
-    // follower). All the treadmill state that used to live here directly now lives
-    // in Treadmill; App just owns it and calls update() once per frame.
-    Treadmill m_treadmill;
+    // ── Real-world LIE corridor (Phase 3a) ────────────────────────────
+    // (Replaced the endless-road Treadmill, which App no longer owns.)
+    // The baked OSM-derived alignment plus the finite-corridor mechanics that
+    // replaced the treadmill: origin rebase, visible-segment window, corridor-
+    // frame drivable bounds, and the terminus stops / U-turn pads.
+    CorridorAlignment m_corridor_alignment;
+    CorridorDriver    m_corridor;
 
-    // Camera mode: cockpit (eye follows the car) vs free-fly. C toggles.
-    bool  m_cockpit    = true;
-    KeyEdge m_c_key;
-    float m_look_yaw   = 0.0f;  // mouse-look offsets relative to car heading
-    float m_look_pitch = 0.0f;
+    // Camera presets (C cycles): cockpit, chase, hood, bumper, roof, side,
+    // helicopter, free-fly. Placement, FOV kick, shake and mouse-look state all live in
+    // CameraController; see CameraMode.h.
+    CameraController m_camera_ctl;
 
     // Rain (R key cycles off → light → heavy → off)
-    int  m_rain_level = 0;
-    KeyEdge m_r_key;
+    int m_rain_level = 0;
 
-    // Windshield wiper (V key toggles continuous sweep on/off)
-    bool m_wiper_enabled = false;
-    KeyEdge m_v_key;
+    // Windshield wipers (V cycles Off -> Intermittent -> Low -> High; scene/Entity/Wiper.h). The params
+    // come from config/car.toml [wipers] at load_car; debug builds tune them live (Tunables "wiper").
+    WiperState  m_wiper{};
+    WiperParams m_wiper_params{};
 
-    // Clear-day weather preset (G key toggles a bright sunny day; forces rain off)
-    bool m_clear_day  = false;
-    KeyEdge m_g_key;
+    // Weather HDRI preset (G key cycles partly cloudy → cloudy → very cloudy → golden hour)
+    WeatherPreset m_weather_preset = WeatherPreset::PartlyCloudy;
 
 #ifdef SWISH_DEBUG_UI
-    // Debug edit-mode (backtick `): frees the cursor for the ImGui panel and
-    // freezes the sim so you can tune a static frame.
+    // Optional pause state, toggled from the detached controls window or backtick.
     bool m_debug_edit_mode = false;
-    KeyEdge m_backtick_key;
+    bool m_lookdevMode     = false;
+    // Lighting lab (SWISH_LAB=1): the walled test world of scene/LightingLab. Implies the lookdev paths
+    // (no LIE corridor, larger window). The lights and roof volumes are kept for the car light probe.
+    bool                                 m_labMode = false;
+    std::vector<LightDesc>               m_labLights;
+    std::vector<util::light::RoofVolume> m_labRoofs;
+    bool                                 m_paint_look_applied = false;  // the showcase wrote the paint overrides
+    KeyboardKeys                         m_controlsKeyboard{};
+
+    // Driving tools (AppDrivingTools.cpp): lazily created on first use; with the panel at its
+    // defaults (keyboard, no record/replay) neither is touched and handle_input() drives the car.
+    std::unique_ptr<GlfwGamepadSource> m_gamepad;
+    std::unique_ptr<TelemetryRecorder> m_recorder;
+    bool                               m_prev_record = false;
+    bool                               m_prev_replay = false;
+    bool                               m_drv_stepped = false;  // step_driving_tools drove the car this frame
+    InputFrame                         m_drv_frame{};          // ...with this command
+    // Debug-only wet-lens model (stepped per frame from rain + car speed; no renderer upload yet) and the
+    // per-wheel-spray latch that lets us clear SpraySystem's emitters exactly once when the toggle goes off.
+    LensWetnessModel m_lens_wetness;
+    bool             m_lens_wetness_ready = false;
+    bool             m_wheel_spray_active = false;
+    // C1 demo ramp sliders as last seen (on, ahead m, dy m) and seconds they have been still (<0 = built).
+    std::array<float, 17> m_corridorKey{};
+    float                 m_corridorIdle = -1.0f;
+    // C3a: signal lens draws as (corridor segment, lens) and the clock that cycles them.
+    std::vector<std::pair<size_t, SignalLens>> m_signalLenses;
+    double                                     m_signalClock = 0.0;
+#endif
+
+    // Key table (Esc, C, R, V, G, and backtick under SWISH_DEBUG_UI), polled in order.
+    std::vector<KeyBinding> m_key_bindings;
+
+    // ── Startup (run() step 1: init) ────────────────────────────────────
+    void init();
+    void init_window_and_renderer();            // Window, Renderer, GLFW callbacks, ImGui (debug)
+    void init_textures();                       // material textures + 1x1 defaults + rumble strip
+    void build_road_scene(Renderer& renderer);  // Scene callback: corridor alignment/segments + POV camera
+#ifdef SWISH_DEBUG_UI
+    void build_lookdev_scene(Renderer& renderer);  // small car studio for live lighting work
+    void build_lab_scene(Renderer& renderer);      // lighting lab: tunnels, overpasses, lamps, calibration lot
+#endif
+    void init_scenes();  // SceneManager + activate scene 0
+    void load_car();     // SWISH_CAR override, corridor start pose, dynamic geometry
+    void init_key_bindings();
+
+    // ── Per-frame stages, in call order (run() step 2: loop) ────────────
+    float frame_delta(float& last_frame_time) const;  // wall-clock dt, capped at 1/15 s
+    bool  debug_edit_mode() const;                    // always false in release
+    void  poll_events();                              // pollEvents + consume the resize flag
+    void  process_key_bindings();                     // walks m_key_bindings
+    void  update_car(float dt, bool debug_edit);      // drive, Y-snap, corridor, wheel visuals, wiper, renderer push
+    void  update_camera(float dt, bool debug_edit);   // CameraController::update
+    void  shutdown();                                 // reverse-order GPU cleanup
+
+    // update_car() sub-steps
+    void step_car_simulation(float dt, bool debug_edit);
+    void update_wiper(float dt);  // step the wiper model; the one angle goes to the car and the renderer
+    void push_car_to_renderer();
+#ifdef SWISH_DEBUG_UI
+    void sync_car_with_debug_panel(bool debug_edit);
+    // Driving tools. step_driving_tools returns true when it drove the car this frame (gamepad
+    // source, recording or replaying); false means "use CarEntity::handle_input as before".
+    bool step_driving_tools(float dt);
+    void sync_driving_tools_panel(DebugParams& dp);
+    void ensure_driving_tools();
+    void sync_car_with_debug_panel(float dt, bool debug_edit);
+    void sync_wheel_fx_with_debug_panel(float dt);  // slip telemetry, per-wheel spray emitters, lens wetness
+#endif
+
+    // Key-table actions (see init_key_bindings)
+    void on_toggle_cursor_capture();
+    void on_cycle_camera_mode();
+    void on_cycle_rain();
+    void on_cycle_wiper();
+    void on_cycle_weather();
+#ifdef SWISH_DEBUG_UI
+    void on_toggle_debug_edit();
+    void on_cycle_time_of_day();     // T: next time-of-day preset (procedural sky)
+    void on_cycle_render_scale();    // F3: SSAA render scale 1.0 -> 1.5 -> 2.0 (applied next frame)
+    void on_toggle_hud();            // H: in-game HUD strip + minimap (C3b)
+    void sync_hud(DebugParams& dp);  // C3b: speed, district, next exit, road piece, minimap route (AppHud.cpp)
+    void on_toggle_debug_controls();
+    void on_controls_key(int key, int action);
+    void on_capture_frame();  // F12: dump the frame to build-debug/captures/ (Shift also dumps the HDR scene colour)
+    // The one writer of edit mode: frees/captures the cursor and freezes the sim.
+    void set_debug_edit_mode(bool edit);
+    // The panel's "Edit mode" checkbox / Reset write DebugParams::editMode directly;
+    // route a change there through set_debug_edit_mode so App's state follows.
+    void sync_debug_edit_mode_from_panel();
 #endif
 
     static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
@@ -87,22 +201,18 @@ private:
     // corrupting App fields. See git history for the segfault this fixed.
     static void framebuffer_resize_callback(GLFWwindow* window, int width, int height);
 
-    // ── Accessors (REFACTOR.md §3b) ─────────────────────────────────────
-    // Each setter is the single place that keeps the field in sync with the
-    // renderer/car side effect it implies, so callers (run()'s key-edge blocks,
-    // the launch preset) can't set one without the other. Getters are trivial
-    // reads; kept private since nothing outside App needs this state today.
+    // ── Accessors (archive/src/core/App/REFACTOR.md §3b) ────────
     int  rain_level() const { return m_rain_level; }
     void set_rain_level(int level);
 
-    bool clear_day() const { return m_clear_day; }
-    void set_clear_day(bool clear_day);
+    WeatherPreset weather_preset() const { return m_weather_preset; }
+    void          set_weather_preset(WeatherPreset preset);
 
-    bool wiper_enabled() const { return m_wiper_enabled; }
-    void set_wiper(bool enabled);
+    WiperMode wiper_mode() const { return m_wiper.mode; }
+    void      set_wiper_mode(WiperMode mode);
 
-    bool cockpit() const { return m_cockpit; }
-    void set_cockpit(bool cockpit);
+    CameraMode camera_mode() const { return m_camera_ctl.mode(); }
+    void       set_camera_mode(CameraMode mode);
 
     bool cursor_captured() const { return m_cursor_captured; }
     void set_cursor_captured(bool captured);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "renderer/RendererConfig.h"
+
 #include <vulkan/vulkan.h>
 
 #include <vector>

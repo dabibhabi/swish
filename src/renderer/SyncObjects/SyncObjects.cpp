@@ -1,8 +1,9 @@
 #include "SyncObjects.h"
 
-#include "../../utils/VulkanCheck.h"
+#include "utils/vulkan/Check.h"
 
 #include <cassert>
+#include <stdexcept>
 
 namespace swish {
 
@@ -30,40 +31,32 @@ void SyncObjects::init(VkDevice device, uint32_t framesInFlight, uint32_t swapch
     }
 
     m_renderFinished.resize(swapchainImageCount);
-    for (uint32_t i = 0; i < swapchainImageCount; i++) {
-        m_renderFinished[i] = createBinarySemaphore(device);
-    }
+    for (uint32_t i = 0; i < swapchainImageCount; i++) { m_renderFinished[i] = createBinarySemaphore(device); }
 }
 
 void SyncObjects::cleanup(VkDevice device) {
-    for (VkSemaphore sem : m_renderFinished) {
-        vkDestroySemaphore(device, sem, nullptr);
-    }
-    for (VkSemaphore sem : m_imageAvailable) {
-        vkDestroySemaphore(device, sem, nullptr);
-    }
-    for (VkFence fence : m_inFlightFences) {
-        vkDestroyFence(device, fence, nullptr);
-    }
+    for (VkSemaphore sem : m_renderFinished) { vkDestroySemaphore(device, sem, nullptr); }
+    for (VkSemaphore sem : m_imageAvailable) { vkDestroySemaphore(device, sem, nullptr); }
+    for (VkFence fence : m_inFlightFences) { vkDestroyFence(device, fence, nullptr); }
     m_renderFinished.clear();
     m_imageAvailable.clear();
     m_inFlightFences.clear();
 }
 
 void SyncObjects::recreateRenderFinishedSemaphores(VkDevice device, uint32_t swapchainImageCount) {
-    for (VkSemaphore sem : m_renderFinished) {
-        vkDestroySemaphore(device, sem, nullptr);
-    }
+    for (VkSemaphore sem : m_renderFinished) { vkDestroySemaphore(device, sem, nullptr); }
     m_renderFinished.clear();
     m_renderFinished.reserve(swapchainImageCount);
-    for (uint32_t i = 0; i < swapchainImageCount; i++) {
-        m_renderFinished.push_back(createBinarySemaphore(device));
-    }
+    for (uint32_t i = 0; i < swapchainImageCount; i++) { m_renderFinished.push_back(createBinarySemaphore(device)); }
 }
 
 void SyncObjects::waitForFence(VkDevice device, uint32_t frameIndex) {
-    constexpr uint64_t kNoFenceTimeout = UINT64_MAX;  // disable timeout
-    VK_CHECK(vkWaitForFences(device, 1, &m_inFlightFences[frameIndex], VK_TRUE, kNoFenceTimeout));
+    // E3: a frame's fence normally signals in milliseconds; 5 s means the GPU hung (or MoltenVK lost the device).
+    // Fail loudly instead of freezing the app forever.
+    constexpr uint64_t kFenceTimeoutNs = 5'000'000'000ull;
+    const VkResult     r = vkWaitForFences(device, 1, &m_inFlightFences[frameIndex], VK_TRUE, kFenceTimeoutNs);
+    if (r == VK_TIMEOUT) throw std::runtime_error("SyncObjects: in-flight fence not signalled after 5 s (GPU hang?)");
+    VK_CHECK(r);
 }
 
 void SyncObjects::resetFence(VkDevice device, uint32_t frameIndex) {

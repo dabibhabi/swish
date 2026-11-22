@@ -1,6 +1,7 @@
+#include "scene/Camera/Camera.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include "scene/Camera/Camera.h"
 
 using namespace swish;
 using Catch::Matchers::WithinAbs;
@@ -45,7 +46,7 @@ TEST_CASE("Camera forward vector is unit length", "[camera]") {
     Camera cam;
     cam.set_yaw(37.0f);
     cam.set_pitch(-12.0f);
-    Vec3 fwd = cam.get_forward();
+    Vec3  fwd = cam.get_forward();
     float len = std::sqrt(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
     REQUIRE_THAT(len, WithinAbs(1.0f, kEps));
 }
@@ -56,16 +57,16 @@ TEST_CASE("Camera right vector is orthogonal to forward", "[camera]") {
     Camera cam;
     cam.set_yaw(45.0f);
     cam.set_pitch(20.0f);
-    Vec3 fwd   = cam.get_forward();
-    Vec3 right = cam.get_right();
-    float dot  = fwd.x * right.x + fwd.y * right.y + fwd.z * right.z;
+    Vec3  fwd   = cam.get_forward();
+    Vec3  right = cam.get_right();
+    float dot   = fwd.x * right.x + fwd.y * right.y + fwd.z * right.z;
     REQUIRE_THAT(dot, WithinAbs(0.0f, kEps));
 }
 
 TEST_CASE("Camera right vector is unit length", "[camera]") {
     Camera cam;
-    Vec3  right = cam.get_right();
-    float len   = std::sqrt(right.x * right.x + right.y * right.y + right.z * right.z);
+    Vec3   right = cam.get_right();
+    float  len   = std::sqrt(right.x * right.x + right.y * right.y + right.z * right.z);
     REQUIRE_THAT(len, WithinAbs(1.0f, kEps));
 }
 
@@ -86,9 +87,9 @@ TEST_CASE("Camera pitch clamps at -89 on downward mouse input", "[camera]") {
 // ── Mouse look ────────────────────────────────────────────────────────
 
 TEST_CASE("Camera process_mouse updates yaw", "[camera]") {
-    Camera cam;
-    float before_yaw = cam.get_yaw();
-    constexpr float mouse_dx = 10.0f;
+    Camera          cam;
+    float           before_yaw = cam.get_yaw();
+    constexpr float mouse_dx   = 10.0f;
     cam.process_mouse(mouse_dx, 0.0f);
     // process_mouse: m_yaw += x_offset * m_mouse_sensitivity (0.1f)
     // expected delta = mouse_dx * 0.1f = 1.0f
@@ -97,9 +98,9 @@ TEST_CASE("Camera process_mouse updates yaw", "[camera]") {
 }
 
 TEST_CASE("Camera process_mouse updates pitch", "[camera]") {
-    Camera cam;
-    float before_pitch = cam.get_pitch();
-    constexpr float mouse_dy = 5.0f;
+    Camera          cam;
+    float           before_pitch = cam.get_pitch();
+    constexpr float mouse_dy     = 5.0f;
     cam.process_mouse(0.0f, mouse_dy);
     // process_mouse: m_pitch += y_offset * m_mouse_sensitivity (0.1f)
     // expected delta = mouse_dy * 0.1f = 0.5f; default pitch is -5.0f so result is -4.5f (within clamp)
@@ -112,7 +113,7 @@ TEST_CASE("Camera process_mouse updates pitch", "[camera]") {
 TEST_CASE("Camera projection encodes FOV at 90 degrees", "[camera]") {
     Camera cam;
     cam.set_perspective(90.0f, 1.0f, 1.0f, 1000.0f);
-    Mat4  proj    = cam.get_projection_matrix();
+    Mat4 proj = cam.get_projection_matrix();
     // At FOV=90°, aspect=1: proj[0][0] = 1/tan(45°) = 1.0
     REQUIRE_THAT(proj[0][0], WithinAbs(1.0f, 1e-3f));
 }
@@ -164,7 +165,7 @@ TEST_CASE("Camera projection uses Vulkan [0,1] depth convention", "[camera][dept
         Vec4 clip = proj * Vec4(0.0f, 0.0f, viewZ, 1.0f);
         return clip.z / clip.w;
     };
-    REQUIRE_THAT(ndcZ(-1.0f),   WithinAbs(1.0f, 1e-3f));  // reverse-Z: near plane -> 1
+    REQUIRE_THAT(ndcZ(-1.0f), WithinAbs(1.0f, 1e-3f));    // reverse-Z: near plane -> 1
     REQUIRE_THAT(ndcZ(-100.0f), WithinAbs(0.0f, 1e-3f));  // reverse-Z: far  plane -> 0
 }
 
@@ -175,7 +176,7 @@ TEST_CASE("Camera projection uses Vulkan [0,1] depth convention", "[camera][dept
 TEST_CASE("Camera proj/view round-trips a world point via the inverse", "[camera][depth]") {
     Camera cam;
     cam.set_position(Vec3(0.0f, 0.0f, 0.0f));
-    cam.set_yaw(-90.0f);   // forward = (0,0,-1)
+    cam.set_yaw(-90.0f);  // forward = (0,0,-1)
     cam.set_pitch(0.0f);
     cam.set_perspective(65.0f, 16.0f / 9.0f, 1.0f, 1000.0f);
 

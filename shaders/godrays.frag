@@ -53,7 +53,11 @@ void main() {
         uv -= delta;
         float d = texture(gbDepth, uv).r;
         // Emit only from sky pixels (reverse-Z: far/sky is depth 0.0); geometry occludes → dark shafts.
+#ifdef SWISH_DEBUG_UI
+        vec3 s = (d <= 0.0) ? texture(hdrScene, uv).rgb : vec3(0.0);  // clear value only: far geometry is < 1e-4
+#else
         vec3 s = (d <= 0.0001) ? texture(hdrScene, uv).rgb : vec3(0.0);
+#endif
         accum += s * illum * pc.tune.z;  // per-sample weight
         illum *= pc.tune.y;              // per-step decay
     }

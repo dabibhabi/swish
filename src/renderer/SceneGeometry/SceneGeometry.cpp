@@ -1,9 +1,10 @@
 #include "SceneGeometry.h"
 
-#include "../DepthOnlyPipeline/DepthOnlyPipeline.h"
-#include "../MaterialDescriptors/MaterialDescriptors.h"
-#include "../ScenePipeline/ScenePipeline.h"
-#include "../Vertex.h"
+#include "renderer/DepthOnlyPipeline/DepthOnlyPipeline.h"
+#include "renderer/MaterialDescriptors/MaterialDescriptors.h"
+#include "renderer/ScenePipeline/ScenePipeline.h"
+#include "renderer/Vertex.h"
+#include "utils/geometry/Frustum.h"
 
 #include <cstring>
 
@@ -66,25 +67,17 @@ void uploadTwoViaStaging(const RendererServices& s, VkBufferUsageFlags vertUsage
 // Unbounded draws (negative radius — the car, loaded models) are never culled.
 bool isCulled(const DrawCall& dc, const CullParams& cull, const Vec3& originOffset) {
     const float r = dc.boundsRadius;
-    if (r < 0.0f)
-        return false;
+    if (r < 0.0f) return false;
 
     // Center in render-frame world space: model translation (identity for the
     // authored road) plus the per-batch originOffset (chunk-slot / rebase shift),
     // matching how record_* place the geometry. No scale, so `r` needs none.
     const Vec3  c = Vec3(dc.model * Vec4(dc.boundsCenter, 1.0f)) + originOffset;
     const float d = glm::length(c - cull.cameraPos);
-    if (d - r > cull.maxDistance)
-        return true;
+    if (d - r > cull.maxDistance) return true;
 
-    if (cull.useFrustum) {
-        for (const Vec4& pl : cull.planes) {
-            // planes point inward; sphere is outside when signed distance < −r.
-            if (glm::dot(Vec3(pl), c) + pl.w < -r)
-                return true;
-        }
-    }
-    return false;
+    // Planes point inward; the sphere is outside when its signed distance is < -r.
+    return cull.useFrustum && util::geometry::sphere_outside_frustum(cull.planes, c, r);
 }
 
 }  // namespace
@@ -99,8 +92,7 @@ void SceneGeometry::upload(const RendererServices& s, const MeshData& mesh, cons
     cleanup(s.device);
     m_drawCalls = draws;
 
-    if (mesh.empty())
-        return;
+    if (mesh.empty()) return;
 
     uploadTwoViaStaging(s, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, sizeof(Vertex) * mesh.getVertices().size(),
                         mesh.getVertices().data(), m_vertexBuffer, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
@@ -109,9 +101,9 @@ void SceneGeometry::upload(const RendererServices& s, const MeshData& mesh, cons
 
 void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipeline, MaterialDescriptors& materials,
                                  const MaterialOverride* overrides, const CullParams& cull, Vec3 originOffset,
-                                 CullStats* stats) const {
-    if (!has_geometry())
-        return;
+                                 CullStats* stats, const PaintTuning& paint, float flakeScale, float flakeJitter,
+                                 float emissiveScale, float selfLitScale) const {
+    if (!has_geometry()) return;
 
     // Camera-relative rebase (double precision): add the per-batch originOffset (chunk-slot
     // instance / intro rebase shift), then subtract the camera position, so basic.vert renders
@@ -129,12 +121,9 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
 
     for (const auto& dc : m_drawCalls) {
         const bool cullable = dc.boundsRadius >= 0.0f;
-        if (stats && cullable)
-            ++stats->total;
-        if (cull.enabled && cullable && isCulled(dc, cull, originOffset))
-            continue;
-        if (stats && cullable)
-            ++stats->submitted;
+        if (stats && cullable) ++stats->total;
+        if (cull.enabled && cullable && isCulled(dc, cull, originOffset)) continue;
+        if (stats && cullable) ++stats->submitted;
 
         VkDescriptorSet matSet = materials.get_set(dc.material);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &matSet, 0, nullptr);
@@ -145,30 +134,51 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
         dModel[3]         = glm::dvec4(glm::dvec3(dModel[3]) + dOrigin - dCam, dModel[3].w);
         pushData.model    = glm::mat4(dModel);
         pushData.color    = dc.color;
-        // Per-material metalness (first pass: metal barriers/rails are metallic,
-        // everything else is dielectric). Texture-driven metalness is a follow-up.
-        pushData.material.x = (dc.material == MAT_METAL) ? 1.0f : 0.0f;
+        // Metalness: the glTF metallicFactor when the draw carries one (cars), otherwise
+        // the per-material default (metal barriers/rails are metallic, the rest dielectric).
+        pushData.material.x = (dc.metalness >= 0.0f) ? dc.metalness : (dc.material == MAT_METAL) ? 1.0f : 0.0f;
         // Wettable mask: 1 = rain-exposed road/world, 0 = dry (the whole car). Written
         // to outMaterial.b in gbuffer.frag and used by lighting.frag to keep wet-road
         // effects (darkening, sheen, halos) off the car — they wash the cabin out.
         pushData.material.y = dc.dry ? 0.0f : 1.0f;
         // Roughness multiplier (gbuffer.frag: roughness *= material.z). 1 = no change.
-        pushData.material.z = 1.0f;
+        pushData.material.z = dc.roughnessMul;  // 1 unless the car's material fixes are on
         // Road tag (gbuffer.frag: outMaterial.a = material.w). 1 = asphalt → drives
         // screen-space puddles in lighting.frag/ssr.frag; everything else (car, grass,
         // barriers, signs) stays 0 so only the road pools water. Release writes it too,
         // but reads it with puddle coverage 0 → no effect (byte-identical).
-        pushData.material.w = (dc.material == MAT_ASPHALT) ? 1.0f : 0.0f;
+        // D1: tagged mainline pavement (concrete, fresh asphalt) is road too; markings carry a tag but stay paint.
+        const bool road     = dc.material == MAT_ASPHALT || (dc.surface != 0 && dc.retro == 0.0f);
+        pushData.material.w = road ? 1.0f : 0.0f;
 
-        // Debug material override for this slot (metalness / roughness / colour).
+        // Clearcoat + flake (car paint BRDF): per-material authored default ×
+        // the global debug multiplier, unless a per-slot override is enabled.
+        // paint.zw (flake cell scale/jitter) are shared across every draw — not
+        // per-material — so they're broadcast in from the caller's `paint` args.
+        float clearcoat = default_clearcoat_strength(dc.material) * paint.clearcoatMul;
+        float flake =
+            (dc.isPaint ? paint.paintFlakeDensity : default_flake_density(dc.material)) * paint.flakeDensityMul;
+
+        // Debug material override for this slot (metalness / roughness / colour /
+        // clearcoat / flake).
         if (overrides != nullptr) {
             const MaterialOverride& o = overrides[dc.material];
             if (o.enabled) {
                 pushData.color      = Vec4(o.color, dc.color.a);  // keep .a (wash sentinel)
                 pushData.material.x = o.metalness;
                 pushData.material.z = o.roughnessMul;
+                clearcoat           = o.clearcoat;
+                flake               = o.flakeDensity;
             }
         }
+        pushData.paint = Vec4(clearcoat, flake, flakeScale, flakeJitter);
+        pushData.extra = Vec4(dc.emissiveNits * (dc.selfLit ? selfLitScale : emissiveScale), dc.retro, dc.surfaceWet,
+                              road || dc.surface != 0 ? paint.rutUvTile : 0.0f);
+#ifdef SWISH_DEBUG_UI
+        pushData.pave  = Vec4(dc.surface, dc.arc0, paint.jointSpacing, paint.reflectorSpacing);
+        pushData.pave2 = Vec4(paint.polish, paint.wear, paint.sealant, paint.rumble);
+#endif
+
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(PushConstantData), &pushData);
         vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, 0, 0);
@@ -177,8 +187,7 @@ void SceneGeometry::record_draws(VkCommandBuffer cmd, const ScenePipeline& pipel
 
 void SceneGeometry::record_depth(VkCommandBuffer cmd, const DepthOnlyPipeline& pipe, const CullParams& cull,
                                  Vec3 originOffset, CullStats* stats) const {
-    if (!has_geometry())
-        return;
+    if (!has_geometry()) return;
 
     VkBuffer     vbs[] = {m_vertexBuffer.handle()};
     VkDeviceSize off[] = {0};
@@ -192,12 +201,10 @@ void SceneGeometry::record_depth(VkCommandBuffer cmd, const DepthOnlyPipeline& p
     // origin rebase, so plain float32 here stays precise for the shadow projection).
     for (const auto& dc : m_drawCalls) {
         const bool cullable = dc.boundsRadius >= 0.0f;
-        if (stats && cullable)
-            ++stats->total;
-        if (cull.enabled && cullable && isCulled(dc, cull, originOffset))
-            continue;
-        if (stats && cullable)
-            ++stats->submitted;
+        if (stats && cullable) ++stats->total;
+        if (cull.enabled && cullable && isCulled(dc, cull, originOffset)) continue;
+        if (dc.noShadow) continue;  // D5: never set in release
+        if (stats && cullable) ++stats->submitted;
 
         Mat4 model = dc.model;
         model[3]   = Vec4(Vec3(model[3]) + originOffset, model[3].w);

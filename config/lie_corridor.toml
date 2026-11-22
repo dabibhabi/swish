@@ -1,0 +1,235 @@
+# ══════════════════════════════════════════════════════════════════════
+# Phase 3a — real-world Long Island Expressway corridor
+#
+# Source of truth for the OSM → netconvert → compaction → engine-asset
+# pipeline.  Baked to assets/corridor/lie_corridor.bin by:
+#
+#     python3 tools/lie_corridor.py all
+#
+# Everything here is human-authored; nothing in this file is derived.  The
+# *road* itself is not authored — it comes from the OpenStreetMap extract
+# (see [osm] below).  See docs/phase-3-osm-lie-corridor.md.
+# ══════════════════════════════════════════════════════════════════════
+
+[osm]
+# One-time Overpass extract (spec decision #3): pulled once, cached in the
+# repo, so the build has no recurring network dependency.  Bounding box is
+# (south, west, north, east) — Manhattan / Queens-Midtown Tunnel through
+# Nassau and Suffolk to the Riverhead terminus (exit 73).  Widened 2026-11-20;
+# the bake still trims at `east_terminus_exit`.
+bbox = [40.66, -74.02, 40.96, -72.60]
+# The mainline selector.  `^I *495$` matches OSM's "I 495" ref tag.
+ref_regex = "^I *495$"
+# motorway_link ways within this many metres of the mainline are pulled too.
+# 3a does not use them; they are in the extract so 3b's ramp work needs no
+# second network pull.
+ramp_search_radius_m = 200
+overpass_url = "https://overpass-api.de/api/interpreter"
+raw_extract = "data/osm/lie_i495.osm.xml"
+
+[netconvert]
+# SUMO netconvert (spec decision #2) resolves OSM tags into lane-level
+# network geometry.  Run once, offline; its output is cached in the repo so
+# neither the build nor a player machine needs SUMO.
+#
+# --proj.plain-geo keeps the plain-XML shapes in WGS84 lon/lat, so the
+# WGS84 -> engine transform stays ours (spec §4.1, unit-tested in
+# tests/test_corridor.cpp) instead of depending on netconvert's UTM zone.
+# --geometry.remove false preserves the real centreline vertices; we want
+# the actual curvature, not a simplified graph.
+plain_prefix = "data/osm/lie_i495"
+net_output = "data/osm/lie_i495.net.xml"
+extra_args = [
+    "--geometry.remove", "false",
+    "--ramps.guess", "false",
+    "--junctions.join", "true",
+    "--no-turnarounds",
+]
+
+[corridor]
+# Pinned map frame (tangent-plane origin and rotation), copied from the
+# header of the 2026-08-23 asset.  Without the pin the frame is derived from
+# the whole extract, so the 2026-11-20 widening to Riverhead rotated the
+# tunnel-to-exit-49 stretch by 1.18 degrees (552 m at exit 49).
+frame_lat0 = 40.762599039747066
+frame_lon0 = -73.72167353839205
+frame_psi_deg = 5.282135486602783
+# The six real interchanges that anchor the compaction (spec decision #4).
+# These are matched against OSM `highway=motorway_junction` node `ref` tags
+# ON the I-495 mainline — the positions are real, not authored.
+landmark_exits = ["27", "31", "38", "46", "48", "49", "53", "62", "64", "68"]
+# The corridor ends just past this exit (Nassau/Suffolk line sits between
+# 48 and 49), plus a short run-out so the last landmark isn't at the wall.
+east_terminus_exit = "end"   # whole chain: I-495 ends at Riverhead (exit 73)
+# The stretch up to this exit (+ run-out) keeps `west_zone_length_miles`, with
+# its own solved c; everything east of it shares the rest of the target.
+west_zone_exit = "49"
+west_zone_length_miles = 18.0
+east_runout_m = 400.0
+# Districts in route order.  The first starts at station 0; each later one
+# starts where the first mainline way tagged `tiger:county=<name>, NY` begins,
+# unless `start_exit` overrides it.  Nassau needs the override: OSM's county
+# tags only begin near exit 35, but the city line is just west of exit 33
+# (Lakeville Road) — authored from memory, to check against a map.
+districts = [
+    { name = "Queens" },
+    { name = "Nassau", start_exit = "33" },
+    { name = "Suffolk" },
+]
+
+# ── Compaction heuristic (spec §4.2) ─────────────────────────────────
+# Stations within `landmark_radius_m` of a landmark keep real scale; the
+# rest are compressed by a factor c along the route's own tangent.  c is
+# NOT authored — it is solved from `target_length_miles` so the total lands
+# in the 16-20 mi band (see tools/lie_corridor.py :: solve_compaction).
+target_length_miles = 30.0
+landmark_radius_m = 900.0
+# Smoothstep blend either side of the radius, so the scale factor (and
+# therefore curvature) has no step discontinuity at the window edge.
+landmark_blend_m = 250.0
+
+# ── Curvature floor ─────────────────────────────────────────────────
+# Compaction preserves heading and scales arc length, so a compacted curve's
+# radius is R*f — compressing a real curve makes it TIGHTER by 1/f.  Without
+# a floor the heuristic invents corners the real road does not have: measured
+# at c = 0.455, the real alignment's tightest curve is 99 m (the tunnel
+# portal ramp, genuinely that tight) and only 1.05 km of 50 km is under
+# 500 m, but uniform compression gave a 46 m minimum and 6.05 km under 500 m.
+#
+# So no station is compressed below f = R_floor / R.  Real curves already
+# tighter than the floor are simply left at real scale (f = 1), so the
+# corridor's tightest curve stays the real 99 m tunnel ramp.
+#
+# 500 m was picked by sweeping the floor against the real curvature
+# distribution at the 18 mi target (mileage with radius under 400 m / 500 m,
+# real = 0.83 / 1.05 km of 50.2 km):
+#
+#     floor 300 m -> c 0.416, 10.30 / 12.66 km   (invents corners everywhere)
+#     floor 400 m -> c 0.328,  0.91 / 11.38 km   (fixes <400 m, not <500 m)
+#     floor 500 m -> c 0.185,  0.83 /  1.20 km   (matches the real road)
+#     floor 600 m -> c 0.000                     (infeasible at 18 mi)
+#
+# The cost is a smaller c, i.e. the straightaways compress harder — which is
+# the right place to spend it.  A compressed straight still looks like a
+# straight; a compressed curve looks like a different road.
+curvature_floor_radius_m = 500.0
+# Curvature is measured over +/- this baseline, not station to station: OSM
+# centreline vertices are not smooth and a one-station difference reads
+# digitising noise as curvature.
+curvature_baseline_m = 50.0
+# Dilate the floor by +/- this so a curve's apex keeps its protection.
+curvature_smooth_m = 100.0
+
+# ── Where the drive starts ──────────────────────────────────────────
+# Station 0 is the tunnel's Manhattan portal, whose approach is a real
+# ~100 m-radius loop ramp — a bad first frame and a bad standing start. Begin
+# at the first station past `min_start_m` whose radius clears
+# `start_min_radius_m`, so the start pose is derived, not hand-placed.
+min_start_m = 250.0
+start_min_radius_m = 600.0
+
+# ── Sampling / tiling ────────────────────────────────────────────────
+station_spacing_m = 10.0   # alignment sample spacing (compacted frame)
+segment_length_m = 1200.0  # one GPU vertex buffer + one render offset
+# One draw call per cross-section band per tile.  300 m for the same reason
+# the retired canonical chunk was 300 m: surface UVs restart at every tile
+# (they must, or arc-length UVs at the corridor's far end quantise to a whole
+# texture repeat in float32), and 300 m = 25 x LCM(3000, 4000, 1500, 1000 WU)
+# is a multiple of every surface tile size, so the restart is seamless.
+# segment_length_m must be an exact multiple of this, and this of
+# station_spacing_m.
+tile_length_m = 300.0
+lane_taper_m = 200.0       # lane-count change tapers over this distance
+
+# ── Cross-section (real Interstate dimensions, feet) ─────────────────
+# Lateral offsets are measured from the alignment centreline, which runs
+# down the middle of the median.  Positive = right of travel = eastbound.
+lane_width_ft = 12.0
+median_half_width_ft = 1.25   # centreline -> inner shoulder (barrier half)
+inner_shoulder_ft = 4.0
+outer_shoulder_ft = 10.0
+barrier_width_ft = 2.5
+barrier_height_ft = 2.83
+grass_extent_ft = 120.0
+edge_line_ft = 0.5
+dash_length_ft = 10.0
+dash_gap_ft = 30.0
+
+# Flat road surface height in world units.  This stretch of the LIE has no
+# meaningful grade (spec §2) and 3a builds it dead flat, so the physics
+# surface query and the mesh agree exactly.  Crown is a later polish item.
+road_y_wu = 6.0
+grass_y_wu = 0.0
+marking_lift_wu = 5.0
+
+# Turn-around pads (spec decision #7): at each end the median barrier is
+# omitted and asphalt is laid across it, so the player can U-turn onto the
+# opposite carriageway.  The corridor is finite; there is no other exit.
+turnaround_length_m = 220.0
+
+[elevation]
+# Ground height along the REAL route from the USGS 3DEP elevation model
+# (public domain), pulled once by `python3 tools/lie_corridor.py elev` and
+# cached in the repo (tracked, unlike data/osm/).
+service_url = "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/getSamples"
+cache = "data/dem/lie_i495_elev.csv"
+sample_spacing_m = 50.0
+# Vertical profile (see tools/lie_corridor.py :: vertical_profile).  Compaction
+# steepens every real grade by 1/f, so the profile is low-passed, grade-clamped
+# and smoothed until the vertical acceleration at the design speed is in band.
+smooth_m = 300.0             # low-pass window (despikes bridges and cuttings)
+max_grade = 0.05             # AASHTO Green Book: 3-5 % for freeways in rolling terrain
+design_speed_mps = 31.3      # 70 mph
+max_vertical_accel = 0.6     # m/s^2, about 0.06 g: felt, never airborne
+# Superelevation: e = clamp(bank_fraction * v^2 / (g R), +/- max_bank).
+bank_fraction = 0.4          # share of lateral acceleration carried by the cross slope
+max_bank = 0.06              # AASHTO e_max for a snow-and-ice state
+bank_baseline_m = 50.0
+bank_smooth_m = 100.0
+
+[service_roads]
+# C2a: real service-road extents (NY 906A = South SR eastbound, NY 906B = North SR westbound).
+# `fetch_srvr` pulls them once into `extract`; `bake` projects them onto the mainline.
+extract = "data/osm/lie_service_roads.json"
+bbox = [40.70, -73.96, 40.95, -72.60]
+merge_gap_m = 150.0   # real metres; shorter breaks are cross-street intersections, not real gaps
+end_exit = "68"       # rule fill east of the last OSM stretch stops here (Wikipedia: SRs end at exit 68)
+
+[crossings]
+# D4: overpasses. `fetch_xing` pulls bridges over the LIE (road / rail) and the roads under its own bridges once;
+# `bake` turns them into the XING block (station, kind, angle, width, style). Ways within `search_m` of the mainline.
+extract = "data/osm/lie_crossings.json"
+search_m = 30
+twin_m = 25.0           # real metres between twin decks (one-way pairs, parallel tracks) merged into one
+max_skew_deg = 40.0     # clamp: a sharper skew would push the abutments far along the mainline
+lane_m = 3.6
+street_extra_m = 4.6    # two 5 ft walks plus curbs
+motorway_extra_m = 4.2  # shoulders
+walk_bridge_m = 3.0     # footway / cycleway bridge, rail to rail
+track_m = 5.5           # one track: ballast deck between the girders
+under_highways = ["motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential"]
+default_lanes = { motorway = 3, trunk = 2, primary = 4, secondary = 4, tertiary = 2, motorway_link = 1, trunk_link = 1, primary_link = 1, secondary_link = 1, residential = 2, unclassified = 2, service = 1, footway = 0, cycleway = 0, path = 0, pedestrian = 0 }
+# Landmark styles (docs/lie-reference/README.md): stone-faced parkway bridges; I-678 rebuilt as concrete on round piers.
+style_by_name = { "Cross Island|Sagtikos|Northern State|Grand Central" = "stone", "Van Wyck" = "concrete" }
+
+[surface]
+# D1: pavement per stretch, baked into the SURF block (CorridorAlignment::surface_at). Each row starts at the
+# eastbound diverge of `from` ("start" = station 0) and runs to the next row. kind: concrete | fresh | worn | patched.
+# Only the exit-64 row is sourced (Wikipedia I-495 (New York): east of NY 112 "the asphalt road surface is replaced by
+# a concrete surface"). The asphalt grades are GUESSES for variety, loosely following the rebuild history
+# (Queens 1998-2005, HOV lanes laid inside the old Nassau/Suffolk roadbed in the 1990s, so overlay-on-PCC cracking).
+ranges = [
+    { from = "start", kind = "worn" },     # tunnel + Queens: heavy truck traffic (guess)
+    { from = "22", kind = "patched" },     # Flushing Meadows: marsh settlement cracked it from 1960 (Wikipedia), patched (guess)
+    { from = "29", kind = "fresh" },       # exits 29-32 rebuilt 2000-2005 (Wikipedia); repaved since (guess)
+    { from = "33", kind = "patched" },     # Nassau HOV widening inside the old roadbed: overlay on old concrete (guess)
+    { from = "40", kind = "worn" },        # guess
+    { from = "49", kind = "fresh" },       # guess
+    { from = "57", kind = "patched" },     # guess
+    { from = "64", kind = "concrete" },    # sourced: concrete east of exit 64 (NY 112)
+]
+
+[output]
+# Debug-build asset.  The release asset assets/corridor/lie_corridor.bin is the
+# 2026-08-23 bake (18 mi, flat, v1) and is NOT rewritten by this tool.
+asset = "assets/corridor/lie_corridor_full.bin"

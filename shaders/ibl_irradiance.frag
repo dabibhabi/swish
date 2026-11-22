@@ -17,7 +17,7 @@ layout(push_constant) uniform P {
     vec4 faceF;  // xyz = face forward/centre basis
 } pc;
 
-const float PI = 3.14159265359;
+#include "math.glsl"
 
 void main() {
     vec2 st = fragUV * 2.0 - 1.0;
@@ -30,14 +30,19 @@ void main() {
 
     vec3  irradiance = vec3(0.0);
     float nrSamples  = 0.0;
-    const float dPhi   = 0.025;
-    const float dTheta = 0.025;
+    // L2.4 filtered sampling: 0.1 rad steps (~1000 samples, was 15 800 at 0.025) read from the env mip whose texel
+    // solid angle matches the sample's, lod = 0.5 log2(Omega_s / Omega_p) + 1 (Karis 2013 / Colbert & Krivanek 2007).
+    const float dPhi    = 0.1;
+    const float dTheta  = 0.1;
+    float       envDim  = float(textureSize(envMap, 0).x);
+    float       omegaP  = 4.0 * PI / (6.0 * envDim * envDim);
+    float       sampLod = max(0.5 * log2((dPhi * dTheta * 0.64) / omegaP) + 1.0, 0.0);
     for (float phi = 0.0; phi < 2.0 * PI; phi += dPhi) {
         for (float theta = 0.0; theta < 0.5 * PI; theta += dTheta) {
             // Spherical (tangent space) → world.
             vec3 tangent = vec3(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
             vec3 sampleV = tangent.x * right + tangent.y * up + tangent.z * N;
-            irradiance += texture(envMap, sampleV).rgb * cos(theta) * sin(theta);
+            irradiance += textureLod(envMap, sampleV, sampLod).rgb * cos(theta) * sin(theta);
             nrSamples += 1.0;
         }
     }

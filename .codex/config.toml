@@ -1,0 +1,6 @@
+[mcp_servers.blender]
+command = "/opt/homebrew/bin/uv"
+args = [
+    "run",
+    "blender-mcp",
+]

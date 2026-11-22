@@ -1,5 +1,8 @@
 #pragma once
 
+#include "RoadParams.h"
+#include "utils/meta/Concepts.h"
+
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -57,7 +60,7 @@ struct RoadConfig {
     float dash_gap;
 
     // ── Crown slope ──────────────────────────────────────────────────────
-    static constexpr float kCrownSlope = 0.02f;
+    static constexpr float kCrownSlope = road::kCrownSlope;  // shared with RoadGeometry (RoadParams.h)
 
     // ── Colors [r, g, b, a] ──────────────────────────────────────────
     float shoulder_tint[4];
@@ -78,26 +81,24 @@ struct RoadConfig {
 };
 #pragma pack(pop)
 
-static_assert(std::is_trivially_copyable_v<RoadConfig>, "RoadConfig must be trivially copyable for binary I/O");
+static_assert(swish::util::meta::TriviallyPackable<RoadConfig>,
+              "RoadConfig must be copyable as raw bytes for binary I/O");
+// On-disk layout of road.bin (VERSION 3). The baker includes this same header, so this is the only
+// place the size is pinned: bump VERSION and this number together when a field changes.
+static_assert(sizeof(RoadConfig) == 292, "RoadConfig layout changed: bump RoadConfig::VERSION and re-bake road.bin");
 
 // ── Load from binary file ─────────────────────────────────────────────
 
 [[nodiscard]] inline RoadConfig load_road_config(const std::string& path) {
     FILE* f = std::fopen(path.c_str(), "rb");
-    if (!f) {
-        throw std::runtime_error("RoadConfig: cannot open " + path);
-    }
+    if (!f) { throw std::runtime_error("RoadConfig: cannot open " + path); }
 
     RoadConfig cfg{};
     size_t     read = std::fread(&cfg, sizeof(RoadConfig), 1, f);
     std::fclose(f);
 
-    if (read != 1) {
-        throw std::runtime_error("RoadConfig: failed to read " + path);
-    }
-    if (cfg.magic != RoadConfig::MAGIC) {
-        throw std::runtime_error("RoadConfig: bad magic in " + path);
-    }
+    if (read != 1) { throw std::runtime_error("RoadConfig: failed to read " + path); }
+    if (cfg.magic != RoadConfig::MAGIC) { throw std::runtime_error("RoadConfig: bad magic in " + path); }
     if (cfg.version != RoadConfig::VERSION) {
         throw std::runtime_error("RoadConfig: version mismatch in " + path + " (expected " +
                                  std::to_string(RoadConfig::VERSION) + ", got " + std::to_string(cfg.version) + ")");

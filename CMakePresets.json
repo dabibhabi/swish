@@ -1,0 +1,26 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "release",
+      "displayName": "Release (debug UI off)",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "SWISH_DEBUG_UI": "OFF" }
+    },
+    {
+      "name": "debug-ui",
+      "displayName": "RelWithDebInfo + Dear ImGui debug UI",
+      "binaryDir": "${sourceDir}/build-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "SWISH_DEBUG_UI": "ON" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "release", "configurePreset": "release" },
+    { "name": "debug-ui", "configurePreset": "debug-ui" }
+  ],
+  "testPresets": [
+    { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
+    { "name": "debug-ui", "configurePreset": "debug-ui", "output": { "outputOnFailure": true } }
+  ]
+}

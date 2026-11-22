@@ -17,26 +17,20 @@
 //   - the persistent wetness map (windshield_wetness.frag) gates where drops appear,
 //     so the wiper — which clears that map — genuinely wipes them off
 //
-// See issue.md and docs/rain/technique-refraction.md.
+// See archive/docs/notes/issue.md and archive/docs/rain/technique-refraction.md.
 
 layout(location = 0) in vec2 fragUV;           // glass-space mesh UV
 layout(location = 1) in vec3 fragLocalNormal;  // object space (nose = +X)
 layout(location = 2) in vec3 fragNormal;       // world space (sun glint)
 layout(location = 3) in vec3 fragWorldPos;     // world space (sun glint)
 
-layout(set = 0, binding = 0) uniform CameraUBO {
-    mat4 view;
-    mat4 proj;
-    vec4 camPos;
-    vec4 sunDir;
-    vec4 sunColor;
-} camera;
+#include "camera.glsl"
 
 layout(set = 1, binding = 0) uniform WindshieldRainUBO {
     vec4 flowAndTime;    // xy = flow dir (screen hint), z = speed [0,1], w = time
     vec4 params;         // x = wetness, y = intensity, z = drop density, w = refractStrength
     vec4 screenAndRefr;  // x = width, y = height, z = maxBlurLod (reserved), w = fresnelGain
-    vec4 wiperState;     // x = blade angle, y = phase, z = enabled, w = speed
+    vec4 wiperState;     // x = screen-space blade angle, y = wiper angle (rad), z = draw the screen-space blade (default car only), w = sweep (rad)
 } rain;
 
 layout(set = 1, binding = 1) uniform sampler2D sceneRefr;  // HDR scene snapshot
@@ -70,7 +64,7 @@ vec3 N13(float p) {
 // A real sweeping wiper arm: a thin dark capsule pivoting at (0.5, 0.92) in
 // screen space (same pivot as the wetness clear band), plus a thin bright rubber
 // edge so the blade reads as a solid arm rather than a smudge. Returns blade
-// coverage in [0,1]. Pivot/aspect mirror windshield_wetness.frag::wiperClear.
+// coverage in [0,1]. Default-car blade only; the rigged car clears via its projected 3D arms (WindshieldRainPass::update_wiper).
 float wiperBlade(vec2 uv, float angle, float aspect) {
     vec2  pivot = vec2(0.5, 0.92);
     vec2  rel   = (uv - pivot) * vec2(aspect, 1.0);
@@ -290,8 +284,14 @@ void main() {
     if (alpha < 0.004) discard;
 
     // ── Refraction: offset the scene-snapshot lookup along the drop normal ─
+#ifdef SWISH_DEBUG_UI
+    // A bead is a tiny fisheye lens (Garg & Nayar 2004: ~165 deg field of view): it shows a minified, flipped view of
+    // the scene, so the lookup offset is much larger than a thin-film shift. 2.3x the host strength.
+    vec2 baseUV = clamp(screenUV - dropN.xy * rain.params.w * 2.3 * coverage, vec2(0.001), vec2(0.999));
+#else
     vec2 baseUV = clamp(screenUV - dropN.xy * rain.params.w * coverage,
                         vec2(0.001), vec2(0.999));
+#endif
 
     // Blur radius: a light haze-blur in the wet glass, ~0 through drops/rivulets.
     // Reduced (0.006 → 0.0025) so the road/lights stay readable through the clear
@@ -302,6 +302,12 @@ void main() {
     // Water darkens what it refracts — gives the lens body contrast against a
     // dull overcast sky so the bead reads as a glass droplet, not a ring.
     refracted *= mix(1.0, 0.85, coverage);
+#ifdef SWISH_DEBUG_UI
+    // Dark lens rim: near the contact line the bead surface is steep, rays leave at grazing angles and mostly see the
+    // dark car interior / total internal reflection. This dark ring is what makes beads read in the reference photos.
+    float rim = smoothstep(0.04, 0.16, length(dropN.xy)) * coverage;
+    refracted *= mix(1.0, 0.35, rim);
+#endif
 
     // ── Per-drop specular glint — the dominant "wet droplet" cue ──────────
     // Use the PER-DROP normal (not the macro glass normal) against a fixed

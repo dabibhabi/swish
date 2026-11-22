@@ -1,0 +1,73 @@
+# Time-of-day presets (tasks/todo.md "Lighting", phase L2.3).
+# Read by WeatherController::load_time_of_day_presets (debug builds only); CMake copies it next to the binary.
+# Guide: docs/tutorials/lighting/L02-sky-and-presets.md.
+#
+# All values are approximate real-world STARTING POINTS, to be tuned by eye per preset.
+#   sun_elevation_deg  above the horizon; negative = sun below the horizon
+#   sun_azimuth_deg    measured from +Z toward +X (see sun_dir_from_az_el)
+#   sun_lux            direct sun on a surface facing it. Once the L2 sky model lands, its transmittance
+#                      lookup derives this from the elevation and this key becomes a cross-check only.
+#   moon_lux           about 0.2 for a full moon
+#   turbidity          haze: 2 = very clear, 10 = hazy
+#   ev100_min / max    auto-exposure clamp (sunny noon is about 15, a lit street at night about 3)
+#   lamps_on           street lamps and headlights
+
+[dawn]
+sun_elevation_deg = 2.0
+sun_azimuth_deg   = 80.0
+sun_lux           = 5000.0
+moon_lux          = 0.0
+turbidity         = 3.0
+ev100_min         = 8.0
+ev100_max         = 12.0
+lamps_on          = true
+
+[morning]
+sun_elevation_deg = 30.0
+sun_azimuth_deg   = 110.0
+sun_lux           = 75000.0
+moon_lux          = 0.0
+turbidity         = 2.5
+ev100_min         = 13.0
+ev100_max         = 15.0
+lamps_on          = false
+
+[noon]
+sun_elevation_deg = 60.0
+sun_azimuth_deg   = 180.0
+sun_lux           = 100000.0
+moon_lux          = 0.0
+turbidity         = 2.5
+ev100_min         = 14.0
+ev100_max         = 16.0
+lamps_on          = false
+
+[golden_hour]
+sun_elevation_deg = 6.0
+sun_azimuth_deg   = 250.0
+sun_lux           = 20000.0
+moon_lux          = 0.0
+turbidity         = 3.0
+ev100_min         = 11.0
+ev100_max         = 14.0
+lamps_on          = false
+
+[evening]
+sun_elevation_deg = -4.0
+sun_azimuth_deg   = 285.0
+sun_lux           = 0.0
+moon_lux          = 0.0
+turbidity         = 3.0
+ev100_min         = 3.0
+ev100_max         = 8.0
+lamps_on          = true
+
+[midnight]
+sun_elevation_deg = -40.0
+sun_azimuth_deg   = 0.0
+sun_lux           = 0.0
+moon_lux          = 0.2
+turbidity         = 2.5
+ev100_min         = -2.0
+ev100_max         = 4.0
+lamps_on          = true

@@ -15,47 +15,36 @@ public:
     Window(const Window&)            = delete;
     Window& operator=(const Window&) = delete;
 
-    // TODO: Create the GLFW window.
-    // - Call glfwInit()
-    // - Set glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API)  ← NO OpenGL context
-    // - Set glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE)
-    // - Create window with glfwCreateWindow(width, height, title, nullptr,
-    // nullptr)
-    // - Set framebuffer resize callback (for swap chain recreation)
+    // glfwInit + a resizable, no-client-API (Vulkan) window.
     void init(uint32_t width, uint32_t height, const char* title);
 
-    // TODO: Destroy the GLFW window and call glfwTerminate()
+    // Destroy the window and terminate GLFW. Idempotent (also run by ~Window).
     void cleanup();
 
-    // TODO: Return true if user hasn't closed the window
     bool shouldClose() const;
-
-    // TODO: Call glfwPollEvents()
     void pollEvents();
 
     // Block until at least one GLFW event arrives (used in minimize spin).
     void waitEvents();
 
-    // TODO: Return the raw GLFWwindow* (needed by VulkanContext for surface
-    // creation)
+    // Raw handle (VulkanContext needs it for surface creation).
     GLFWwindow* getHandle() const;
 
-    // TODO: Get framebuffer size in pixels (important for Retina/HiDPI displays)
-    // Use glfwGetFramebufferSize(), NOT glfwGetWindowSize()
+    // Framebuffer size in pixels (not window size: differs on Retina/HiDPI).
     void getFramebufferSize(int* width, int* height) const;
 
-    // TODO: Track whether the window was resized (set by the GLFW callback)
+    // Resize flag: set by the framebuffer-size callback, read by the renderer's
+    // present step and cleared only by Renderer::recreateSwapchain (one consumer).
     bool wasResized() const;
     void resetResizedFlag();
     void mark_resized();
 
 private:
-    GLFWwindow* m_window  = nullptr;
-    bool        m_resized = false;
+    GLFWwindow* m_window          = nullptr;
+    bool        m_resized         = false;
+    bool        m_glfwInitialized = false;
 
-    // TODO: Static callback — GLFW calls this when the framebuffer resizes.
-    // It should set m_resized = true on the Window instance.
-    // Retrieve the Window* via glfwGetWindowUserPointer().
+    // Installed by init(); App later replaces it (and the user pointer) with its own.
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
 };
 

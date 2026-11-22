@@ -1,3 +1,9 @@
+---
+verified: 2026-09-29
+against: c843ebe + uncommitted refactor   # git rev-parse --short HEAD; only the migration table's DepthBuffer row and the ResourceManager wording were re-checked (2026-09-29)
+owner: docs-scribe
+---
+
 # GPU Memory: VMA + RAII Handles
 
 > Status (2026-06-30): **complete** — the allocator and RAII wrappers are in place and
@@ -9,7 +15,7 @@ behind two small move-only RAII wrappers, `GpuBuffer` and `GpuImage`
 
 ## Why
 
-The original `ResourceManager` was a stateless utility: every `createBuffer` /
+The original `ResourceManager` (now the free-function namespace `swish::resource`; its allocating helpers are gone) was a stateless utility: every `createBuffer` /
 `createImage` did its **own** `vkAllocateMemory` and handed back a raw
 `VkBuffer`/`VkImage` **and** a `VkDeviceMemory` that the caller had to pair-destroy
 by hand (`vkDestroyBuffer` + `vkFreeMemory`, in the right order, on every path).
@@ -83,7 +89,7 @@ down after, and the device last.
 |---|---|---|
 | `Device` (allocator) | ✅ | single `VmaAllocator` |
 | `GpuBuffer` / `GpuImage` | ✅ | RAII wrappers + factory helpers |
-| `DepthBuffer` | ✅ | device-local image |
+| Depth images | ✅ | device-local `GpuImage`s owned by `PostProcessManager` (`m_hdrDepthImages`); the standalone `DepthBuffer` class had zero references and was deleted 2026-09-29 |
 | `CameraUniforms` | ✅ | persistently-mapped UBOs |
 | `TextureManager` | ✅ | device-local images + staging |
 | `SceneGeometry` (static **and** dynamic/car) | ✅ | the streaming hotspot — vertex/index + staging |
@@ -103,7 +109,9 @@ produce **zero** validation-layer errors — confirming both consumers' `recreat
 paths re-allocate through the stored `m_allocator`, and that every `GpuBuffer`/`GpuImage`
 destructor runs before `Device` calls `vmaDestroyAllocator`.
 
-**Now unblocked (P0 #11, part 2):** with no subsystem left on the raw path, the
-retained `ResourceManager::createBuffer/createImage` helpers can be removed and
-`~Renderer() = default` becomes correct, since every subsystem destructor frees its
-own GPU resources.
+**Done (P0 #11, part 2):** with no subsystem left on the raw path, the
+`ResourceManager::createBuffer/createImage` helpers were removed (only the one-time-command
+helpers remain, as `swish::resource::transitionImageLayout` / `copyBufferToImage`) and
+`~Renderer() = default` is correct, since every subsystem destructor frees its
+own GPU resources. Passes added through the registry (`src/renderer/Passes/`) follow the same rule:
+own GPU objects with `GpuImage` / `GpuBuffer`, release them in `cleanup()`.

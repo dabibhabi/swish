@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Entity/CarEntity.h"
+#include "scene/Entity/CarEntity.h"
 
 #include <memory>
 #include <string>

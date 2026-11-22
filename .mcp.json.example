@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "atomicviz": {
+      "type": "http",
+      "url": "http://127.0.0.1:3940/mcp"
+    },
+    "blender": {
+      "command": "uv",
+      "args": ["run", "blender-mcp"],
+      "cwd": "<PATH_TO_BLENDER_MCP_EXTENSION>"
+    },
+    "blender-arch": {
+      "command": "uv",
+      "args": ["run", "blender-mcp"],
+      "cwd": "<PATH_TO_BLENDER_MCP_EXTENSION>",
+      "env": { "BLENDER_MCP_PORT": "9877" }
+    }
+  }
+}

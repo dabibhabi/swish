@@ -2,8 +2,11 @@
 
 #ifdef SWISH_DEBUG_UI
 
-#include "../utils/VulkanCheck.h"
+#include "utils/vulkan/Check.h"
 
+#include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <cstring>
 
 namespace swish {
@@ -39,9 +42,34 @@ void SceneParamsUniform::update(uint32_t frameIndex, const DebugParams& p) {
     ubo.sunDisc            = glm::vec4(p.sunDiscExpMin, p.sunDiscExpMax, p.sunDiscStrMin, p.sunDiscStrMax);
     ubo.fogColor           = glm::vec4(p.fogColor, p.hazeMax);                             // .w = aerial-haze ceiling
     ubo.fogParams          = glm::vec4(p.fogDist63, p.fogMax, p.envGlossExp, p.hazeDist);  // .w = haze dist63
-    ubo.shadowParams       = glm::vec4(p.shadowBias, p.shadowFloor, p.shadowLightSize, 0.0f);
-    ubo.wetParams          = glm::vec4(p.wetPorosity, p.wetRoughness, p.puddlesEnabled ? p.puddleCoverage : 0.0f, 0.0f);
-    ubo.iblParams          = glm::vec4(p.iblDiffuse, p.iblSpecular, 0.0f, 0.0f);
+    // Rain P4: a rain clock for the ripples (seconds, wrapped so the float keeps millisecond precision).
+    static const auto kStart = std::chrono::steady_clock::now();
+    const float       rainClock =
+        std::fmod(std::chrono::duration<float>(std::chrono::steady_clock::now() - kStart).count(), 3600.0f);
+    ubo.shadowParams = glm::vec4(p.shadowBias, p.shadowFloor, p.shadowLightSize, rainClock);  // w = rain clock (s)
+    ubo.wetParams    = glm::vec4(p.wetPorosity, p.wetRoughness, p.puddlesEnabled ? p.puddleCoverage : 0.0f,
+                                 p.rutEnabled ? p.rutWater : 0.0f);  // w = rut water (rain P3)
+    ubo.iblParams    = glm::vec4(p.iblDiffuse, p.iblSpecular,
+                                 p.rippleEnabled ? p.rippleStrength * std::min(p.rainIntensity * 2.0f, 1.0f) : 0.0f,
+                                 p.rippleCell);  // z = ripple strength x rain, w = ripple cell (WU) (rain P4)
+    ubo.paintParams =
+        glm::vec4(p.clearcoatRoughness, p.flakeRoughness, p.rutRoughness, 0.0f);  // z = rut water roughness (rain P3)
+    const int roofs = std::clamp(p.labRoofCount, 0, util::light::kMaxRoofVolumes);
+    for (int i = 0; i < roofs; ++i) {
+        const util::light::RoofVolume& v = p.labRoofs[static_cast<size_t>(i)];
+        ubo.roofMin[i]                   = glm::vec4(v.min, v.fadeWu);
+        ubo.roofMax[i]                   = glm::vec4(v.max, static_cast<float>(v.openAxis));
+        ubo.roofInfo[i]                  = glm::vec4(v.floor, 0.0f, 0.0f, 0.0f);
+    }
+    ubo.roofCount = glm::vec4(static_cast<float>(roofs), p.streakEnabled ? 1.0f : 0.0f, p.streakAlong,
+                              p.streakAcross);  // yzw = wet light streaks (L10.2): on, alpha along, alpha across
+    const util::light::SkyParams& sky = p.sky;
+    ubo.atmoSun                       = glm::vec4(sky.sunDir, sky.sunToaLux);
+    ubo.atmoMoon                      = glm::vec4(sky.moonDir, sky.moonToaLux);
+    ubo.atmoParams                    = glm::vec4(sky.turbidity, sky.cloud, sky.airglowNits, sky.overcastZenithNits);
+    ubo.atmoFlags  = glm::vec4(procedural_sky_active(p) ? 1.0f : 0.0f, p.skyStars ? 1.0f : 0.0f, p.rainSkyBlend,
+                               p.groundBounce);  // w = D4 ground-bounce albedo
+    ubo.lightFlags = glm::vec4(p.cascadeBlend, p.energyCompensation ? 1.0f : 0.0f, p.retroGain, p.sunAngularRadius);
     std::memcpy(m_buffers[frameIndex].mapped(), &ubo, sizeof(ubo));
 }
 

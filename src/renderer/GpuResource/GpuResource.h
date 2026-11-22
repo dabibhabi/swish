@@ -44,8 +44,7 @@ public:
     explicit operator bool() const { return m_buffer != VK_NULL_HANDLE; }
 
     void reset() {
-        if (m_buffer != VK_NULL_HANDLE)
-            vmaDestroyBuffer(m_allocator, m_buffer, m_allocation);
+        if (m_buffer != VK_NULL_HANDLE) vmaDestroyBuffer(m_allocator, m_buffer, m_allocation);
         m_buffer     = VK_NULL_HANDLE;
         m_allocation = nullptr;
         m_info       = {};
@@ -92,8 +91,7 @@ public:
     explicit      operator bool() const { return m_image != VK_NULL_HANDLE; }
 
     void reset() {
-        if (m_image != VK_NULL_HANDLE)
-            vmaDestroyImage(m_allocator, m_image, m_allocation);
+        if (m_image != VK_NULL_HANDLE) vmaDestroyImage(m_allocator, m_image, m_allocation);
         m_image      = VK_NULL_HANDLE;
         m_allocation = nullptr;
     }
@@ -141,12 +139,12 @@ inline GpuBuffer hostVisibleBuffer(VmaAllocator allocator, VkDeviceSize size, Vk
 
 // Device-local 2D image (textures, attachments, depth).
 inline GpuImage deviceLocalImage(VmaAllocator allocator, uint32_t width, uint32_t height, VkFormat format,
-                                 VkImageTiling tiling, VkImageUsageFlags usage) {
+                                 VkImageTiling tiling, VkImageUsageFlags usage, uint32_t mipLevels = 1) {
     VkImageCreateInfo ii{};
     ii.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     ii.imageType     = VK_IMAGE_TYPE_2D;
     ii.extent        = {width, height, 1};
-    ii.mipLevels     = 1;
+    ii.mipLevels     = mipLevels;
     ii.arrayLayers   = 1;
     ii.format        = format;
     ii.tiling        = tiling;

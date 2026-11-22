@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../renderer/Vertex.h"
-#include "../utils/Types.h"
+#include "renderer/Vertex.h"
+#include "utils/types/Types.h"
 
 #include <vector>
 
@@ -26,63 +26,95 @@ enum MaterialId : uint32_t {
     MAT_SIGN_6   = 14,
     MAT_SIGN_7   = 15,
     // ── Car material slots (loaded from GLB, one per glTF material) ──
-    MAT_CAR_0  = 16,
-    MAT_CAR_1  = 17,
-    MAT_CAR_2  = 18,
-    MAT_CAR_3  = 19,
-    MAT_CAR_4  = 20,
-    MAT_CAR_5  = 21,
-    MAT_CAR_6  = 22,
-    MAT_CAR_7  = 23,
-    MAT_CAR_8  = 24,
-    MAT_CAR_9  = 25,
-    MAT_CAR_10 = 26,
-    MAT_CAR_11 = 27,
-    MAT_CAR_12 = 28,
-    MAT_CAR_13 = 29,
-    MAT_CAR_14 = 30,
-    MAT_CAR_15 = 31,
-    MAT_CAR_16 = 32,
-    MAT_CAR_17 = 33,
-    MAT_CAR_18 = 34,
-    MAT_CAR_19 = 35,
+    MAT_CAR_0         = 16,
+    MAT_CAR_1         = 17,
+    MAT_CAR_2         = 18,
+    MAT_CAR_3         = 19,
+    MAT_CAR_4         = 20,
+    MAT_CAR_5         = 21,
+    MAT_CAR_6         = 22,
+    MAT_CAR_7         = 23,
+    MAT_CAR_8         = 24,
+    MAT_CAR_9         = 25,
+    MAT_CAR_10        = 26,
+    MAT_CAR_11        = 27,
+    MAT_CAR_12        = 28,
+    MAT_CAR_13        = 29,
+    MAT_CAR_14        = 30,
+    MAT_CAR_15        = 31,
+    MAT_CAR_16        = 32,
+    MAT_CAR_17        = 33,
+    MAT_CAR_18        = 34,
+    MAT_CAR_19        = 35,
+    MAT_CAR_20        = 36,
+    MAT_CAR_21        = 37,
+    MAT_CAR_22        = 38,
+    MAT_CAR_23        = 39,
+    MAT_CAR_24        = 40,
+    MAT_CAR_25        = 41,
+    MAT_CAR_26        = 42,
+    MAT_CAR_27        = 43,
+    MAT_CAR_28        = 44,
+    MAT_CAR_29        = 45,
+    MAT_CAR_30        = 46,
+    MAT_CAR_31        = 47,
+    MAT_CAR_LAST      = MAT_CAR_31,  // car slots are contiguous MAT_CAR_0..MAT_CAR_LAST
+    MAT_TILE          = 48,          // C4: glazed tunnel wall tile (textures/tile*.png, tools/gen_tunnel_tile.py)
+    MAT_ASPHALT_FRESH = 49,          // D1: fresh LIE asphalt (ambientCG Asphalt012, textures/asphalt_fresh*.jpg)
+    MAT_BRICK         = 50,          // D2: brick-textured precast sound wall (ambientCG Bricks054, textures/brick*.jpg)
+    MAT_SIGN_PANEL    = 51,          // D3: guide-sign atlas (assets/signs/sign_panels.png, loaded in debug only)
+    MAT_SIGN_KIT      = 52,          // D3: gore signs, mile markers, exit 73 boards (assets/signs/sign_kit.png)
+    MAT_STONE         = 53,          // D4: ashlar facing on parkway bridges (assets/structures/stone*.jpg, debug only)
+    MAT_DRESSING      = 54,  // D5: tree cards + facades atlas (assets/dressing/, tools/gen_dressing.py, debug only)
+    MAT_SKYLINE       = 55,  // D5: Manhattan skyline card (assets/dressing/skyline.png, debug only)
     MAT_COUNT
 };
 
-// Number of sun shadow cascades (CSM). Must match NUM_CASCADES in lighting.frag
-// and kNumCascades in PostProcessManager. 3 covers near→~400 m with crisp near
-// shadows on the 4.2 km road.
 static constexpr uint32_t NUM_CASCADES = 3;
 
-// Matches the UBO in basic.vert/basic.frag (set=0, binding=0). Everything past
-// `sunColor` is appended at the END so vertex shaders that declare only the prefix
-// (basic.vert, rain.vert, glass.vert, windshield_rain.vert stop at sunColor) stay
-// layout-compatible; only lighting.frag declares + reads the tail.
 struct CameraUBO {
     Mat4 view;
     Mat4 proj;
     Vec4 camPos;    // xyz = camera world position, w = wetness (set_wetness)
-    Vec4 sunDir;    // xyz = normalized sun direction, w = intensity
-    Vec4 sunColor;  // rgb = sun color, a = ambient strength
-    Vec4 weather;   // x = clarity (0 overcast .. 1 clear day), yzw reserved
-    // ── CSM: per-cascade light-space view*proj + split far-distances ──
-    // cascadeViewProj[i] maps world → that cascade's [0,1] shadow-atlas clip.
-    // cascadeSplits.xyz = the view-space far distance (positive, +Z forward) of
-    // cascades 0/1/2; a fragment picks the first cascade whose split ≥ its depth.
-    // All 16-aligned; only lighting.frag reads these.
+    Vec4 sunDir;    // xyz = normalized sun direction, w = sun illuminance (lux)
+    Vec4 sunColor;  // rgb = sun tint, a = ambient gain
+    Vec4
+        weather;  // x = clarity (0 overcast .. 1 clear day), y = sky scale (cd/m²), z = pre-exposure, w = metres per WU
+
     Mat4 cascadeViewProj[NUM_CASCADES];
     Vec4 cascadeSplits;
 };
 
-// Per-material debug override (debug UI). One entry per MaterialId; when `enabled`
-// the draw for that material uses these instead of its asset values. Defaults are
-// no-ops (metalness/roughnessMul applied only when enabled), so release — which
-// never passes an override table — is unaffected.
 struct MaterialOverride {
     bool  enabled      = false;
     float metalness    = 0.0f;
     float roughnessMul = 1.0f;
     Vec3  color        = Vec3(1.0f);
+
+    float clearcoat    = 0.0f;
+    float flakeDensity = 0.0f;
+};
+
+inline constexpr float kDefaultClearcoatStrength = 0.35f;
+inline constexpr float kDefaultFlakeDensity      = 0.0f;
+
+inline float default_clearcoat_strength(MaterialId mat) {
+    return (mat >= MAT_CAR_0 && mat <= MAT_CAR_LAST) ? kDefaultClearcoatStrength : 0.0f;
+}
+inline float default_flake_density(MaterialId mat) {
+    return (mat >= MAT_CAR_0 && mat <= MAT_CAR_LAST) ? kDefaultFlakeDensity : 0.0f;
+}
+
+struct PaintTuning {
+    float clearcoatMul      = 1.0f;
+    float flakeDensityMul   = 1.0f;
+    float paintFlakeDensity = 0.0f;  // flake density for body paint (Submesh::is_paint); 0 = off
+    // Rain P3 (debug): asphalt UV tile in WU, pushed as extra.w on asphalt draws so gbuffer.frag can recover the
+    // lateral position for wheel-track ruts (shaders/common/ruts.glsl). 0 = ruts off (release never sets it).
+    float rutUvTile = 0.0f;
+    // D1 (debug): pavement sliders, copied into PushConstantData::pave / pave2 (Tunables.def "corridor" group).
+    float jointSpacing = 4572.0f, reflectorSpacing = 24384.0f;
+    float polish = 0.0f, wear = 0.0f, sealant = 0.0f, rumble = 0.0f;
 };
 
 // ── Point Light System (inspired by rind/Light.cpp) ──────────────────
@@ -93,9 +125,40 @@ struct PointLightData {
     Vec4 colorIntensity;  // rgb = color, a = intensity multiplier
 };
 
+#ifdef SWISH_DEBUG_UI
+// ── Car spot lights (headlights / tail / brake; tasks/todo.md "Car lights") ──
+// Debug-only for now: the release LightsUBO layout (and the release lighting.frag)
+// is unchanged until the feature is turned on for release as its own step.
+static constexpr uint32_t MAX_SPOT_LIGHTS = 40;  // 7 car lights + the nearest street lamps (lighting L6.3)
+
+struct SpotLightData {
+    Vec4 positionRange;      // xyz = world position (WU), w = range (WU)
+    Vec4 directionCosOuter;  // xyz = unit beam direction, w = cos(outer half-angle)
+    Vec4 colorIntensity;     // rgb = color, a = intensity multiplier
+    Vec4 params;             // x = cos(inner half-angle), y = 1 for a low-beam cutoff (L6.4), zw = 0
+};
+
+// ── Rectangle area lights (car showcase; docs/car-showcase.md) ──
+static constexpr uint32_t MAX_RECT_LIGHTS = 16;
+struct RectLightData {
+    Vec4 centerRange;  // xyz = centre (WU), w = range (WU)
+    Vec4 rightHalfW;   // xyz = unit right, w = half width (WU)
+    Vec4 upHalfH;      // xyz = unit up, w = half height (WU)
+    Vec4 colorNits;    // rgb = colour, a = luminance (cd/m²)
+};
+#endif
+
 struct LightsUBO {
     PointLightData pointLights[MAX_POINT_LIGHTS];
     glm::uvec4     numPointLights;  // x = count, yzw = 0
+#ifdef SWISH_DEBUG_UI
+    SpotLightData spotLights[MAX_SPOT_LIGHTS];
+    glm::uvec4    numSpotLights;  // x = count, yzw = 0
+    RectLightData rectLights[MAX_RECT_LIGHTS];
+    glm::uvec4    numRectLights;  // x = count
+    Vec4          carBoxCenter;   // xyz = the car body's box centre (WU), w = yaw (radians)
+    Vec4          carBoxHalf;     // xyz = half extents along forward / up / right (WU), w = 1 when it occludes
+#endif
 };
 
 struct LightDesc {
@@ -105,13 +168,38 @@ struct LightDesc {
     float radius;
 };
 
-// ── Ribbon ────────────────────────────────────────────────────────────
-// A drivable surface swept along a 3D centreline (interchange-local coords).
-// Shared by the geometry builder (emit_ribbon renders it) and the physics
-// follower (the car tracks arc-length along `pts`, taking Y/pitch/heading from
-// the curve). `next`/`branch` are successor ribbon indices at the far end:
-// `next` by default, `branch` when the driver steers toward it; −1 = leave the
-// interchange (resume free driving).
+struct SpotLightDesc {
+    Vec3  position;   // WU
+    Vec3  direction;  // unit beam direction
+    Vec3  color;
+    float intensity;
+    float range;           // WU; the windowed falloff reaches 0 here
+    float cosInner;        // full intensity inside this half-angle
+    float cosOuter;        // zero outside this half-angle
+    bool  cutoff = false;  // low beam: almost no light above the beam axis (headlights, lighting L6.4)
+};
+
+// A rectangle area light: a glowing panel. It emits along cross(right, up), lights surfaces softly and appears
+// in glossy paint as a rectangle highlight. Luminance in cd/m² (a studio softbox is a few thousand).
+struct RectLightDesc {
+    Vec3  center;      // WU
+    Vec3  right;       // unit
+    Vec3  up;          // unit, perpendicular to right
+    float halfWidth;   // WU, along right
+    float halfHeight;  // WU, along up
+    Vec3  color;
+    float nits;
+    float range;  // WU; the light fades to zero here
+};
+
+// The car body as a box, for the grounding shadow under area lights.
+struct CarOccluder {
+    Vec3  center{0.0f};  // WU
+    Vec3  half{0.0f};    // WU, along the car's forward / up / right
+    float yawRad  = 0.0f;
+    bool  enabled = false;
+};
+
 struct Ribbon {
     std::vector<Vec3> pts;
     float             halfWidth = 0.0f;
@@ -119,10 +207,20 @@ struct Ribbon {
     int               branch    = -1;
 };
 
-// ── MeshData ──────────────────────────────────────────────────────────
-// Encapsulates vertex and index buffers with controlled access.
-// Vertices and indices are only added through push methods, ensuring
-// the caller always gets correct base indices for quad construction.
+struct SweepFrame {
+    Vec3  center;
+    Vec3  right;
+    Vec3  up  = Vec3(0.0f, 1.0f, 0.0f);  // surface normal; tilts with grade and bank
+    float arc = 0.0f;
+};
+
+struct CorridorInstance {
+    uint32_t segment = 0;
+    Vec3     offset  = Vec3(0.0f);
+};
+
+//
+
 class MeshData {
 public:
     uint32_t getVertexCount() const { return static_cast<uint32_t>(m_vertices.size()); }
@@ -131,8 +229,10 @@ public:
     const std::vector<Vertex>&   getVertices() const { return m_vertices; }
     const std::vector<uint32_t>& getIndices() const { return m_indices; }
 
-    // Mutable access for load-time mesh fixups (e.g. grounding a model).
-    std::vector<Vertex>& getVertices() { return m_vertices; }
+    template <class F>
+    void forEachVertex(F&& fn) {
+        for (Vertex& v : m_vertices) fn(v);
+    }
 
     bool empty() const { return m_vertices.empty() || m_indices.empty(); }
 
@@ -144,70 +244,90 @@ private:
     std::vector<uint32_t> m_indices;
 };
 
-// ── Submesh ───────────────────────────────────────────────────────────
-// One primitive within a ModelEntity. Like DrawCall but without the model
-// matrix — that is injected at draw-call generation time from the entity's
-// current transform.
+enum class RigPart : uint8_t { None, NeedleRpm, NeedleSpeed, WiperDriver, WiperPassenger };
+
 struct Submesh {
     uint32_t   indexOffset;
     uint32_t   indexCount;
     MaterialId material = MAT_DEFAULT;
     Vec4       color    = Vec4(1.f, 1.f, 1.f, 1.f);
 
+    // glTF metallicFactor of the source material, in [0,1]. Negative = no asset value
+    // (non-glTF geometry), so SceneGeometry falls back to the per-material default.
+    float metalness = -1.0f;
+
+    // Lighting L4.3 / L5.2 (debug shaders): body paint gets metallic flakes; a lamp lens or emitter glows when
+    // its lamp is on. lens: 0 none, 1 headlight, 2 tail, 3 brake (from the node name, ModelManager).
+    bool    is_paint = false;
+    uint8_t lens     = 0;
+    // Corrected values for this material by name (scene/Entity/CarLooks.h); used only when the car is asked to.
+    float fixMetalness    = -1.0f;  // < 0 = no correction
+    float fixRoughnessMul = 1.0f;   // multiplier on the roughness texture that reaches the corrected roughness
+
     bool is_steering_wheel = false;
-    // Normalized SteeringWheel_Pivot frame (RootNode-rel, +90° Y, grounded).
-    // Steer = sw_pivot_frame * R_local(angle) * inverse(sw_pivot_frame).
+
     Mat4 sw_pivot_frame = Mat4(1.f);
 
-    // Glass (alphaMode=BLEND) — rendered in the forward transparent pass,
-    // not in the G-buffer. is_windshield further marks the main front/side
-    // window panes that receive the windshield rain trail effect.
     bool is_glass      = false;
     bool is_windshield = false;
 
-    // Interior cabin geometry (node name contains "Interior") — tinted light gray
-    // by CarEntity::get_draw_calls as rain rises, via the gbuffer.frag wash sentinel.
     bool is_interior = false;
+
+    int8_t wheel_corner = -1;
+    bool   wheel_spins  = false;
+
+    RigPart rig_part        = RigPart::None;
+    Mat4    rig_pivot_frame = Mat4(1.f);
 };
 
-// ── DrawCall ──────────────────────────────────────────────────────────
-// One draw call = one material applied to a range of indices.
+struct WheelFrame {
+    Mat4  frame     = Mat4(1.f);
+    float radius    = 0.34f;
+    float spin_sign = 1.f;
+};
+
 struct DrawCall {
     uint32_t   indexOffset;
     uint32_t   indexCount;
     Vec4       color;
     Mat4       model;
     MaterialId material;
-    // Excluded from wet-road (asphalt) effects in lighting.frag. Set for the WHOLE
-    // car — the wet-road BRDF (porosity darkening, sky sheen) is tuned for the
-    // horizontal road, not car paint or the enclosed cabin; applying it there
-    // washed the interior out. Road/world geometry leaves this false (wettable).
+
     bool dry = false;
-    // ── Per-draw bounding sphere (object space), for culling ──────────────
-    // Filled by MeshBuilder::pushDrawCall from the draw's index range. A negative
-    // radius is the "unbounded — never cull" sentinel: dynamic draws that skip
-    // MeshBuilder (the car, loaded models) keep the default and always render.
-    // The full-length road surface quads get a huge radius, so they too are never
-    // culled — only the thousands of small props are. Center is transformed by
-    // `model` at cull time; the sphere is conservative (encloses all 4 verts).
+
     Vec3  boundsCenter = Vec3(0.0f);
     float boundsRadius = -1.0f;
+
+    float metalness = -1.0f;  // copied from Submesh::metalness; negative = use the per-material default
+
+    // Lighting L5 / L8 / L4.3. Read only by the debug-build shaders (see PushConstantData::extra).
+    float emissiveNits = 0.0f;   // surface luminance in cd/m² (a lamp lens, a street-lamp head); 0 = not emissive
+    float retro        = 0.0f;   // 1 = retroreflective (lane markings)
+    bool  selfLit      = false;  // C4: glows with the street lamps off too (tunnel luminaires)
+    bool  isPaint      = false;  // car body paint: gets the metallic-flake default
+    float roughnessMul = 1.0f;   // per-draw roughness multiplier (material fixes); 1 = the texture's value
+    float surfaceWet   = 0.0f;   // 1 = a rain-wet car surface with beaded drops (car showcase)
+    // D1 (debug): mainline pavement. surface bits 0-2 = Pavement, bit 3 = shoulder, bits 4-7 = lanes; 0 = untagged.
+    uint8_t surface  = 0;
+    float   arc0     = 0.0f;   // station of the draw's tile start (WU): global phase for joints and markers
+    bool    noShadow = false;  // D5: alpha-tested cards; the depth-only shadow pass has no alpha test
 };
 
-// Matches the push constant block in basic.vert + gbuffer.frag.
-// `material.x` is the real per-material metalness [0,1] consumed by gbuffer.frag
-// (dielectric = 0); yzw are reserved. A full Vec4 is used (not a bare float) so
-// the struct is 96 bytes = a multiple of 16: MoltenVK mis-maps push constants
-// whose total size isn't 16-byte aligned (an 80→84 byte change rendered geometry
-// black). basic.vert declares the same 96-byte block so vertex/fragment agree.
 struct PushConstantData {
     Mat4 model;     // 64 B
     Vec4 color;     // 16 B
-    Vec4 material;  // 16 B — x = metalness [0,1], yzw reserved  (total 96 B)
+    Vec4 material;  // 16 B — x = metalness, y = wettable mask, z = roughness mul, w = road tag
+    Vec4 paint;
+    Vec4 extra;  // x = emissive strength, already pre-exposed; y = retroreflective (0/1); z = wet car surface (0..1).
+                 // Debug shaders only
+#ifdef SWISH_DEBUG_UI
+    Vec4 pave;   // D1: x = DrawCall::surface, y = arc0 (WU), z = joint spacing (WU), w = reflector spacing (WU)
+    Vec4 pave2;  // D1: x = wheel-path polish, y = wear, z = joint sealant strength, w = rumble depth
+#endif
 };
+static_assert(sizeof(PushConstantData) % 16 == 0, "PushConstantData: push-constant block must be a 16-byte multiple");
 
-// Passes that don't consume `material` (glass / windshield) size their push
-// range + push to just the model+color prefix (still 16-aligned at 80 B).
 inline constexpr uint32_t kPushConstantModelColorSize = static_cast<uint32_t>(sizeof(Mat4) + sizeof(Vec4));
+static_assert(kPushConstantModelColorSize % 16 == 0, "model+color push range must be a 16-byte multiple");
 
 }  // namespace swish

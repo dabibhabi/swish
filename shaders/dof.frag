@@ -48,7 +48,11 @@ void main() {
 
     // Sky (reverse-Z far = 0) → push it to full blur instead of trusting the near-degenerate
     // reconstruction at d ≈ 0.
+#ifdef SWISH_DEBUG_UI
+    if (d <= 0.0)  // only the clear value is sky (geometry past 100 m is below 1e-4)
+#else
     if (d <= 0.0001)
+#endif
         dist = focusDist + focusRange * 4.0;
 
     float coc = clamp(abs(dist - focusDist) / max(focusRange, 1.0), 0.0, 1.0) * maxCoC;

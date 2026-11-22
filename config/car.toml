@@ -1,0 +1,60 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Car visual configuration (runtime, read once at startup in BOTH builds)
+#
+# Loader: src/scene/CarConfig/CarConfig.{h,cpp} (toml++). CMake copies this file to
+# build*/config/car.toml at configure time; the game reads CONFIG_DIR "car.toml".
+# Release behaviour is defined by these values. Debug builds seed the matching
+# Tunables.def sliders from them at startup, then the sliders drive the car live.
+# A missing file or key falls back to the CarConfig struct defaults (same values).
+# ═══════════════════════════════════════════════════════════════════════
+
+[wheels]
+# Front-wheel Ackermann, draw-only (the bicycle physics is untouched).
+# 0 = parallel steer (both fronts at the bicycle angle), 1 = pure Ackermann:
+# cot(d_outer) - cot(d_inner) = track / wheelbase (WheelKinematics.h).
+ackermann = 1.0
+
+# Dial needles of the rigged 993 Carrera RS (assets/blend/porsche_rigged.glb); cars without Needle_*
+# pivots ignore this table. Angles are degrees CLOCKWISE from 12 o'clock as seen by the driver, measured
+# off the painted dial faces in the GLB atlas. Missing keys keep kGaugeDefaults (GaugeNeedles.h; a test
+# pins this file == those defaults); an invalid speedo table (unsorted, < 2 or > 16 rows) is ignored.
+[gauges]
+# Tach ("1/min x1000", numerals 1-7, red zone 6800-7600): linear fit
+# theta = offset + slope * rpm/1000 to the 1k (-109.0), 4k (-0.4), 7k (+105.5) numerals.
+tach_offset_deg    = -145.0
+tach_deg_per_krpm  = 36.0
+tach_min_rpm       = 0.0
+tach_max_rpm       = 7600.0   # last printed (red) tick; the needle clamps here
+
+# Speedo (km/h, 0-300, non-linear): piecewise-linear table of the printed marks.
+# 0 km/h is extrapolated (no printed 0). The ends are the clamp range.
+speedo_kmh = [0.0, 10.0, 20.0, 60.0, 100.0, 140.0, 180.0, 220.0, 260.0, 300.0]
+speedo_deg = [-141.0, -133.0, -125.2, -90.9, -55.9, -18.9, 19.1, 58.5, 98.5, 138.1]
+
+# Where each needle mesh points as authored (no rotation applied).
+rpm_rest_deg       = -144.0
+speed_rest_deg     = -151.0
+
+# Critically damped follower time constant (omega_n = 1/tau) and the
+# startup sweep (to full scale and back, eased) on car load.
+needle_tau_ms      = 80.0
+sweep_duration_s   = 1.2
+
+[wipers]
+# Windshield wipers (Wiper.h). V cycles Off -> Intermittent -> Low -> High -> Off; one wipe = park -> top -> park.
+# Debug builds tune the same values live (Tunables.def group "wiper", Wet / Rain panel).
+low_wipes_per_min    = 45.0   # Low, and the speed of an Intermittent / parking wipe
+high_wipes_per_min   = 65.0
+intermittent_dwell_s = 4.0    # pause at park between Intermittent wipes
+sweep_deg            = 105.0  # park -> top; the rigged 993 blades leave the glass past ~120
+ease                 = 1.0    # 0 = constant angular speed, 1 = cosine (blades slow into each reversal)
+
+[keyboard_steer]
+# Arrow-key steering (KeyboardSteer.h). A held key ramps a virtual stick to +-1; full stick commands
+# grip_gain x the grip-limited steer angle atan(wheelbase * mu * g / v^2), capped by the steer lock.
+# Parking speed = full lock; ~100 km/h dry = a few degrees, so a tap no longer spins the car.
+# Gamepad, replay and bench inputs are unaffected. Missing keys keep kKeyboardSteerDefaults (a test pins this).
+rise_rate   = 2.5   # stick units/s while held (0 -> full in 0.4 s)
+return_rate = 6.0   # stick units/s back toward centre on release or reversal
+grip_gain   = 1.5   # full stick = this multiple of the grip limit (>1 lets you provoke a slide)
+min_deg     = 1.0   # floor on the full-stick angle at very high speed or very low grip

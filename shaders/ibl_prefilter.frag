@@ -18,7 +18,7 @@ layout(push_constant) uniform P {
     vec4 params;  // x = roughness [0,1]
 } pc;
 
-const float PI = 3.14159265359;
+#include "math.glsl"
 
 float radicalInverse_VdC(uint bits) {
     bits = (bits << 16u) | (bits >> 16u);
@@ -48,7 +48,18 @@ void main() {
     vec3 V  = N;  // split-sum simplification (V = R = N)
 
     float rough = pc.params.x;
-    const uint SAMPLES = 256u;
+    // E1 fix (option A): at roughness 0 the GGX lobe is a delta, importanceSampleGGX returns H = N for every
+    // sample, so all 256 taps fetch the same texel. One fetch gives the same mirror mip 0 at 1/256 the cost.
+    if (rough < 1.0e-4) {
+        outColor = vec4(texture(envMap, N).rgb, 1.0);
+        return;
+    }
+    // L2.4 filtered importance sampling (Colbert & Krivanek, GPU Gems 3 ch. 20): 64 samples (was 256), each read from
+    // the env mip matching its solid angle Omega_s = 1 / (N pdf), pdf = D(NdotH) / 4 with N = V.
+    const uint SAMPLES = 64u;
+    float      envDim  = float(textureSize(envMap, 0).x);
+    float      omegaP  = 4.0 * PI / (6.0 * envDim * envDim);
+    float      a2      = rough * rough * rough * rough;
     vec3  prefiltered  = vec3(0.0);
     float totalWeight  = 0.0;
     for (uint i = 0u; i < SAMPLES; i++) {
@@ -57,7 +68,12 @@ void main() {
         vec3 L  = normalize(2.0 * dot(V, H) * H - V);
         float NdotL = max(dot(N, L), 0.0);
         if (NdotL > 0.0) {
-            prefiltered += texture(envMap, L).rgb * NdotL;
+            float NdotH  = max(dot(N, H), 0.0);
+            float dDen   = NdotH * NdotH * (a2 - 1.0) + 1.0;
+            float D      = a2 / (PI * dDen * dDen);
+            float omegaS = 1.0 / (float(SAMPLES) * max(D * 0.25, 1.0e-6));
+            float lod    = max(0.5 * log2(omegaS / omegaP) + 1.0, 0.0);
+            prefiltered += textureLod(envMap, L, lod).rgb * NdotL;
             totalWeight += NdotL;
         }
     }
