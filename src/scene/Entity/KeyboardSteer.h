@@ -21,6 +21,16 @@ struct KeyboardSteerParams {
     float returnRate = 6.0f;  // stick units/s back toward 0 on release or reversal
     float gripGain   = 1.5f;  // full stick = this multiple of the grip-limited steer angle
     float minDeg     = 1.0f;  // floor on the full-stick angle at very high speed or very low grip
+    // Counter-steer assist (tasks/realism-ideas.md A1). 0 = off, the shipped behaviour; the debug panel sets it.
+    float assist        = 0.0f;  // blend weight toward steering about the front axle's travel direction
+    float assistSlipDeg = 7.0f;  // front slip angle full stick commands while assisted (~ the tyre's peak)
+    float assistLoMps   = 3.0f;  // assist fades in from this forward speed...
+    float assistHiMps   = 8.0f;  // ...to full weight here
+    // Pedal ramps (A2), units/s; 0 = instant, the shipped binary pedals.
+    float throttleRise = 0.0f;
+    float throttleFall = 0.0f;
+    float brakeRise    = 0.0f;
+    float brakeFall    = 0.0f;
 };
 
 inline constexpr KeyboardSteerParams kKeyboardSteerDefaults{};
@@ -53,5 +63,33 @@ inline float keyboard_stick_step(float stick, int dir, float dt, const KeyboardS
 }
 
 inline int keyboard_steer_dir(const KeyboardKeys& k) { return k.left ? -1 : (k.right ? 1 : 0); }
+
+// Steer angle (rad, right-positive) that zeroes the front slip angle alpha_f = (vl + a r) / vx - delta
+// (Bicycle.h axle_lateral_forces): the wheels point along the front axle's travel, like caster hands-off.
+inline float front_travel_angle_rad(float vx, float vl, float r, float a) {
+    return std::atan((vl + a * r) / std::max(std::abs(vx), 1.f));
+}
+
+// Road-wheel angle (deg) for stick s. Slow, or assist 0: s * plainLimitDeg (the existing grip limit). At speed the
+// stick instead commands a front slip angle about the travel direction, so a centred stick lets the car
+// straighten itself out of a slide and full opposite stick is a real counter-steer.
+inline float keyboard_steer_deg(float s, float vx, float vl, float r, float a, float plainLimitDeg, float lockDeg,
+                                const KeyboardSteerParams& p) {
+    const float plain = s * plainLimitDeg;
+    if (p.assist <= 0.f) return plain;
+    const float fade     = std::clamp((vx - p.assistLoMps) / std::max(p.assistHiMps - p.assistLoMps, 1e-3f), 0.f, 1.f);
+    const float w        = std::clamp(p.assist, 0.f, 1.f) * fade;  // 0 in reverse and at parking speed
+    const float assisted = front_travel_angle_rad(vx, vl, r, a) * (180.f / util::units::kPi) + s * p.assistSlipDeg;
+    return std::clamp(plain + w * (assisted - plain), -lockDeg, lockDeg);
+}
+
+// One step of a ramped pedal toward 1 (held) or 0 (released). A rate <= 0 jumps straight there.
+inline float pedal_step(float u, bool held, float dt, float rise, float fall) {
+    const float target = held ? 1.f : 0.f;
+    const float rate   = held ? rise : fall;
+    if (rate <= 0.f) return target;
+    const float step = rate * std::max(dt, 0.f);
+    return std::abs(target - u) <= step ? target : u + std::copysign(step, target - u);
+}
 
 }  // namespace swish

@@ -20,9 +20,7 @@ void CarEntity::apply_profile(const CarProfile& profile) {
     m_effective_mu    = profile.car.tireMu;
     m_steering_angle  = std::clamp(m_steering_angle, -profile.steerLockDeg, profile.steerLockDeg);
     m_gear_state.gear = std::clamp(m_gear_state.gear, 0, profile.gearbox.gearCount - 1);
-#ifdef SWISH_DEBUG_UI
-    m_rigid_ready = false;  // re-seed the 6-DOF body with the new mass/geometry on its next step
-#endif
+    m_rigid_ready     = false;  // re-seed the 6-DOF body with the new mass/geometry on its next step
 }
 
 void CarEntity::handle_input(GLFWwindow* window, float dt) { apply_input_frame(keyboard_input_frame(window, dt), dt); }
@@ -40,17 +38,23 @@ InputFrame CarEntity::keyboard_input_frame(GLFWwindow* window, float dt) {
 InputFrame CarEntity::keyboard_input_frame(const KeyboardKeys& keys, float dt) {
     InputFrame f;
     f.steer_mode = SteerMode::Target;
-    if (keys.up)
-        f.throttle = 1.f;
-    else if (keys.down)
-        f.brake = 1.f;
+    // UP wins over DOWN. Ramped pedals (A2); at rate 0 these are the shipped binary 0/1.
+    const bool gas   = keys.up;
+    const bool brake = keys.down && !keys.up;
+    m_key_throttle   = brake ? 0.f  // brake drops the throttle at once: apply_input_frame lets throttle win
+                             : pedal_step(m_key_throttle, gas, dt, m_key_steer.throttleRise, m_key_steer.throttleFall);
+    m_key_brake      = pedal_step(m_key_brake, brake, dt, m_key_steer.brakeRise, m_key_steer.brakeFall);
+    f.throttle       = m_key_throttle;
+    f.brake          = m_key_brake;
 
     m_key_stick       = keyboard_stick_step(m_key_stick, keyboard_steer_dir(keys), dt, m_key_steer);
     const float lock  = m_profile.steerLockDeg;
-    const float vMps  = std::abs(m_forward_speed) / kWorldUnitsPerMeter;
-    const float limit = keyboard_steer_limit_deg(vMps, m_effective_mu, m_profile.car.wheelbase, m_profile.car.gravity,
-                                                 lock, m_key_steer);
-    f.steer           = lock > 0.f ? m_key_stick * limit / lock : 0.f;
+    const float vx    = m_forward_speed / kWorldUnitsPerMeter;
+    const float limit = keyboard_steer_limit_deg(std::abs(vx), m_effective_mu, m_profile.car.wheelbase,
+                                                 m_profile.car.gravity, lock, m_key_steer);
+    const float deg =
+        keyboard_steer_deg(m_key_stick, vx, m_lateral_velocity, m_yaw_rate, m_profile.tire.a, limit, lock, m_key_steer);
+    f.steer = lock > 0.f ? deg / lock : 0.f;
     return f;
 }
 
@@ -97,23 +101,23 @@ void CarEntity::apply_input_frame(const InputFrame& f, float dt) {
 }
 
 void CarEntity::update(float dt) {
-#ifdef SWISH_DEBUG_UI
     // Equal slices, not an accumulator: no leftover time, so no render interpolation is needed.
-    if (const int n = substep_count(dt, m_substep_hz); n > 1) {
+    // The 6-DOF model always slices at >= kRigidSubstepHz so engine torque, the rev limit and TC are
+    // re-evaluated against the wheel speeds every substep, not once per frame.
+    const float hz =
+        m_physics_model == PhysicsModel::RigidBody ? std::max(m_substep_hz, kRigidSubstepHz) : m_substep_hz;
+    if (const int n = substep_count(dt, hz); n > 1) {
         for (int i = 0; i < n; ++i) step(dt / static_cast<float>(n));
         return;
     }
-#endif
     step(dt);
 }
 
 void CarEntity::step(float dt) {
-#ifdef SWISH_DEBUG_UI
     if (m_physics_model == PhysicsModel::RigidBody) {
         update_rigid_body(dt);
         return;
     }
-#endif
     // ── Longitudinal force balance (SI), P0 #5 + Wave 2 3b + Phase 1 ──
     // m·v̇ = F_drive − ½ρC_dAv² − C_rr·mg, with F_drive = engine_torque(rpm)
     // fed through the PDK-style auto gearbox (CarPhysics.h, gear_drive_force),
@@ -340,7 +344,6 @@ void CarEntity::step(float dt) {
     m_position.x = std::clamp(m_position.x, m_min_x, m_max_x);
 }
 
-#ifdef SWISH_DEBUG_UI
 // ── Rigid-body chassis (stub) ─────────────────────────────────────────
 // Alternative to the bicycle model above; see RigidChassis.h for the design note and TODO(stub) list.
 void CarEntity::set_physics_model(PhysicsModel model) {
@@ -543,7 +546,6 @@ void CarEntity::update_rigid_body(float dt) {
     // Wheel spin (kinematic rolling, per wheel), same as the bicycle path.
     advance_wheel_spin(dt);
 }
-#endif  // SWISH_DEBUG_UI
 
 // ── Road-wheel articulation: Ackermann steer + per-wheel spin (S1a) ───
 // Draw-only: the bicycle model keeps the single steering angle δ. The fronts are drawn

@@ -3,6 +3,7 @@
 // short tap at highway speed no longer saturates the tyres. Also the config/car.toml [keyboard_steer] table.
 
 #include "scene/CarConfig/CarConfig.h"
+#include "scene/Entity/Bicycle.h"
 #include "scene/Entity/CarEntity.h"
 #include "scene/Entity/KeyboardSteer.h"
 
@@ -167,4 +168,72 @@ TEST_CASE("config/car.toml [keyboard_steer] matches the defaults; the reader fal
     CHECK(c.returnRate == Approx(0.1f));
     CHECK(c.gripGain == 5.f);
     CHECK(c.minDeg == 0.f);
+}
+
+// ── A1 counter-steer assist / A2 pedal ramps (tasks/realism-ideas.md) ──
+
+TEST_CASE("keyboard assist 0 is exactly the shipped stick * limit", "[input][keyboard][assist]") {
+    const KeyboardSteerParams p;  // assist 0
+    for (float s : {-1.f, -0.3f, 0.f, 0.5f, 1.f})
+        for (float vx : {0.f, 5.f, 30.f, -4.f})
+            CHECK(keyboard_steer_deg(s, vx, 1.5f, 0.4f, 1.36f, 3.f, 30.f, p) == s * 3.f);
+}
+
+TEST_CASE("keyboard assist: centred stick zeroes the front slip, so the front axle stops fighting the slide",
+          "[input][keyboard][assist]") {
+    KeyboardSteerParams p;
+    p.assist = 1.f;
+    const CarParams  car;
+    const TireParams tire;
+    // 30 m/s, tail out to the left: sideslip ~10 deg and a matching yaw rate.
+    const float vx = 30.f, vl = -5.3f, r = -0.35f;
+    const float deg = keyboard_steer_deg(0.f, vx, vl, r, tire.a, 2.f, 30.f, p);
+    CHECK(deg < -5.f);  // opposite lock toward the slide's direction of travel (left = negative)
+    // atan is exact for the 6-DOF tyre frame (tan alpha = v_lat / v_fwd); the bicycle's small-angle slip differs by
+    // ~0.002 rad at this 10 deg slide, a few percent of the front axle's grip.
+    const float alphaF = (vl + tire.a * r) / vx - deg * util::units::kPi / 180.f;
+    CHECK(std::abs(alphaF) < 0.005f);
+    const AxleLateralForces f = axle_lateral_forces(vx, vl, r, deg * util::units::kPi / 180.f, car, tire);
+    CHECK(std::abs(f.front) < 0.05f * car.tireMu * car.mass * car.gravity * tire.b / (tire.a + tire.b));
+    // Full stick adds +-assistSlipDeg of front slip about that heading, inside the lock.
+    CHECK(keyboard_steer_deg(1.f, vx, vl, r, tire.a, 2.f, 30.f, p) == Approx(deg + p.assistSlipDeg));
+}
+
+TEST_CASE("keyboard assist fades out at parking speed and in reverse", "[input][keyboard][assist]") {
+    KeyboardSteerParams p;
+    p.assist = 1.f;
+    CHECK(keyboard_steer_deg(1.f, 2.f, 0.f, 0.f, 1.36f, 30.f, 30.f, p) == 30.f);   // below assistLo
+    CHECK(keyboard_steer_deg(1.f, -3.f, 0.f, 0.f, 1.36f, 30.f, 30.f, p) == 30.f);  // reverse
+    CHECK(keyboard_steer_deg(1.f, 50.f, 0.f, 0.f, 1.36f, 2.f, 30.f, p) == Approx(p.assistSlipDeg));
+}
+
+TEST_CASE("pedal ramps: rate 0 is the binary pedal; ramps take rise/fall seconds", "[input][keyboard][pedal]") {
+    CHECK(pedal_step(0.f, true, kDt, 0.f, 0.f) == 1.f);
+    CHECK(pedal_step(1.f, false, kDt, 0.f, 0.f) == 0.f);
+    float u = 0.f;
+    int   n = 0;
+    while (u < 1.f && n < 1000) u = pedal_step(u, true, kDt, 4.f, 8.f), ++n;
+    CHECK(n * kDt == Approx(0.25f).margin(kDt));
+    n = 0;
+    while (u > 0.f && n < 1000) u = pedal_step(u, false, kDt, 4.f, 8.f), ++n;
+    CHECK(n * kDt == Approx(0.125f).margin(kDt));
+}
+
+TEST_CASE("keyboard frame: ramped throttle builds, and DOWN drops the throttle at once", "[input][keyboard][pedal]") {
+    CarEntity           car;
+    KeyboardSteerParams p = car.get_keyboard_steer();
+    p.throttleRise        = 4.f;
+    p.throttleFall        = 8.f;
+    p.brakeRise           = 5.f;
+    car.set_keyboard_steer(p);
+    KeyboardKeys up;
+    up.up               = true;
+    const InputFrame f0 = car.keyboard_input_frame(up, kDt);
+    CHECK(f0.throttle == Approx(4.f * kDt));
+    for (int i = 0; i < 30; ++i) car.keyboard_input_frame(up, kDt);
+    KeyboardKeys down;
+    down.down          = true;
+    const InputFrame f = car.keyboard_input_frame(down, kDt);
+    CHECK(f.throttle == 0.f);
+    CHECK(f.brake == Approx(5.f * kDt));
 }

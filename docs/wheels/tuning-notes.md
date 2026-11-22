@@ -91,3 +91,33 @@ Dynamics* (magic formula, similarity method); Milliken and Milliken, *Race Car V
 anti-roll bars); Brian Beckman, "The Physics of Racing" (free series, friction circle and slip); Guiggiani, *The
 Science of Vehicle Dynamics*. Lecture slides to look up: TU Delft "Vehicle Dynamics" and MIT OCW 2.003 for the
 rigid-body part. None of these were opened in this session.
+
+## B6 / realism A0-A2: keyboard feel + 6-DOF ungated (2026-11-21, AI-drafted)
+
+Debug-only defaults (release keeps assist 0 and instant pedals until the owner signs off). Panel: "Physics" (group `car`).
+
+| Knob (`Tunables.def`) | Default | Range | What it does |
+|---|---|---|---|
+| `car.key_counter_steer_assist` | 0.7 | 0-1 | Blend of the arrow keys toward steering about the front axle's travel direction. 0 = the old grip-limited stick. |
+| `car.key_assist_slip_deg` | 7 | 2-12 | Front slip angle full key commands while assisted. Keep near `tire_alpha_peak_front_deg`. |
+| `car.key_throttle_rise` / `_fall` | 4 / 8 /s | 0-20 / 0-30 | Throttle press and lift rate. 0 = instant. |
+| `car.key_brake_rise` / `_fall` | 5 / 10 /s | 0-20 / 0-30 | Brake press and release rate. DOWN drops the throttle at once. |
+
+Assist (front slip in the right-positive convention of `Bicycle.h`):
+
+$$\delta_c = \arctan\frac{v_l + a r}{|v_x|},\qquad w = k\,\mathrm{clamp}\!\left(\frac{v_x - 3}{8 - 3}, 0, 1\right),\qquad \delta = (1-w)\,s\,\delta_{lim} + w\,(\delta_c + s\,\alpha_{max})$$
+
+With the stick at 0 the front slip is 0, so the only yaw moment left is the rear's, which turns the car back
+toward its velocity (caster-like). The 6-DOF model now always substeps at $\ge 240$ Hz, so engine torque, the rev
+limit and TC are re-evaluated every 4.2 ms.
+
+Pedal ramp: $\dot u = \pm R$. A lift at 0.3 g moves $\Delta F_z = m a_x h / L \approx 760$ N; at 8 /s that takes
+0.125 s instead of one frame.
+
+**What to try in the app (`make debug`):** Physics model = rigid body, 30 m/s on a curve, lift off and let go of
+the keys; the tail should step out, then the car straightens itself. Hold opposite arrow: it should catch. Set
+assist 0 to compare.
+
+Reading: Pacejka, *Tire and Vehicle Dynamics* (slip angles); Milliken and Milliken, *Race Car Vehicle Dynamics*
+(caster, hands-off stability); Rajamani, *Vehicle Dynamics and Control* (bicycle model, driver models). Not opened
+in this session.

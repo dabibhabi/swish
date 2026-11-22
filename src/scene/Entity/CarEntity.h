@@ -36,9 +36,10 @@ public:
     // Arrow keys -> a SteerMode::Target frame (KeyboardSteer.h): a held key ramps a virtual stick, and
     // full stick is capped near the grip-limited steer angle for the current speed and mu. Stateful
     // (advances the stick by dt), so call it once per frame. The GLFW overload just reads the keys.
-    InputFrame keyboard_input_frame(GLFWwindow* window, float dt);
-    InputFrame keyboard_input_frame(const KeyboardKeys& keys, float dt);
-    void       set_keyboard_steer(const KeyboardSteerParams& p) { m_key_steer = p; }
+    InputFrame                 keyboard_input_frame(GLFWwindow* window, float dt);
+    InputFrame                 keyboard_input_frame(const KeyboardKeys& keys, float dt);
+    void                       set_keyboard_steer(const KeyboardSteerParams& p) { m_key_steer = p; }
+    const KeyboardSteerParams& get_keyboard_steer() const { return m_key_steer; }
 
     // Device-agnostic input seam (keyboard, gamepad, replay, bench). Sets throttle/brake/reverse intent
     // and moves the steering angle (SteerMode::Rate keeps the legacy fixed-rate keyboard behaviour).
@@ -231,8 +232,8 @@ public:
         m_wheel_spin_mul = spin_mul;
     }
 
-#ifdef SWISH_DEBUG_UI
-    // Physics-model selector (stub; the debug-UI "Physics model" toggle binds to these).
+    // Physics-model selector (the debug-UI "Physics model" toggle binds to these; release keeps Bicycle
+    // until the owner flips the default, tasks/todo.md B7).
     // Bicycle (default) is the shipped model; RigidBody drives the entity pose, including pitch/roll
     // and heave, from a 6-DOF body on four spring-damper wheel contacts (RigidChassis.h).
     // Switching either way hands the speed / yaw state over so the car does not jump.
@@ -243,7 +244,6 @@ public:
     void set_chassis_tuning(const ChassisTuning& t);
     // The car was pushed back from a wall whose inward normal is `n` (unit, horizontal). 6-DOF model only.
     void wall_contact(const Vec3& n);
-#endif
 
     // World-space unit vector pointing toward the car's nose (+X at yaw=0).
     Vec3 get_forward() const {
@@ -395,7 +395,6 @@ private:
     float m_gauge_test_rpm = 0.f;
     float m_gauge_test_kmh = 0.f;
 #endif
-#ifdef SWISH_DEBUG_UI
     // ── Rigid-body chassis (stub; RigidChassis.h) ─────────────────────
     // Only live while m_physics_model == RigidBody. The body is authoritative for pose: each step it
     // follows any external shift of m_position (origin rebase, teleport) via m_rigid_last_pos, integrates,
@@ -408,7 +407,8 @@ private:
     Vec3          m_rigid_last_pos{0.f};  // m_position as this model last wrote it (WU)
     void          init_rigid_body();
     void          update_rigid_body(float dt);
-#endif
+    // The 6-DOF model's minimum substep rate (Hz), whatever set_substep_hz says.
+    static constexpr float kRigidSubstepHz = 240.0f;
 
     // Per-frame longitudinal controls, set by handle_input(), applied in update().
     float m_throttle = 0.f;    // [0,1]
@@ -416,8 +416,10 @@ private:
     bool  m_reverse  = false;  // DOWN held while ~stopped → creep backward
 
     // Keyboard virtual stick in [-1, 1] and its tuning (config/car.toml [keyboard_steer]).
-    float               m_key_stick = 0.f;
-    KeyboardSteerParams m_key_steer = kKeyboardSteerDefaults;
+    float               m_key_stick    = 0.f;
+    float               m_key_throttle = 0.f;  // ramped keyboard pedals (KeyboardSteer.h pedal_step)
+    float               m_key_brake    = 0.f;
+    KeyboardSteerParams m_key_steer    = kKeyboardSteerDefaults;
 
     // Auto-shift state (Wave 2 step 3b, CarPhysics.h) over the profile's gearbox
     // (7-speed PDK on the 992). Advanced each frame by gearbox_shift_step(); starts in 1st.
