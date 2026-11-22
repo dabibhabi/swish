@@ -17,6 +17,7 @@ add_executable(swish_tests
     test_wheel_spray.cpp
     test_lens_wetness.cpp
     test_corridor.cpp
+    test_queens_network.cpp    # N1 Queens network assets
     test_hud.cpp               # C3b HUD helpers
     test_golden_mesh.cpp
     test_golden_car.cpp

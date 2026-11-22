@@ -1,0 +1,100 @@
+# ══════════════════════════════════════════════════════════════════════
+# N1: Queens network bake. Five more roads, each its own alignment, placed
+# through the LIE's compaction warp. Baked by:
+#
+#     python3 tools/lie_corridor.py fetch_net   # one Overpass pull per road (cached)
+#     python3 tools/lie_corridor.py elev_net    # one USGS 3DEP pull per road (cached)
+#     python3 tools/lie_corridor.py bake_net    # -> assets/corridor/queens_<id>_full.bin + queens_network_full.bin
+#
+# Debug-only assets; nothing loads them at runtime yet (N2). The LIE bake
+# (config/lie_corridor.toml) is re-run in memory for the warp and is not written.
+# See docs/endless-road.md "Queens network bake (N1)".
+# ══════════════════════════════════════════════════════════════════════
+
+lie_config = "config/lie_corridor.toml"
+network_asset = "assets/corridor/queens_network_full.bin"
+# Same mirror list as a manual retry: overpass-api.de answers 429 when busy.
+overpass_urls = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter"]
+ramp_search_radius_m = 200   # motorway_link ways within this of a mainline node are pulled
+blend_m = 250.0              # real m either side of a junction over which the two link fits cross-fade (no kink)
+layer_m = 6.5                # height per OSM layer step (bridge deck over a road: ~5 m clearance + ~1.5 m structure)
+junction_ramp_radius_m = 700.0  # motorway_link ways with a node this close (real m) to a junction belong to it
+road_end_tol_m = 25.0        # a ramp end this close (real m) to a mainline carriageway attaches to that road (else 255)
+curvature_floor_radius_m = 500.0
+exempt_radius_m = 500.0      # real curves tighter than this are real tight curves (exempt, as on the LIE)
+
+# Road ids are the asset's road table (== swish::NetworkRoad in CorridorNetworkAsset.h). 0 is the LIE.
+# select:  OSM tag regexes every mainline way must match (highway=motorway is implied).
+# exclude: tag regexes a mainline way must NOT match.
+# from/to: (lat, lon) seeds; the forward chain walks from `from` towards `to` (sets the +s direction).
+# walls:   [junction, real metres past it]; the work-zone wall stands that far beyond the junction, outward.
+# tail_m:  compact metres of undrivable road past each wall (horizon continuation), clamped to the data.
+[roads.bqe]
+id = 1
+name = "BQE"
+bbox = [40.69, -73.97, 40.785, -73.88]
+select = { ref = "I 278" }
+exclude = { name = "Grand Central|Kennedy|Triborough" }
+from = [40.703, -73.957]     # Williamsburg, past the Kosciuszko Bridge (south tail)
+to = [40.770, -73.905]       # Astoria, at the GCP
+walls = [["lie_bqe", 600.0], ["bqe_gcp", 150.0]]
+tail_m = 3000.0
+
+[roads.gcp]
+id = 2
+name = "GCP"
+bbox = [40.70, -73.94, 40.79, -73.66]
+select = { name = "Grand Central Parkway|Northern State Parkway|Robert F. Kennedy Bridge" }
+exclude = {}
+from = [40.778, -73.925]     # RFK Bridge approach
+to = [40.747, -73.675]       # Northern State past the Nassau line
+walls = [["bqe_gcp", 1200.0], ["gcp_cip", 1500.0]]
+tail_m = 3000.0
+
+[roads.vanwyck]
+id = 3
+name = "I-678"
+bbox = [40.66, -73.86, 40.76, -73.80]
+select = { ref = "I 678" }
+exclude = {}
+from = [40.752, -73.837]     # just north of the LIE
+to = [40.670, -73.800]       # towards JFK (south tail)
+walls = [["lie_vw", 300.0], ["gcp_vw", 1000.0]]
+tail_m = 3000.0
+
+[roads.clearview]
+id = 4
+name = "I-295"
+bbox = [40.71, -73.80, 40.82, -73.75]
+select = { ref = "I 295" }
+exclude = {}
+from = [40.800, -73.792]     # Throgs Neck approach (north tail)
+to = [40.718, -73.765]       # Hillside Ave (south end of the expressway)
+walls = [["lie_clearview", 1500.0], ["gcp_clearview", 1000.0]]
+tail_m = 3000.0
+
+[roads.cip]
+id = 5
+name = "CIP"
+bbox = [40.66, -73.80, 40.80, -73.70]
+select = { name = "Cross Island Parkway" }
+exclude = {}
+from = [40.790, -73.790]     # Whitestone / Fort Totten (north tail)
+to = [40.690, -73.725]       # towards the Belt (south tail)
+walls = [["lie_cip", 1500.0], ["gcp_cip", 1000.0]]
+tail_m = 3000.0
+
+# Junctions: id -> [road a, road b, (lat, lon) hint]. The point is the closest approach of the two real
+# centrelines (the crossing, or the merge) within `search_m` of the hint; the hint only picks which approach.
+# Hints = junction centres measured on OSM in docs/queens-network-reference/roads.md (N0a).
+[junctions]
+search_m = 800.0
+lie_bqe = ["lie", "bqe", 40.7344, -73.9224]
+bqe_gcp = ["bqe", "gcp", 40.7678, -73.9047]
+lie_gcp = ["lie", "gcp", 40.7396, -73.8460]
+lie_vw = ["lie", "vanwyck", 40.7432, -73.8376]
+gcp_vw = ["gcp", "vanwyck", 40.7163, -73.8263]
+lie_clearview = ["lie", "clearview", 40.7444, -73.7713]
+gcp_clearview = ["gcp", "clearview", 40.7262, -73.7572]
+lie_cip = ["lie", "cip", 40.7533, -73.7449]
+gcp_cip = ["gcp", "cip", 40.7439, -73.7323]

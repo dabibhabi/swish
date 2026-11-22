@@ -46,6 +46,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
+from types import SimpleNamespace
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -715,11 +716,17 @@ def cmd_elev(cfg: dict, force: bool) -> str:
     if os.path.exists(out) and not force:
         print(f"elev: {ecfg['cache']} already cached — use --force to re-pull")
         return out
-    import json
     ll, _ = extract_mainline(os.path.join(REPO, cfg["netconvert"]["plain_prefix"]))
     tp = route_frame(ccfg, ll)
     s_real = polyline_stations([tp.to_engine_m(lon, lat) for lon, lat in ll])
     pts, _ = resample(ll, s_real, [], ecfg["sample_spacing_m"])
+    write_elev_csv(ecfg["service_url"], pts, ecfg["sample_spacing_m"], out)
+    print(f"elev: wrote {ecfg['cache']}")
+    return out
+
+
+def write_elev_csv(url: str, pts: list[tuple[float, float]], spacing: float, out: str) -> None:
+    """USGS 3DEP ground height at each (lon, lat), `spacing` m apart, cached as CSV (s_real_m, lon, lat, elev_m)."""
     rows, batch = [], 200
     for b0 in range(0, len(pts), batch):
         chunk = pts[b0:b0 + batch]
@@ -727,23 +734,21 @@ def cmd_elev(cfg: dict, force: bool) -> str:
         data = urllib.parse.urlencode({
             "geometry": geom, "geometryType": "esriGeometryMultipoint", "returnFirstValueOnly": "true",
             "interpolation": "RSP_BilinearInterpolation", "f": "json"}).encode()
-        req = urllib.request.Request(ecfg["service_url"], data=data, headers={"User-Agent": "corridor-fetch/1.0"})
+        req = urllib.request.Request(url, data=data, headers={"User-Agent": "corridor-fetch/1.0"})
         with urllib.request.urlopen(req, timeout=120) as resp:
             samples = json.load(resp)["samples"]
         got = {smp["locationId"]: float(smp["value"]) for smp in samples}
         if len(got) != len(chunk):
             sys.exit(f"elev: service returned {len(got)} of {len(chunk)} samples at batch {b0}")
         for k, (lon, lat) in enumerate(chunk):
-            rows.append(((b0 + k) * ecfg["sample_spacing_m"], lon, lat, got[k]))
+            rows.append(((b0 + k) * spacing, lon, lat, got[k]))
         print(f"elev: {len(rows)}/{len(pts)}", end="\r", flush=True)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as fh:
         fh.write("s_real_m,lon,lat,elev_m\n")
         for r in rows:
             fh.write(f"{r[0]:.1f},{r[1]:.7f},{r[2]:.7f},{r[3]:.3f}\n")
-    print(f"elev: wrote {ecfg['cache']} ({len(rows)} samples, "
-          f"{min(r[3] for r in rows):.1f}..{max(r[3] for r in rows):.1f} m)")
-    return out
+    print(f"elev: {len(rows)} samples, {min(r[3] for r in rows):.1f}..{max(r[3] for r in rows):.1f} m")
 
 
 def load_elevation(cfg: dict, s_uni: list[float]) -> list[float]:
@@ -838,7 +843,8 @@ def superelevation(tans, step: float, ecfg: dict) -> list[float]:
 # 6. Bake
 # ══════════════════════════════════════════════════════════════════════
 
-def cmd_bake(cfg: dict) -> None:
+def cmd_bake(cfg: dict, write: bool = True):
+    """Bake the LIE asset; `write=False` only returns the frames the Queens network warp needs (N1)."""
     ccfg, ncfg, ocfg = cfg["corridor"], cfg["netconvert"], cfg["osm"]
     prefix = os.path.join(REPO, ncfg["plain_prefix"])
     osm_path = os.path.join(REPO, ocfg["raw_extract"])
@@ -1032,8 +1038,10 @@ def cmd_bake(cfg: dict) -> None:
     out_srvr = service_roads(cfg["service_roads"], to_index, cs, step, out_exits, out_districts, start_s)
     out_surf = pavement_ranges(cfg.get("surface", {}), out_exits)
     out_xing = crossings(cfg, xy_m, s_real, cs, step, tp, out_districts, total) if "crossings" in cfg else []
-    write_asset(cfg, tp, fpts, ftans, flanes, [v - y0 for v in fy], fbank, out_marks, out_exits, out_districts,
-                out_srvr, out_surf, total, real_len, c, start_s, out_xing)
+    if write:
+        write_asset(cfg, tp, fpts, ftans, flanes, [v - y0 for v in fy], fbank, out_marks, out_exits, out_districts,
+                    out_srvr, out_surf, total, real_len, c, start_s, out_xing)
+    return SimpleNamespace(tp=tp, xy_m=xy_m, s_real=s_real, step=step, cs=cs, fpts=fpts, ftans=ftans, y0=y0, fy=fy)
 
 
 def pavement_ranges(scfg, exits):

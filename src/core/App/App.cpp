@@ -19,9 +19,11 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <iostream>
+#include <thread>
 
 namespace swish {
 
@@ -90,7 +92,19 @@ int App::run() {
     // untouched (it is capped at 1/15 s for the physics, so it would under-report slow frames).
     double fps_window_start = glfwGetTime();
     int    fps_frames       = 0;
+    // P2: cap at 60 fps; FIFO alone runs at 120 on ProMotion and doubles the GPU work.
+    using Clock                            = std::chrono::steady_clock;
+    constexpr Clock::duration kFramePeriod = std::chrono::nanoseconds(1'000'000'000 / 60);
+    Clock::time_point         next_frame   = Clock::now();
+    GLFWwindow* const         win          = m_window->getHandle();
     while (!m_window->shouldClose()) {
+        // P2: a minimized or hidden window renders nothing visible, so idle instead of drawing.
+        if (glfwGetWindowAttrib(win, GLFW_ICONIFIED) || !glfwGetWindowAttrib(win, GLFW_VISIBLE)) {
+            glfwWaitEventsTimeout(0.1);
+            last_frame_time = static_cast<float>(glfwGetTime());  // no dt spike on restore
+            next_frame      = Clock::now();
+            continue;
+        }
         const float dt = frame_delta(last_frame_time);
         ++fps_frames;
         if (const double now = glfwGetTime(); now - fps_window_start >= 0.5) {
@@ -113,6 +127,13 @@ int App::run() {
         update_camera(dt, debug_edit);
 
         m_renderer->drawFrame(dt);
+
+        // Fixed deadlines keep the average at 60; after a long frame, resync instead of bursting to catch up.
+        next_frame += kFramePeriod;
+        if (const Clock::time_point now = Clock::now(); next_frame < now)
+            next_frame = now;
+        else
+            std::this_thread::sleep_until(next_frame);
     }
 
     shutdown();

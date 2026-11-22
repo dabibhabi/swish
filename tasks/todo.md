@@ -9,6 +9,110 @@
 > shipped: `git log` and [`CHANGELOG.md`](../CHANGELOG.md). Current user goal:
 > [`docs/user-goals/CURRENT.md`](../docs/user-goals/CURRENT.md).
 
+## Perf: cut invisible GPU/CPU work (planned 2026-11-21, grilling session; plan drafted by AI)
+
+Full write-up with code, math and alternatives: [`perf-todo.md`](perf-todo.md). Trigger: the fan runs loud under `make debug`. Two static audits were done; nothing was built or profiled.
+**Step 0 (owner, in the app):** record `GpuProfiler` per-pass ms, plus the swapchain extent and refresh rate from the
+startup log, before any change. Repeat after each item.
+
+Decisions (owner, 2026-11-21):
+
+- Build focus: `make debug` first; release is also checked.
+- Frame cap: 60 fps with vsync.
+- Quality bar: no visible change. Every cut gets an A/B toggle. Release stays byte-identical unless signed off.
+- SSAA: keep 2.0 as the default and add a live 1.0/1.25/1.5/2.0 A/B. The owner picks the new default by eye.
+- Sky: bake a sky-view LUT when time of day or weather changes (sun disc and stars stay per pixel); toggle back to the raymarch for A/B.
+- SSR: half render resolution and skip when dry, with a full-res toggle.
+- God-rays: gate on `sunLux == 0` (bug fix: rain means no god-ray source).
+
+Items, ranked by expected saving:
+
+- [ ] **P1** SSAA A/B: `kRenderScale = 2.0` ([PostProcessManager.h:229](../src/renderer/PostProcessManager/PostProcessManager.h)) shades 4x the Retina panel pixels (~24 MP maximized). Already wired: F3 cycles 1.0/1.5/2.0, plus the panel slider. Owner A/B, then pick the default.
+- [x] **P2** 60 fps limiter in `App::run` ([App.cpp:93](../src/core/App/App.cpp)), because FIFO = 120 on ProMotion ([Swapchain.cpp:123](../src/renderer/Swapchain/Swapchain.cpp)). Sleep while iconified or invisible (`glfwWaitEventsTimeout(0.1)`, reset `last_frame_time`).
+- [ ] **P3** Windshield at rain 0: skip `record_wetness_update` + `record_scene_snapshot` ([WindshieldRainPass.cpp:140](../src/renderer/WindshieldRainPass/WindshieldRainPass.cpp)) once rain = 0 and the lens is dry. Ping-pong the wetness images instead of `vkCmdCopyImage`. ~185-570 MB/frame of copies.
+- [ ] **P4** Sun off: skip `record_shadow` when `sunLux == 0` ([GeometryProducer.cpp:101](../src/renderer/GeometryProducer/GeometryProducer.cpp)); in `lighting.frag:556-626` wrap the shadow block in `if (sunScale > 0.0)` (uniform branch). Debug defaults to rain 1.0, so this applies at startup.
+- [ ] **P5** Per-cascade shadow cull: test each caster's sphere against the 4 side planes of `m_cascadeVP[k]` (`extract_frustum_planes`, skip the near plane). Today every caster within 600 m goes into all 3 cascades.
+- [ ] **P6** Sky-view LUT ([atmosphere.glsl:22](../shaders/common/atmosphere.glsl), [lighting.frag:377](../shaders/lighting.frag)): 20x6 steps per sky pixel per frame, doubled with the moon. Bake on the same dirty flag as `maybe_rebake_ibl`. Toggle back to the raymarch.
+- [ ] **P7** SSR: half render resolution + CPU skip when `wetness < 0.02` ([SsrPass.cpp:32](../src/renderer/Passes/SsrPass.cpp), [ssr.frag:101](../shaders/ssr.frag)); also apply the wet-only gate in debug. Full-res toggle.
+- [ ] **P8** God-rays: skip when `sunLux == 0` ([GodRaysPass.cpp:57](../src/renderer/Passes/GodRaysPass.cpp)). 48 taps at half res.
+- [ ] **P9** SSAO blur: separable H+V (10 taps) instead of 5x5 (25 taps with `exp`) ([ao_blur.frag:22](../shaders/ao_blur.frag)).
+- [ ] **P10** CPU: skip `vkCmdBindDescriptorSets` when the material is unchanged ([SceneGeometry.cpp:128](../src/renderer/SceneGeometry/SceneGeometry.cpp)); skip ImGui `begin_frame` while the panel is hidden ([Renderer_Frame.cpp:128](../src/renderer/Renderer/Renderer_Frame.cpp)).
+- [ ] Gates after each item: `make test-debug`, release goldens untouched, changelog entry, owner A/B in the app.
+
+Not a problem (checked): corridor is uploaded once, no per-frame `vkQueueWaitIdle`, 2 frames in flight with a blocking fence, profiler readback without waits, physics 1 step (release) / 240 Hz (debug), rain/spray simulated on the GPU and gated at 0, IBL rebakes only on change, bloom 1/4 res, DoF/TAA/velocity off.
+
+## Queens network: BQE + GCP + Van Wyck / Clearview / Cross Island (planned 2026-11-21, grilling session; plan drafted by AI)
+
+Extends the shipped LIE corridor (`8c17065`) into a small Queens road network. Plan confirmed by the owner on 2026-11-21; nothing built yet. Next step: N0. The LIE locked decisions above still hold (debug-first, release byte-identical until sign-off, traffic out, one code agent at a time, owner tests in the app), except where a decision below overrides them.
+
+Code facts this plan builds on (checked 2026-11-21):
+
+- The corridor is one road. `CorridorAlignment` is one station table with an `(s, t)` frame ([CorridorAlignment.h:74](../src/scene/Corridor/CorridorAlignment.h)). Every `CorridorPath` is a band whose lateral offset is a function of the LIE's `s` ([CorridorRamps.h:14](../src/scene/Corridor/CorridorRamps.h)). `CorridorDriver` tracks a single `m_station` ([CorridorDriver.h:98](../src/scene/Corridor/CorridorDriver.h)). There is no graph and no junction concept.
+- The asset blocks are EXIT, DIST, SRVR, SURF and XING ([CorridorAsset.h:196](../src/scene/Corridor/CorridorAsset.h)). The debug build loads `lie_corridor_full.bin` and release loads `lie_corridor.bin` ([AppInit.cpp:150](../src/core/App/AppInit.cpp)).
+- No OSM mainline data exists yet for the GCP, BQE, Van Wyck, Clearview or Cross Island. The LIE extract has them only as ramp `destination` tags.
+- The HUD feed is one route polyline ([HudFeed.h:23](../src/debug/HudFeed.h)).
+- Reusable props: `nj_profile()` ([CorridorEdges.h:25](../src/scene/Corridor/CorridorEdges.h)), the attenuator colour, the end boards and the W1-8 chevron (`tools/sign_corridor.py`). There are no cones, drums or ROAD CLOSED signs yet.
+
+Decisions (owner, 2026-11-21):
+
+1. **Network: the Queens loop plus a ladder.**
+   - The BQE runs from exit 17 north to the GCP in Astoria.
+   - The GCP runs from Astoria past LaGuardia, crosses the LIE at exit 22, and continues parallel to the LIE to the Nassau line.
+   - Rungs between the LIE and the GCP: Van Wyck (22 to Kew Gardens), Clearview (27) and Cross Island (31).
+   - Every outer end is a work zone: BQE south of 17, GCP west at the RFK approach, GCP east at the Nassau line, Van Wyck south of Kew Gardens, Clearview north (Throgs Neck) and south (Hillside), and Cross Island north and south.
+2. **Dead ends use a work-zone taper.** The sequence is ROAD WORK AHEAD and LANE CLOSED signs at 1500 ft and 500 ft, a cone taper that merges the lanes, then a full-width jersey-barrier wall with ROAD CLOSED boards and a flashing arrow board. A U-turn gap in the median lets the car drive back.
+3. **The Van Wyck is a road of its own.** It is a second rung from exit 22 to Kew Gardens, with real junctions at both ends.
+4. **One alignment per road.** Each road (GCP, BQE, Van Wyck, Clearview, Cross Island) is baked as its own `CorridorAlignment` by the same tool and asset format. A junction table links `(road, s)` pairs. The driver tracks road id plus `s` and hands off at connector ramps. Lane counts, widths and ramp shapes are measured from Google Maps aerials and Street View (Chrome) for the compact version.
+5. **Per-link compression fit.** Each road is split at its junctions. Junction points are placed through the LIE `(s, lateral)` warp. Each link's real OSM shape is fitted between its two junctions with a rotate plus scale of about 1.7:1. The 500 m curvature floor applies.
+6. **Every junction has its real layout:** flyovers, loops, the stacked ramps at exit 22 and the Kew Gardens interchange. These replace the LIE diamonds at exits 17, 22, 27 and 31. This overrides "ramps lead only to service roads" for freeway-to-freeway movements.
+7. **Ramp shapes come from OSM, checked against photos.** The tool fetches the `motorway_link` ways at each junction and warps them with the per-link fit. Ramp ends snap to the two roads, and levels come from the OSM `layer` and `bridge` tags. Each ramp is checked and hand-fixed against Google Maps. This needs a new free-path type: a world-space spline with height that joins two alignments.
+8. **Local exits on the new roads are signed but closed.** They get real gores and exit signs. Each ramp ends in a short work zone after the gore, with an EXIT CLOSED board.
+9. **Look: reuse the kits and add landmarks.**
+   - The same builders run per alignment. A per-road table sets lanes (from OSM), median type, lamp kit, bridge style and parkway or Interstate signs, measured from Street View. Scenery uses the Queens district kit. Bridges and elevation come from OSM and USGS, as on the LIE.
+   - Landmarks: the GCP gas station by the 188th St exit, the bridge over the Cross Island Pkwy, the Astoria and Jamaica underpasses, the LaGuardia edge, Citi Field, the Kew Gardens interchange and the Throgs Neck view. Each one is verified in N0.
+10. **HUD and minimap draw all roads, with the current road lit.** The minimap draws every alignment and junction ramp, with the current road brighter. The HUD adds the road name (LIE / GCP / BQE / I-678 / I-295 / CIP) and the next exit or junction on that road. A debug panel adds a "jump to road" teleport.
+11. **Thin slice first.** The build order is below. Each phase ends drivable in `make debug`.
+12. **Road to the horizon past each wall.** Past every work-zone wall, an undrivable road mesh continues to the far plane with district scenery beside it, so the world never looks cut off.
+
+Agent defaults (not owner calls; change if wrong):
+
+- Assets: one `.bin` per road in the existing format, debug-only (`<road>_full.bin`), plus a `JNCT` block or a small network file for the junction table. Release loads nothing new.
+- Surface choice where roads overlap in plan view at different heights: stay on the current road's piece, and switch only through a ramp handoff (a height-continuity rule, not nearest-`xz`).
+- Data: back up `data/osm/` before every fetch, and never overwrite `lie_i495.osm.xml`.
+
+Order (one code agent at a time; gates after each item: `make test-debug`, `make check`, changelog in `docs/changelog/2026-11.md`, tuning notes in `docs/corridor/tuning-notes.md`, architecture in `docs/endless-road.md`, owner check in the app):
+
+- [ ] **N0** Reference sheet `docs/queens-network-reference/`: per road, the lanes, median, barrier, lamps, bridge styles and sign type. Per junction, an aerial layout sketch. Per landmark (decision 9), a note. Uses the Chrome connector, Google Maps aerials and Street View. Saved photos must be CC-licensed; otherwise save links and measurements only.
+- [ ] **N1** Multi-road bake in `tools/lie_corridor.py`:
+  - Per-road `[roads.<id>]` config (ref regex, bbox, ends).
+  - Fetch the mainline and `motorway_link` ways.
+  - Place the junctions through the LIE warp.
+  - Per-link rotate-and-scale fit with the curvature floor.
+  - Elevation from USGS plus OSM `layer` and `bridge` tags.
+  - Write `<road>_full.bin` and the junction table.
+  - Checks: link endpoints meet their junctions within 0.5 m; minimum radius at least 500 m except real tight curves; the LIE asset is unchanged byte for byte.
+- [ ] **N2** Network runtime:
+  - `CorridorNetwork` holds the alignments and junctions. Segments are built per road.
+  - Add the free-path ramp type (world spline with height, joining two alignments).
+  - The driver tracks road id plus `s`, and the handoff follows the height-continuity rule.
+  - Work-zone kit: cones, drums, signs, arrow board, barrier wall, U-turn gap, and the horizon tail.
+  - `jump to road` debug teleport.
+  - Unit tests: handoff continuity, and that the car is never held at a junction.
+- [ ] **N3** First drivable slice: the BQE from exit 17 to a temporary work zone short of Astoria. The real LIE x BQE junction replaces the exit 17 diamond. A work zone south of 17. Drive the loop between the LIE and the BQE in both directions.
+- [ ] **N4** GCP: from the RFK work zone to the Nassau-line work zone. Junctions with the BQE (which replaces the N3 temporary end) and with the LIE at exit 22 (which replaces the diamond). The loop closes.
+- [ ] **N5** Rungs: Van Wyck (exit 22 to Kew Gardens, plus the Kew Gardens junction and its south work zone), Clearview (exit 27 x GCP, work zones north and south) and Cross Island (exit 31 x GCP, work zones north and south). This replaces the diamonds at 27 and 31.
+- [ ] **N6** Closed local exits on the new roads (gore, exit sign, EXIT CLOSED work zone), plus guide signs and gantries per road from the N0 table (parkway or Interstate).
+- [ ] **N7** Look per road: surfaces, medians, edges, lamps, bridges and the Queens kit from the per-road table.
+- [ ] **N8** Landmarks from decision 9.
+- [ ] **N9** HUD and minimap for all roads (decision 10).
+
+Risks:
+
+1. Overlapping roads at different heights break the single-surface assumption in `CorridorBounds`. N2 must test handoffs at every junction.
+2. Real-layout junctions on warped OSM links can kink at the fit seams. N1 checks the radius per ramp, and Google Maps is the tie-break.
+3. Draw calls: five more roads plus horizon tails may push past the 30 fps floor at dense Queens spots. Record `GpuProfiler` numbers per phase.
+4. The shared branch has many uncommitted files from other tasks (perf, `App.cpp`).
+
 ## LIE full route + 6-DOF physics + real road (planned 2026-11-20, grilling session; plan drafted by AI)
 
 Reference sheet: [`docs/lie-reference/README.md`](../docs/lie-reference/README.md). Status: **phase A done; B1-B5a and B5c built (6-DOF still off by default). Open in B: B5b, B5d, B6, B7. Then C.** Tuning notes: [`docs/corridor/tuning-notes.md`](../docs/corridor/tuning-notes.md).
@@ -826,6 +930,13 @@ Changed from the defaults above: the bake was **not** made cheaper (the irradian
 - [x] **L4.2** Reflection / ambient energy rebalance and Fresnel-bounded sheen (old feature row 6); cures the over-exposed far road. Done (debug): the wet sheen adds only the reflection the base lobe did not take, of the mirror environment. The ambient gain is 1.0 with the procedural sky. Needs tuning by eye.
 - [x] **L4.3** Turn metallic flakes on: flake density defaults to 0 (`SceneTypes.h:89`). Done (debug): `paintFlakeDensity` 0.3 on body paint, found by material name.
 - [ ] **L4.4** Bloom pyramid with Karis firefly suppression (old C2). Half done: Karis-weighted 4-tap extract (debug). The mip pyramid is not built; bloom is still one quarter-res level.
+  Research 2026-11-21 (AI): the debug `BloomPyramidPass` (1/8-1/32) has two faults. (a) Each level shrinks the one above with one bilinear tap per Gaussian tap, so small lights shimmer. (b) The 1/32 level is enlarged 8x in one bilinear step onto the 1/4 image, so wide halos look blocky. Fix: the down/upsample chain from Jimenez 2014, "Next Generation Post Processing in Call of Duty: Advanced Warfare" (SIGGRAPH), also used by Bevy, Unity URP and LearnOpenGL "Physically Based Bloom". Cost is about 4/3 of one pass at the start size, about the same as today.
+  - [ ] **L4.4a** `shaders/bloom_down.frag`: 13-tap downsample made of 5 overlapping 2x2 boxes, centre box 0.5 and the four corner boxes 0.125 each. The Karis average applies only on the first step, which stays in `BloomExtract`.
+  - [ ] **L4.4b** `shaders/bloom_up.frag`: 3x3 tent upsample with a radius in texels, additive blend (ONE, ONE) into the next larger level, 1/128 to 1/4.
+  - [ ] **L4.4c** Rebuild the inside of `src/renderer/Passes/BloomPyramidPass.cpp` (its level images, framebuffers and sets are the scaffold): 5 levels from the extract image, one draw per level each way. Change the combine from alpha to additive. In debug, `BloomBlurH/V` skip recording while the chain is on. Release stays byte-identical (`PASS_DEBUG`).
+  - [ ] **L4.4d** Sliders in `src/debug/Tunables.def`: `bloom_up_radius`, `bloom_levels`, optional `bloom_no_threshold` (the CoD-style energy-conserving mix `lerp(hdr, bloom, k)`, k about 0.04). Bump the counts in `tests/test_debug_params_io.cpp`. Keep the extract threshold as the default, so the lighting lab presets need no retune.
+  - [ ] **L4.4e** Look at it: night D5 sodium lamps, headlights on a wet road (rain 0 and 1.0), C3a signal lenses, sun glint on the clearcoat. Check that distant lamp heads do not flicker while driving. Watch the D5 twin-pole lens discs (20,000 cd/m²): the real fix there is lens luminance, not the filter. Changelog, tuning notes and owner checks go in `tasks/upcoming-tests.md`.
+  - [ ] **L4.4f** (owner) GPU time with the existing `GpuProfiler`: old pyramid vs the new chain.
 - [ ] **L4.5** Promote SSAO to release, or remove the release `aoTex` multiply (follows L0.8). Open by decision (debug first).
 - [ ] **L4.6** Owner sign-off in the app on a dry road: chase, hood and cockpit views. Open: the owner's.
 
