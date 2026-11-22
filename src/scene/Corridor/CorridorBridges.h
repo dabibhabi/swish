@@ -28,6 +28,10 @@ std::vector<CorridorBridge> corridor_bridges(const CorridorAlignment& al, const 
 void emit_bridge(MeshBuilder& b, std::vector<DrawCall>& draws, const CorridorAlignment& al, const CorridorBridge& br,
                  const std::vector<CorridorPath>& paths, double ox, double oz, const CorridorLook& look);
 
+// N4: |a| (a across the LIE) of the flat under-road at yLow beneath LIE-over bridge `br`; the D4 under-road then
+// climbs to the LIE's ground over rb::kLieClimb, a network road under it (br.net) back to its own profile.
+float lie_over_flat(const CorridorAlignment& al, const CorridorBridge& br);
+
 // Station ranges on `side` cut out of the verge for LIE-over trenches (emit_bridge fills the skew wedges).
 std::vector<std::pair<double, double>> bridge_verge_holes(const CorridorAlignment& al, int side);
 
@@ -52,5 +56,12 @@ struct DeckSpec {
 };
 void emit_deck(MeshBuilder& b, std::vector<DrawCall>& draws, const DeckSpec& d, const std::function<float(float)>& base,
                const CorridorLook& look);
+
+// Segmental stone arches over the spans between `sup` (t, ascending), spring at `spring`, deck top `top`: ashlar
+// fascia on both edges a = +-A, concrete vault, stone parapets over [p0, p1]. N4: also the GCP's 1930s overpasses.
+void emit_arch(MeshBuilder& b, std::vector<DrawCall>& draws, const DeckFrame& F, float A, const std::vector<float>& sup,
+               float spring, float top, float p0, float p1, const CorridorLook& look);
+// Stone arch rise for a span: rb::kArchRise of it, capped at rb::kArchRiseMax.
+float arch_rise(float span);
 
 }  // namespace swish

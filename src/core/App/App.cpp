@@ -318,6 +318,14 @@ void App::sync_car_with_debug_panel(float dt, bool debug_edit) {
     // Physics model (stub): unchecked = bicycle (default / identity). set_physics_model is idempotent.
     m_car->set_physics_model(dp.rigidBodyChassis ? PhysicsModel::RigidBody : PhysicsModel::Bicycle);
     m_car->set_substep_hz(dp.carSubstepHz);
+    KeyboardSteerParams ks = m_car->get_keyboard_steer();  // rates/gain stay from config/car.toml
+    ks.assist              = dp.carKeyAssist;
+    ks.assistSlipDeg       = dp.carKeyAssistSlip;
+    ks.throttleRise        = dp.carThrottleRise;
+    ks.throttleFall        = dp.carThrottleFall;
+    ks.brakeRise           = dp.carBrakeRise;
+    ks.brakeFall           = dp.carBrakeFall;
+    m_car->set_keyboard_steer(ks);
     m_car->set_chassis_tuning({dp.carTireShape, dp.carKappaPeak, dp.carLoadSens, dp.carAlphaPeakFront,
                                dp.carAlphaPeakRear, dp.carArbFront, dp.carArbRear, dp.carBrakeBias, dp.carDownforce,
                                dp.carTc});

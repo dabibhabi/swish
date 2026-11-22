@@ -616,3 +616,784 @@ Sources: Wikipedia, *Unisphere* and *New York State Pavilion* (dimensions, from 
 *Queens–Midtown Tunnel* (vent building, cashless tolling, flood doors; read 2026-11-21); OSM `data/osm/lie_i495.osm.xml`
 (offsets); Commons photos `exit-33/`, `exit-62/` (viewed); MUTCD 2009 Ch. 2D (county line I-5 style), 2G (HOV), 2J
 (attraction signs) (not opened).
+
+## N1: Queens network bake
+
+> Largely AI-generated (Claude), 2026-11-21; owner review pending.
+
+Five more roads (BQE, GCP, Van Wyck, Clearview, Cross Island), each baked as its own alignment in the LIE's v2
+station format, plus a network table. Debug-only assets; nothing loads them yet (N2). Knobs:
+[`config/queens_network.toml`](../../config/queens_network.toml). Re-bake with `python3 tools/queens_network.py
+bake_net` (needs no network: `fetch_net` and `elev_net` cache to `data/osm/queens_<id>.json` and
+`data/dem/queens_<id>_elev.csv`). The LIE bake is re-run in memory for the warp and never written.
+
+```mermaid
+graph LR
+  OSM[Overpass per road<br/>motorway + links + junction nodes] --> CL[centreline<br/>midpoint of the two carriageways]
+  CL --> J[junctions<br/>closest approach near a hint]
+  LIE[LIE bake in memory] --> W[LIE warp]
+  J --> W --> Q[placed junctions]
+  CL --> F[per-link floor compaction<br/>solve c_k]
+  Q --> F --> S[per-link rotation<br/>cross-fade at seams]
+  DEM[USGS 3DEP per road] --> P[profile + OSM layer]
+  S --> BIN[queens_id_full.bin]
+  P --> BIN
+  S --> NET[queens_network_full.bin<br/>ROAD JNCT WALL RAMP RPTS]
+```
+
+| Knob | Value | Range tried | Effect |
+|---|---|---|---|
+| `roads.<id>.select` / `exclude` | tag regexes | | Mainline ways (`highway=motorway` implied). BQE excludes the GCP's I-278 overlap |
+| `roads.<id>.from` / `to` | lat, lon | | Walk seeds; the forward walk sets the +s direction |
+| `roads.<id>.walls` | `[end, junction, real m]` | | Work-zone wall that far past a junction, outward. No wall at an end = the data end (BQE north) |
+| `roads.<id>.tail_m` | 3000 | | Compact metres of undrivable road past a wall, clamped to the data |
+| `junctions.<id>` | road a, road b, hint | | Hints are the N0a OSM centres; `search_m` = 800 |
+| `blend_m` | 800 m | 250, 500, 800, 1200 | Cross-fade of the two link fits at an interior junction. GCP km under the floor that are not tight in reality: 0.43, 0.39, 0.28, 0.39 |
+| `curvature_floor_radius_m` | 500 m | | Same floor as the LIE, applied inside each link |
+| `exempt_radius_m` | 500 m | | Real curves tighter than this are reported as real, not invented |
+| `layer_m` | 6.5 m | | Height per OSM layer (about 5 m clearance plus 1.5 m deck) |
+| `junction_ramp_radius_m` | 700 m | | A `motorway_link` belongs to the nearest junction within this |
+| `road_end_tol_m` | 25 m | | A ramp end attaches to a mainline carriageway within this, else 255 |
+
+**Warp.** A real point $p = (x, z)$ (engine metres in the LIE's pinned tangent plane) gets a station on the real
+LIE and a lateral along the corridor's fixed cross axis $\hat{x}$ (right of eastbound):
+
+$$P_z(s) = p_z,\qquad d = p_x - P_x(s),\qquad W(p) = C\big(s_c(s)\big) + d\,\hat{x}$$
+
+with $P$ the real LIE, $C$ the compact LIE and $s_c$ the compaction map ($ds_c/ds = f(s)$). Because compaction keeps
+heading, $C'(s_c)\,f = f\,P'(s)$, and the Jacobian is
+
+$$\det\frac{\partial W}{\partial p} = f(s) \in [0.18, 1] > 0,$$
+
+so the warp never folds, at any distance off the LIE, provided $P_z$ is monotone (asserted over real s = 1 to 30 km).
+The first version used the local normal $W = C + d\,\hat{n}(s)$. It folded: det = -103 on the GCP 4.0 km north of the
+LIE, past the LIE's centres of curvature, where the nearest-point projection jumps. The fixed axis measures the same
+lateral on straight road and is exact on the LIE.
+
+**Per-link fit.** Split a road at its junctions $j_0 < \dots < j_K$. Inside link $k$, compress arc length as the LIE
+does, with heading kept:
+
+$$f_i = \max\!\Big(c_k,\ \min\big(1, R_\text{floor}/R_i\big)\Big),\qquad C_{i+1} = C_i + f_i\,\Delta s\,\hat t_i,$$
+
+with $c_k$ solved by bisection so that $|C_{j_{k+1}} - C_{j_k}| = |Q_{k+1} - Q_k|$, where $Q = W(P_j)$ are the placed
+junctions. Then the two-point similarity, in complex form,
+
+$$T_k(z) = a_k\,(z - C_{j_k}) + Q_k,\qquad a_k = \frac{Q_{k+1} - Q_k}{C_{j_{k+1}} - C_{j_k}},$$
+
+maps both link ends exactly. When $c_k \in (0, 1)$, $|a_k| = 1$ and $T_k$ is a pure rotation, so the floor still
+holds after it. End links (to the walls and tails) use the neighbouring link's $T$. At an interior junction the two
+fits cross-fade:
+
+$$T(z) = (1 - w)\,T_{m-1}(z) + w\,T_m(z),\qquad w = \operatorname{smoothstep}\!\Big(\frac{s - s_m + b}{2b}\Big),$$
+
+and at $s = s_m$ both terms equal $Q_m$, so the junction stays exact. The two-point similarity is the exact
+solution of 2-D Procrustes alignment with two correspondences (scale, rotation, translation; no reflection).
+
+**Measured (2026-11-21 bake).** Link scale = compact / real arc length.
+
+| Road | Link | Scale | $c_k$ | Rotation | Min radius (drivable) | Under 500 m but not tight in reality |
+|---|---|---|---|---|---|---|
+| BQE | lie_bqe to bqe_gcp | 1.044 | 1 (similarity x1.044) | -15.3 deg | 273 m (real 250) | 0 |
+| GCP | bqe_gcp to lie_gcp | 0.797 | 0.763 | +27.4 deg | | |
+| GCP | lie_gcp to gcp_vw | 0.959 | 0.948 | +15.6 deg | | |
+| GCP | gcp_vw to gcp_clearview | 0.578 | 0.241 | -9.7 deg | | |
+| GCP | gcp_clearview to gcp_cip | 0.913 | 0.908 | -0.8 deg | 234 m (real 234) | 0.28 km (min 328 m, at the seams) |
+| Van Wyck | lie_vw to gcp_vw | 0.954 | 0.945 | +6.9 deg | 411 m (real 405) | 0.02 km (min 477 m) |
+| Clearview | lie_clearview to gcp_clearview | 0.984 | 0.984 | +6.9 deg | 273 m (real 180) | 0 |
+| CIP | lie_cip to gcp_cip | 0.994 | 0.994 | +7.0 deg | 437 m (real 419) | 0 |
+
+GCP seam kinks before the cross-fade: 11.8, 25.4 and 8.9 deg. Scales are near 1 on the north-south rungs and about
+0.58 where the GCP parallels the LIE: the warp keeps lateral distance and compresses only along the LIE. That is
+not the plan's "about 1.7:1" everywhere. Scaling the lateral by $f$ as well would give 1.7:1, but a road parallel
+to the LIE would then weave in and out as $f$ changes along the LIE. All five minimum radii are real tight curves
+(exempt). The leftover sub-floor metres are the GCP seam cross-fades. Worst link-endpoint miss: 0.018 m. Junction
+laterals: within 1.0 m on every crossing; the Astoria merge keeps the real 105 m gap (79.7 m after the warp) on the
+GCP side.
+
+Grade separation at the junctions (road a minus road b, m): lie_bqe -11.0, bqe_gcp +2.5, lie_gcp +3.2, lie_vw -15.8,
+gcp_vw -8.7, lie_clearview +3.1, gcp_clearview +20.8, lie_cip +9.8, gcp_cip +22.9. The two GCP stacks (Clearview
+and Cross Island) sit high because OSM tags the GCP main line `layer=3` there.
+
+Sources: CMU 16-385 *Computer Vision* (Gkioulekas), lecture "Image alignment / 2D transformations": fitting
+similarity and affine transforms from point correspondences by least squares; Umeyama, "Least-squares estimation
+of transformation parameters between two point patterns", IEEE PAMI 13(4), 1991 (the closed-form Procrustes
+solution; with two points it reduces to the complex ratio above). Neither was opened this session. OSM extracts
+pulled 2026-11-21; USGS 3DEP via the same ImageServer as the LIE.
+
+## N2a: Queens network runtime
+
+> Written by AI (Claude), 2026-11-21. Code: [CorridorNetwork.h](../../src/scene/Corridor/CorridorNetwork.h),
+> [CorridorNetwork.cpp](../../src/scene/Corridor/CorridorNetwork.cpp) (ramps + handoff, unit-tested),
+> [CorridorNetworkMesh.cpp](../../src/scene/Corridor/CorridorNetworkMesh.cpp) (mesh). Debug build only.
+
+**Knobs** (`road::network` in [RoadParams.h](../../src/scene/RoadScene/RoadParams.h); metres unless noted; rebuild):
+
+| Knob | Value | Range tried / sane | What it does |
+|---|---|---|---|
+| `kRampLaneFt`, `kShoulderLFt`, `kShoulderRFt` | 14, 4, 8 ft | lane 12 to 16 ft | ramp paved width 26 ft; yellow line 4 ft in from the left, white 8 ft in from the right |
+| `kStep` | 4 | 2 to 10 | ramp resample spacing (mesh and queries) |
+| `kSmoothXZ` | 10 | 5 to 20 | plan box filter (two passes): removes OSM node kinks; ends stay put |
+| `kSmoothY` | 40 | 20 to 80 | height box filter (two passes): a 6.5 m layer step spreads over ~160 m (~4 %) |
+| `kWeld` | 3 | 1 to 5 | ramp ends this close share one point (426 of 586 ends are within 1 m of another) |
+| `kLift` | 0.02 | 0.005 to 0.05 | ramp asphalt above the road it rides on (hides the road paint, no z-fight) |
+| `kHandoffDy` | 1.0 | 0.3 to 1.5 | a piece is a handoff candidate only within this height of the car |
+| `kBankEase` | 30 | 10 to 60 | the road bank a ramp borrows while it rides on the road eases to level over this |
+| `kParapetH`, `kParapetW`, `kDeck` | 0.81, 0.30, 1.2 | | parapet (32 in), deck edge and soffit depth |
+| `kPierEvery`, `kPierMinH`, `kPierW` | 30, 4, 1.4 | | a pier column every 30 m where the deck stands 4 m or more over the DEM ground |
+
+Live: `netJumpRoad`, `netJumpKm`, `netJump` in the Corridor panel ("jump to road" teleport; the checkbox clears itself).
+
+**Ramp build.** (1) An end attached to road $r$ is projected onto $r$, its lateral clamped into the carriageway
+window shrunk by the ramp half-width, and its height set to $r$'s surface plus `kLift`. An end past $r$'s pavement
+joins nothing (`from`/`to` = 255). (2) Ends within `kWeld` of each other on the OSM points form one cluster; a
+road-attached member sets the cluster's point, else the mean. (3) The xz shift to the targets is eased linearly
+along the ramp; resample at `kStep`; smooth plan and profile. (4) From each attached end inward, while the ramp
+band overlaps $r$'s pavement, the ramp rides $r$'s plane: $y = y_r(s, t) + \text{lift}$ and the bank turned into
+the ramp's lateral, $b = b_r\,(\hat t_{\text{ramp}} \cdot \hat t_r)$. (5) Between the pins, height = smoothed
+profile + a correction eased linearly between the two anchors:
+
+$$y(u) = \tilde y(u) + o_a + (o_b - o_a)\,\frac{u - u_a}{u_b - u_a}, \qquad o_{a,b} = y_{\text{anchor}} - \tilde y(u_{a,b})$$
+
+so both ends are exact and a flyover keeps its relative rise.
+
+**Handoff rule** (`CorridorNetwork::step`). The car is on one piece $P$ (a road or a ramp). Let $H(P, x, z)$ be
+"$P$ holds the car": for a road, $s$ inside its walls and the lateral inside a drive span on the committed side;
+for a ramp, $0 \le u \le L$ and $|\ell| \le w/2 - \text{inset}$. With $y_{\text{prev}}$ the surface height under
+the car last frame:
+
+$$P' = \begin{cases} P & H(P, x, z) \\ \arg\min_{Q \in C(P)} |y_Q(x,z) - y_{\text{prev}}| & \text{else, over } Q \text{ with } H(Q, x, z) \wedge |y_Q - y_{\text{prev}}| \le \Delta y_{\max} \\ P \text{ (clamped)} & \text{no such } Q \end{cases}$$
+
+$C(\text{road } r)$ = the ramps attached to $r$; $C(\text{ramp})$ = its two roads first (a road that holds the car
+wins, so a merge lands on it), then every other ramp. Roads are never candidates from a road, so a road crossing
+overhead (or underneath) cannot take the car, and a ramp over or under it fails the height test. The LIE keeps its
+own C3 rule (diamonds, service roads); only when the car leaves every LIE piece does it ask `enter_ramp`.
+
+**Measured (2026-11-21 bake).** All 293 ramps built and drawn (cheap: one draw per material per junction). 101 ramps
+join two drivable roads; driving each along its centreline, 96 land on their target road with every handoff inside
+$\Delta y_{\max}$. Exceptions (N3 work): two GCP to LIE links at exit 22 lie inside the GCP pavement (N1 puts the GCP
+only 3.0 m under the LIE there, so the car never leaves the GCP), a 9 m stub at Kew Gardens, a 34 m LIE to GCP link,
+and one that lands back on its own road. Short OSM fragments between levels give steep grades (worst: a 33 m link
+between the LIE and the BQE rises 11 m). 7 ramp ends sit past the Van Wyck north wall: the car stops at their end
+until the N2b work zone. Draw calls registered: +3,528 (57 segments: 48 road + 9 junction ramp segments; LIE 8,709),
+of which only the visible window is recorded. Frame rate in `make debug` at 800x600: 60 fps on the BQE and GCP, 55
+fps at the LIE x Van Wyck junction (densest spot visited).
+
+Sources: MIT 6.006 *Introduction to Algorithms* (Demaine, Ku, Solomon), lectures 9 to 11 on graphs (adjacency
+representation, the network here is a graph with roads as edges and junctions as nodes); Ericson, *Real-Time
+Collision Detection*, ch. 5.1 (closest point on a segment, the ramp projection); AASHTO *Green Book* ch. 10 (ramp
+widths, shoulders) and ch. 3 (superelevation). Not opened this session.
+
+## N2b: work zones
+
+> Written by AI (Claude), 2026-11-22. Owner review pending. Spec: [workzone.md](../queens-network-reference/workzone.md).
+
+Code: [CorridorWorkZone.h](../../src/scene/Corridor/CorridorWorkZone.h) (layout, tested),
+[CorridorWorkZoneMesh.cpp](../../src/scene/Corridor/CorridorWorkZoneMesh.cpp) (mesh), constants in `road::workzone`
+([RoadParams.h](../../src/scene/RoadScene/RoadParams.h)). Debug build only.
+
+**Knobs** (Corridor panel; the first three apply on the next corridor rebuild or restart, the flash rate is live):
+
+| Slider | Default | Range | What it does |
+|---|---|---|---|
+| `wz_sign_spacing` | 1.0 | 0.25-2 | Scales the advance-sign A / B / C spacing (1 = MUTCD freeway) |
+| `wz_drums` | 1.0 | 0.25-2 | Channelizer count: device spacing is divided by it |
+| `wz_arrow_fpm` | 30 | 10-60 | Arrow-board flashes per minute; MUTCD allows 25-40 at 50 % duty |
+| `wz_tail_m` | 2,400 | 0-4,000 | Horizon tail past the wall: asset data, else extruded along the end tangent |
+
+Fixed constants worth trying: `kSpeedMph` (50, the posted parkway speed; sets $L$, device spacing and the buffer),
+`kGapLen` / `kGapClear` (60 m U-turn gap ending 25 m before the hold), `kFaceBack` (8 m from the hold to the barrier
+face: room for the car nose, barricades and the sand-barrel cushion), `kTaperMinK` (0.1).
+
+**Taper and spacing.** Merging taper per closed lane (MUTCD Table 6B-4, $S \ge 45$ mph), tangent $2L$ between tapers
+(6N.11), so closing $N-1$ of $N$ lanes needs
+
+$$L = W S = 12\ \text{ft} \times 50 = 600\ \text{ft} = 182.9\ \text{m}, \qquad T = (N-1)L + 2(N-2)L = (3N-5)L$$
+
+($T = 4L = 731.5$ m for three lanes). Advance signs stand $A$, $A+B$, $A+B+C$ before the first taper:
+$1{,}000$, $2{,}500$ and $5{,}140$ ft ($304.8$, $762.0$, $1{,}566.7$ m), not compressed (driver reaction time does
+not scale with the map). Device spacing: at most $S$ ft in a taper, $2S$ in a tangent, 40 ft (NYSDOT) in the buffer,
+20 ft in the closing taper into the crossover; the code rounds each run's device count up, so spacing $\le$ the limit:
+
+$$n = \left\lceil \frac{\ell}{s_{\max} / k_d} \right\rceil$$
+
+with $k_d$ = `wz_drums`. Buffer: MUTCD Table 6B-2, 425 ft at 50 mph.
+
+**Short links.** The transition ($T$ + buffer + gap) must fit between the wall and the nearest junction on the road
+(minus 30 m). If not, $L$ and the buffer shrink by $k = \max(0.1, (a - g)/(T + B))$; signs keep their MUTCD distances
+upstream of the squeezed taper (they may stand past the junction, as real advance signs do). 2026-11-21 bake: seven
+walls at $k = 1$; Van Wyck north $k = 0.21$ (295 m to the LIE junction) and Clearview north $k = 0.50$ (271 m to the
+GCP junction), CIP south $k = 1$, Van Wyck south $k = 0.97$.
+
+**Measured.** 370 draws for the nine kits (one draw per material per 300 m cluster); the road meshes lost 442 draws
+(no paint past the walls), so the network went from 3,528 to 3,456 registered draws. Arrow lamps are `selfLit` (they
+showed nothing by day before that fix) and flash at $T = 60 / f = 2$ s.
+
+Sources: FHWA MUTCD 11th ed. (2023) Part 6, Tables 6B-1, 6B-2, 6B-4, sections 6K.01-6K.07, 6L.06, 6M.02 (read for
+N0, see workzone.md); NYSDOT Section 619 standard sheets 619-01, 619-10, 619-24, 619-30; Mannering and Washburn,
+*Principles of Highway Engineering and Traffic Analysis*, ch. 5 (queueing at lane closures, not opened this
+session); Purdue CE 361 *Transportation Engineering* lecture notes on work-zone capacity and merge control (not opened
+this session).
+
+## N3: BQE and its junctions
+
+> Written by AI (Claude), 2026-11-22. Owner review pending. Reference: [roads.md](../queens-network-reference/roads.md)
+> section 1 and the junction table.
+
+Code: [CorridorViaduct.h](../../src/scene/Corridor/CorridorViaduct.h), [CorridorNetwork.cpp](../../src/scene/Corridor/CorridorNetwork.cpp)
+(`clear_ramps`, siblings), [CorridorNetworkMesh.cpp](../../src/scene/Corridor/CorridorNetworkMesh.cpp) (`ramp_cut`,
+signs), constants in `road::network` ([RoadParams.h](../../src/scene/RoadScene/RoadParams.h)), bake settings in
+`[roads.bqe]` ([queens_network.toml](../../config/queens_network.toml)). Debug build only.
+
+**Knobs** (Corridor panel; apply on the next corridor rebuild or restart):
+
+| Slider | Default | Range | What it does |
+|---|---|---|---|
+| `net_pier_m` | 30 | 15-60 | Pier-bent spacing under network viaducts (Maspeth BQE spans 25-40 m) |
+| `net_wall_above_m` | 1.07 | 0-3 | Trench retaining wall above the ground at its top (42 in fence parapet) |
+| `net_signs` | on | | BQE guide signs and gore signs |
+
+Fixed constants worth trying: `kViaductMinH` 3 m / `kTrenchMinD` 1.5 m (structure classification), `kRoadDeck` 1.8 m,
+`kClear` 6.1 m / `kClearSpread` 90 m / `kClearEase` 60 m (ramp crossings), `kForkBias` 0.5 m, `kGoreLen` 60 m,
+`kGuideSigns` (rows: road, anchor, board, real-mile offset). Bake: `profile` heights 7.5 / 6.5 / 7.0 m, `lane_floor`,
+`corridor` shoulders, `chain_radius_m` 2,500 m.
+
+**Structure classification.** With $y(s)$ the baked profile and $g(s)$ the DEM ground (`GRND`, 25 m box-smoothed),
+
+$$h(s) = y(s) - g(s), \qquad \text{viaduct} \iff h > 3\ \text{m}, \qquad \text{trench} \iff h < -1.5\ \text{m},$$
+
+spans under 40 m dropped. The forced profile is the bake's raw height $\tilde y = g + \max(\ell\,6.5, h_v)$ on a
+viaduct row ($\ell$ = OSM layer) and $\tilde y = g - h_t$ in a trench row, then the usual low-pass, 5 % grade clamp and
+vertical-acceleration limit. Measured on the 2026-11-22 bake: viaduct $h$ 5-15 m from the wall to Queens Blvd, trench
+$-4$ to $-8.5$ m under the LIRR (16 ft clear plus the rail deck), viaduct 4-10 m to Northern Blvd.
+
+**Ground ease.** Past each span end the ground band rises from verge level ($-0.3$ m on a viaduct, 0 in a trench) to the
+DEM with a smoothstep over $E = 40$ m: $g_b = g_0 + (g - g_0)\,w^2(3 - 2w)$, $w = \min(1, d/E)$.
+
+**Ramp clearance.** Over a junction road's pavement (centreline within its outer edge + 1 m, not where it rides it)
+the deficit is $n_k = c - \Delta y_k$ above ($\Delta y_k \ge -0.5$ m) or $-c - \Delta y_k$ below, $c$ = 16 ft + 1.2 m
+deck = 6.1 m (the upper ramp of a ramp crossing climbs; side-by-side ramps, $|\hat t_a \cdot \hat t_b| > 0.94$, are
+not crossings). The correction is the largest bump
+
+$$\delta(u) = \max_k\ n_k\,\sigma\!\left(1 - \frac{|u - u_k|}{W}\right) \cdot \sigma\!\left(\frac{\min(u - u_a, u_b - u)}{E_c}\right),
+\qquad \sigma(x) = x^2(3 - 2x),\ x \in [0, 1]$$
+
+with $W = 90$ m and $E_c = 60$ m from the pinned ends $u_a$, $u_b$ (welds keep their height). Result at the LIE x BQE
+junction: no ramp point over the LIE or the BQE lacks 14 ft 6 in + deck outside the merge approaches.
+
+**LIE frame for ramps.** The compact LIE alignment is the real EB carriageway line, which the compact cross-section
+puts on the median. A lateral $d$ off that line (positive right of EB) maps to
+
+$$d' = \begin{cases} d + c_e & d \ge 0 \\ c_e\left(1 + \dfrac{2d}{\sigma}\right) & -\sigma \le d < 0 \\ -c_e + (d + \sigma) & d < -\sigma \end{cases}$$
+
+with $c_e$ = 0.38 + 1.22 + 1.5 x 3.66 = 7.1 m (EB lane centre) and $\sigma$ the real carriageway separation (median of
+the WB line's laterals per 100 m). A ramp point $p$ blends that frame and the other road's own frame by nearness:
+$q = q_{LIE} + (q_{BQE} - q_{LIE})\,\frac{d_{LIE}}{d_{LIE} + d_{BQE}}$. The Y legs blend the BQE and GCP frames the same
+way.
+
+**Handoff.** Ramps are one-way: a candidate must satisfy $\hat t_{ramp} \cdot \hat h \ge 0$ for the car's heading
+$\hat h$. At a fork (siblings sharing a start or end), the sibling takes the car while both are within 1 m of its height
+and its centreline is at least `kForkBias` = 0.5 m nearer.
+
+**Measured.** Ramps 293 fragments to 184 chains (305 OSM ways + the LIE's own 56 at exit 17); 39 movements through all
+junctions drivable end to end. Draws: network 3,449 (N2b 3,456), corridor total 12,144; 59-60 fps (vsync cap) at the
+junction on the Arch RTX 3060.
+
+Sources: AASHTO *A Policy on Geometric Design of Highways and Streets* (Green Book, 7th ed.), ch. 10 grade separations
+and interchanges (16 ft Interstate clearance, ramp lanes and shoulders; read for N2a); NYSDOT Highway Design Manual
+ch. 2 (vertical clearance) and Bridge Manual (not opened this session); MUTCD 2009 ch. 2E (guide sign placement,
+1/2 mile advance signs, gore E5-1a); Mannering and Washburn, *Principles of Highway Engineering and Traffic Analysis*,
+ch. 3 (vertical curves); University of Washington CEE 320 *Transportation Engineering* lecture notes on interchange
+types and ramp design (not opened this session); OSM ways fetched 2026-11-21/22 (BQE, legs, crossings).
+
+## N4: GCP and its junctions
+
+> Written by AI (Claude), 2026-11-22. Owner review pending. Reference: [roads.md](../queens-network-reference/roads.md)
+> section 2 and the junction table (LIE x GCP, BQE x GCP).
+
+Code: [CorridorNetwork.cpp](../../src/scene/Corridor/CorridorNetwork.cpp) (`load`: the road under a LIE bridge;
+`clear_ramps`: verge lift, one side per crossing), [CorridorBridges.cpp](../../src/scene/Corridor/CorridorBridges.cpp)
+(`b.net`: the LIE's bridge over a network road), [CorridorViaduct.cpp](../../src/scene/Corridor/CorridorViaduct.cpp)
+(stone-arch overpasses), constants in `road::network` ([RoadParams.h](../../src/scene/RoadScene/RoadParams.h)), bake
+settings in [queens_network.toml](../../config/queens_network.toml). Debug build only.
+
+**Knobs** (Corridor panel; apply on the next corridor rebuild or restart):
+
+| Slider | Default | Range | What it does |
+|---|---|---|---|
+| `net_under_blend_m` | 150 | 50-400 | How far past the LIE bridge's climb the GCP eases back to its own profile |
+
+Fixed constants worth trying: `kUnderHalf` 42 m (bridge half width along the LIE), `kUnderPier` 22 m (piers either side
+of the GCP median), `kUnderDig` 1.4 m (trench floor below D4's), `kUnderFall` 40 m (ramps past the half width keep less
+of the sag), `kVergeSink` 2 m (deepest grass sink that is lifted), `kNetUnder` (crossing names). Bake: `jlinks_radius_m`
+1,500 m, `srv_junctions`, `srv_attach_m` 45 m, `unsqueeze_m` = 80 / 260 m, the GCP `profile` (lon), `lane_floor`,
+`crossing_styles`, `crossing_exclude`, `corridor` shoulders 2 / 8 ft.
+
+**The GCP under the LIE.** D4 puts the under-road at $y_{low}$ = the LIE's lowest point over it minus the deck
+(slab + haunch + girders + overlay, 1.56 m), 14 ft 6 in and `kUnderDig`. With $d$ the distance along the GCP from the
+crossing, $d_f$ the flat under the deck (LIE half width + 8.5 m, times $\sec\theta$ for the skew), $L = 85\,\text{m}
+\sec\theta + B$ and $y_0(d)$ the GCP's own profile:
+
+$$y(d) = \min\!\Big(y_0,\ y_{low} + (y_0 - y_{low})\,\sigma\!\big(\tfrac{d - d_f}{L}\big)\Big), \qquad \sigma(x) = x^2(3 - 2x),\ x \in [0, 1].$$
+
+The junction's ramp points move by the same $\Delta y(s) = y - y_0$ at their GCP station, weighted by
+$w = \sigma\big(1 - \text{clamp}((|t| - A)/F)\big)$ ($A$ the bridge half width across the GCP, $F$ = 40 m). Measured
+(2026-11-22 bake): the LIE stands 3.04 m over the GCP's own profile at the crossing; $y_{low}$ is 8.13 m under the LIE,
+so the GCP drops 5.08 m.
+
+**C/D roads beside the GCP.** The LIE frame compacts LIE stations ($C(s)$, local factor $c \approx 0.5$ at exit 22), and
+near a crossing road that axis is the road's lateral, so its C/D roads landed on its lanes. Within $r_0$ of the crossing
+the LIE station keeps real scale, easing back by $r_1$:
+
+$$s_c = C(s) + \operatorname{sign}(d)\,(1 - c)\int_0^{|d|}\Big(1 - \sigma\big(\tfrac{x - r_0}{r_1 - r_0}\big)\Big)\,dx,
+\qquad d = s - s_J,$$
+
+monotone in $s$ (no fold), $r_0$ = 80 m, $r_1$ = 260 m real. Far ramps shift by at most $(1 - c)(r_0 + (r_1 - r_0)/2)
+\approx 85$ m along the LIE.
+
+**Service roads as C/D.** A link end on a one-way service road (Horace Harding Expwy) more than `srv_attach_m` from the
+LIE walks the road downstream (end) or upstream (start) until it is within it; the walked nodes join the link, and the
+end attaches to the LIE. A LIE-to-LIE piece after that is a slip ramp and is dropped.
+
+**Crossing side.** For each run $R$ of consecutive points over a road's pavement (not beside it: $|\hat t_r \cdot
+\hat t_{road}| \le 0.94$) with gaps $g_k$ (ramp minus road):
+
+$$\bar g = \frac{1}{|R|}\sum_{k \in R} g_k, \qquad n_k = \begin{cases} \max(0,\ c - g_k) & \bar g \ge -0.5\ \text{m} \\
+\min(0,\ -c - g_k) & \text{else} \end{cases}$$
+
+then spread as N3's bump. **Verge lift:** where a ramp's inner edge lies on a junction road's grass verge and it is
+$0 < v < 2$ m under it, $n_k = v + 2$ cm, spread over 30 m (a short ease, so it cannot lift a ramp out of an underpass).
+
+**Measured.** Exit 22: 21 ramps, 13 movements (7 of 8 cloverleaf movements), never held, handoffs within 1 m; loop test
+both ways; no ramp point at exits 17 and 22 or the Y lacks 14 ft 6 in + deck over a road (under the LIE: its D4 deck).
+Draws: network 3,488 (N3 3,449), corridor 12,137; 48-60 fps on the Arch RTX 3060 (49-57 at exit 22).
+
+Sources: AASHTO *A Policy on Geometric Design of Highways and Streets* (Green Book, 7th ed.), ch. 10 interchanges
+(cloverleaf with collector-distributor roads, ramp clearances; read for N2a/N3); NYSDOT Highway Design Manual ch. 2
+(vertical clearance: 14 ft 6 in local minimum, 16 ft Interstate; not opened this session); MUTCD 2009 ch. 2E guide
+signs (1/2 mile advance, E5-1a gore) and ch. 2M route markers (parkway trailblazers; not opened); Garber and Hoel,
+*Traffic and Highway Engineering*, ch. 15 on interchange types (not opened this session); University of Washington
+CEE 320 *Transportation Engineering* lecture notes on interchange and ramp design (not opened); roads.md (WP-GCP,
+NYCR-GCP); OSM ways fetched 2026-11-22 (`queens_jlinks_lie_gcp.json`, `queens_gcp_xing.json`).
+
+## N5: the rungs (Van Wyck, Clearview, Cross Island)
+
+> Written by AI (Claude), 2026-11-22. Owner review pending. Reference: [roads.md](../queens-network-reference/roads.md)
+> sections 3-5 and the junction table (LIE x VW / Clearview / CIP, Kew Gardens, the Clearview stack, GCP x CIP).
+
+Code: [CorridorNetwork.cpp](../../src/scene/Corridor/CorridorNetwork.cpp) (`load`: a rung under a LIE bridge rises or
+sinks to its trench floor; `build_ramps`: pins past half way; `clear_ramps`: shoulder lift, headroom, rounds with
+re-welds; `step`: the end the car leaves by), [CorridorViaduct.cpp](../../src/scene/Corridor/CorridorViaduct.cpp)
+(structures over any network road), constants in `road::network` ([RoadParams.h](../../src/scene/RoadScene/RoadParams.h)),
+bake settings in [queens_network.toml](../../config/queens_network.toml). Debug build only.
+
+**Knobs** (Corridor panel; apply on the next corridor rebuild or restart):
+
+| Slider | Default | Range | What it does |
+|---|---|---|---|
+| `net_hug_ease_m` | 15 | 5-60 | How close to its gore (pin) a ramp sunk into a road's shoulder is still lifted onto it |
+
+Fixed constants worth trying: `kHugEase` 15 m (the slider's default), `kPinPastDy` 4 m (a ramp rides its road past
+half its length only this level with it), `kClearPasses` 8 (clearance and re-weld rounds), `kJunctionExits` + 26, 27,
+28, 31, `kOwnedCrossings` + "Van Wyck", `kNetUnder` + "Clearview", "Cross Island". Bake: `lie_links` + `lie_vw`,
+`lie_clearview`, `lie_cip`; `srv_junctions` + `lie_vw`; `net_links` (junction-wide link fetch at the GCP junctions);
+`profile = []` on the three rungs (GRND block: structures and NJ median); `crossings = "bbox"` on the Clearview and
+the CIP; CIP shoulders 2 / 8 ft.
+
+**Rungs under the LIE.** N4's sag $y = \min(y_0, \ldots)$ only lowered a road. The CIP lies 9.8 m under the LIE,
+below the D4 trench floor, so the bridge's piers stood 2 m over it. Without the min the rung meets the floor either way:
+
+$$y(d) = y_{low} + (y_0 - y_{low})\,\sigma\!\left(\tfrac{d - d_f}{L}\right), \qquad \sigma(x) = x^2(3 - 2x),\ x \in [0, 1].$$
+
+For the GCP ($y_0 > y_{low}$ everywhere near the bridge) this is the N4 curve. The Clearview drops 5 m to the floor,
+the CIP rises about 2.4 m to it.
+
+**Shoulder lift.** A ramp point $k$ with its centreline off a junction road's pavement ($|t| \ge E$) but its band
+over it ($|t| - w < E$, $w$ the half width) needs $n_k = y_{road}(s, \operatorname{sign}(t)\max(0, |t| - w)) + 2\,\text{cm}
+- y_k$ when $0 < n_k < 2$ m (deeper is an underpass). Over the verge the N4 rule stays. The bump is the N3 one with
+$W = 30$ m, eased to 0 over `net_hug_ease_m` from a road pin (60 m for the clearance passes).
+
+**Pins past half way.** The pin (a ramp riding its road's plane from an attached end) stopped at half the ramp. At
+GCP x CIP a 280 m C/D runs 220 m inside the GCP's right lane, so the car stayed on the GCP and never reached the
+ramp. The pin now continues past half way while the ramp's smoothed profile is within `kPinPastDy` = 4 m of the road
+(not a flyover above its lanes; 2 m left the C/D unpinned, no limit pinned a BQE flyover to the LIE).
+
+**Clearance rounds.** Welded ends move with the clearance bumps now (only road pins hold). After each round every weld
+group meets again at its mean height $\bar y$, each member eased from its end: $\Delta y(d) = (\bar y - y_{end})\,
+\sigma(1 - d / 60\,\text{m})$. In a stack an upper ramp may climb at most the headroom under a road over it,
+$h_k = y_{road} - c - y_k$ ($c$ = 16 ft + deck = 6.1 m); the rest of the deficit drops the lower ramp. Rounds of
+(shoulder lift, road crossings, ramp crossings, re-weld), with the clearance test widened to every junction: 47
+ramp points short of 14 ft 6 in + deck with one round and no headroom, 17 with the headroom and one re-weld, 10 after
+three rounds, 1 after six, 0 after eight (twelve oscillates and breaks a rung walk).
+
+**Handoff.** Off a ramp, only the road at the end the car leaves by is a candidate ($u \ge L/2$: the to-road, else
+the from-road). A C/D welded on beside its from-road no longer hands the car back to it.
+
+**Kew Gardens.** OSM joins the Van Wyck and the GCP only GCP EB to VW SB and VW NB to GCP WB (the JFK movements);
+VW SB to the GCP and the GCP to VW NB go through Union Tpke and the LIE C/D in OSM, which the network does not model.
+The handoff test drives LIE EB to VW SB, the south work zone's median gap, VW NB to GCP WB, and back GCP EB to VW
+SB, the gap, VW NB to the LIE.
+
+**Measured.** Movements (junction: drivable movements): LIE x VW 3 (LIE EB to VW SB, VW NB to LIE EB and WB); Kew
+Gardens 2; LIE x Clearview 8 (the full cloverleaf); the Clearview stack 6; LIE x CIP 4 (no SB CIP to WB LIE, as
+built); GCP x CIP 10 (GCP WB to CIP both ways new). Ramps 186 to 199. Shoulder sinks over 0.25 m (away from welds,
+pins and underpass approaches): 62 points to 0. Overpasses: Van Wyck 25, Clearview 15, CIP 16. Network draws 3,549
+(N4 3,488), corridor 12,029; 49-60 fps on the Arch RTX 3060 (headless 1920 x 1080) at the rung junctions.
+
+**Open.** Ramp grades: over 12 m the steepest ramp segments reach 54-93 % next to pins and welds on 92 of 199 ramps
+(> 12 % anywhere): the N1 heights (DEM + layer x 6.5 m) meet the road pins and the clearance bumps in short
+stretches. A box filter over the final heights (20 m, pins held) halved them but broke clearance; the fix is a
+grade-limited profile solve per movement (N7). A double-welded 80 m piece at the Clearview stack (5706870) cannot
+ease to its crossing (exempt in the clearance test).
+
+Sources: AASHTO *A Policy on Geometric Design of Highways and Streets* (Green Book, 7th ed.), ch. 10 (ramp grades
+3-6 % desirable, interchange types: full cloverleaf with C/D roads, four-level stack; read for N2a/N3); NYSDOT Highway
+Design Manual ch. 2 (16 ft Interstate clearance; not opened this session); MUTCD 2009 ch. 2E guide signs (1/2 mile
+advance, E5-1a gore) and ch. 2M (parkway trailblazers; not opened); Garber and Hoel, *Traffic and Highway
+Engineering*, ch. 15 on interchange types (not opened this session); University of Washington CEE 320
+*Transportation Engineering* lecture notes on interchanges and ramp design (not opened); roads.md (WP-VW, WP-CLV,
+WP-CIP, NYCR-VW, NYCR-CLV, NYCR-CIP); OSM ways fetched 2026-11-22 (`queens_jlinks_lie_vw.json`,
+`queens_jlinks_lie_clearview.json`, `queens_jlinks_lie_cip.json`, `queens_jlinks_gcp_vw.json`,
+`queens_vanwyck_xing.json`).
+
+## N6: ramp grades, closed local exits, guide signs per road
+
+> Written by AI (Claude), 2026-11-22. Owner review pending. Reference: [roads.md](../queens-network-reference/roads.md)
+> (sign type per road), [workzone.md](../queens-network-reference/workzone.md) (EXIT CLOSED), decision 8 in
+> [tasks/todo.md](../../tasks/todo.md).
+
+Code: [CorridorNetwork.cpp](../../src/scene/Corridor/CorridorNetwork.cpp) (`grade_ramps`, the closed-exit rule in
+`build_ramps`, the hold in `step`, `network_signs`), [CorridorSigns.cpp](../../src/scene/Corridor/CorridorSigns.cpp)
+(`add_exit_signs`, parkway posts, plaques), [CorridorNetworkMesh.cpp](../../src/scene/Corridor/CorridorNetworkMesh.cpp)
+(a segment per closed exit), constants in `road::network` / `road::workzone`
+([RoadParams.h](../../src/scene/RoadScene/RoadParams.h)), stubs in [tools/queens_network.py](../../tools/queens_network.py)
+(`stub_m` in [queens_network.toml](../../config/queens_network.toml)), boards in
+[tools/sign_corridor.py](../../tools/sign_corridor.py). Debug build only.
+
+**Knobs** (Corridor panel; apply on the next corridor rebuild or restart):
+
+| Slider | Default | Range | What it does |
+|---|---|---|---|
+| `net_max_grade` | 0.08 | 0.04-0.15 | Grade limit of the ramp profile solve (fraction); a ramp with no room at this grade gets the least grade that fits |
+| `wz_exit_gore_m` | 60 | 20-150 | A closed exit's barricades this far past its gore (the car is held `kExitHold` = 9 m before them) |
+
+Fixed constants worth trying: `kGradeSmooth` 12 m (box radius that rounds the grade breaks), `kMaxGradeTight` 0.11
+(test cap for the tight ramps), `kExitHold` 9 m, `kPostScale` 0.6, `kPostLift` 2.1 m, `kPostOut` 3 m, `kDirBefore` 60 m,
+`kClosedW` 0.4, `kParkways` {GCP, CIP}. Bake: `stub_m` 300 m (real).
+
+**Ramp grades (the N5 leftover).** N5 left 54-93 % over 12 m next to pins and welds (120 of 199 ramps over 8 %): the
+N1 heights (DEM + layer x 6.5 m) met the road pins, the re-welds and the clearance bumps in a few metres. A box filter
+broke clearance (N5). The fix solves every profile at once as a system of difference constraints over the ramp graph
+(points joined along each ramp and at every weld, so a weld is one shared height and a climb spreads along the whole
+chain), with $u$ the arc length:
+
+$$|y_{k+1} - y_k| \le g\,(u_{k+1} - u_k), \qquad y_k = y^0_k \ \text{(pinned on its road)}, \qquad y_a = y_b \ \text{(welded ends)}$$
+
+$$y_k \ge \min(y^0_k,\ y_{road} + c) \ \text{(over a junction road's pavement)}, \qquad y_k \le \max(y^0_k,\ y_{road} - c) \ \text{(under it)}$$
+
+$$y_a - y_b \ge \min(c,\ y^0_a - y^0_b) \ \text{(ramp } a \text{ over ramp } b \text{ by at least 1 m)}, \qquad y_k \ge y_{edge} + 2\ \text{cm} \ \text{(on a shoulder)}$$
+
+with $c$ = 16 ft + deck = 6.1 m and $g$ = `net_max_grade`. "Never worse than now, never more than needed": the clearance
+bounds keep N3-N5's clearance and the clearance test's exemptions (within `kClearEase` of the road it merges onto). The
+band $[\underline{y}, \overline{y}]$ is the least solution of the $\ge$ constraints from the lower bounds (longest-path
+relaxation, Bellman-Ford over the graph) and the greatest solution from the upper ones. The target $t$ = the N5 profile
+clamped into the band; the answer is the mean of the greatest feasible profile under $t$ and the least one over it
+(both feasible, so their mean is: the set is convex), then a 12 m box filter and the same fit again:
+
+$$y = \tfrac12\left(\lfloor t \rfloor_g + \lceil t \rceil_g\right), \qquad \lfloor t \rfloor_g = \max\{y \text{ feasible} : y \le t\}, \quad \lceil t \rceil_g = \min\{y \text{ feasible} : y \ge t\}.$$
+
+Where the band is empty on a ramp (pins, welds and 16 ft leave no room in the compact layout), that ramp's $g$ grows by
+2 % steps until it is not. A shallow sink into a road's grass verge (N4's lift) only raises the target, so grade wins
+over it. Shoulder floors are judged on the solved profile (an underpass dive within 90 m frees them), solved again
+while new ones appear.
+
+**Measured (2026-11-22 bake, graded LIE).** 233 ramps; steepest neighbour-to-neighbour grade: 210 at or under 8 %, 22 at
+8.2-10.6 % (the LIE x BQE, LIE x Clearview, the stack, GCP x CIP), one LIE x CIP pair (OSM 38902162 / 38902355) at 19.9 %:
+it passes under the LIE and over the CIP-level ramp within 30 m (was 51.7 %; open, N7 re-layout). Before: 54-93 % on
+92 ramps over 12 %. Clearance (0 points short), shoulder sinks (0), every N3-N5 movement, loop and hand-off test stay
+green. AASHTO allows about 2 % more on one-way downgrades than the 6-8 % ramp range; 10.6 % is past that, so the tight
+ramps are logged, not hidden (test: at most 23 ramps over 8 %, each under `kMaxGradeTight` except the pair).
+
+**Closed local exits (decision 8).** Bake: every `motorway_junction` on a network road's drivable span whose link is
+no network ramp gets a stub, its OSM link chain from the node (plain joins, up to `stub_m` real metres) through the
+road's own frame, flagged `stub` in the RAMP record (34: BQE 8, GCP 21, Van Wyck 1, Clearview 1, CIP 3). Runtime: a
+ramp is *live* when a road is reachable past its end (a fixpoint over the welds, a merge onto a ramp's road-attached
+end counts); a dead ramp leaving a network road, or a dead branch off a live ramp, is *closed* (the LIE keeps its
+exits). Closed from roads: BQE 9, GCP 27, Van Wyck 5, Clearview 2, CIP 5, plus 15 fork branches. The barricade line
+stands at $u_0$ = pin + `wz_exit_gore_m` (a fork branch: 30 m past where its band clears its siblings'), the car is
+held at $u_0 - 9$ m, and past it only a live ramp may take the car back (no hand-off through the closure). The N2b
+`exit_closure` kit (edge drums 30 m, Type III barricades with the EXIT CLOSED board, cones) is drawn there, one segment
+per closed exit.
+
+**Guide signs per road (MUTCD 2E).** Every exit record on a network road's drivable span gets, from `kNetExits`:
+advance boards by the D3 collapse rule (1 mile and 1/2 mile, else one, else 1/4 mile; the D3 distance strip hangs
+under a board drawn without one), an exit-direction sign `kDirBefore` = 60 m before the gore (the board with the
+up-right arrow strip, MUTCD 2E.37), and the E5-1a gore sign; exits an N3-N5 `kGuideSigns` row already signs get only
+the exit-direction sign (that board with its "1/2 MILE" line cropped). A closed exit's boards carry the orange EXIT
+CLOSED plaque under them, $w = 0.4 \times$ the board width ($\approx$ 8 x 5 ft under a 20 ft board). Interstates (BQE,
+Van Wyck, Clearview) use the D3 overhead trusses; parkways (GCP, CIP, `kParkways`) roadside boards on two posts at 0.6
+scale, 7 ft over the ground, 3 m past the shoulder or the ramp alongside (NYSDOT parkway practice; a left exit is
+signed over the left lane). 71 `kNetExits` rows; 37 new boards (one cell per legend, both directions share it) and
+27 new gore cells; the kit atlas grows to 2048 x 7104 with every earlier cell pixel-identical. Built: 136 boards on
+trusses or posts, 67 gore signs, 86 boards with the plaque.
+
+**Measured.** Network draws 3,549 to 4,329 (66 closed-exit segments with their kits, the new signs), corridor 12,809;
+60 fps (vsync cap) on the Arch RTX 3060 headless 1920 x 1080 at every shot spot, 36 fps on the 2560 x 1440 DP-1 output.
+
+Sources: AASHTO *A Policy on Geometric Design of Highways and Streets* (Green Book, 7th ed.), ch. 10 (ramp grades:
+3-6 % desirable, up to 8 %, about 2 % more on one-way downgrades; read for N2a/N5); FHWA MUTCD 11th ed. (2023) ch. 2E
+(2E.12 closed exits on guide signs, 2E.37 exit direction signs, E5-1a gore signs, 1 mile / 1/2 mile advance signs) and
+ch. 6F/6K (EXIT CLOSED panels, channelizers; read for N0, see workzone.md); NYSDOT Highway Design Manual ch. 2 (16 ft
+clearance) and the NYSDOT sign manual on parkway guide signs (not opened this session); Cormen, Leiserson, Rivest and
+Stein, *Introduction to Algorithms*, 3rd ed., section 24.4 (systems of difference constraints via Bellman-Ford);
+Mannering and Washburn, *Principles of Highway Engineering and Traffic Analysis*, ch. 3 (vertical alignment); MIT
+6.006 *Introduction to Algorithms* lecture notes on Bellman-Ford (not opened this session); OSM ways fetched
+2026-11-21/22 (the cached road extracts; no new fetch).
+
+## N7: look per road, network ground, soffits, LIE x CIP grade
+
+> Written by AI (Claude), 2026-11-22. Owner review pending. Reference: [roads.md](../queens-network-reference/roads.md)
+> (per-road table), the CC photos in [photos/](../queens-network-reference/photos/), decision 9 in
+> [tasks/todo.md](../../tasks/todo.md).
+
+Code: [CorridorGround.cpp](../../src/scene/Corridor/CorridorGround.cpp) (the network ground),
+[CorridorNetwork.cpp](../../src/scene/Corridor/CorridorNetwork.cpp) (`dress`, the parkway clearance in `grade_ramps`),
+[CorridorDressing.cpp](../../src/scene/Corridor/CorridorDressing.cpp) (kits from LOOK rows, ground heights, keep-out),
+[CorridorDiamonds.cpp](../../src/scene/Corridor/CorridorDiamonds.cpp) (`cmesh::soffit`), data in
+[queens_network.toml](../../config/queens_network.toml) (`look` rows per road), baked by
+[tools/queens_network.py](../../tools/queens_network.py) into each road's `LOOK` block. Constants in `road::network`
+([RoadParams.h](../../src/scene/RoadScene/RoadParams.h)). Debug build only.
+
+**Knobs** (Corridor panel; apply on the next corridor rebuild or restart):
+
+| Slider | Default | Range | What it does |
+|---|---|---|---|
+| `net_dress` | on | on / off | N7 roadside (kits, lamps, W-beam, sound walls) and the network ground; off = the N6 look |
+| `dress_density` (D5) | 1.0 | 0-2 | Tree and building density, now on the network roads too |
+| `dress_far_m` (D5) | 250 | 0-500 | How far past the verge trees and buildings go (the network has no far strip: the ground replaces it) |
+| `edge_wall_h_m` (D2) | 4.5 | 3-6 | Sound-wall height (GCP at the Nassau line) |
+| `landmark_graves` (D6) | | | Headstone density (the BQE over New Calvary uses the exit 17 kit) |
+
+Fixed constants worth trying: `kGroundFine` 16 m, `kGroundCoarse` 96 m, `kGroundNear` 220 m, `kGroundMargin` 2,600 m,
+`kGroundSink` 0.12 m, `kGroundLieSink` 0.3 m, `kGroundDem` 0.3 m, `kGroundDrop` 1 m, `kGroundCut` / `kGroundFill` 0.5
+(1V:2H), `kGroundReach` 60 m, `kGroundIdw` 300 m, `kGroundSoft` 30 m, `kParkwayClearFt` 12.5 ft.
+
+**Look per road.** Each road's `look` rows (real lat or lon ranges, first match wins, the horizon tails included) name a
+LIE D5 kit by exit number, a lamp kind, an edge and a pavement:
+
+| Road | Stretches (kit) | Lamps | Edge | Pavement |
+|---|---|---|---|---|
+| BQE | Maspeth industry (18), New Calvary (17), Woodside walk-ups (24) | median twin davits | parapets / trench walls | concrete viaducts and trench (SV-3) |
+| GCP | Astoria (24), LaGuardia / Flushing Meadows lawns (22), Kew Gardens / Briarwood (24), Cunningham / Alley Pond woods (30), Nassau line (34) | median twin davits | W-beam in the woods (SV-6), sound walls at the Nassau line | concrete RFK to exit 4 (SV-1) |
+| Van Wyck | Willets Point (18), Flushing Meadows (22), Kew Gardens (24) | tall roadside singles (SV-7) | W-beam in the park | asphalt, concrete viaducts |
+| Clearview | Bayside (24), Cunningham Park (30) | roadside singles | W-beam (SV-9) | asphalt |
+| CIP | Little Neck Bay houses (24), Alley Pond (30), Glen Oaks (24) | median twin davits (SV-10) | W-beam (SV-11) | asphalt |
+
+All five medians are the N3 NJ barrier (roads.md). Lamp spacing is the D5 rule (median twins 60 m, Queens outer
+singles 120 m, roadside singles 65 m; IES RP-8 / FHWA Lighting Handbook 2012 range). Rails and walls stop over
+structures (parapets, retaining walls) and 25 m round every attached ramp that runs beside the road.
+
+**Network ground.** One field under the whole network, so the void past the verges, the floating verge plateaus and
+the bare slabs at junctions are gone. The DEM part is an inverse-distance blend (Shepard 1968) of every road's GRND
+ground, the LIE's profile and each ramp's pier foot:
+
+$$H_{dem}(x) = \frac{\sum_i w_i\, y_i}{\sum_i w_i}, \qquad w_i = \frac{1}{\lVert x - x_i \rVert^2 + s^2}, \quad s = 30\ \text{m}, \ \lVert x - x_i \rVert < 300\ \text{m}$$
+
+Each at-grade pavement band $f$ (a road over its lanes and verge, a ramp under 4 m over the DEM, a trench over its
+lanes, a D4 road under the LIE) bounds it, with $e$ the distance past the band plus one grid-cell diagonal $c$:
+
+$$U_f = y_f - \sigma + 0.5\,e, \qquad L_f = y_f - \sigma - 0.5\,e, \qquad e = \max(0,\ d_f - c), \ e < 60\ \text{m}$$
+
+$$H = \min\!\Big(\max\big(H_{dem} - 0.3\ \text{m},\ \max_f L_f\big),\ \min_f U_f\Big)$$
+
+so the ground meets every road and ramp edge, slopes away at 1V:2H (AASHTO *Roadside Design Guide* recoverable slopes)
+and never covers pavement (cut wins over fill). With $e$ measured past one cell diagonal, every grid triangle that
+touches a band has all three corners under it, so linear interpolation cannot poke through. $\sigma$ = 0.12 m under
+network pavement and verges, 0.3 m under the LIE's level ground (its D5 far strip sits 0.2 m down). A 16 m grid runs
+within 220 m of every network road and ramp, a 96 m grid 1 m lower out to 2.6 km past the network (the 2.4 km far
+plane), skipping coarse cells wholly under fine ones; the fine grid's rim drops to the coarse level. 32 x 32 and
+16 x 16 cell tiles, one grass draw each. Viaducts keep their N3 ground bands (0.3 m over the field).
+
+**Dressing on the ground.** Network trees and buildings stand on the verge where there is one, on the structure's
+ground band beside viaducts and trenches, else on the field. Every dressing (the LIE's too, in debug) keeps off
+other roads' and every ramp's pavement: trees 12 m (the AASHTO clear zone the D5 kit uses), buildings 14 m, lamps
+1 m, headstones 2 m. A road's verge is cut (per side) where an attached ramp lies over its verge band within 1.5 m of
+its level, so the ramp asphalt no longer sits about 10 cm under the grass (the N6 seam) and the field fills the gore.
+
+**Soffits.** `emit_strip` always computes up-facing normals; the N3 viaduct and N2a ramp soffits used it with their
+edges swapped "to face down", so a soffit was shaded as an up-facing surface inside its own deck's sun shadow: sky
+only, navy to black. `cmesh::soffit` emits them with down normals, and the D4 ground bounce lights them,
+
+$$E_b = \rho_g\,E_g\,\frac{1 - N_y}{2} = \rho_g\,E_g \quad (N_y = -1),$$
+
+warm grey under a sunlit road. No shader change: the release build and the LIE are byte-identical. The pavement under
+a deck stays in sky-only shadow as on the LIE (a physically fuller under-deck term would make it darker, not lighter;
+left for an owner call). No underside luminaires: the BQE and GCP viaducts carry no under-deck lights in the
+reference photos.
+
+**LIE x CIP grade.** The ramp pair OSM 38902162 / 38902355 passes under the LIE and over the CIP 24 m apart in the
+compact layout (real: the bridge way 43127829 starts at the crossing, about 50 m to the CIP's far carriageway). With
+16 ft + deck at both, the climb is $\Delta y = (y_{CIP} + 6.1) - (y_{LIE} - 6.1) = 3.8$ m over 24 m, 16-20 %. Both
+crossings carry parkway traffic (cars only; the CIP photos show 10 ft 7 in to 11 ft 6 in posted), so the grade solve
+uses `kParkwayClearFt` = 12.5 ft + deck over a parkway, and 12.5 ft + the LIE's girder depth under a road for a ramp
+to or from a parkway. Result 10.8 % (was 19.9 %), inside `kMaxGradeTight`; 17 tight ramps at 8.5-10.8 % (N6: 22 + the
+pair). At the real spacing the same climb would be under 6 %. Clearance test: parkway pairs at 12.5 ft + deck.
+
+**Measured (2026-11-22, Arch RTX 3060, headless 1920 x 1080, debug).** Network 5,630 draws (N6 4,329: +514 network
+segments' ground tiles, lamps, kits, rails), corridor 14,110 (N6 12,809); 55-60 fps on every road and junction.
+
+Sources (not opened this session unless noted): AASHTO *Roadside Design Guide* (2011), ch. 3 (clear zone, recoverable
+slopes); NYSDOT *Highway Design Manual* ch. 2 (vertical clearance); IES RP-8 and the FHWA *Lighting Handbook* (2012);
+D. Shepard, "A two-dimensional interpolation function for irregularly-spaced data", ACM National Conference 1968; MIT
+6.837 and Cornell CS 4620 lecture notes on irradiance and view factors (the ground-bounce term); roads.md and the CC
+photos (read this session).
+
+## N8: landmarks (decision 9)
+
+> Written by AI (Claude), 2026-11-22. Owner review pending. Reference: [landmarks.md](../queens-network-reference/landmarks.md)
+> and the CC photos in [photos/](../queens-network-reference/photos/) ([CREDITS](../queens-network-reference/photos/CREDITS.md)),
+> decision 9 in [tasks/todo.md](../../tasks/todo.md).
+
+Code: [CorridorNetLandmarks.cpp](../../src/scene/Corridor/CorridorNetLandmarks.cpp) (every landmark, the keep-out and the
+lateral slide), hooks in [CorridorNetworkMesh.cpp](../../src/scene/Corridor/CorridorNetworkMesh.cpp) (one segment each, the
+Jamaica Yard crossings skipped), [CorridorGround.cpp](../../src/scene/Corridor/CorridorGround.cpp) (keep-out circles) and
+[CorridorDriver.cpp](../../src/scene/Corridor/CorridorDriver.cpp) (the far segment). Data: `landmarks` rows in
+[queens_network.toml](../../config/queens_network.toml), baked by [tools/queens_network.py](../../tools/queens_network.py)
+into the network file's `LMRK` block ([CorridorNetworkAsset.h](../../src/scene/Corridor/CorridorNetworkAsset.h)
+`NetworkLandmark`). Sizes in `road::netmarks` ([RoadParams.h](../../src/scene/RoadScene/RoadParams.h)). Debug build only.
+
+**Knobs** (Corridor panel; next corridor rebuild or restart):
+
+| Slider | Default | Range | What it does |
+|---|---|---|---|
+| `net_landmarks` | on | on / off | All N8 landmarks; off also gives the Jamaica Yard crossings back to the generic rail overpass |
+| `lm_sign_nits` | 400 | 100-5,000 | LED price digits on the gas station's pole sign (self-lit, day and night; 900 bloomed to white at dusk) |
+| `lm_far_scale` | 3.0 | 1-4 | Live: the Throgs Neck's angular size; 1 = true size (see below) |
+
+Fixed constants worth trying (metres): `kGasOut` 24 (canopy centre past the outer edge), `kCanopyH` 4.9 (16 ft),
+`kFascia` 1.2, `kCanopyNits` 1,500 and `kCanopyLumens` 40,000 per spot (two spots), `kArchWing` 25, `kHaunchFt` 10.5,
+`kStaRise` 7 (platform over the 31st St deck), `kYardClearFt` 12.583 (12 ft 7 in), `kYardGirder` 2.4,
+`kFenceOut` 30, `kRunwayLight` 60, `kRunwayNits` 6,000, `kCitiA` / `kCitiB` 130 / 112, `kAsheR` 95,
+`kSightRun` 350, `kKewGirder` 1.6, `kTnbDraw` 1,000, `kTnbSight` 1,500.
+
+**Placement.** Each row is a kind, a road and one or two real (lat, lon) points (OSM / Wikipedia, landmarks.md). The bake
+projects every point onto its road's real centreline and keeps the ramps' frame rule: compact station, real lateral
+
+$$s = C(s_r) + (p - q)\cdot\hat t, \qquad t = (p - q)\cdot\hat n,$$
+
+with $q$ the nearest centreline point, $C$ the road's real-to-compact station map, $\hat n$ its right normal; the along
+term is zero except past a data end (the Throgs Neck towers lie 2 km past the Clearview asset, so they extend along its
+end tangent). A building (gas station, stadiums, terminal) then slides along its lateral in 10 m steps to the nearest
+spot whose footprint disc clears every road's pavement and every ramp: the per-link compaction moves ramps relative to
+a landmark, and a LIE x Van Wyck ramp ran through Citi Field (slid 120 m east; the others did not move).
+
+| # | Landmark | Road, station | Real lateral | Built from |
+|---|---|---|---|---|
+| 1 | Cunningham Park service area | GCP 14.04 km | median (+3 m) | canopy on four island columns, generic teal fascia, eight pumps, stone kiosk with a hipped slate roof and a lit window, pole sign with 3 x 4 red LED digits, two 4,000 K canopy spots |
+| 2 | Stone arch, GCP over the CIP | CIP 5.98 km (junction `gcp_cip`) | | D4 `emit_arch` on both GCP faces, one arch per carriageway, ashlar piers, 25 m wing walls |
+| 3 | Astoria Blvd station | GCP 1.37 km (31st St crossing) | +26 m | steel bents past the edges, two track girders, platform, windscreens, red-brown gable canopy (both faces), mezzanine with windows |
+| 4 | Jamaica Yard bridge | GCP 11.0 km | +8 m | granite centre pier and abutments, 2.4 m plate girders with stiffener panels (30 % rust-streaked), yellow 12 ft 7 in plates, cream railing |
+| 5 | LaGuardia edge | GCP 3.02-5.27 km | -410 m (north) | white wall + chain-link 30 m past the edge (off ramps), runways 4-22 and 13-31 end to end with edge and threshold lights, Terminal B with a glass block, the tower, three jets on the apron |
+| 6 | Citi Field, Arthur Ashe Stadium | GCP 6.63 / 7.34 km | -583 (-703) / -268 m | elliptic brick bowl with a limestone band, dark steel upper ring and six light towers; ribbed pale concrete ring with a white roof and six masts; raked seats and field inside |
+| 7 | Kew Gardens | junction `gcp_vw` | | light-blue plate girders under every elevated ramp |
+| 8 | Throgs Neck Bridge | Clearview -2.0 / -2.5 km | -145 / +30 m | two towers (legs, three struts), deck and truss over the side spans, parabolic main and side cables, anchorages |
+
+**Far segment (Throgs Neck).** The towers are 4.8 km from the CIP north wall and 5.0 km from the Clearview north wall
+(tested: 1.7 deg off the Clearview's axis), past the 2.4 km far plane. Their segment is drawn like the D5 skyline card,
+scaled about the camera by $k = D/R$ so bearing and angular size stay true, but without turning to face the camera:
+
+$$x' = c + k\,(x - c), \qquad k = \min\!\Big(1, \frac{D}{R}\Big), \quad D = 1\ \text{km},$$
+
+$c$ the camera, $R$ its distance to the segment origin (the Queens tower). The skyline's $D$ = 2 km hazed a grey tower
+to the sky colour; 1 km keeps it readable. Trees are kept out of three 1.5 km lines from each wall within 8 km toward
+the towers (past that a 15 m tree subtends under 0.6 deg).
+
+At true size the bridge does not read on screen: the frame is 1,080 px over a 65 deg vertical field, so one pixel is
+
+$$\frac{65 \cdot 60}{1080} \approx 3.6\ \text{arcmin},$$
+
+and a 6 m tower leg at 5 km subtends $6 / 5000\ \text{rad} \approx 4.1$ arcmin: one pixel, washed out by the haze (checked
+with $D$ forced to 300 m: still not visible). The eye resolves about 1 arcmin, so a driver sees the legs about 3.6 times
+"wider" than the screen shows. `lm_far_scale` (default 3) scales the far segment about its own origin after the
+camera scale, a deliberate legibility exaggeration; 1 restores true size. Final shot from the Clearview, 600 m before
+its north wall: the towers and cables sit just over the work-zone overpass, as on the approach (landmarks.md #8). From
+the CIP north wall the CIP curves and the woods hide them.
+
+**Keep-out.** Each landmark registers keep-out circles (no ground effect) in the N7 ground's pavement hash, so trees and
+buildings keep off it: the footprint (gas forecourt, both stadiums, the terminal, the runways, 30 m discs every 25 m),
+the airfield past the fence (six rows, 45 m apart), and a sightline fan for the stadiums and the terminal: seven
+lines from the road edge within `kSightRun` = 350 m of the station to the building, the D6 Unisphere wedge rule
+(Lynch, *The Image of the City*: a landmark works when it is seen on approach).
+
+**Lights.** Canopy panels (1,500 nits), the kiosk window (250), Astoria's mezzanine windows (200), the terminal glass
+(150), the tower cab (300), runway edge and threshold lights (6,000) and stadium lamp banks (8,000) are emissive and light
+with the street lamps; the LED price digits are self-lit (`lm_sign_nits`, LED signs run day and night). Two canopy spots
+join the lamp list: $I = \Phi / \big(2\pi(1 - \cos\theta)\big)$ with $\Phi$ = 40,000 lm, $\theta$ = 70 deg
+(`cone_candela_from_lumens`), 4,000 K.
+
+Sources: landmarks.md and its photos (viewed this session: gas station 2022, CIP arch 6817777037, Jamaica Yard 2019,
+Astoria 2008, Citi Field 025, USTA 017, LaGuardia 048, Kew Gardens 093); Wikipedia *Throgs Neck Bridge* (tower height,
+spans, deck clearance), *Citi Field* (capacity), *Kew Gardens Interchange* (light-blue flyovers); OSM ways 5782325 /
+5782302 (runway ends), 166707836 (the station), 551748745 (Jamaica Yard), 25649733 (31st St); FAA AC 150/5340-30
+(runway edge lights every 200 ft max; 60 m used), IES RP-8 (canopy lighting levels; not opened this session); Lynch,
+*The Image of the City* (MIT Press, 1960; not opened this session).
+
+## N9: HUD and minimap on every road
+
+> Written by AI (Claude), 2026-11-22. Owner review pending. Decision 10 in [tasks/todo.md](../../tasks/todo.md).
+
+Code: [CorridorNetHud.cpp](../../src/scene/Corridor/CorridorNetHud.cpp), [AppHud.cpp](../../src/core/App/AppHud.cpp),
+[HudOverlay.cpp](../../src/debug/HudOverlay.cpp), [HudFeed.h](../../src/debug/HudFeed.h) (`hud::map_frame`). Debug build only.
+
+| Knob | Where | Default | Range | What |
+|------|-------|---------|-------|------|
+| `hud_road_ends_mi` | Tunables.def (live) | 1.0 mi | 0.25-3 | ROAD ENDS shows inside this real distance of a wall (and only before the next exit) |
+| `kHudRoads` | RoadParams.h | see table | | shield, name, letter for +s / -s per road id |
+| `kHudRampHops` | RoadParams.h | 8 | | ramp chain followed this far to find the landing road |
+| `kHudMapEvery` | RoadParams.h | 4 | | minimap ramp lines keep every 4th 4 m point (16 m) |
+| `hud_map_local` | Tunables.def | off | | 2 KM view (unchanged) |
+
+Per road (+s is the toml's from -> to):
+
+| id | Shield | Name | +s | -s | Why the letter |
+|----|--------|------|----|----|----------------|
+| 0 | I-495 | Long Island Expy | E | W | even Interstate, E-W |
+| 1 | I-278 | BQE | E | W | even Interstate: north to Astoria is signed I-278 East (toward the Bronx) |
+| 2 | (parkway) | Grand Central Pkwy | E | W | signed E-W; RFK to the Nassau line |
+| 3 | I-678 | Van Wyck | S | N | odd Interstate, N-S; from the LIE south |
+| 4 | I-295 | Clearview | S | N | odd Interstate; Throgs Neck to Hillside |
+| 5 | (parkway) | Cross Island Pkwy | S | N | signed N-S; Whitestone to the Belt |
+
+Distance shown, in miles:
+
+$$d_{mi} = \frac{|s_{exit} - s_{car}| \cdot L_{real} / L_{baked}}{5280\,\text{ft}}$$
+
+the same compaction undo as the LIE strip (`hud::miles`) and the D3 sign spacing (`sign_wu_per_mile`). On a ramp the
+remaining arc length is used as is (ramps are near real scale at their junctions).
+
+Minimap framing (`hud::map_frame`): off the LIE, centre $c$ and half-span $h$ from the network box
+$[\mathbf{lo}, \mathbf{hi}]$ of all roads and ramps,
+
+$$c = \tfrac12(\mathbf{lo} + \mathbf{hi}), \qquad h = 0.54 \max(hi_x - lo_x,\; hi_z - lo_z)$$
+
+(8 % margin, as the LIE view). The LIE route box is more than 3x wider, so the GCP east end would be a few pixels there;
+in the network frame the GCP spans more than half the 220 px square (tested).
+
+Readability choices and sources:
+
+- **Signed direction, not heading.** MUTCD 2009 section 2D.13 (cardinal direction auxiliary signs) and 2D.10 (route
+  signs): a route carries one cardinal pair for its whole length, even where it bends (I-278 East runs north through
+  Queens). The HUD repeats what the guide signs say, so a driver can match strip and sign.
+- **Shield before name.** MUTCD 2D.10 / FHWA Standard Highway Signs M1-1: Interstate shield blue with a red crown;
+  NY parkways carry no Interstate shield, so the name alone (NYSDOT parkway signing). The name is the local one
+  (BQE, Van Wyck, Clearview) as in NYSDOT guide-sign destinations.
+- **Exit tab.** MUTCD 2E.31 exit number plaque (green, white legend); closed exits use the work-zone colours of
+  section 6F.02 (black on orange), matching the N6 EXIT CLOSED plaque (E5-2a style).
+- **ROAD ENDS lead.** The first N2b advance sign is ~5,140 ft out (MUTCD Table 6C-1 freeway spacing); 1 mile gives
+  the HUD warning at about the same point.
+- **Glance load.** FHWA-HRT-16-034 and NHTSA visual-manual guidelines (2013): single glances under 2 s, so the strip
+  keeps one road, one tab and one distance; long place lists are trimmed with "...".
+- **Map orientation.** Unchanged from C3b (world x right, -z up, the LIE running up the square); no north arrow, since
+  the world frame is the LIE's, not compass north. An owner call if a north-up map is wanted.
+
+Screenshots: [docs/endless-road.md](../endless-road.md#hud-and-minimap-on-every-road-n9-2026-11-22).
+

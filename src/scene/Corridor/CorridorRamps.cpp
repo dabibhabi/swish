@@ -133,6 +133,9 @@ std::vector<CorridorCrossroad> corridor_crossroads(const CorridorAlignment& al, 
     };
     std::vector<Raw> raw;
     for (const auto& [n, a] : byRef) {
+        if (std::find(std::begin(road::network::kJunctionExits), std::end(road::network::kJunctionExits), n) !=
+            std::end(road::network::kJunctionExits))
+            continue;  // N3: the Queens network's real junction owns this stretch
         const double eb = a.neb ? a.eb / a.neb : -1.0, wb = a.nwb ? a.wb / a.nwb : -1.0;
         const double c = (a.neb && a.nwb) ? 0.5 * (eb + wb) : a.neb ? eb + lead : wb - lead;
         raw.push_back({c, eb, wb, n});

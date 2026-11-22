@@ -31,6 +31,7 @@ struct CorridorBridge {
     BridgeStyle  style     = BridgeStyle::Steel;
     bool         railUnder = false;
     uint8_t      lanes     = 0;
+    bool         net       = false;  // N4: a network road passes under (it draws its own road, kNetUnder)
 };
 
 // C4 route ends (debug; never set in release, so every query below falls back to the old behaviour). All WU.
@@ -48,6 +49,8 @@ struct CorridorEnds {
     float  ringRo = 0.0f, ringRi = 0.0f;
 };
 
+class CorridorGround;
+
 // D2 edges (debug; empty in release, so the median and bounds stay as before). Station ranges per side,
 // [0] = WB (-1), [1] = EB (+1). Filled by corridor_edges (CorridorEdges.h).
 struct CorridorEdges {
@@ -60,6 +63,10 @@ struct CorridorEdges {
     bool   landmarks = false;           // D6: one-off landmark structures (CorridorLandmarks.h)
     bool   jersey    = false;           // NJ median barrier: clamp at its toe (release: the painted line)
     Spans  wall[2], rail[2];            // sound walls (top of the cut), W-beam runs (rail face = clamp)
+    // N7: the network ground the dressing stands on (network roads) and keeps off other pavement with; netRoad = this
+    // road's id in the network (its own pavement is not an obstacle)
+    const CorridorGround* ground  = nullptr;
+    int                   netRoad = -1;
 };
 
 // ══════════════════════════════════════════════════════════════════════
@@ -161,12 +168,9 @@ public:
         const Sample sm = sample(s);
         return m_asset.header.roadY + sm.y - sm.bank * lateral - dip(s);
     }
-    // Level ground at `s` (no bank, no dip): service roads, crossroads and ramp ends sit here.
+
     float ground_y(double s) const { return m_asset.header.roadY + sample(s).y; }
 
-    // ── C2b grading (debug; never set in release, so dip() is 0 there) ──
-    // `crossroads` sorted by s; `dipHalf` = half-length of each cut; `srStrip` = grass from the
-    // mainline outer edge to the service road's inner curb.
     void set_grading(std::vector<CorridorCrossroad> crossroads, float dipHalf, float srStrip) {
         m_cross   = std::move(crossroads);
         m_dipHalf = dipHalf;
@@ -174,12 +178,12 @@ public:
     }
     const std::vector<CorridorCrossroad>& crossroads() const { return m_cross; }
     float                                 sr_strip() const { return m_srStrip; }
-    // C3a: cross-street stub past each service road (WU); 0 = crossroad ends at the grass edge (C2b).
+
     void  set_cross_stub(float len) { m_stub = len; }
     float cross_stub() const { return m_stub; }
-    // Mainline cut: depth * (1 - smoothstep(|s - c| / dipHalf)), deepest neighbour wins. The one query C3 needs.
+
     float dip(double s) const;
-    // Slope of the surface at `s` in world axes: (dy/dx, dy/dz).
+
     void surface_slope(double s, float& dydx, float& dydz) const {
         const double sp = static_cast<double>(m_asset.header.stationSpacing);
         const Sample sm = sample(s);
@@ -211,15 +215,50 @@ public:
     // are the only place the corridor is laterally continuous.
     bool in_turnaround(double s) const;
 
+    // ── N2b work zones (debug; empty in release, so the median and paint are as before) ──
+    // Median openings (U-turn gaps before the walls) count as turn-around pads; paint only inside [from, to].
+    void                                          add_opening(double a, double b) { m_open.emplace_back(a, b); }
+    const std::vector<std::pair<double, double>>& openings() const { return m_open; }
+    void                                          set_paint_range(double a, double b) { m_paint0 = a, m_paint1 = b; }
+    double                                        paint_from() const { return m_paint0; }
+    double                                        paint_to() const { return m_paint1; }
+
+    // ── N3 structures (network roads with a GRND block; nothing changes elsewhere) ──
+    bool has_terrain() const { return m_asset.ground.size() == m_asset.stations.size(); }
+    // DEM ground under the centreline at s, on the surface_y datum (the road profile without a GRND block).
+    float terrain_y(double s) const;
+    // Station ranges where the graded verge is not drawn (viaducts, trenches: their own walls and ground do it).
+    void set_verge_holes(std::vector<std::pair<double, double>> h) { m_vergeHoles = std::move(h); }
+    const std::vector<std::pair<double, double>>& verge_holes() const { return m_vergeHoles; }
+    // N4: reshape the profile (a network road passing under a LIE bridge); station i's height, WU over road_y().
+    void set_station_y(size_t i, float y) { m_asset.stations[i].y = y; }
+    // N3: verge cut on one side only (+-1), e.g. N7 where a network ramp runs over the verge band.
+    void set_side_holes(int side, std::vector<std::pair<double, double>> h) { m_sideHoles[side > 0] = std::move(h); }
+    const std::vector<std::pair<double, double>>& side_holes(int side) const { return m_sideHoles[side > 0]; }
+
+    // ── N7 roadside look (network roads with a LOOK block; empty elsewhere) ──
+    const std::vector<CorridorLookRow>& look_rows() const { return m_asset.look; }
+    // Row holding s (the last row starting at or before it, the first row before any); nullptr without rows.
+    const CorridorLookRow* look_at(double s) const {
+        const CorridorLookRow* r = m_asset.look.empty() ? nullptr : &m_asset.look.front();
+        for (const CorridorLookRow& x : m_asset.look)
+            if (x.start <= s) r = &x;
+        return r;
+    }
+
 private:
-    CorridorAsset                  m_asset;
-    std::vector<CorridorCrossroad> m_cross;
-    std::vector<CorridorBridge>    m_bridges;
-    float                          m_dipHalf = 0.0f;
-    float                          m_srStrip = 10000.0f;  // 10 m until set_grading
-    float                          m_stub    = 0.0f;
-    CorridorEnds                   m_ends;
-    CorridorEdges                  m_edges;
+    CorridorAsset                          m_asset;
+    std::vector<CorridorCrossroad>         m_cross;
+    std::vector<CorridorBridge>            m_bridges;
+    float                                  m_dipHalf = 0.0f;
+    float                                  m_srStrip = 10000.0f;  // 10 m until set_grading
+    float                                  m_stub    = 0.0f;
+    CorridorEnds                           m_ends;
+    CorridorEdges                          m_edges;
+    std::vector<std::pair<double, double>> m_open;
+    double                                 m_paint0 = -1e300, m_paint1 = 1e300;
+    std::vector<std::pair<double, double>> m_vergeHoles;
+    std::vector<std::pair<double, double>> m_sideHoles[2];
 };
 
 }  // namespace swish

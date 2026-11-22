@@ -28,6 +28,14 @@ const CorridorDistrict* CorridorAlignment::district_at(double s) const {
     return out;
 }
 
+float CorridorAlignment::terrain_y(double s) const {
+    if (!has_terrain()) return ground_y(s);
+    const double sp = static_cast<double>(m_asset.header.stationSpacing);
+    const size_t i = index_at(s), j = std::min(i + 1, m_asset.ground.size() - 1);
+    const float  u = i == j ? 0.0f : static_cast<float>(std::clamp((s - static_cast<double>(i) * sp) / sp, 0.0, 1.0));
+    return m_asset.header.roadY + m_asset.ground[i] + (m_asset.ground[j] - m_asset.ground[i]) * u;
+}
+
 Pavement CorridorAlignment::surface_at(double s) const {
     Pavement out = Pavement::Legacy;
     for (const CorridorPavement& p : m_asset.pavement)  // 8 rows; sorted, so the last start <= s wins
@@ -208,6 +216,9 @@ float CorridorAlignment::paint_outer(float lanes) const {
 }
 
 bool CorridorAlignment::in_turnaround(double s) const {
+    for (const auto& [a, b] : m_open)  // N2b U-turn gaps replace the data-end pads (those lie past the walls)
+        if (s >= a && s <= b) return true;
+    if (!m_open.empty()) return false;
     // C4: the plaza opening and the roundabout replace the end pads
     if (has_ends()) return (s >= m_ends.padW0 && s <= m_ends.padW1) || s >= m_ends.ringC - m_ends.ringRo;
     const double pad = static_cast<double>(m_asset.header.turnaroundLength);

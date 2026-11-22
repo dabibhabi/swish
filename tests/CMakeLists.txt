@@ -19,6 +19,7 @@ add_executable(swish_tests
     test_corridor.cpp
     test_queens_network.cpp    # N1 Queens network assets
     test_hud.cpp               # C3b HUD helpers
+    test_net_hud.cpp           # N9 network HUD text + minimap
     test_golden_mesh.cpp
     test_golden_car.cpp
     test_road_params.cpp

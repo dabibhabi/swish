@@ -63,6 +63,8 @@ DISTRICT_TAG = 0x54534944  # "DIST"
 SRVR_TAG = 0x52565253      # "SRVR"
 SURF_TAG = 0x46525553      # "SURF"
 XING_TAG = 0x474E4958      # "XING"
+GRND_TAG = 0x444E5247      # "GRND"
+LOOK_TAG = 0x4B4F4F4C      # "LOOK": N7 network roadside look rows (CorridorLookRow)
 XING_KIND = {"road_over": 0, "rail_over": 1, "lie_over": 2}  # == swish::CrossingKind
 XING_STYLE = {"steel": 0, "concrete": 1, "stone": 2, "through_girder": 3}  # == swish::BridgeStyle
 PAVEMENT = {"concrete": 1, "fresh": 2, "worn": 3, "patched": 4}  # == swish::Pavement in CorridorAsset.h
@@ -1292,7 +1294,7 @@ def crossings(cfg, xy_m, s_real, cs, step, tp, districts, total):
 
 
 def write_asset(cfg, tp, pts, tans, lanes, ys, banks, marks, exits, districts, srvr, surf, total_m, real_m, c,
-                start_m, xing=()) -> None:
+                start_m, xing=(), ground=(), look=()) -> None:
     ccfg = cfg["corridor"]
     ft = lambda k: ccfg[k] * FT_M * WORLD_SCALE  # noqa: E731 — feet -> world units
 
@@ -1344,6 +1346,13 @@ def write_asset(cfg, tp, pts, tans, lanes, ys, banks, marks, exits, districts, s
         for sv, skew, width, kind, style, lanes, rail, name in xing:
             body += struct.pack("<dffBBBB24s", sv * WORLD_SCALE, skew, width * WORLD_SCALE, kind, style, lanes, rail,
                                 name.encode()[:23])
+    if ground:  # N3: DEM ground per station (CorridorAsset::ground), network roads with a structure profile only
+        body += struct.pack("<II", GRND_TAG, len(ground))
+        body += struct.pack(f"<{len(ground)}f", *(g * WORLD_SCALE for g in ground))
+    if look:  # N7: CorridorLookRow (start, kit exit, lamp, edge), network roads only
+        body += struct.pack("<II", LOOK_TAG, len(look))
+        for s0, kit, lamp, edge in look:
+            body += struct.pack("<dBBB5x", s0 * WORLD_SCALE, kit, lamp, edge)
 
     out = os.path.join(REPO, cfg["output"]["asset"])
     os.makedirs(os.path.dirname(out), exist_ok=True)

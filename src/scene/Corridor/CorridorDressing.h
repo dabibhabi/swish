@@ -35,7 +35,8 @@ CorridorSegment skyline_segment(const CorridorAlignment& al);
 
 // Per-frame card model for a camera at `cam` and the card origin at `anchor` (both render frame): scaled about the
 // camera by k = kSkyDist / R and turned to face it, so bearing and angular size match a card at range R. False
-// beyond kSkyMaxR (hide it).
-bool skyline_model(const Vec3& cam, const Vec3& anchor, Mat4& model);
+// beyond kSkyMaxR (hide it). N8: face = false keeps a 3D far landmark's own heading (scale only), drawn at `dist`
+// (WU; 0 = kSkyDist).
+bool skyline_model(const Vec3& cam, const Vec3& anchor, Mat4& model, bool face = true, float dist = 0.0f);
 
 }  // namespace swish

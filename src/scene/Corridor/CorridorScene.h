@@ -55,6 +55,8 @@ struct CorridorSegment {
     std::vector<SpotLightDesc> lamps;
     // C3a: signal lens draws (index into `draws`); App drives their colour + glow each frame (debug).
     std::vector<SignalLens> signals;
+    // N8: draws [0, far) are placed each frame like the D5 skyline (scaled about the camera); 0 = a normal segment.
+    uint32_t far = 0;
 };
 
 // What CorridorDriver needs to keep about a segment once its mesh has been
@@ -65,12 +67,13 @@ struct CorridorPlacement {
     double                     startStation = 0.0, endStation = 0.0;
     Vec3                       boundsCenter = Vec3(0.0f);
     float                      boundsRadius = 0.0f;
-    std::vector<SpotLightDesc> lamps;  // segment-local; the driver adds the render offset
+    std::vector<SpotLightDesc> lamps;    // segment-local; the driver adds the render offset
+    uint32_t                   far = 0;  // N8: CorridorSegment::far
 };
 
 inline CorridorPlacement placement_of(const CorridorSegment& s) {
     return CorridorPlacement{s.originX,      s.originZ,      s.startStation, s.endStation,
-                             s.boundsCenter, s.boundsRadius, s.lamps};
+                             s.boundsCenter, s.boundsRadius, s.lamps,        s.far};
 }
 
 // Builds every segment of the corridor. Called once at scene setup; the

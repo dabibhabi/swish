@@ -18,10 +18,12 @@
 #include "scene/RoadScene/MeshBuilder.h"
 #include "scene/SceneManager/SceneManager.h"
 #include "utils/io/AppPaths.h"
+#include "utils/units/Units.h"
 
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -234,6 +236,17 @@ void App::build_road_scene(Renderer& renderer) {
     if (!dp.corridorLandmarks) signs.boards.clear();  // D6
     std::cout << "[corridor] D3: " << signs.gantries.size() << " gantries, " << signs.gores.size() << " gore signs, "
               << signs.markers.size() << " mile markers" << std::endl;
+    // N2a: the Queens network loads before the LIE mesh: N7 dresses it, and the LIE's dressing keeps off its ramps
+    CorridorNetwork& net = m_corridor.network();
+    net.load(util::paths::asset_dir() + "corridor/queens_network_full.bin", util::paths::asset_dir(),
+             &m_corridor_alignment, util::units::m(dp.netUnderBlendM), util::units::m(dp.netHugEaseM), dp.netMaxGrade,
+             util::units::m(dp.wzExitGoreM));
+    if (dp.corridorDressing && dp.netDress) {  // N7
+        net.dress(dp.dressDensity, m(dp.dressFarM), m(dp.edgeWallHM), dp.corridorLandmarks ? dp.landmarkGraves : 0.0f);
+        CorridorEdges e = m_corridor_alignment.edges();
+        e.ground = &net.ground(), e.netRoad = 0;
+        m_corridor_alignment.set_edges(std::move(e));
+    }
     std::vector<CorridorSegment> segments = build_corridor_segments(m_corridor_alignment, withLamps, paths, &signs);
 #else
     const bool                   withLamps = false;
@@ -262,6 +275,33 @@ void App::build_road_scene(Renderer& renderer) {
             places.push_back(placement_of(sky));
             corridorDraws += sky.draws.size();
         }
+    }
+    {  // N2a: the Queens network (5 roads + junction ramps), appended after the LIE; the driver follows it off the LIE
+        WorkZoneParams wzp;  // N2b sliders (Corridor panel)
+        wzp.spacing = dp.wzSignSpacing;
+        wzp.drums   = dp.wzDrums;
+        wzp.tailM   = dp.wzTailM;
+        StructureParams sp;  // N3 sliders (Corridor panel)
+        sp.pierSpacing                        = dp.netPierM;
+        sp.wallAbove                          = dp.netWallAboveM;
+        sp.signs                              = dp.netSigns;
+        sp.landmarks                          = dp.netLandmarks;  // N8
+        sp.signNits                           = dp.lmSignNits;
+        const std::vector<CorridorSegment> ns = build_network_segments(net, wzp, sp);
+        size_t                             nd = 0;
+        m_corridor.clear_flashers();  // a rebuild re-uploads every segment
+        size_t wzd = 0;
+        for (const CorridorSegment& s : ns) {
+            m_corridor.add_flashers(places.size(), s.signals);  // N2b arrow boards + warning lights
+            wzd += s.signals.empty() ? 0 : s.draws.size();      // only work-zone segments carry flashers
+            renderer.add_corridor_segment(s.mesh, s.draws);
+            places.push_back(placement_of(s));
+            nd += s.draws.size();
+        }
+        corridorDraws += nd;
+        std::cout << "[corridor] N2a network: " << net.road_count() - 1 << " roads, " << net.ramps().size()
+                  << " ramps, " << ns.size() << " segments, " << nd << " draw calls (N2b work zones " << wzd << ")"
+                  << std::endl;
     }
 #endif
     m_corridor.set_segments(std::move(places));
@@ -445,7 +485,22 @@ void App::load_car() {
     {
         // Position/heading/lane come from the corridor's west end rather than
         // a hardcoded pose. Corridor bounds own the lateral clamp.
-        m_corridor.place_at_start(*m_car);
+        m_corridor.place_at_start(*m_car);  // debug: SWISH_SPAWN moves it (CorridorDriver::spawn_from_env)
+#ifdef SWISH_DEBUG_UI
+        if (const char* cam = std::getenv("SWISH_CAMERA"))  // screenshots: "chase", "hood", "helicopter", ...
+            for (CameraMode m = CameraMode::Cockpit; m != CameraMode::Count;
+                 m            = static_cast<CameraMode>(static_cast<int>(m) + 1))
+                if (camera_mode_name(m) == cam) m_camera_ctl.set_mode(m);
+        if (const char* h = std::getenv("SWISH_HELI")) {  // screenshots: "radius_m,yaw_deg,pitch_deg" (overheads)
+            float r = 55.0f, yaw = 0.0f, pitch = 0.0f;
+            std::sscanf(h, "%f,%f,%f", &r, &yaw, &pitch);
+            m_camera_ctl.set_heli(util::units::m(r), yaw, pitch);
+        }
+        if (const char* tod = std::getenv("SWISH_TOD")) {  // screenshots: TimeOfDay index (4 = Evening / dusk)
+            m_renderer->debug_params().skyProcedural = true;
+            m_renderer->debug_params().timeOfDay     = std::atoi(tod);
+        }
+#endif
     }
 
     // Rebuild material descriptors to include the car's textures.

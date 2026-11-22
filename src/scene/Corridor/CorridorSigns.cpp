@@ -2,13 +2,16 @@
 
 #include "CorridorEdges.h"
 #include "CorridorScene.h"
+#include "CorridorWorkZone.h"
 #include "SignAtlas.h"
 #include "scene/RoadScene/MeshBuilder.h"
 #include "utils/units/Units.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <iterator>
+#include <string_view>
 #include <utility>
 
 namespace swish {
@@ -25,6 +28,8 @@ const Vec4 kGalv(0.62f, 0.63f, 0.65f, 1.0f);  // galvanised, weathered (D2 steel
 const Vec4 kAlu(0.74f, 0.75f, 0.76f, 1.0f);   // mill-finish aluminium sign backs
 
 enum class Pass { Steel, Back, Footing, Panel, Kit };
+constexpr int kDistPx     = 56;  // tools/sign_corridor.py board(): the distance line's band at the bottom of a board
+constexpr int kClosedFace = static_cast<int>(WzFace::ExitClosed);  // the N2b EXIT CLOSED panel
 
 // Round pipe p to q (8 sides, open ends), any direction.
 void tube(MeshBuilder& b, const Vec3& p, const Vec3& q, float r) {
@@ -53,12 +58,13 @@ struct Site {
 
 void gantry(MeshBuilder& b, Pass pass, const CorridorAlignment& al, const std::vector<CorridorPath>& paths,
             const SignGantry& g, double ox, double oz) {
+    namespace nw = road::network;
     const Site  st{al, g.s, g.side, ox, oz};
     const auto& sm    = st.sm;
     const float outer = al.outer_edge(sm);
     // median column on the NJ barrier line, or in the wide grass median off the inner shoulder
     const float latIn  = al.median_extra(g.s) > m(0.5f) ? sm.med - m(rs::kPostOut) : 0.0f;
-    float       latOut = outer + m(rs::kPostOut);
+    float       latOut = outer + (al.has_terrain() ? m(0.3f) : m(rs::kPostOut));  // N3: on the parapet
     float       yRoad  = std::max(al.surface_y(g.s, st.sg * sm.med), al.surface_y(g.s, st.sg * outer));
     float       rin = 1e9f, rout = 0.0f, ry = -1e9f;
     for (const CorridorPath& p : paths)
@@ -72,19 +78,53 @@ void gantry(MeshBuilder& b, Pass pass, const CorridorAlignment& al, const std::v
         latOut = rout + m(rs::kPostOut);
         yRoad  = std::max(yRoad, ry);
     }
-    const float      k     = m(rs::kPanelW) / static_cast<float>(sa::kCellW);  // WU per atlas pixel
-    const float      mainH = static_cast<float>(sa::kMainH) * k, stripH = static_cast<float>(sa::kStripH) * k;
-    const float      tabH = static_cast<float>(sa::kTabH) * k, hw = 0.5f * m(rs::kPanelW), signH = mainH + stripH;
-    const float      yB   = yRoad + ft(rs::kClearFt);
-    const float      yT   = yB + 0.5f * signH;
-    const float      half = 0.5f * m(rs::kTrussSide), d0 = m(rs::kSignOff), d1 = d0 + 2.0f * half, dc = d0 + half;
-    const float      latC = al.paint_outer(sm) - 0.5f * al.header().laneWidth;  // over the exit (right) lane
-    const float      yIn  = al.surface_y(g.s, st.sg * latIn) - m(0.3f);
-    const float      yOut = std::min(corridor_verge_y(al, paths, g.side, g.s, latOut), yRoad);
-    const sa::Panel& pn   = sa::kPanels[g.panel];
+    if (g.clear > 0.0f) latOut = std::max(latOut, g.clear + m(rs::kPostOut));  // N6: a network ramp alongside
+    const float k    = (g.post ? nw::kPostScale : 1.0f) * m(rs::kPanelW) / static_cast<float>(sa::kCellW);  // WU per px
+    const bool  nb   = g.board >= 0;  // N3 board: one kit-atlas face, no tab
+    sa::Rect    face = nb ? sa::kNetBoards[g.board] : sa::Rect{};
+    if (g.crop) face.h -= kDistPx;  // N6: an N3-N5 board without its distance line
+    const float mainH  = static_cast<float>(nb ? face.h : sa::kMainH) * k;
+    const float stripH = !nb || g.strip || g.arrow ? static_cast<float>(sa::kStripH) * k : 0.0f;
+    // N6: the EXIT CLOSED plaque hangs under the board (and its distance strip); plW / plH = half extents
+    const float plW   = g.closed ? nw::kClosedW * 0.5f * m(rs::kPanelW) * (g.post ? nw::kPostScale : 1.0f) : 0.0f,
+                plH   = plW * static_cast<float>(sa::kWorkZone[kClosedFace].h) /
+                        static_cast<float>(sa::kWorkZone[kClosedFace].w);
+    const float tabH  = nb ? 0.0f : static_cast<float>(sa::kTabH) * k,
+                hw    = 0.5f * m(rs::kPanelW) * (g.post ? road::network::kPostScale : 1.0f),
+                signH = mainH + stripH + 2.0f * plH;
+    float       yB    = yRoad + ft(rs::kClearFt);
+    const float half = 0.5f * m(rs::kTrussSide), d0 = m(rs::kSignOff), d1 = d0 + 2.0f * half, dc = d0 + half;
+    // over the exit lane: the right one, N6: the left one for a left exit
+    float latC =
+        g.left ? al.paint_inner(sm) + 0.5f * al.header().laneWidth : al.paint_outer(sm) - 0.5f * al.header().laneWidth;
+    float foot = 0.0f;  // N6: a parkway board stands on two posts past the shoulder (or the ramp alongside)
+    if (g.post) {
+        latC = std::max(outer, g.clear) + m(nw::kPostOut) + hw;
+        foot = corridor_verge_y(al, paths, g.side, g.s, latC);
+        if (foot < yRoad - m(3.0f)) {  // over a structure's hole: on the parapet, cantilevered past it
+            latC = outer + m(0.3f) + hw;
+            foot = yRoad + m(nw::kParapetH);
+        }
+        yB = foot + m(nw::kPostLift);
+    }
+    const float yT  = yB + 0.5f * signH;
+    const float yIn = al.surface_y(g.s, st.sg * latIn) - m(0.3f);
+    // N3 network road: the outer columns stand on the deck edge (its verge, where there is one, is at road level)
+    const float      yOut = al.has_terrain() ? yRoad + m(road::network::kParapetH)
+                                             : std::min(corridor_verge_y(al, paths, g.side, g.s, latOut), yRoad);
+    const sa::Panel& pn   = sa::kPanels[nb ? 0 : g.panel];
+    const float      gap  = m(0.6f);                // between two boards on one truss
+    const Vec3       rr   = g.left ? -st.R : st.R;  // N6: the arrow points up-left at a left exit
 
     switch (pass) {
         case Pass::Steel: {
+            if (g.post) {  // two square posts, 30 % in from each end
+                for (const float o : {-0.6f * hw, 0.6f * hw})
+                    cmesh::obox(b, st.P(latC + o, 0.5f * (foot - m(0.3f) + yB + signH - m(0.1f)), m(0.1f)),
+                                st.R * m(0.06f), kUp * (0.5f * (yB + signH - m(0.1f) - foot + m(0.3f))),
+                                st.T * m(0.06f));
+                break;
+            }
             const float rc = 0.5f * m(rs::kChord), rl = 0.5f * m(rs::kLacing);
             for (const float d : {d0, d1})
                 for (const float y : {yT - half, yT + half}) tube(b, st.P(latIn, y, d), st.P(latOut, y, d), rc);
@@ -121,15 +161,20 @@ void gantry(MeshBuilder& b, Pass pass, const CorridorAlignment& al, const std::v
             break;
         }
         case Pass::Back: {
-            const float tw = static_cast<float>(pn.tab.w) * k;
+            const float tw = nb ? 0.0f : static_cast<float>(pn.tab.w) * k;
             cmesh::obox(b, st.P(latC, yB + 0.5f * signH, m(0.025f)), st.R * hw, kUp * (0.5f * signH), st.T * m(0.02f));
-            cmesh::obox(b, st.P(latC + hw - 0.5f * tw, yB + signH + 0.5f * tabH, m(0.025f)), st.R * (0.5f * tw),
-                        kUp * (0.5f * tabH), st.T * m(0.02f));
+            if (g.board2 >= 0)
+                cmesh::obox(b, st.P(latC - 2.0f * hw - gap, yB + 0.5f * signH, m(0.025f)), st.R * hw,
+                            kUp * (0.5f * signH), st.T * m(0.02f));
+            if (!nb)
+                cmesh::obox(b, st.P(latC + hw - 0.5f * tw, yB + signH + 0.5f * tabH, m(0.025f)), st.R * (0.5f * tw),
+                            kUp * (0.5f * tabH), st.T * m(0.02f));
             for (float y = yB + m(0.5f * rs::kStiffener); y < yB + signH; y += m(rs::kStiffener))
                 cmesh::obox(b, st.P(latC, y, m(0.06f)), st.R * hw, kUp * m(0.015f), st.T * m(0.015f));
             break;
         }
         case Pass::Footing: {
+            if (g.post) break;
             const float f = 0.5f * m(rs::kFooting), gp = 0.5f * m(rs::kColumnGap);
             for (const auto& [l, y0] : {std::pair{latIn, yIn}, std::pair{latOut, yOut}})
                 for (const float d : {dc - gp, dc + gp})
@@ -138,7 +183,13 @@ void gantry(MeshBuilder& b, Pass pass, const CorridorAlignment& al, const std::v
             break;
         }
         case Pass::Panel: {
-            const Vec3  n  = -st.T;
+            const Vec3 n = -st.T;
+            if (nb) {  // N6: the D3 distance strip under a board without one
+                if (g.strip && !g.arrow)
+                    sign_quad(b, st.P(latC, yB + 2.0f * plH + 0.5f * stripH), st.R * hw, kUp * (0.5f * stripH), n,
+                              sa::kStrips[static_cast<int>(g.label)], sa::kPanelsW, sa::kPanelsH);
+                break;
+            }
             const float tw = static_cast<float>(pn.tab.w) * k;
             sign_quad(b, st.P(latC, yB + stripH + 0.5f * mainH), st.R * hw, kUp * (0.5f * mainH), n, pn.main,
                       sa::kPanelsW, sa::kPanelsH);
@@ -149,6 +200,18 @@ void gantry(MeshBuilder& b, Pass pass, const CorridorAlignment& al, const std::v
             break;
         }
         case Pass::Kit:
+            if (g.closed)  // N6: the EXIT CLOSED plaque at the bottom of the stack
+                sign_quad(b, st.P(latC, yB + plH), st.R * plW, kUp * plH, -st.T, sa::kWorkZone[kClosedFace], sa::kKitW,
+                          sa::kKitH);
+            if (!nb) break;
+            sign_quad(b, st.P(latC, yB + 2.0f * plH + stripH + 0.5f * mainH), st.R * hw, kUp * (0.5f * mainH), -st.T,
+                      face, sa::kKitW, sa::kKitH);
+            if (g.arrow)
+                sign_quad(b, st.P(latC, yB + 0.5f * stripH), rr * hw, kUp * (0.5f * stripH), -st.T, sa::kNetArrow,
+                          sa::kKitW, sa::kKitH);
+            if (g.board2 >= 0)
+                sign_quad(b, st.P(latC - 2.0f * hw - gap, yB + 0.5f * mainH), st.R * hw, kUp * (0.5f * mainH), -st.T,
+                          sa::kNetBoards[g.board2], sa::kKitW, sa::kKitH);
             break;
     }
 }
@@ -176,8 +239,8 @@ void gore(MeshBuilder& b, Pass pass, const CorridorAlignment& al, const std::vec
                 cmesh::obox(b, st.P(lat, y0 + f * W, m(0.05f)), st.R * hw, kUp * m(0.02f), st.T * m(0.015f));
             break;
         case Pass::Kit:
-            sign_quad(b, st.P(lat, y0 + hw), st.R * hw, kUp * hw, -st.T, sa::kPanels[g.panel].gore, sa::kKitW,
-                      sa::kKitH);
+            sign_quad(b, st.P(lat, y0 + hw), st.R * hw, kUp * hw, -st.T,
+                      g.cell >= 0 ? sa::kNetGores[g.cell] : sa::kPanels[g.panel].gore, sa::kKitW, sa::kKitH);
             break;
         default:
             break;
@@ -307,6 +370,16 @@ CorridorSigns corridor_signs(const CorridorAlignment& al, const std::vector<Corr
             ex.push_back({sg * s, panel});
             out.gores.push_back({s, side, panel});
         }
+        for (const road::network::GuideSign& r : road::network::kGuideSigns)  // N3: exits a network junction owns
+            for (const CorridorExit& e : al.exits())
+                if (r.road == 0 && r.westbound == (side < 0) && (e.westbound != 0) == r.westbound &&
+                    std::string_view(e.ref) == r.anchor) {
+                    const int    panel = sign_panel(std::atoi(r.anchor), r.westbound);
+                    const double s     = e.station + sg * static_cast<double>(m(road::network::kGoreAfter));
+                    if (panel < 0) continue;
+                    ex.push_back({sg * s, panel});
+                    out.gores.push_back({s, side, panel});
+                }
         std::sort(ex.begin(), ex.end(), [](const Exit& a, const Exit& b) { return a.u < b.u; });
         double lo = !al.has_ends() ? (side > 0 ? 0.0 : -al.total_length()) : side > 0 ? e.open0 : -e.taper0;
         for (const Exit& x : ex) {
@@ -379,6 +452,106 @@ CorridorSigns corridor_signs(const CorridorAlignment& al, const std::vector<Corr
             {s, L.side, lat, corridor_verge_y(al, paths, L.side, s, lat), m(L.w), m(L.h), m(L.lift), L.cell});
     }
     return out;
+}
+
+void add_guide_signs(CorridorSigns& out, const CorridorAlignment& al, int road,
+                     const std::function<double(double, int)>&          goreAt,
+                     const std::vector<std::pair<std::string, double>>& junctions) {
+    const double wpm = sign_wu_per_mile(al);
+    for (const road::network::GuideSign& r : road::network::kGuideSigns) {
+        if (r.road != road || road == 0) continue;  // the LIE's rows join corridor_signs' exit list
+        const int side = r.westbound ? -1 : +1;
+        double    gore = -1.0;
+        for (const CorridorExit& e : al.exits())
+            if (std::string_view(e.ref) == r.anchor && (e.westbound != 0) == r.westbound)
+                gore = goreAt(e.station, side);
+        for (const auto& [name, s] : junctions)
+            if (name == r.anchor) gore = s;
+        if (gore < 0.0) continue;
+        const double s = gore + static_cast<double>(side) * static_cast<double>(r.miles) * wpm;
+        if (s <= 0.0 || s >= al.total_length()) continue;
+        const int panel = sign_panel(std::atoi(r.anchor), r.westbound);
+        if (r.board >= 0 || panel >= 0) {
+            const SignDist label = r.miles <= -0.75f    ? SignDist::OneMile
+                                   : r.miles <= -0.375f ? SignDist::Half
+                                                        : SignDist::Quarter;
+            SignGantry     g{s, side, r.board >= 0 ? -1 : panel, label, r.board, r.board2};
+            g.post = is_parkway(road) && r.board2 < 0;  // N6: parkway style
+            out.gantries.push_back(g);
+        }
+        if (r.gore >= 0) out.gores.push_back({gore, side, -1, r.gore});
+        if (r.gore == -2 && panel >= 0) out.gores.push_back({gore, side, panel, -1});
+    }
+}
+
+bool is_parkway(int road) {
+    return std::find(std::begin(road::network::kParkways), std::end(road::network::kParkways), road) !=
+           std::end(road::network::kParkways);
+}
+
+void add_exit_signs(CorridorSigns& out, const CorridorAlignment& al, int road, double lo, double hi,
+                    const std::function<ExitSite(double, int)>& exitAt,
+                    const std::function<float(double, int)>&    clearOf) {
+    namespace nw     = road::network;
+    const double wpm = sign_wu_per_mile(al);
+    const auto   num = [](std::string_view a) { return a.substr(0, a.find_first_not_of("0123456789")); };
+    for (const int side : {+1, -1}) {
+        const double sg = static_cast<double>(side);
+        struct Exit {
+            double             u;  // gore in travel coordinates (side * s)
+            ExitSite           x;
+            const sa::NetExit* ne;
+            bool               row;  // an N3-N5 kGuideSigns row already has its advance boards and gore
+        };
+        std::vector<Exit> ex;
+        for (const CorridorExit& e : al.exits()) {
+            if ((e.westbound != 0) != (side < 0) || e.station < lo || e.station > hi) continue;
+            const sa::NetExit* ne = nullptr;
+            for (const sa::NetExit& n : sa::kNetExits)
+                if (n.road == road && (n.westbound != 0) == (side < 0) && std::string_view(n.ref) == e.ref) ne = &n;
+            if (!ne) continue;
+            const ExitSite x   = exitAt(e.station, side);
+            bool           row = false;
+            for (const nw::GuideSign& r : nw::kGuideSigns)
+                row = row ||
+                      (r.road == road && r.westbound == (side < 0) && r.miles < 0.0f && num(r.anchor) == num(ne->ref));
+            // one ramp, one set of signs (12A / 12B share the Van Wyck's ramp, GCP 20A its exit 21 C/D)
+            const auto same = [&](double gs) { return std::abs(gs - x.gore) < static_cast<double>(m(1.0f)); };
+            if (x.gore < 0.0 ||
+                std::any_of(
+                    ex.begin(), ex.end(), [&](const Exit& o) { return same(o.x.gore); }) ||
+                (!row && std::any_of(
+                             out.gores.begin(), out.gores.end(),
+                             [&](const SignGore& g) { return g.side == side && same(g.s); })))
+                continue;
+            ex.push_back({sg * x.gore, x, ne, row});
+        }
+        std::sort(ex.begin(), ex.end(), [](const Exit& a, const Exit& b) { return a.u < b.u; });
+        double prev = side > 0 ? lo : -hi;
+        for (const Exit& e : ex) {
+            const bool post = is_parkway(road) && !e.x.left;  // a left exit is signed over the left lane
+            if (!e.row) {
+                for (const AdvanceGantry& a : advance_gantries(e.u - prev, wpm)) {
+                    SignGantry g{sg * (e.u - a.dist), side, -1, a.label, e.ne->board, -1};
+                    g.post = post, g.strip = true, g.closed = e.x.closed, g.left = e.x.left;
+                    g.clear = clearOf(g.s, side);
+                    out.gantries.push_back(g);
+                }
+                out.gores.push_back({e.x.gore, side, -1, e.ne->gore});
+            } else if (e.x.closed) {
+                for (SignGantry& g : out.gantries)  // its N3-N5 boards get the plaque too
+                    if (g.board == e.ne->board && g.side == side && sg * (e.x.gore - g.s) > 0.0 &&
+                        sg * (e.x.gore - g.s) < 1.2 * wpm)
+                        g.closed = true;
+            }
+            SignGantry d{
+                e.x.gore - sg * static_cast<double>(m(nw::kDirBefore)), side, -1, SignDist::Half, e.ne->board, -1};
+            d.post = post, d.arrow = !e.x.closed, d.crop = e.ne->baked != 0, d.closed = e.x.closed, d.left = e.x.left;
+            d.clear = clearOf(d.s, side);
+            out.gantries.push_back(d);
+            prev = e.u + static_cast<double>(m(rs::kAfterGore));
+        }
+    }
 }
 
 void emit_signs(MeshBuilder& b, std::vector<DrawCall>& draws, const CorridorAlignment& al,

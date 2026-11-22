@@ -4,6 +4,9 @@
 #include "SignAtlas.h"
 
 #include <cstdint>
+#include <functional>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace swish {
@@ -37,11 +40,19 @@ struct SignGantry {
     int      side  = 1;   // +1 EB (right of rising stations), -1 WB
     int      panel = -1;  // sign_atlas::kPanels index
     SignDist label = SignDist::OneMile;
+    int      board = -1, board2 = -1;  // N3: sign_atlas::kNetBoards instead of a panel; board2 left of board
+    // N6: post = parkway roadside board on two posts (road::network::kPostScale); strip = the D3 distance strip under
+    // a board without one; arrow = the exit-direction strip; crop = drop an N3-N5 board's distance line; closed = the
+    // EXIT CLOSED panel over its lower part; left = a left exit (over the left lane, arrow mirrored); clear = lateral
+    // the outer column / post must stand past (a ramp alongside), 0 = none.
+    bool  post = false, strip = false, arrow = false, crop = false, closed = false, left = false;
+    float clear = 0.0f;
 };
 struct SignGore {
     double s     = 0.0;
     int    side  = 1;
     int    panel = -1;
+    int    cell  = -1;  // N3: sign_atlas::kNetGores instead of the panel's gore
 };
 struct SignMarker {
     double s    = 0.0;
@@ -69,6 +80,27 @@ double sign_wu_per_mile(const CorridorAlignment& al);
 int sign_panel(int exitNo, bool westbound);
 // Sites from the diamonds' exit ramps (paths) and crossroads, plus the D6 boards; empty without an exit table.
 CorridorSigns corridor_signs(const CorridorAlignment& al, const std::vector<CorridorPath>& paths);
+
+// N3: road `road`'s rows of road::network::kGuideSigns on `al`. goreAt(recordStation, side) = the gore of the exit at
+// that record; junctions = (name, station on `al`) for junction anchors. Gantries on a deck are kept (network roads).
+void add_guide_signs(CorridorSigns& out, const CorridorAlignment& al, int road,
+                     const std::function<double(double, int)>&          goreAt,
+                     const std::vector<std::pair<std::string, double>>& junctions);
+
+// N6: every exit of network road `road` (sign_atlas::kNetExits) in its drivable range [lo, hi]: where no kGuideSigns
+// row has it, advance boards at 1 mile / 1/2 mile (advance_gantries) and its gore sign; an exit-direction sign
+// kDirBefore before the gore; an EXIT CLOSED panel on every board of a closed exit. exitAt(record station, side) = its
+// ramp. Parkways (kParkways) get roadside boards. clearOf(s, side) = lateral a sign there must stand past (ramps
+// alongside).
+struct ExitSite {
+    double gore   = -1.0;  // -1: no ramp leaves the road there
+    bool   closed = false, left = false;
+};
+void add_exit_signs(CorridorSigns& out, const CorridorAlignment& al, int road, double lo, double hi,
+                    const std::function<ExitSite(double, int)>& exitAt,
+                    const std::function<float(double, int)>&    clearOf);
+// N6: kParkways holds road.
+bool is_parkway(int road);
 
 // Textured quad: centre c, half extents r (viewer's right) and u (up), facing n; uv = pixel rect px of a W x H atlas.
 void sign_quad(MeshBuilder& b, const Vec3& c, const Vec3& r, const Vec3& u, const Vec3& n, const sign_atlas::Rect& px,

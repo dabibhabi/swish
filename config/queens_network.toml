@@ -14,21 +14,51 @@
 lie_config = "config/lie_corridor.toml"
 network_asset = "assets/corridor/queens_network_full.bin"
 # Same mirror list as a manual retry: overpass-api.de answers 429 when busy.
-overpass_urls = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter"]
+overpass_urls = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter",
+                 "https://overpass.kumi.systems/api/interpreter"]
 ramp_search_radius_m = 200   # motorway_link ways within this of a mainline node are pulled
-blend_m = 250.0              # real m either side of a junction over which the two link fits cross-fade (no kink)
+blend_m = 800.0              # real m either side of an interior junction over which the two link fits cross-fade (no kink; swept 250-1200, 800 = fewest sub-floor metres)
 layer_m = 6.5                # height per OSM layer step (bridge deck over a road: ~5 m clearance + ~1.5 m structure)
 junction_ramp_radius_m = 700.0  # motorway_link ways with a node this close (real m) to a junction belong to it
+jlinks_radius_m = 1500.0     # N4: every motorway_link within this of an owned LIE junction (fetch_net -> queens_jlinks_<id>.json)
+srv_junctions = ["lie_gcp", "lie_vw"]  # N4: owned junctions whose links meet the LIE through its one-way service roads (C/D); N5: the Van Wyck's too
+srv_attach_m = 45.0
+# N4: [r0, r1] real m: LIE stations keep real scale within r0 of these crossings, easing to the compaction by r1
+# (the GCP's C/D roads at exit 22 run along the LIE axis there; compacted they landed on its lanes)
+unsqueeze_m = { lie_gcp = [80.0, 260.0] }          # N4: a link end on a one-way service road this close (real m) to the LIE merges into the LIE (C/D folded in)
+stub_m = 300.0               # N6: a closed local exit's stub follows its OSM link chain this far (real m)
+chain_radius_m = 2500.0      # N3: a link joined end to end with a junction's link belongs to it within this (real m)
 road_end_tol_m = 25.0        # a ramp end this close (real m) to a mainline carriageway attaches to that road (else 255)
 curvature_floor_radius_m = 500.0
 exempt_radius_m = 500.0      # real curves tighter than this are real tight curves (exempt, as on the LIE)
+# N3: junctions whose LIE diamond is replaced by the real layout: the LIE's own motorway_link ways there join the
+# ramp set (elsewhere the C2b diamonds still own the LIE side). N4/N5 add lie_gcp, lie_vw, lie_clearview, lie_cip.
+lie_links = ["lie_bqe", "lie_gcp", "lie_vw", "lie_clearview", "lie_cip"]
+# N8 landmarks (docs/queens-network-reference/landmarks.md, decision 9): [kind, road, lat, lon] or, for a run or a
+# pair, [kind, road, lat, lon, lat2, lon2]. Baked into the network's LMRK block as (road, compact s, real lateral) per
+# point (the ramps' frame rule). Kinds (road::netmarks::Kind): gas = Cunningham Park median service area (landmarks.md
+# #1, generic brand); arch = the stone segmental arch carrying the GCP over the CIP (#2, the GCP x CIP crossing on the
+# CIP); astoria = Astoria Blvd elevated station over the 31st St bridge (#3, snaps to that OSM crossing); jamaica =
+# Jamaica Yard plate-girder bridge (#4, replaces the yard-lead crossings it covers); fence = LaGuardia perimeter wall
+# and fence, from point 1 to 2 (#5); runway = edge and threshold lights, runway end to end (#5, OSM ways 5782325 /
+# 5782302); terminal = Terminal B, the tower and parked jets (#5); citi / ashe = Citi Field / Arthur Ashe Stadium
+# (#6); kew = light-blue steel under the Kew Gardens ramps (#7, the junction nearest the point); throgs = Throgs Neck
+# Bridge towers, Queens then Bronx (#8, WP-TNB centre 40.802 -73.793, 549 m main span on a 340 deg axis).
+landmarks = [["gas", "gcp", 40.7250, -73.7718], ["arch", "cip", 40.7434, -73.7334],
+             ["astoria", "gcp", 40.7704, -73.9177], ["jamaica", "gcp", 40.7168, -73.8296],
+             ["fence", "gcp", 40.7700, -73.8930, 40.7690, -73.8600],
+             ["runway", "gcp", 40.7692, -73.8841, 40.7857, -73.8710], ["runway", "gcp", 40.7721, -73.8571, 40.7855, -73.8754],
+             ["terminal", "gcp", 40.7729, -73.8716], ["citi", "gcp", 40.7570, -73.8459], ["ashe", "gcp", 40.7499, -73.8470],
+             ["kew", "gcp", 40.7146, -73.8296], ["throgs", "clearview", 40.7997, -73.7919, 40.8043, -73.7941]]
 
 # Road ids are the asset's road table (== swish::NetworkRoad in CorridorNetworkAsset.h). 0 is the LIE.
 # select:  OSM tag regexes every mainline way must match (highway=motorway is implied).
 # exclude: tag regexes a mainline way must NOT match.
 # from/to: (lat, lon) seeds; the forward chain walks from `from` towards `to` (sets the +s direction).
-# walls:   [junction, real metres past it]; the work-zone wall stands that far beyond the junction, outward.
+# walls:   [end, junction, real metres past it]; end 0 = low-s, 1 = high-s. The work-zone wall stands that far
+#          beyond the junction, outward. An end without a wall is where the road's data ends.
 # tail_m:  compact metres of undrivable road past each wall (horizon continuation), clamped to the data.
+
 [roads.bqe]
 id = 1
 name = "BQE"
@@ -37,8 +67,38 @@ select = { ref = "I 278" }
 exclude = { name = "Grand Central|Kennedy|Triborough" }
 from = [40.703, -73.957]     # Williamsburg, past the Kosciuszko Bridge (south tail)
 to = [40.770, -73.905]       # Astoria, at the GCP
-walls = [["lie_bqe", 600.0], ["bqe_gcp", 150.0]]
+walls = [[0, "lie_bqe", 600.0]]   # north end: the BQE's own ways stop where its legs merge into the GCP
 tail_m = 3000.0
+# N3 profile per docs/queens-network-reference/roads.md section 1 (real lat ranges, metres): viaduct from the LIE to
+# Queens Blvd, the Woodside depressed section under the LIRR Main Line, viaduct again from Broadway to Northern Blvd.
+# [lat0, lat1, kind, h]: viaduct = DEM ground + h (at least the OSM layer height), trench = DEM ground - h.
+profile = [[40.7300, 40.7395, "viaduct", 7.5], [40.7400, 40.7490, "trench", 6.5], [40.7500, 40.7568, "viaduct", 7.0]]
+lane_floor = [[40.7300, 40.7548, 3]]  # 3 through lanes LIE -> the Y at Northern Blvd (OSM: 2 where an exit lane splits)
+# N3 Astoria "Y": the east leg ("Brooklyn-Queens Expressway East", no ref, 2 lanes each way) is fetched on its own
+# (fetch_net -> data/osm/queens_bqe_legs.json) and joins the ramp set as two 2-lane one-way pieces; the west leg is
+# the BQE alignment itself.
+legs = { name = "Queens Expressway East" }  # OSM name uses an en dash
+legs_bbox = [40.750, -73.905, 40.770, -73.885]
+legs_junction = "bqe_gcp"
+# N3: structures crossing over the BQE (fetch_net -> data/osm/queens_bqe_xing.json), baked into its XING block
+# like the LIE's D4 crossings (rail = through girder, streets = steel). Only "over" kinds: the BQE's own viaduct
+# is drawn by the network mesh.
+crossings = true
+corridor = { inner_shoulder_ft = 1.0, outer_shoulder_ft = 2.0 }  # "most of the length has none" (NYCR-BQE)
+
+# N7 roadside look per stretch (docs/queens-network-reference/roads.md tables), keyed like `profile` (real lat, or lon
+# with profile_axis = "lon"); first matching row wins, rows cover the horizon tails too. Columns:
+#   [axis0, axis1, kit, lamp, edge, surface]
+#   kit     = LIE D5 district kit by its exit number (road::dressing::kKits): 17 Calvary graves, 18 Maspeth industry,
+#             19 LeFrak apartments, 22 Flushing Meadows park, 24 Queens houses + walk-ups, 30 Alley Pond woods,
+#             34 Nassau suburbs
+#   lamp    = "twin" (median twin davits + outer singles), "cobra" / "shoebox" (shoulder singles), "none"
+#   edge    = "rail" (W-beam at the shoulder), "wall" (sound wall at the top of the cut), "none"
+#   surface = D1 pavement: "concrete", "worn" (asphalt), "fresh", "patched", "auto" (concrete on viaducts, else worn)
+# BQE (roads.md section 1): Greenpoint / Maspeth industry south of the LIE, New Calvary over the cemetery, Woodside
+# walk-ups along the trench (concrete slabs, SV-3), Jackson Heights / Astoria to the Y; davits on median and parapets
+look = [[40.6900, 40.7280, 18, "twin", "none", "auto"], [40.7280, 40.7370, 17, "twin", "none", "auto"],
+        [40.7400, 40.7490, 24, "twin", "none", "concrete"], [40.6900, 40.8000, 24, "twin", "none", "auto"]]
 
 [roads.gcp]
 id = 2
@@ -48,8 +108,27 @@ select = { name = "Grand Central Parkway|Northern State Parkway|Robert F. Kenned
 exclude = {}
 from = [40.778, -73.925]     # RFK Bridge approach
 to = [40.747, -73.675]       # Northern State past the Nassau line
-walls = [["bqe_gcp", 1200.0], ["gcp_cip", 1500.0]]
+walls = [[0, "bqe_gcp", 1200.0], [1, "gcp_cip", 1500.0]]
 tail_m = 3000.0
+# N4 parkway (docs/queens-network-reference/roads.md section 2). The GCP runs east-west, so profile and lane-floor rows
+# key on longitude: [lon0, lon1, kind, h]. Briarwood / Jamaica Hills: the trench with tall concrete retaining walls
+# (about 5-6 m, SV-4). Elsewhere the OSM layer tags give the bridges (Kew Gardens, the Clearview stack, the CIP).
+profile_axis = "lon"
+profile = [[-73.8110, -73.7905, "trench", 5.5]]
+lane_floor = [[-73.9200, -73.8950, 3]]  # 3 through lanes from the RFK to exit 4 (OSM tags 2 where an aux lane ends)
+# Structures over the GCP (fetch_net -> data/osm/queens_gcp_xing.json); 1930s parkway arches by name (roads.md: the
+# triple-arch overpass at exit 11, Jewel Ave / 69th Rd)
+crossings = true
+crossing_styles = { "Jewel|69th Road" = "stone" }
+crossing_exclude = "Horace Harding|Brooklyn-Queens"  # the LIE's D4 bridge decks them; the BQE legs are ramps
+# Parkway cross-section: 2 ft left / 8 ft right shoulders (to check on the aerials), NJ median (has a profile)
+corridor = { inner_shoulder_ft = 2.0, outer_shoulder_ft = 8.0 }
+# GCP (roads.md section 2, by lon): Astoria rowhouses on light concrete (SV-1), LaGuardia and Flushing Meadows open
+# lawns, Kew Gardens / Briarwood walk-ups, Hollis Hills houses then Cunningham / Alley Pond woods with W-beam (SV-6),
+# sound walls near the Nassau line (NYCR-GCP); davits on the NJ median throughout
+look = [[-73.9400, -73.8950, 24, "twin", "none", "concrete"], [-73.8950, -73.8350, 22, "twin", "none", "auto"],
+        [-73.8350, -73.7700, 24, "twin", "none", "auto"], [-73.7700, -73.7200, 30, "twin", "rail", "auto"],
+        [-73.7200, -73.6500, 34, "twin", "wall", "auto"]]
 
 [roads.vanwyck]
 id = 3
@@ -59,8 +138,16 @@ select = { ref = "I 678" }
 exclude = {}
 from = [40.752, -73.837]     # just north of the LIE
 to = [40.670, -73.800]       # towards JFK (south tail)
-walls = [["lie_vw", 300.0], ["gcp_vw", 1000.0]]
+walls = [[0, "lie_vw", 300.0], [1, "gcp_vw", 1000.0]]
 tail_m = 3000.0
+# N5 (roads.md section 3): no forced rows; the OSM layers give the viaduct over the LIE and the Kew Gardens bridges. An
+# empty profile still bakes the GRND block (structures, NJ median). 12 ft lanes, 10 ft shoulders = the LIE defaults.
+profile = []
+crossings = true
+# Van Wyck (roads.md section 3): Willets Point industry north of the LIE, Flushing Meadows lawn and trees with
+# W-beam and tall roadside davits (SV-7, SV-8), Kew Gardens / Richmond Hill south of the KGI
+look = [[40.7450, 40.7700, 18, "cobra", "none", "auto"], [40.7120, 40.7450, 22, "cobra", "rail", "auto"],
+        [40.6500, 40.7700, 24, "cobra", "none", "auto"]]
 
 [roads.clearview]
 id = 4
@@ -70,8 +157,15 @@ select = { ref = "I 295" }
 exclude = {}
 from = [40.800, -73.792]     # Throgs Neck approach (north tail)
 to = [40.718, -73.765]       # Hillside Ave (south end of the expressway)
-walls = [["lie_clearview", 1500.0], ["gcp_clearview", 1000.0]]
+walls = [[0, "lie_clearview", 1500.0], [1, "gcp_clearview", 1000.0]]
 tail_m = 3000.0
+# N5 (roads.md section 4): at grade LIE to Hillside; the GCP stack from the OSM layers. Interstate shoulders (defaults).
+profile = []
+crossings = "bbox"  # N5: by bbox (the `around` query came back empty), crossers kept by the bake
+# Clearview (roads.md section 4): Bayside houses, oak rows with W-beam at exit 5 (SV-9), Fresh Meadows, Cunningham
+# Park woods at the GCP stack, Hollis to Hillside; roadside davits
+look = [[40.7550, 40.7750, 24, "cobra", "rail", "auto"], [40.7260, 40.7400, 30, "cobra", "rail", "auto"],
+        [40.7000, 40.8300, 24, "cobra", "none", "auto"]]
 
 [roads.cip]
 id = 5
@@ -81,12 +175,21 @@ select = { name = "Cross Island Parkway" }
 exclude = {}
 from = [40.790, -73.790]     # Whitestone / Fort Totten (north tail)
 to = [40.690, -73.725]       # towards the Belt (south tail)
-walls = [["lie_cip", 1500.0], ["gcp_cip", 1000.0]]
+walls = [[0, "lie_cip", 1500.0], [1, "gcp_cip", 1000.0]]
 tail_m = 3000.0
+# N5 (roads.md section 5): at grade through Alley Pond Park, flyovers from the OSM layers; parkway shoulders as the GCP
+profile = []
+crossings = "bbox"  # N5: by bbox (the `around` query came back empty), crossers kept by the bake
+corridor = { inner_shoulder_ft = 2.0, outer_shoulder_ft = 8.0 }
 
 # Junctions: id -> [road a, road b, (lat, lon) hint]. The point is the closest approach of the two real
 # centrelines (the crossing, or the merge) within `search_m` of the hint; the hint only picks which approach.
 # Hints = junction centres measured on OSM in docs/queens-network-reference/roads.md (N0a).
+# CIP (roads.md section 5): Bayside houses along Little Neck Bay (SV-10), Alley Pond wetlands and woods to the curb
+# with W-beam (SV-11), Glen Oaks / Bellerose south of the GCP; lamps on the NJ median
+look = [[40.7750, 40.8000, 24, "twin", "rail", "auto"], [40.7350, 40.7750, 30, "twin", "rail", "auto"],
+        [40.6500, 40.8000, 24, "twin", "none", "auto"]]
+
 [junctions]
 search_m = 800.0
 lie_bqe = ["lie", "bqe", 40.7344, -73.9224]

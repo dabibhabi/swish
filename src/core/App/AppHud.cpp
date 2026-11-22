@@ -61,25 +61,48 @@ void App::sync_hud(DebugParams& dp) {
     const CorridorAlignment& al = m_corridor_alignment;
     if (h.route.empty()) build_route(al, h);
 
+    const Vec3 p = m_car->get_position();
+    h.car        = Vec2(p.x, static_cast<float>(static_cast<double>(p.z) - m_corridor.origin_shift()));
+    const Vec3 f = m_car->get_forward();
+    if (f.x * f.x + f.z * f.z > 1e-6f) h.heading = glm::normalize(Vec2(f.x, f.z));
+
+    // N9: off the LIE the network says where the car is.
+    // shortcut: map lines built once, a network rebuild is not redrawn; clear h.net on rebuild if ramps move visibly.
+    const CorridorNetwork& net = m_corridor.network();
+    const NetPos&          np  = m_corridor.net_pos();
+    if (net.valid() && h.net.empty()) {
+        h.net      = network_map_lines(net);
+        h.netRoads = net.road_count() - 1;
+        h.netMin = h.netMax = h.net.front().front();
+        for (const auto& l : h.net)
+            for (Vec2 q : l) h.netMin = glm::min(h.netMin, q), h.netMax = glm::max(h.netMax, q);
+    }
+    h.lit = !net.valid() || (np.road == 0 && np.ramp < 0) ? -1
+            : np.ramp >= 0                                ? static_cast<int>(h.netRoads) + np.ramp
+                                                          : np.road - 1;
+    if (h.lit >= 0) {
+        const NetHud n = network_hud(net, np, hud::kWuPerMile * dp.hudRoadEndsMi);
+        h.district = n.district, h.shield = n.shield, h.piece = n.road, h.tab = n.tab, h.exitShield = n.top;
+        h.exitDest = n.dest, h.warn = n.warn, h.exitMiles = hud::miles(n.dist, 0.0, 0.0);
+        return;
+    }
+
     const double s              = m_corridor.station();
     const auto*  d              = al.district_at(s);
     h.district                  = d != nullptr ? text(d->name) : std::string();
     static const char* kPiece[] = {"Mainline", "Mainline", "Ramp", "Service road", "Crossroad"};
     h.piece                     = kPiece[static_cast<int>(m_corridor.piece())];
+    h.shield.clear();
+    h.warn = false;
 
     const CorridorExit* e = al.next_exit(s, !m_corridor.eastbound());
-    h.exitRef             = e != nullptr ? text(e->ref) : std::string();
+    h.tab                 = e != nullptr ? "EXIT " + text(e->ref) : std::string();
     if (e != nullptr) {
         h.exitShield = text(e->destRef);
         h.exitDest   = text(e->dest);
         for (size_t at; (at = h.exitDest.find("; ")) != std::string::npos;) h.exitDest.replace(at, 2, " \xC2\xB7 ");
         h.exitMiles = hud::miles(std::abs(e->station - s), al.header().realLength, al.total_length());
     }
-
-    const Vec3 p = m_car->get_position();
-    h.car        = Vec2(p.x, static_cast<float>(static_cast<double>(p.z) - m_corridor.origin_shift()));
-    const Vec3 f = m_car->get_forward();
-    if (f.x * f.x + f.z * f.z > 1e-6f) h.heading = glm::normalize(Vec2(f.x, f.z));
 }
 
 }  // namespace swish

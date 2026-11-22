@@ -55,22 +55,35 @@ struct NetworkWall {
     uint8_t pad[6];
 };
 
-// One OSM motorway_link way at a junction: points [first, first + count) in the RPTS block. from / to = the
-// road id its first / last point attaches to, 255 = another ramp or a local street.
+// One ramp at a junction: OSM motorway_link ways joined end to start with no fork (N3), points [first, first +
+// count) in the RPTS block. from / to = the road whose mainline shares its first / last OSM node, 255 = another
+// ramp or a local street. osmId = its first way.
 struct NetworkRamp {
     int64_t  osmId;
     uint32_t first, count;
     uint8_t  junction, from, to;
-    int8_t   layer;  // OSM layer (bridge = 1 when untagged)
-    uint8_t  pad[4];
+    int8_t   layer;  // highest OSM layer along it (bridge = 1 when untagged)
+    uint8_t  lanes;  // fewest OSM lanes along it (untagged = 1)
+    uint8_t  stub;   // N6: 1 = a closed local exit's stub (its link chain from the exit node, nowhere to go)
+    uint8_t  pad[2];
 };
 
 // A warped ramp point. y: DEM ground + layer height, on the LIE's datum (relative to its start station).
 struct NetworkRampPoint {
-    double x, z;
-    float  y;
-    int8_t layer;
+    double  x, z;
+    float   y;
+    int8_t  layer;
     uint8_t pad[3];
+};
+
+// N8: a landmark (road::netmarks::Kind) on road `road`: points at stations s (WU, may lie past the data ends) and
+// laterals lat (WU, + = right of +s, real metres kept), ground y (WU, LIE datum). One-point kinds repeat the point.
+struct NetworkLandmark {
+    double  s[2];
+    float   lat[2];
+    float   y;
+    uint8_t kind, road;
+    uint8_t pad[2];
 };
 
 #pragma pack(pop)
@@ -81,6 +94,7 @@ static_assert(sizeof(NetworkJunction) == 64, "NetworkJunction must match tools/q
 static_assert(sizeof(NetworkWall) == 16, "NetworkWall must match tools/queens_network.py");
 static_assert(sizeof(NetworkRamp) == 24, "NetworkRamp must match tools/queens_network.py");
 static_assert(sizeof(NetworkRampPoint) == 24, "NetworkRampPoint must match tools/queens_network.py");
+static_assert(sizeof(NetworkLandmark) == 32, "NetworkLandmark must match tools/queens_network.py");
 
 inline constexpr uint32_t kNetworkMagic   = 0x4E4C5753;  // "SWLN"
 inline constexpr uint32_t kNetworkVersion = 1;
@@ -89,6 +103,7 @@ inline constexpr uint32_t kNetworkJnctTag = 0x54434E4A;  // "JNCT"
 inline constexpr uint32_t kNetworkWallTag = 0x4C4C4157;  // "WALL"
 inline constexpr uint32_t kNetworkRampTag = 0x504D4152;  // "RAMP"
 inline constexpr uint32_t kNetworkRptsTag = 0x53545052;  // "RPTS"
+inline constexpr uint32_t kNetworkLmrkTag = 0x4B524D4C;  // "LMRK" (N8)
 
 struct CorridorNetworkAsset {
     std::vector<NetworkRoad>      roads;
@@ -96,6 +111,7 @@ struct CorridorNetworkAsset {
     std::vector<NetworkWall>      walls;
     std::vector<NetworkRamp>      ramps;
     std::vector<NetworkRampPoint> rampPoints;
+    std::vector<NetworkLandmark>  landmarks;  // N8
 };
 
 // Throws on a missing or malformed file, like load_corridor_asset.
@@ -113,18 +129,25 @@ struct CorridorNetworkAsset {
         throw std::runtime_error("CorridorNetwork: bad magic or version in " + path + hint);
 
     CorridorNetworkAsset a;
-    auto read = [&](auto& v, uint32_t n) {
+    auto                 read = [&](auto& v, uint32_t n) {
         v.resize(n);
         return v.empty() || std::fread(v.data(), sizeof(v[0]), n, f) == n;
     };
     uint32_t block[2];
     while (std::fread(block, sizeof(block), 1, f) == 1) {
         bool ok = false;
-        if (block[0] == kNetworkRoadTag) ok = read(a.roads, block[1]);
-        else if (block[0] == kNetworkJnctTag) ok = read(a.junctions, block[1]);
-        else if (block[0] == kNetworkWallTag) ok = read(a.walls, block[1]);
-        else if (block[0] == kNetworkRampTag) ok = read(a.ramps, block[1]);
-        else if (block[0] == kNetworkRptsTag) ok = read(a.rampPoints, block[1]);
+        if (block[0] == kNetworkRoadTag)
+            ok = read(a.roads, block[1]);
+        else if (block[0] == kNetworkJnctTag)
+            ok = read(a.junctions, block[1]);
+        else if (block[0] == kNetworkWallTag)
+            ok = read(a.walls, block[1]);
+        else if (block[0] == kNetworkRampTag)
+            ok = read(a.ramps, block[1]);
+        else if (block[0] == kNetworkRptsTag)
+            ok = read(a.rampPoints, block[1]);
+        else if (block[0] == kNetworkLmrkTag)
+            ok = read(a.landmarks, block[1]);
         // Unknown tag = unknown record size: nothing after it can be read safely.
         if (!ok) throw std::runtime_error("CorridorNetwork: bad block in " + path + hint);
     }
@@ -134,6 +157,9 @@ struct CorridorNetworkAsset {
     for (const NetworkRamp& r : a.ramps)
         if (static_cast<uint64_t>(r.first) + r.count > a.rampPoints.size())
             throw std::runtime_error("CorridorNetwork: ramp points out of range in " + path + hint);
+    for (const NetworkLandmark& l : a.landmarks)
+        if (l.road >= a.roads.size())
+            throw std::runtime_error("CorridorNetwork: landmark road out of range in " + path + hint);
     return a;
 }
 

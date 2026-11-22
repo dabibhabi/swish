@@ -233,6 +233,12 @@ add_library(swish_scene_core STATIC
     ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorBridges.cpp   # D4 bridge merge rule + deck mesh
     ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorDressing.cpp  # D5 district lamps, dressing, skyline model
     ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorLandmarks.cpp # D6 landmark spots, deck styles
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorNetwork.cpp   # N2a network ramps + handoff (mesh: CorridorNetworkMesh.cpp)
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorWorkZone.cpp  # N2b work-zone layout (mesh: CorridorWorkZoneMesh.cpp)
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorViaduct.cpp   # N3 road structures (viaduct / trench spans + mesh)
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorGround.cpp    # N7 network ground field (heights, keep-out, grass tiles)
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorNetLandmarks.cpp  # N8 network landmarks (keep-out, mesh)
+    ${CMAKE_SOURCE_DIR}/src/scene/Corridor/CorridorNetHud.cpp   # N9 HUD text + minimap lines off the LIE
     ${CMAKE_SOURCE_DIR}/src/scene/RoadGeometry/RoadGeometry.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/Entity/CarEntity.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/Entity/Entity.cpp

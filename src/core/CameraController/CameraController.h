@@ -50,6 +50,13 @@ public:
     // for the modes that need them). `debug_edit` freezes the cockpit smoothing/kick/shake.
     void update(Camera* camera, const CarEntity* car, float dt, bool debug_edit);
 
+#ifdef SWISH_DEBUG_UI
+    // Screenshots (SWISH_HELI): helicopter orbit radius and mouse-look offsets.
+    void set_heli(float radius_wu, float yaw_deg, float pitch_deg) {
+        m_heli_height_wu = radius_wu, m_look_yaw = yaw_deg, m_look_pitch = pitch_deg;
+    }
+#endif
+
 private:
     void update_cockpit(Camera& camera, const CarEntity& car, float dt, bool debug_edit);
     // Speed/acceleration FOV kick; returns the speed ratio (0..1) shared with the shake.

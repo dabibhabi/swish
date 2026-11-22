@@ -37,6 +37,7 @@ GREEN = (0, 102, 64)
 WHITE = (250, 250, 250)
 BLACK = (12, 12, 12)
 YELLOW = (255, 199, 0)
+ORANGE = (240, 110, 30)  # MUTCD work-zone orange (docs/queens-network-reference/workzone.md section 9)
 I_RED = (178, 30, 40)
 I_BLUE = (0, 54, 120)
 CR_BLUE = (0, 70, 150)
@@ -47,7 +48,7 @@ CELL_W, TAB_H, MAIN_H, STRIP_H = 512, 64, 200, 64  # tab legend ~15 in (E1-5P), 
 CELL_H = TAB_H + MAIN_H
 COLS = PW // CELL_W
 STRIP_Y = 15 * CELL_H  # 3960
-KW, KH = 2048, 2048
+KW, KH = 2048, 4096  # N3: rows 2048+ hold the network guide boards and gores (N4: a fourth row; N5: 7 rows, 2 gore rows)
 GORE = 128
 MK_W, MK_TOP, MK_MID, MK_LOW = 96, 96, 64, 48
 MK_Y = 1024
@@ -236,10 +237,25 @@ def draw_county(img, box, num):
     text_cap(d, x + w / 2, y + 0.50 * h, num, f, fill=YELLOW, anchor="m")
 
 
+def draw_pkwy(img, box, name):
+    # N4: NYSDOT parkway trailblazer (roads.md: "green guide signs plus parkway shield"): white-bordered green
+    # rectangle, the parkway name over PKWY in white (shape from memory, unverified)
+    x, y, w, h = box
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([x, y, x + w, y + h], radius=0.12 * h, fill=WHITE)
+    m = 0.06 * h
+    d.rounded_rectangle([x + m, y + m, x + w - m, y + h - m], radius=0.09 * h, fill=GREEN)
+    for k, ln in enumerate(name.upper().split(" ") + ["PKWY"]):
+        f = fit(d, ln, 0.80 * w, 0.20 * h)
+        text_cap(d, x + w / 2, y + h * (0.27 + 0.23 * k), ln, f, anchor="m")
+
+
 def draw_shield(img, kind, num, x, y, h):
     """Shield of height h at (x, y); returns its width."""
-    w = h * (1.0 if kind == "I" else 0.9 if kind == "CR" else (1.0 if len(num) <= 2 else 1.25))
-    {"I": draw_interstate, "NY": draw_ny, "US": draw_ny, "CR": draw_county}[kind](img, (x, y, w, h), num)
+    w = h * (1.0 if kind == "I" else 0.9 if kind == "CR" else 1.5 if kind == "PKWY" else
+             (1.0 if len(num) <= 2 else 1.25))
+    {"I": draw_interstate, "NY": draw_ny, "US": draw_ny, "CR": draw_county, "PKWY": draw_pkwy}[kind](img, (x, y, w, h),
+                                                                                                  num)
     return w
 
 
@@ -265,7 +281,7 @@ def arrow_up_right(d, cx, cy, s, fill=WHITE):
                (neck[0] - px * sw, neck[1] - py * sw), (base[0] - px * sw, base[1] - py * sw)], fill=fill)
 
 
-def distance(d, cx, cy, s, cap):
+def distance(d, cx, cy, s, cap, fill=WHITE):
     """'1/2 MILE' with a stacked-style fraction (small raised numerator, slash, small denominator)."""
     f, fs = font(int(cap / 0.70)), font(int(0.62 * cap / 0.70))
     parts = s.split(" ")
@@ -276,12 +292,12 @@ def distance(d, cx, cy, s, cap):
         wa, wsl, wb = d.textlength(a, font=fs), d.textlength("/", font=f), d.textlength(b, font=fs)
         total = wa + wsl + wb + d.textlength(word, font=f)
         x = cx - total / 2
-        text_cap(d, x, cy - 0.28 * cap, a, fs)
-        text_cap(d, x + wa, cy, "/", f)
-        text_cap(d, x + wa + wsl, cy + 0.28 * cap, b, fs)
-        text_cap(d, x + wa + wsl + wb, cy, word, f)
+        text_cap(d, x, cy - 0.28 * cap, a, fs, fill)
+        text_cap(d, x + wa, cy, "/", f, fill)
+        text_cap(d, x + wa + wsl, cy + 0.28 * cap, b, fs, fill)
+        text_cap(d, x + wa + wsl + wb, cy, word, f, fill)
     else:
-        text_cap(d, cx, cy, num + word, f, anchor="m")
+        text_cap(d, cx, cy, num + word, f, fill, anchor="m")
 
 
 def cell(w, h, bg=GREEN):
@@ -528,9 +544,243 @@ LANDMARK_BOARDS = [
 ]
 
 
+
+# ── N2b work-zone faces (docs/queens-network-reference/workzone.md section 2) ──
+# Kit atlas: free gore cells 116..127 (row y 896, x 512..2048) and the column right of the landmark boards.
+WZ_Y, WZ_D = 896, 128  # row top, diamond cell (48 in -> ~1 cm/px)
+WZ_LANES = ["RIGHT LANE", "RIGHT 2 LANES", "RIGHT 3 LANES"]  # W20-5 / W20-5a by lanes closed
+
+
+def wz_diamond(px, lines=(), dist=None, symbol=None):
+    """Orange warning diamond, content pre-rotated -45 deg like W2-6 (the quad is turned 45 deg)."""
+    s = SS
+    n = px * s
+    img = Image.new("RGB", (n, n), ORANGE)
+    d = ImageDraw.Draw(img)
+    d.rectangle([4 * s, 4 * s, n - 4 * s, n - 4 * s], outline=BLACK, width=4 * s)
+    sym = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(sym)
+    inner = 0.62 * n  # legend box that fits inside the turned square
+    if symbol == "lane_ends":  # W4-2R: right lane line bends into the left lane; dashed lane line stops
+        c, t = n / 2, 0.06 * n
+        lx, rx, y0, y1 = c - 0.16 * n, c + 0.16 * n, c + 0.30 * n, c - 0.30 * n
+        sd.rectangle([lx - t / 2, y1, lx + t / 2, y0], fill=BLACK)
+        sd.line([(rx, y0), (rx, c + 0.02 * n), (c - 0.02 * n, y1 + 0.06 * n)], fill=BLACK, width=int(t), joint="curve")
+        for k in range(2):
+            ya = y0 - k * 0.14 * n
+            sd.rectangle([c - t / 3, ya - 0.08 * n, c + t / 3, ya], fill=BLACK)
+    else:
+        rows = list(lines) + ([dist] if dist else [])
+        pitch = inner / len(rows)
+        y = n / 2 - inner / 2
+        for k, ln in enumerate(rows):
+            cy = y + pitch * (k + 0.5)
+            if ln == dist and "/" in ln:
+                distance(sd, n / 2, cy, ln, min(0.55 * pitch, 0.13 * n), BLACK)
+            else:
+                f = fit(sd, ln, inner, min(0.55 * pitch, 0.13 * n))
+                text_cap(sd, n / 2, cy, ln, f, BLACK, anchor="m")
+    sym = sym.rotate(-45, resample=Image.BICUBIC)
+    img.paste(sym, (0, 0), sym)
+    return img
+
+
+def wz_rect(w, h, lines, bg, fg=BLACK, cap=None):
+    """Rectangular work-zone / regulatory board with a border and centred lines."""
+    s = SS
+    img, d = cell(w, h, bg)
+    d.rectangle([3 * s, 3 * s, w * s - 3 * s, h * s - 3 * s], outline=fg, width=3 * s)
+    pitch = (h - 16) * s / len(lines)
+    for k, ln in enumerate(lines):
+        f = fit(d, ln, (w - 18) * s, cap * s if cap else 0.62 * pitch)
+        text_cap(d, w * s / 2, 8 * s + pitch * (k + 0.5), ln, f, fg, anchor="m")
+    return img
+
+
+def work_zone_faces(K):
+    """Paste the N2b faces; returns their rects in WzFace order (CorridorWorkZone.h)."""
+    faces = [(wz_diamond(WZ_D, ["ROAD", "WORK"], "1 MILE"), WZ_D, WZ_D)]
+    faces += [(wz_diamond(WZ_D, [t, "CLOSED"], "1/2 MILE"), WZ_D, WZ_D) for t in WZ_LANES]
+    faces.append((wz_diamond(WZ_D, symbol="lane_ends"), WZ_D, WZ_D))
+    faces.append((wz_rect(205, 128, ["ROAD", "CLOSED"], WHITE), 205, 128))  # R11-2, 48 x 30 in
+    faces.append((wz_rect(205, 128, ["EXIT", "CLOSED"], ORANGE), 205, 128))  # E5-2a style panel
+    faces.append((wz_rect(256, 128, ["END ROAD WORK"], ORANGE, cap=34), 256, 128))  # G20-2, 48 x 24 in
+    rects, x = [], 512
+    for img, w, h in faces:
+        paste(K, img, x, WZ_Y)
+        rects.append((x, WZ_Y, w, h))
+        x += w
+    assert x <= KW
+    # NYR9-11 (NY only), 48 x 84 in, in the free column right of the landmark boards
+    paste(K, wz_rect(160, 280, ["LICENSE", "SUSPENDED", "AFTER TWO", "WORK ZONE", "SPEEDING", "TICKETS"], WHITE),
+          1728, 1760)
+    rects.append((1728, 1760, 160, 280))
+    return rects
+
 # ── main ─────────────────────────────────────────────────────────────
 
+# ── N3 network guide boards (RoadParams road::network::kGuideSigns board index order) ──
+# Legends from the BQE exit list (docs/queens-network-reference/roads.md section 1, WP-BQE) and the I-278 control
+# cities (Bronx eastbound, Brooklyn westbound). 512 x 256 px = a 20 x 10 ft overhead panel.
+NET_Y = 2048
+NET_BOARDS = [
+    dict(tab="EXIT 39", shield=("NY", "25"), lines=["Queens Blvd"], dist="1/2 MILE"),
+    dict(tab="EXIT 40", lines=["Broadway", "Roosevelt Av"], dist="1/2 MILE"),
+    dict(tab="EXIT 41", shield=("NY", "25A"), lines=["Northern Blvd"], dist="1/2 MILE"),
+    dict(shield=("I", "278"), card="WEST", lines=["Grand Central Pkwy W", "RFK Bridge"]),
+    dict(tab="EXIT 42", lines=["Grand Central Pkwy E", "LaGuardia Airport"]),
+    dict(shield=("I", "278"), card="EAST", lines=["Bronx", "Grand Central Pkwy"], dist="3 MILES"),
+    dict(shield=("I", "278"), card="WEST", lines=["Brooklyn", "Long Island Expwy"], dist="2 MILES"),
+    dict(tab="EXIT 41", shield=("NY", "25A"), lines=["Northern Blvd"], dist="1/2 MILE"),
+    dict(tab="EXIT 40", lines=["Broadway", "Roosevelt Av"], dist="1/2 MILE"),
+    dict(tab="EXIT 39", shield=("NY", "25"), lines=["Queens Blvd"], dist="1/2 MILE"),
+    dict(tab="EXIT 35 W", shield=("I", "495"), card="WEST", lines=["Midtown Tunnel"], dist="1/2 MILE"),
+    # N4 GCP, parkway style (roads.md section 2, WP-GCP exit list): the Interstates it meets by their shields, the
+    # parkway itself by its trailblazer on the confirmation boards past each junction
+    dict(tab="EXIT 10", shield=("I", "495"), lines=["Long Island Expwy"], dist="1/2 MILE"),  # EB
+    dict(tab="EXIT 10", shield=("I", "495"), lines=["Long Island Expwy"], dist="1/2 MILE"),  # WB
+    dict(tab="EXIT 4", shield=("I", "278"), card="WEST", lines=["Brooklyn Queens Expwy"], dist="1/2 MILE"),
+    dict(shield=("PKWY", "Grand Central"), card="EAST", lines=["LaGuardia Airport", "Eastern Long Island"]),
+    dict(shield=("PKWY", "Grand Central"), card="WEST", lines=["LaGuardia Airport", "RFK Bridge"]),
+    # N5 rungs (roads.md sections 3-5, legends from the OSM destination tags of each exit): the Van Wyck and the
+    # Clearview in Interstate style, the Cross Island in parkway style (the roads met by their shields)
+    dict(tab="EXIT 7", shield=("NY", "25"), card="WEST", lines=["Union Tpke", "Jackie Robinson Pkwy W"],
+         dist="1/2 MILE"),                                                                              # 16 VW SB
+    dict(tab="EXIT 10", shield=("PKWY", "Grand Central"), lines=["LaGuardia Airport", "RFK Bridge"],
+         dist="1/2 MILE"),                                                                              # 17 VW NB
+    dict(tab="EXIT 12 A-B", shield=("I", "495"), lines=["Eastern Long Island", "Midtown Tunnel"],
+         dist="1/2 MILE"),                                                                              # 18 VW NB
+    dict(tab="EXIT 4 E-W", shield=("I", "495"), lines=["Manhattan", "Eastern Long Island"], dist="1/2 MILE"),  # 19 CLV
+    dict(tab="EXIT 1", shield=("PKWY", "Grand Central"), lines=["Eastern Long Island", "RFK Bridge"],
+         dist="1/2 MILE"),                                                                              # 20 CLV SB
+    dict(tab="EXIT 30 E", shield=("I", "495"), card="EAST", lines=["Eastern Long Island"],
+         dist="1/2 MILE"),                                                                              # 21 CIP SB
+    dict(tab="EXIT 29 E-W", shield=("PKWY", "Grand Central"), lines=["Hauppauge", "Triborough Br"],
+         dist="1/2 MILE"),                                                                              # 22 CIP SB
+    dict(tab="EXIT 29 E-W", shield=("PKWY", "Grand Central"), lines=["RFK Bridge", "Eastern Long Island"],
+         dist="1/2 MILE"),                                                                              # 23 CIP NB
+    dict(shield=("PKWY", "Cross Island"), card="SOUTH", lines=["Belt Pkwy", "Kennedy Airport"]),        # 24 CIP SB
+    dict(tab="EXIT 13", shield=("I", "678"), card="SOUTH", lines=["Van Wyck Expwy", "Kennedy Airport"],
+         dist="1/2 MILE"),                                                                              # 25 GCP EB
+    dict(tab="EXIT 21", shield=("I", "295"), card="NORTH", lines=["Throgs Neck Br", "Bronx"],
+         dist="1/2 MILE"),                                                                              # 26 GCP
+    dict(tab="EXIT 23", shield=("PKWY", "Cross Island"), lines=["Whitestone Br", "Belt Pkwy"],
+         dist="1/2 MILE"),                                                                              # 27 GCP
+]
+NET_GORES = ["35 W", "39", "40", "41", "42", "43", "44", "10", "4",
+             "7", "12 A-B", "4 E-W", "1", "30 E", "29 E-W", "13", "21", "23"]  # N5 from 9
+
+
+def net_signs(K):
+    """N3 boards (4 per row) then a row of gore signs; returns (board rects, gore rects)."""
+    out = []
+    for k, kw in enumerate(NET_BOARDS):
+        x, y = (k % 4) * 512, NET_Y + (k // 4) * 256
+        paste(K, board(512, 256, **kw), x, y)
+        out.append((x, y, 512, 256))
+    gy = NET_Y + 256 * ((len(NET_BOARDS) + 3) // 4)
+    gores, per = [], KW // GORE
+    for k, lb in enumerate(NET_GORES):  # N5: rows of 16
+        x, y = (k % per) * GORE, gy + (k // per) * GORE
+        paste(K, draw_gore(lb)[0], x, y)
+        gores.append((x, y, GORE, GORE))
+    assert gores[-1][1] + GORE <= KH, "N3 boards do not fit the kit atlas"
+    return out, gores
+
+
+# ── N6 local exits on the network roads (decision 8: signed but closed) ──
+# Every exit record on a network road's drivable span (between its WALL records) gets a kNetExits row: the N3-N5 board
+# and gore of its kGuideSigns row (RoadParams.h) when it has one (baked = 1: its board carries "1/2 MILE"), else a new
+# board without a distance (the gantry hangs the D3 1 MILE / 1/2 MILE strip under it) and a gore sign, shared by label.
+NET_ASSET = os.path.join(ROOT, "assets", "corridor", "queens_network_full.bin")
+PARAMS = os.path.join(ROOT, "src", "scene", "RoadScene", "RoadParams.h")
+N6_Y = 4096  # below the N3-N5 rows; the atlas grows to fit
+
+
+def exit_label(ref):
+    m = re.match(r"^(\d+)(.*)$", ref)
+    return f"{m.group(1)} {m.group(2)}" if m and m.group(2) else ref
+
+
+def net_exits():
+    """[(road, ref, wb, board kwargs or (board, gore) of its row)] in road / station order."""
+    d = open(NET_ASSET, "rb").read()
+    tag = lambda t: d.find(struct.pack("<I", t)) + 8  # noqa: E731
+    o, roads = tag(0x44414F52), {}
+    for _ in range(struct.unpack_from("<I", d, o - 4)[0]):
+        rid, _key, path = struct.unpack_from("<B7x16s40s", d, o)
+        roads[rid], o = path.split(b"\0")[0].decode(), o + 64
+    o, span = tag(0x4C4C4157), {r: [-1e30, 1e30] for r in roads}
+    for _ in range(struct.unpack_from("<I", d, o - 4)[0]):
+        sv, rid, end = struct.unpack_from("<dBB6x", d, o)
+        span[rid][end], o = sv, o + 16
+    src = open(PARAMS).read()
+    block = src[src.index("kGuideSigns[] = {"):]
+    rows = [(int(a), b, c == "true", int(e), int(g)) for a, b, c, e, _f, g, mi in re.findall(
+        r'\{(\d+), "([^"]+)", (true|false), (-?\d+), (-?\d+), (-?\d+), (-?[\d.]+)f\}', block[:block.index("};")])
+        if float(mi) < 0.0]  # advance rows: an exit's board
+    num = lambda ref: re.match(r"\d*", ref).group()  # noqa: E731
+    out = []
+    for rid in sorted(r for r in roads if r):
+        for e in sorted(read_exits(os.path.join(ROOT, "assets", roads[rid])), key=lambda e: e["s"]):
+            if not span[rid][0] < e["s"] < span[rid][1]:
+                continue
+            row = next((r for r in rows if r[0] == rid and r[2] == bool(e["wb"]) and num(r[1]) == num(e["ref"])), None)
+            if row:
+                out.append((rid, e["ref"], e["wb"], (row[3], row[4])))
+                continue
+            sh, pk = shields(e["destRef"])
+            names = [clean(x) for x in e["dest"].split(";") if x.strip()]
+            kw = dict(tab=f"EXIT {exit_label(e['ref'])}", lines=((pk + names)[:2] or ["Local Streets"]))
+            if sh:
+                kw.update(shield=sh[0][:2], card=sh[0][2] or None)
+            out.append((rid, e["ref"], e["wb"], kw))
+    return out
+
+
+def exit_arrow():
+    """Exit-direction strip under a board (MUTCD 2E.37): an up-right arrow, the open top joins the board."""
+    s = SS
+    img, d = cell(CELL_W, STRIP_H)
+    border(d, [3 * s, -1, CELL_W * s - 3 * s, STRIP_H * s - 3 * s], 18 * s, 4 * s, sides="blr")
+    arrow_up_right(d, CELL_W * s - 70 * s, STRIP_H * s / 2 - 2 * s, 46 * s)
+    return img
+
+
+def n6_signs(K, ex):
+    """Paste the N6 boards, new gores and the arrow strip from N6_Y; returns (boards, gores, arrow, rows)."""
+    boards, gores, table, seen = [], [], [], {}
+    labels = list(NET_GORES)
+    for rid, ref, wb, kw in ex:
+        if isinstance(kw, tuple):
+            table.append((rid, ref, wb, kw[0], kw[1], 1))
+            continue
+        k = seen.setdefault(repr(sorted(kw.items())), len(boards))  # one cell per legend (both directions share it)
+        if k == len(boards):
+            x, yy = (k % 4) * 512, N6_Y + (k // 4) * 256
+            paste(K, board(512, 256, **kw), x, yy)
+            boards.append((x, yy, 512, 256))
+        lb = exit_label(ref)
+        if lb not in labels:
+            labels.append(lb)
+        table.append((rid, ref, wb, len(NET_BOARDS) + k, labels.index(lb), 0))
+    y = N6_Y + 256 * ((len(boards) + 3) // 4)
+    per = KW // GORE
+    for k, lb in enumerate(labels[len(NET_GORES):]):
+        gx, gy = (k % per) * GORE, y + (k // per) * GORE
+        paste(K, draw_gore(lb)[0], gx, gy)
+        gores.append((gx, gy, GORE, GORE))
+    y += GORE * ((len(gores) + per - 1) // per)
+    paste(K, exit_arrow(), 0, y)
+    assert y + STRIP_H <= KH, "N6 signs do not fit the kit atlas"
+    return boards, gores, (0, y, CELL_W, STRIP_H), table, labels
+
+
 def build():
+    global KH
+    ex = net_exits()
+    nb = len({repr(sorted(e[3].items())) for e in ex if not isinstance(e[3], tuple)})
+    KH = N6_Y + 256 * ((nb + 3) // 4) + GORE * 3 + STRIP_H  # N6: room for the boards, up to 3 gore rows, the arrow
     gs = groups(read_exits())
     assert len(gs) <= COLS * 15, f"{len(gs)} panels do not fit the atlas"
     A = Image.new("RGB", (PW, PH), GREEN)
@@ -593,6 +843,13 @@ def build():
         lmk.append((lx, ly, w, h))
         ly = ly + h if h <= 128 else KH  # only short boards share a column
     boards.append(lmk)
+    assert len(gs) <= 116, "gore cells reach the N2b work-zone row"
+    assert max(x + w for x, y, w, h in lmk) <= 1728, "landmark boards reach the NYR9-11 column"
+    boards.append(work_zone_faces(K))
+    nets = net_signs(K)
+    boards.append(nets)
+    n6 = n6_signs(K, ex)
+    boards.append(n6)
     return gs, panels, mids, tops, lows, boards, A, K
 
 
@@ -625,9 +882,26 @@ def write_header(panels, mids, tops, lows, boards):
     L.append("};")
     L.append("inline constexpr Rect kMarkerLow[] = {" + ", ".join(r((x, y, MK_W, MK_LOW)) for x, y in lows) + "};")
     L.append("// C4 exit 73 boards in CorridorEndsMesh kSigns order, then the W1-8 chevron.")
-    L.append("inline constexpr Rect kBoards[] = {" + ", ".join(r(b) for b in boards[:-1]) + "};")
+    n6b, n6g, arrow, table, labels = boards[-1]
+    L.append("inline constexpr Rect kBoards[] = {" + ", ".join(r(b) for b in boards[:-4]) + "};")
     L.append("// D6 landmark boards in RoadParams road::landmarks::kBoards cell order.")
-    L.append("inline constexpr Rect kLandmarkBoards[] = {" + ", ".join(r(b) for b in boards[-1]) + "};")
+    L.append("inline constexpr Rect kLandmarkBoards[] = {" + ", ".join(r(b) for b in boards[-4]) + "};")
+    L.append("// N2b work-zone faces in WzFace order (CorridorWorkZone.h).")
+    L.append("inline constexpr Rect kWorkZone[] = {" + ", ".join(r(b) for b in boards[-3]) + "};")
+    L.append("// N3 network guide boards (RoadParams road::network::kGuideSigns board order) and gore signs; N6 boards")
+    L.append("// (no distance line) and gores after them.")
+    L.append("inline constexpr Rect kNetBoards[] = {" + ", ".join(r(b) for b in boards[-2][0] + n6b) + "};")
+    L.append("inline constexpr Rect kNetGores[] = {" + ", ".join(r(b) for b in boards[-2][1] + n6g) + "};")
+    L.append("inline constexpr const char* kNetGoreLabels[] = {" + ", ".join(f'"{g}"' for g in labels) + "};")
+    L.append("// N6 exit-direction strip (an up-right arrow) hung under a board at the exit.")
+    L.append(f"inline constexpr Rect kNetArrow = {r(arrow)};")
+    L.append("// N6 every exit on a network road's drivable span: kNetBoards / kNetGores cells; baked = 1 when the board")
+    L.append("// is an N3-N5 one with its distance line (an exit-direction sign crops it off).")
+    L.append("struct NetExit { int road; const char* ref; int westbound, board, gore, baked; };")
+    L.append("inline constexpr NetExit kNetExits[] = {")
+    for rid, ref, wb, b, g, bk in table:
+        L.append(f'    {{{rid}, "{ref}", {wb}, {b}, {g}, {bk}}},')
+    L.append("};")
     L += ["", "}  // namespace swish::sign_atlas", "// clang-format on", ""]
     open(HEADER, "w").write("\n".join(L))
 

@@ -405,6 +405,238 @@ inline constexpr Board kBoards[] = {
 inline constexpr float kBoardOut = 2.5f;  // board centre past the shoulder edge (or a ramp's outer edge)
 }  // namespace landmarks
 
+// N2a Queens network free-path ramps, metres (m() at use). Sources: docs/corridor/tuning-notes.md (N2a).
+namespace network {
+inline constexpr float kRampLaneFt  = 14.0f;  // one-lane ramp (NYSDOT HDM ch. 2, as diamond::kRampWidthFt)
+inline constexpr float kShoulderLFt = 4.0f;   // AASHTO Green Book Table 10-2 ramp shoulders: 4 ft left
+inline constexpr float kShoulderRFt = 8.0f;   // 8 ft right
+inline constexpr float kStep        = 4.0f;   // resample spacing along a ramp
+inline constexpr float kSmoothXZ    = 10.0f;  // plan box filter radius (OSM node kinks)
+inline constexpr float kSmoothY     = 40.0f;  // height box filter radius, two passes: a 6.5 m layer step -> ~4 %
+inline constexpr float kWeld        = 3.0f;   // ramp ends this close share one point
+inline constexpr float kLift      = 0.02f;  // ramp asphalt over its road sits this far above it (hides the road paint)
+inline constexpr float kHandoffDy = 1.0f;   // a piece is reachable only within this height of the car
+inline constexpr float kBankEase  = 30.0f;  // a ramp's borrowed road bank eases to level over this past the pin
+inline constexpr float kParapetH  = 0.81f;  // 32 in concrete parapet (NYSDOT standard)
+inline constexpr float kParapetW  = 0.30f;
+inline constexpr float kDeck      = 1.2f;   // slab + girder depth under an elevated ramp
+inline constexpr float kPierEvery = 30.0f;  // pier spacing where the deck is high
+inline constexpr float kPierMinH  = 4.0f;   // deck this far above ground gets piers
+inline constexpr float kPierW     = 1.4f;
+// N3 ramp crossings: vertical clearance 16 ft (NYSDOT Interstate minimum) + kDeck, spread / eased along the ramp.
+inline constexpr float kClear = 6.1f, kClearSpread = 90.0f, kClearEase = 60.0f;
+inline constexpr float kForkBias = 0.5f;  // a fork sibling takes the car once its centreline is this much nearer
+// N3 road structures (CorridorViaduct.h). Metres unless named.
+inline constexpr float kViaductMinH = 3.0f;   // profile this far over the DEM ground = viaduct (else embankment)
+inline constexpr float kTrenchMinD  = 1.5f;   // this far under it = trench with retaining walls (else a cut slope)
+inline constexpr float kMinSpan     = 40.0f;  // shorter structure spans are dropped
+inline constexpr float kRoadDeck    = 1.8f;   // slab + girders under a mainline viaduct (fascia depth)
+inline constexpr float kColumn      = 1.2f;   // square pier column
+inline constexpr float kCapH = 1.3f, kCapD = 1.6f;         // pier cap beam height and depth along the road
+inline constexpr float kGirderGap = 2.7f;                  // steel plate girder spacing across the deck
+inline constexpr float kGirderD = 1.1f, kGirderW = 0.45f;  // web depth, flange width
+inline constexpr float kUnderClear = 6.0f;   // deck over `under`'s pavement within this of its outer edge: steel span
+inline constexpr float kGroundEase = 40.0f;  // ground eases from verge level to the DEM over this past a span end
+inline constexpr float kCoping     = 0.45f;  // retaining-wall coping width
+inline constexpr float kGroundW    = 60.0f;  // ground band past the structure, each side
+// N3: LIE exits whose diamond the real junction replaces (17 = the BQE; 16's diamond would sit on its ramps), and
+// LIE crossings drawn by a network road instead (name prefix): the BQE viaduct over the LIE. N4/N5 add theirs.
+// N5: 27 = the Clearview (26's and 28's diamonds would sit on its C/D and loops), 31 = the Cross Island; the Van
+// Wyck viaduct.
+inline constexpr int         kJunctionExits[]  = {16, 17, 22, 26, 27, 28, 31};
+inline constexpr const char* kOwnedCrossings[] = {"Brooklyn", "Van Wyck"};
+// N4: LIE-over crossings whose under-road is a network road (it follows the D4 trench, then eases back to its own
+// profile over net_under_blend_m); the D4 bridge keeps its deck and U-walls.
+inline constexpr const char* kNetUnder[] = {"Grand Central", "Clearview", "Cross Island"};  // N5: the rungs under it
+// N3 guide signs on the network (MUTCD 2E; legends in tools/sign_corridor.py NET_BOARDS, roads.md section 1). Each row:
+// a gantry `miles` real miles along travel from the anchor's gore (negative = before it). anchor = an exit ref on
+// `road` in direction `westbound` (the record's), or a junction name (its station on `road`). board / board2 =
+// sign_atlas::kNetBoards (board2 left of board on the same truss), -1 = the LIE's own panel for the exit number with
+// its distance strip. gore = sign_atlas::kNetGores, -1 = none, -2 = the LIE panel's gore sign.
+struct GuideSign {
+    int         road;
+    const char* anchor;
+    bool        westbound;
+    int         board, board2, gore;
+    float       miles;
+};
+inline constexpr GuideSign kGuideSigns[] = {
+    // LIE (road 0): the exit joins the D3 exit list (gantries by its collapse rule, the panel's gore sign)
+    {0, "17W-E", false, -1, -1, -2, 0.0f},   // LIE EB: EXIT 17 W-E, Staten Island / Bronx / LaGuardia
+    {0, "17W", true, -1, -1, -2, 0.0f},      // LIE WB: EXIT 17 W, Brooklyn
+    {1, "lie_bqe", false, 5, -1, -1, 0.3f},  // BQE NB past the LIE: 278 EAST Bronx / Grand Central Pkwy, 3 MILES
+    {1, "39", false, 0, -1, 1, -0.5f},
+    {1, "40", false, 1, -1, 2, -0.5f},
+    {1, "41", false, 2, -1, 3, -0.5f},
+    {1, "42", false, 4, 3, 4, -0.15f},  // the Y: 278 WEST GCP W / RFK (left lanes), EXIT 42 GCP E / LaGuardia (right)
+    {1, "bqe_gcp", true, 6, -1, -1, 0.4f},  // BQE SB leaving the Y: 278 WEST Brooklyn / Long Island Expwy, 2 MILES
+    {1, "41", true, 7, -1, 3, -0.5f},
+    {1, "40", true, 8, -1, 2, -0.5f},
+    {1, "39W", true, 9, -1, 1, -0.5f},
+    {1, "35", true, 10, -1, 0, -0.5f},
+    // N4 LIE exit 22 (the D3 panels "22A-E" EB, "22 A-B" WB) and the GCP in parkway style: EXIT 10 to the LIE both
+    // ways, EXIT 4 to the BQE westbound, GCP trailblazer confirmation boards past the Y and past exit 22
+    {0, "22A-E", false, -1, -1, -2, 0.0f},
+    {0, "22A", true, -1, -1, -2, 0.0f},
+    {2, "10W-E", false, 11, -1, 7, -0.5f},
+    {2, "10E-W", true, 12, -1, 7, -0.5f},
+    {2, "4", true, 13, -1, 8, -0.5f},
+    {2, "bqe_gcp", false, 14, -1, -1, 0.3f},
+    {2, "lie_gcp", true, 15, -1, -1, 0.3f},
+    // N5 rungs: LIE exits 27 (Clearview) and 31 (CIP) join the D3 exit list; the Van Wyck and the Clearview in
+    // Interstate style, the CIP in parkway style; the GCP's exits 13, 21, 23 (legends: OSM destination tags)
+    {0, "27N-S", false, -1, -1, -2, 0.0f},
+    {0, "27N-S", true, -1, -1, -2, 0.0f},
+    {0, "31S", false, -1, -1, -2, 0.0f},
+    {0, "31N-S", true, -1, -1, -2, 0.0f},
+    {3, "7", false, 16, -1, 9, -0.5f},        // VW SB: EXIT 7 Union Tpke / Jackie Robinson Pkwy
+    {3, "10", true, 17, -1, 7, -0.5f},        // VW NB: EXIT 10 GCP
+    {3, "12A", true, 18, -1, 10, -0.5f},      // VW NB: EXIT 12 A-B I-495
+    {4, "4E-W", false, 19, -1, 11, -0.5f},    // Clearview: EXIT 4 E-W I-495 both ways
+    {4, "4E-W", true, 19, -1, 11, -0.5f},     //
+    {4, "1", false, 20, -1, 12, -0.5f},       // Clearview SB: EXIT 1 GCP (the stack)
+    {5, "30E", false, 21, -1, 13, -0.5f},     // CIP SB: EXIT 30 E I-495 EAST (no SB access to I-495 west)
+    {5, "29E-W", false, 22, -1, 14, -0.5f},   // CIP SB: EXIT 29 E-W GCP
+    {5, "29E-W", true, 23, -1, 14, -0.5f},    // CIP NB: EXIT 29 E-W GCP
+    {5, "lie_cip", false, 24, -1, -1, 0.3f},  // CIP SB past the LIE: Belt Pkwy / Kennedy Airport
+    {2, "13", false, 25, -1, 15, -0.5f},      // GCP EB: EXIT 13 I-678 SOUTH (Kew Gardens)
+    {2, "21", false, 26, -1, 16, -0.5f},      // GCP: EXIT 21 I-295 NORTH (the stack), both ways
+    {2, "21", true, 26, -1, 16, -0.5f},       //
+    {2, "23", false, 27, -1, 17, -0.5f},      // GCP: EXIT 23 Cross Island Pkwy, both ways
+    {2, "23", true, 27, -1, 17, -0.5f},       //
+};
+inline constexpr float kGoreAfter = 100.0f;  // m: gore past an exit record when no network ramp gives it
+// N3 junction ramps: the ramp's left edge line is white this far past where it leaves its road (the gore).
+inline constexpr float kGoreLen    = 60.0f;
+inline constexpr float kUnderBlend = 150.0f;  // N4: m, a road under a LIE bridge eases back to its profile (slider)
+// N4: the LIE's bridge over a network road spans it and its C/D roads (exit 22: GCP 4+4 lanes + C/D each side):
+// girder deck of at least this half width (m) along the LIE, piers this far either side of the road's median.
+inline constexpr float kUnderHalf = 42.0f, kUnderPier = 22.0f;
+inline constexpr float kUnderFall = 40.0f;  // m: ramps past the bridge's half width keep less of the sag
+inline constexpr float kVergeSink = 2.0f;   // m: a ramp at most this far under a road's grass verge is lifted onto it
+inline constexpr float kUnderDig  = 1.4f;   // m: its trench floor this much deeper, so its smoothed C/D ramps clear too
+inline constexpr float kHugEase   = 15.0f;  // N5: m, a ramp sunk into a road's shoulder is lifted this close to its pin
+inline constexpr int   kClearPasses = 8;    // N5: clearance + reweld rounds (a weld moves the crossings near it)
+inline constexpr float kPinPastDy = 4.0f;   // N5: m, a ramp rides its road past half its length only this level with it
+// N6 guide signs per road (roads.md): the GCP and the CIP are parkways (NYSDOT: smaller boards on roadside posts),
+// the rest Interstates (overhead trusses).
+inline constexpr int   kParkways[]  = {2, 5};
+inline constexpr float kPostScale   = 0.6f;   // parkway roadside board: 0.6 x the 20 ft overhead panel (12 ft)
+inline constexpr float kPostLift    = 2.1f;   // m: board bottom over the ground (7 ft, MUTCD 2A.18)
+inline constexpr float kPostOut     = 3.0f;   // m: board's near edge past the shoulder (or the ramp) edge
+inline constexpr float kDirBefore   = 60.0f;  // m: exit-direction sign this far before the gore (MUTCD 2E.37)
+inline constexpr float kClosedW     = 0.4f;   // EXIT CLOSED plaque width / board width (8 x 5 ft under a 20 ft board)
+inline constexpr float kMaxGrade    = 0.08f;  // N6: steepest ramp grade (AASHTO Green Book ch. 10: 6-8 % upper range)
+inline constexpr float kGradeSmooth = 12.0f;  // N6: m, box radius rounding the grade breaks (vertical curves)
+// N6: where pins, welds and 16 ft clearance leave no room in the compact layout the solve raises one ramp's grade in 2
+// % steps; AASHTO allows 2 % more on one-way downgrades. Test cap for those ramps (one LIE x CIP pair excepted).
+inline constexpr float kMaxGradeTight = 0.11f;
+// N7: a parkway (kParkways, passenger cars only) needs less headroom: NYC parkway structures are posted 10 ft 7 in to
+// 11 ft 6 in (photos cip-stone-bridge); 12 ft 6 in + kDeck over a parkway's pavement, and under a road for a ramp to
+// or from a parkway (the grade solve only; clear_ramps keeps 16 ft where there is room).
+inline constexpr float kParkwayClearFt = 12.5f;
+// N7 network ground (CorridorGround.h), metres: DEM blended between roads, carved under and pinned to at-grade
+// pavement.
+inline constexpr float kGroundFine    = 16.0f;    // fine cell, within kGroundNear of a network road or ramp
+inline constexpr float kGroundCoarse  = 96.0f;    // coarse cell everywhere else (out to the far plane)
+inline constexpr float kGroundNear    = 220.0f;   // fine grid this far round network pavement
+inline constexpr float kGroundMargin  = 2600.0f;  // coarse grid past the network's bbox (camera far plane 2.4 km)
+inline constexpr float kGroundSink    = 0.12f;    // under network pavement and verges (hides no paint, no z-fight)
+inline constexpr float kGroundLieSink = 0.3f;     // under the LIE's level ground (its D5 far strip sits 0.2 m down)
+inline constexpr float kGroundDem     = 0.3f;     // under the DEM (N3 structure ground bands win)
+inline constexpr float kGroundDrop    = 1.0f;     // coarse grid (and the fine grid's rim) this much lower
+inline constexpr float kGroundCut     = 0.5f;     // cut slope 1V:2H back up from pavement to the DEM
+inline constexpr float kGroundFill    = 0.5f;     // fill slope 1V:2H down from at-grade pavement (no floating verge)
+inline constexpr float kGroundReach   = 60.0f;    // slopes stop binding this far past the pavement band
+inline constexpr float kGroundIdw     = 300.0f;   // DEM blend radius; weight 1 / (d^2 + kGroundSoft^2)
+inline constexpr float kGroundSoft    = 30.0f;
+// N9 HUD per road id (MUTCD 2D.10 route shields, 2D.13 cardinal directions): Interstate shield ("" = parkway, no
+// shield), name, and the signed direction of travel along +s / -s. +s runs config/queens_network.toml from -> to; the
+// letter is that real bearing on the route's signed axis (even Interstates and the GCP E-W, the odd ones and the CIP
+// N-S), so the BQE north to Astoria is I-278 East. The world frame is the LIE's (it runs along -z), not
+// compass-aligned.
+struct HudRoad {
+    const char* shield;
+    const char* name;
+    char        up, down;
+};
+inline constexpr HudRoad kHudRoads[]  = {{"I-495", "Long Island Expy", 'E', 'W'}, {"I-278", "BQE", 'E', 'W'},
+                                         {"", "Grand Central Pkwy", 'E', 'W'},    {"I-678", "Van Wyck", 'S', 'N'},
+                                         {"I-295", "Clearview", 'S', 'N'},        {"", "Cross Island Pkwy", 'S', 'N'}};
+inline constexpr int     kHudRampHops = 8;  // ramp chain followed this far to find where it lands
+inline constexpr int     kHudMapEvery = 4;  // minimap ramp lines keep every 4th 4 m point
+}  // namespace network
+
+// N8 network landmarks (debug; docs/queens-network-reference/landmarks.md, tuning notes N8). Placed from the network's
+// LMRK block (config/queens_network.toml `landmarks`). Metres unless named; "(to check)" sizes are picks from photos.
+namespace netmarks {
+enum class Kind : unsigned char { Gas, Arch, Astoria, Jamaica, Fence, Runway, Terminal, Citi, Ashe, Kew, Throgs };
+// #1 GCP median service area, drawn left of the eastbound lanes (both reference photos are eastbound, station on the
+// left; the compact GCP has an NJ median, no room for it in the middle). Canopy about 30 x 10 m, 4 pump islands.
+inline constexpr float kGasSide = -1.0f, kGasOut = 24.0f;  // canopy centre this far past the outer edge
+inline constexpr float kCanopyL = 30.0f, kCanopyW = 10.0f, kCanopyH = 4.9f, kFascia = 1.2f;  // 16 ft clearance
+inline constexpr float kKioskL = 9.0f, kKioskW = 6.0f, kKioskH = 3.2f, kKioskRoof = 2.6f, kKioskBack = 14.0f;
+inline constexpr float kPriceUp = 30.0f, kPriceH = 6.5f, kPriceW = 2.4f, kPriceTall = 3.0f;  // pole sign upstream
+inline constexpr float kPriceNits    = 400.0f;    // LED price digits, night-dimmed level (slider lm_sign_nits)
+inline constexpr float kCanopyNits   = 1500.0f;   // recessed canopy luminaires (lit with the street lamps)
+inline constexpr float kCanopyLumens = 40000.0f;  // per spot, two spots (about 8 LED canopy fixtures)
+// #2 stone arch: the D4 stone kit (emit_arch) on the GCP's faces over the CIP; wing walls run on past the piers.
+inline constexpr float kArchWing = 25.0f, kArchRing = 0.75f;
+inline constexpr float kHaunchFt = 10.5f;  // posted 10 ft 6 in at the haunches (photo): spring at least this high
+// #3 Astoria Blvd station (BMT, rebuilt 2019-2020): along 31st St over the GCP, platform and mezzanine levels.
+inline constexpr float kStaLen = 150.0f, kStaW = 14.0f, kStaRise = 7.0f, kStaRoof = 3.6f, kStaCol = 15.0f;
+inline constexpr float kMezzLen = 60.0f, kMezzH = 3.0f;
+inline constexpr float kSnap = 60.0f;  // an underpass landmark snaps to the nearest OSM crossing this close
+// #4 Jamaica Yard bridge: two riveted plate-girder spans on granite abutments and a centre pier, 12 ft 7 in posted.
+inline constexpr float kYardClearFt = 12.583f, kYardGirder = 2.4f, kYardPier = 1.6f, kYardAbut = 2.5f;
+inline constexpr float kYardReplace = 40.0f;  // yard-lead crossings this close are this one bridge (drawn here)
+inline constexpr float kStiffEvery  = 2.0f;   // web stiffeners (the riveted panels in the photo)
+// #5 LaGuardia: white concrete wall + chain-link past the GCP's north edge; runway 45.7 m (OSM), edge lights.
+inline constexpr float kFenceOut = 30.0f, kFenceWall = 1.2f, kFenceH = 2.4f, kFencePost = 3.0f;
+inline constexpr float kRunwayW = 45.7f, kRunwayLight = 60.0f, kRunwayNits = 6000.0f;
+inline constexpr float kTermL = 400.0f, kTermD = 70.0f, kTermH = 20.0f, kTowerH = 70.0f, kCabR = 9.0f;
+// #6 Citi Field (41,922 seats, about 260 x 230 m) and Arthur Ashe Stadium (about 190 m across). Semi-axes, heights.
+inline constexpr float kCitiA = 130.0f, kCitiB = 112.0f, kCitiH = 28.0f, kCitiTop = 38.0f, kCitiMast = 58.0f;
+inline constexpr float kAsheR = 95.0f, kAsheH = 37.0f, kAsheRoof = 8.0f;
+inline constexpr float kMastNits = 8000.0f;  // stadium light banks (lit with the street lamps)
+inline constexpr float kSightRun = 350.0f;   // tree-free fan to a stadium / the terminal from this far along (D6)
+// #7 Kew Gardens (2010-2022 rebuild): light-blue steel plate girders under the elevated ramps.
+inline constexpr float kKewGirder = 1.6f;
+// #8 Throgs Neck Bridge (WP-TNB): towers 326 ft (99 m) over the islands, deck 142 ft (43 m) over the water, side
+// spans 555 ft; drawn at kSkyDist and scaled like the D5 skyline (the bridge is 5 km past the far plane).
+inline constexpr float kTnbTower = 99.0f, kTnbDeck = 43.0f, kTnbSide = 169.0f, kTnbHalfW = 14.0f, kTnbLeg = 6.0f;
+inline constexpr float kTnbSight =
+    1500.0f;  // tree-free line from each nearby wall toward it (towers clear trees past it)
+inline constexpr float kTnbDraw = 1000.0f;  // drawn this far out (the scene haze at kSkyDist washed a grey tower out)
+}  // namespace netmarks
+
+// N2b work zones (debug; docs/queens-network-reference/workzone.md). Feet / inches where MUTCD gives them, else m.
+namespace workzone {
+inline constexpr float kSpeedMph = 50.0f;  // S: pre-construction posted speed (GCP / parkways, OSM)
+inline constexpr float kSignAFt = 1000.0f, kSignBFt = 1500.0f, kSignCFt = 2640.0f;  // MUTCD Table 6B-1 freeway
+// MUTCD Table 6B-2 longitudinal buffer (ft) at 45, 50, ... 70 mph
+inline constexpr float kBufferFt[6] = {360.0f, 425.0f, 495.0f, 570.0f, 645.0f, 730.0f};
+inline constexpr float kNySpaceFt   = 40.0f;  // NYSDOT 619: channelizers in the work space
+inline constexpr float kDownFt      = 20.0f;  // MUTCD 6B.08: downstream taper device spacing
+inline constexpr float kGapLen      = 60.0f;  // median U-turn gap (crossover), m
+inline constexpr float kGapClear    = 25.0f;  // gap ends this far before the hold
+inline constexpr float kFaceBack    = 8.0f;   // barrier face past the hold (car nose + cushion)
+inline constexpr float kTaperMinK   = 0.1f;   // a squeezed transition keeps at least this share of L and buffer
+inline constexpr float kRampClear   = 30.0f;  // transition starts at least this far past the nearest junction
+inline constexpr float kDrumHIn = 36.0f, kDrumDIn = 23.0f, kBandIn = 6.0f;  // MUTCD 6K.06, typical product
+inline constexpr float kConeHIn = 28.0f, kConeBaseIn = 14.0f;               // MUTCD 6K.03 freeway cone
+inline constexpr float kBarricadeW = 2.44f, kBarricadeH = 1.52f;            // Type III, 8 ft rails, 5 ft (NYSDOT)
+inline constexpr float kRailIn = 8.0f;
+inline constexpr float kTcbHIn = 32.0f, kTcbBaseIn = 24.0f, kTcbSegFt = 20.0f, kTcbEndIn = 6.0f;  // NYSDOT 619-01
+inline constexpr float kBoardWIn = 96.0f, kBoardHIn = 48.0f, kBoardLiftFt = 7.0f;                 // Type C arrow board
+inline constexpr float kSignLiftFt = 7.0f;                  // urban sign mounting height (MUTCD 6F.02)
+inline constexpr float kBarrelD = 0.91f, kBarrelH = 0.95f;  // sand-filled crash cushion barrel
+inline constexpr float kWarnFpm  = 60.0f;                   // Type A warning light, MUTCD 6L.07 55-75 flashes / min
+inline constexpr float kLampNits = 9000.0f;                 // arrow-board amber lamp (bright enough to read at 1 mile)
+inline constexpr float kExitGore = 60.0f;                   // EXIT CLOSED zone this far past a ramp's gore
+inline constexpr float kExitHold = 9.0f;                    // N6: m, the car stops this far before its barricades
+}  // namespace workzone
+
 static_assert(kExit.diverge_ft + kExit.decel_ft == 1000.0f, "exit ramp spans 1000 ft");
 static_assert(kExit.end_frac > 0.0f && kExit.end_frac < 1.0f);
 

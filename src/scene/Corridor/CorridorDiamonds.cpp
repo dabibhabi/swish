@@ -37,6 +37,21 @@ void face(MeshBuilder& b, Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, const Vec3& n, flo
                 QuadWinding::Fan);
 }
 
+void soffit(MeshBuilder& b, const std::vector<Vec3>& L, const std::vector<Vec3>& R, const Vec4& col, MaterialId mat,
+            float tile) {
+    const uint32_t mk = b.batch_mark();
+    const Vec3     dn(0.0f, -1.0f, 0.0f);
+    for (size_t i = 0; i + 1 < std::min(L.size(), R.size()); ++i) {
+        const bool  up = glm::cross(R[i] - L[i], L[i + 1] - L[i]).y > 0.0f;  // Strip winding: (L R L1) faces along this
+        const Vec3 &a = up ? R[i] : L[i], &c = up ? L[i] : R[i], &a1 = up ? R[i + 1] : L[i + 1],
+                   &c1 = up ? L[i + 1] : R[i + 1];
+        const Vec4 tan(glm::normalize(a1 - a + Vec3(1e-6f, 0.0f, 0.0f)), 1.0f);
+        const auto v = [&](const Vec3& p) { return Vertex{p, dn, Vec2(p.x / tile, p.z / tile), tan}; };
+        b.push_quad(v(a), v(c), v(a1), v(c1), QuadWinding::Strip);
+    }
+    b.close_batch(mk, col, mat);
+}
+
 // Six outward faces of a hexahedron; corner index bits: 1 = a1, 2 = t1, 4 = top.
 void hexa(MeshBuilder& b, const std::array<Vec3, 8>& c, float tile) {
     Vec3 mid(0.0f);
@@ -290,7 +305,9 @@ void emit_corridor_verge(MeshBuilder& b, std::vector<DrawCall>& draws, const Cor
         for (size_t k = 0; k < d.size(); ++k)
             rows[2 + k].push_back(at(al, s, sg * (r.lc + d[k]), r.lc + d[k] < r.top ? ditch_y(r, d[k]) : r.yD, ox, oz));
         rows[11].push_back(at(al, s, sg * (r.E + h.grassExtent), r.yD, ox, oz));
-        if (al.edges().far > 0.0f) {  // D5: far ground, a step down under the grass edge (aprons win the depth test)
+        // D5: far ground, a step down under the grass edge (aprons win the depth test); N7: network roads have the
+        // network ground instead (CorridorGround.h)
+        if (al.edges().far > 0.0f && !al.has_terrain()) {
             const float y = r.yD - m(road::dressing::kFarSink), g = r.E + h.grassExtent;
             rows[12].push_back(at(al, s, sg * (g - m(1.0f)), y, ox, oz));
             rows[13].push_back(at(al, s, sg * (g + corridor_far_ground(al, side, s)), y, ox, oz));

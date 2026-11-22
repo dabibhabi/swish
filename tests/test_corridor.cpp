@@ -914,7 +914,8 @@ TEST_CASE("diamonds: EB/WB exits pair into crossroads on the real full asset", "
     CorridorAlignment al;
     al.load(ASSET_DIR "corridor/lie_corridor_full.bin");
     const auto cr = corridor_crossroads(al, 6500.0f);
-    CHECK(cr.size() == 30u);  // 2026-11-20 bake: 58 exit numbers, minus close neighbours and the end pads
+    CHECK(cr.size() == 26u);  // 2026-11-20 bake: 58 exit numbers, minus close neighbours and the end pads; N3/N4:
+                              // the real junctions own exits 16, 17 and 22; N5: 26-28 and 31 (the Clearview, the CIP)
     for (size_t i = 0; i < cr.size(); ++i) {
         CHECK(cr[i].depth >= 6500.0f);
         CHECK(cr[i].lenBefore >= 300000.0f);
@@ -1270,7 +1271,9 @@ TEST_CASE("d3: every diamond exit gets a gore sign and gantries between the prev
     using util::units::m;
     const D2Route       r = d2_route();
     const CorridorSigns s = corridor_signs(r.al, r.paths);
-    REQUIRE(s.gores.size() == 2 * r.al.crossroads().size());  // one exit ramp per crossroad and direction
+    // one exit ramp per crossroad and direction, plus N3's exit 17, N4's exit 22 and N5's exits 27 and 31 both ways
+    // (their diamonds are the BQE, GCP, Clearview and CIP junctions now)
+    REQUIRE(s.gores.size() == 2 * r.al.crossroads().size() + 8);
     const double wpm = sign_wu_per_mile(r.al), deck = corridor_cross_half(r.al) + m(road::signs::kDeckClear);
     for (const int side : {+1, -1}) {
         std::vector<double> gu;  // gores in travel order

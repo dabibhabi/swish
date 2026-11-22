@@ -143,6 +143,14 @@ TUNE_F(carArbFront, "car", "arb_front", 30000.0f, 0.0f, 80000.0f, "Front anti-ro
 TUNE_F(carArbRear, "car", "arb_rear", 18000.0f, 0.0f, 80000.0f, "Rear anti-roll bar (N/m)", "%.0f", 0, NOPUSH, NOREL)
 TUNE_F(carBrakeBias, "car", "brake_bias_front", 0.62f, 0.4f, 0.8f, "Brake bias to the front", "%.2f", 2, NOPUSH, NOREL)
 TUNE_F(carDownforce, "car", "downforce", 1.0f, 0.0f, 3.0f, "Downforce multiplier", "%.2f", 2, NOPUSH, NOREL)
+// Keyboard feel (tasks/realism-ideas.md A1/A2; CarEntity::set_keyboard_steer). Release keeps the
+// KeyboardSteerParams defaults (assist 0, instant pedals) until the owner signs off.
+TUNE_F(carKeyAssist, "car", "key_counter_steer_assist", 0.7f, 0.0f, 1.0f, "Keyboard counter-steer assist (0 = off)", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(carKeyAssistSlip, "car", "key_assist_slip_deg", 7.0f, 2.0f, 12.0f, "Assist: front slip at full key (deg)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carThrottleRise, "car", "key_throttle_rise", 4.0f, 0.0f, 20.0f, "Throttle press rate (/s, 0 = instant)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carThrottleFall, "car", "key_throttle_fall", 8.0f, 0.0f, 30.0f, "Throttle lift rate (/s, 0 = instant)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carBrakeRise, "car", "key_brake_rise", 5.0f, 0.0f, 20.0f, "Brake press rate (/s, 0 = instant)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(carBrakeFall, "car", "key_brake_fall", 10.0f, 0.0f, 30.0f, "Brake release rate (/s, 0 = instant)", "%.1f", 1, NOPUSH, NOREL)
 
 // ── Road wheels ─ ImGui header "Road Wheels", TOML table [wheels] (S1a, tasks/todo.md "Rigged Porsche") ──
 // Draw-only Ackermann blend (0 = parallel, 1 = pure). The release value is config/car.toml [wheels] ackermann
@@ -178,6 +186,8 @@ TUNE_B(corridorDriveOff, "corridor", "drive_off", true, "Drive ramps + service r
 // C3b: in-game HUD strip + route minimap (H toggles hudShow); local = 2 km around the car, off = whole route.
 TUNE_B(hudShow, "corridor", "hud", true, "HUD strip + minimap (H)", NOREL)
 TUNE_B(hudMapLocal, "corridor", "hud_map_local", false, "Minimap: local 2 km (off = whole route)", NOREL)
+// N9: off the LIE the strip shows ROAD ENDS once a work-zone wall is this close (real miles; its first sign is ~1 mi out).
+TUNE_F(hudRoadEndsMi, "corridor", "hud_road_ends_mi", 1.0f, 0.25f, 3.0f, "HUD: ROAD ENDS within (mi)", "%.2f", 2, NOPUSH, NOREL)
 // C4: tunnel interior road illuminance (lux, live); CIE 88 interior zone, boosted at the portal in code.
 TUNE_F(corridorTunnelLux, "corridor", "tunnel_lux", 120.0f, 20.0f, 400.0f, "Tunnel lighting (lux)", "%.0f", 0, NOPUSH, NOREL)
 // D1: pavement detail (live, pushed per draw as PushConstantData::pave/pave2; docs/surface/tuning-notes.md).
@@ -209,6 +219,39 @@ TUNE_B(skylineShow, "corridor", "skyline", true, "Manhattan skyline card", NOREL
 // boards (county line, HOV, exit 33, 62N attractions), deck styles at exits 22 / 31 / 44; Calvary headstones.
 TUNE_B(corridorLandmarks, "corridor", "landmarks", true, "Landmarks (props, boards, deck styles)", NOREL)
 TUNE_F(landmarkGraves, "corridor", "landmark_graves", 1.0f, 0.0f, 2.0f, "Cemetery headstone density x", "%.2f", 2, NOPUSH, NOREL)
+// N2a Queens network (live): "jump to road" teleport. Road 0 LIE, 1 BQE, 2 GCP, 3 Van Wyck, 4 Clearview, 5 CIP; km along
+// it (clamped to its walls). Tick "Jump" to go; it clears itself.
+TUNE_F(netJumpRoad, "corridor", "net_jump_road", 1.0f, 0.0f, 5.0f, "Jump: road (0 LIE 1 BQE 2 GCP 3 VW 4 CV 5 CIP)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(netJumpKm, "corridor", "net_jump_km", 3.0f, 0.0f, 25.0f, "Jump: km along the road", "%.2f", 2, NOPUSH, NOREL)
+TUNE_B(netJump, "corridor", "net_jump", false, "Jump to road now", NOREL)
+// N2b work zones (docs/corridor/tuning-notes.md N2b). Spacing / drums / tail apply on the next corridor rebuild (any
+// rebuild slider above) or restart; the arrow flash rate is live (MUTCD 6L.06: 25-40 per minute).
+TUNE_F(wzSignSpacing, "corridor", "wz_sign_spacing", 1.0f, 0.25f, 2.0f, "Work zone: advance sign spacing x", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(wzDrums, "corridor", "wz_drums", 1.0f, 0.25f, 2.0f, "Work zone: drum count x", "%.2f", 2, NOPUSH, NOREL)
+TUNE_F(wzArrowFpm, "corridor", "wz_arrow_fpm", 30.0f, 10.0f, 60.0f, "Work zone: arrow board flashes / min", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(wzTailM, "corridor", "wz_tail_m", 2400.0f, 0.0f, 4000.0f, "Work zone: horizon tail (m)", "%.0f", 0, NOPUSH, NOREL)
+// N3 BQE structures + signs (docs/corridor/tuning-notes.md N3; apply on the next corridor rebuild or restart): viaduct
+// pier-bent spacing (BQE Maspeth spans 25-40 m), trench wall height above the ground (42 in fence parapet), signs.
+TUNE_F(netPierM, "corridor", "net_pier_m", 30.0f, 15.0f, 60.0f, "Network viaduct: pier spacing (m)", "%.0f", 0, NOPUSH, NOREL)
+TUNE_F(netWallAboveM, "corridor", "net_wall_above_m", 1.07f, 0.0f, 3.0f, "Network trench: wall above ground (m)", "%.2f", 2, NOPUSH, NOREL)
+TUNE_B(netSigns, "corridor", "net_signs", true, "Network guide signs (BQE gantries, gores)", NOREL)
+// N4 GCP: a network road under a LIE bridge (exit 22) eases from the D4 trench back to its own profile over this
+TUNE_F(netUnderBlendM, "corridor", "net_under_blend_m", 150.0f, 50.0f, 400.0f, "Road under the LIE: ease back (m)", "%.0f", 0, NOPUSH, NOREL)
+// N5 rungs: a ramp sunk into a junction road's shoulder is lifted onto it up to this close to its gore (pin)
+TUNE_F(netHugEaseM, "corridor", "net_hug_ease_m", 15.0f, 5.0f, 60.0f, "Ramp on a shoulder: lift ease (m)", "%.0f", 0, NOPUSH, NOREL)
+// N6: ramp grade solve limit (AASHTO 6-8 %; tight compact junctions go past it) and the closed-exit barricades' distance
+// past the gore (the car is held 9 m before them); both apply on the next corridor rebuild or restart
+TUNE_F(netMaxGrade, "corridor", "net_max_grade", 0.08f, 0.04f, 0.15f, "Ramp grade limit (fraction)", "%.3f", 3, NOPUSH, NOREL)
+TUNE_F(wzExitGoreM, "corridor", "wz_exit_gore_m", 60.0f, 20.0f, 150.0f, "Closed exit: barricades past the gore (m)", "%.0f", 0, NOPUSH, NOREL)
+// N7 look per road (docs/corridor/tuning-notes.md N7; next corridor rebuild or restart): the LOOK-row dressing (D5 kits,
+// lamps, W-beam, sound walls) and the network ground; density / far / wall height are the D5 / D2 sliders above.
+TUNE_B(netDress, "corridor", "net_dress", true, "Network roadside + ground (N7)", NOREL)
+// N8 landmarks (docs/corridor/tuning-notes.md N8; next corridor rebuild or restart): gas station, CIP stone arch, Astoria
+// and Jamaica underpasses, LaGuardia, Citi Field / Ashe, Kew Gardens steel, Throgs Neck; LED price-sign luminance; the
+// far landmark's angular scale (live: 1 = true size, a 6 m tower leg is 1 px at 5 km on a 1080p 65 deg frame).
+TUNE_B(netLandmarks, "corridor", "net_landmarks", true, "Network landmarks (N8)", NOREL)
+TUNE_F(lmFarScale, "corridor", "lm_far_scale", 3.0f, 1.0f, 4.0f, "Far landmark angular scale (Throgs Neck)", "%.1f", 1, NOPUSH, NOREL)
+TUNE_F(lmSignNits, "corridor", "lm_sign_nits", 400.0f, 100.0f, 5000.0f, "Landmark LED signs (cd/m2)", "%.0f", 0, NOPUSH, NOREL)
 
 #undef NOREL
 #undef TUNE_B

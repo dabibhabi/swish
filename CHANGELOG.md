@@ -103,7 +103,7 @@ Verification: debug target built, all 415 CTest cases passed, and the updated lo
 
 Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest month first.
 
-### 2026-11 (49 entries)
+### 2026-11 (61 entries)
 
 - 2026-11-14 — [Added the lighting plan, stub headers, hidden tests and a chapter per phase](docs/changelog/2026-11.md#2026-11-14--added-the-lighting-plan-stub-headers-hidden-tests-and-a-chapter-per-phase)
 - 2026-11-15 — [Clearcoat energy, one BRDF LUT, and wetness intent (L0.3–L0.5)](docs/changelog/2026-11.md#2026-11-15--clearcoat-energy-one-brdf-lut-and-wetness-intent-l03l05)
@@ -154,6 +154,18 @@ Entries are stored per month in [`docs/changelog/`](docs/changelog/). Newest mon
 - 2026-11-21 — [Overpasses at OSM crossings: steel, concrete, stone-arch and LIRR bridges, LIE bridges over roads, restyled crossroad decks (D4, debug)](docs/changelog/2026-11.md#2026-11-21--overpasses-at-osm-crossings-steel-concrete-stone-arch-and-lirr-bridges-lie-bridges-over-roads-restyled-crossroad-decks-d4-debug)
 - 2026-11-21 — [District kits: street lamps per district, trees and buildings past the edges, a Manhattan skyline card (D5, debug)](docs/changelog/2026-11.md#2026-11-21--district-kits-street-lamps-per-district-trees-and-buildings-past-the-edges-a-manhattan-skyline-card-d5-debug)
 - 2026-11-21 — [Landmarks: Unisphere and NYS Pavilion, Queens vent building, Calvary headstones, landmark boards, stone Cross Island deck, landmark diamonds (D6, debug)](docs/changelog/2026-11.md#2026-11-21--landmarks-unisphere-and-nys-pavilion-queens-vent-building-calvary-headstones-landmark-boards-stone-cross-island-deck-landmark-diamonds-d6-debug)
+- 2026-11-21 — [60 fps frame cap and idle while minimized (perf P2)](docs/changelog/2026-11.md#2026-11-21--60-fps-frame-cap-and-idle-while-minimized-perf-p2)
+- 2026-11-21 — [Queens network bake: BQE, GCP, Van Wyck, Clearview and Cross Island as their own alignments, plus a junction table (N1, debug)](docs/changelog/2026-11.md#2026-11-21--queens-network-bake-bqe-gcp-van-wyck-clearview-and-cross-island-as-their-own-alignments-plus-a-junction-table-n1-debug)
+- 2026-11-21 — [Keyboard counter-steer assist, ramped pedals, 6-DOF chassis compiled in release (realism A0-A2)](docs/changelog/2026-11.md#2026-11-21--keyboard-counter-steer-assist-ramped-pedals-6-dof-chassis-compiled-in-release-realism-a0-a2)
+- 2026-11-21 — [Made the Queens network drivable: five new roads, 293 junction ramps, road-id handoff (N2a)](docs/changelog/2026-11.md#2026-11-21--made-the-queens-network-drivable-five-new-roads-293-junction-ramps-road-id-handoff-n2a)
+- 2026-11-22 — [Closed every Queens network end with a MUTCD freeway work zone and a horizon tail (N2b)](docs/changelog/2026-11.md#2026-11-22--closed-every-queens-network-end-with-a-mutcd-freeway-work-zone-and-a-horizon-tail-n2b)
+- 2026-11-22 — [Made the BQE a real road with the real LIE x BQE interchange, the Astoria Y and its own guide signs (N3)](docs/changelog/2026-11.md#2026-11-22--made-the-bqe-a-real-road-with-the-real-lie-x-bqe-interchange-the-astoria-y-and-its-own-guide-signs-n3)
+- 2026-11-22 — [Made the GCP a parkway with the real exit 22 cloverleaf and closed the LIE-BQE-GCP loop (N4)](docs/changelog/2026-11.md#2026-11-22--made-the-gcp-a-parkway-with-the-real-exit-22-cloverleaf-and-closed-the-lie-bqe-gcp-loop-n4)
+- 2026-11-22 — [Built the Van Wyck, Clearview and Cross Island rungs with their real LIE and GCP junctions (N5)](docs/changelog/2026-11.md#2026-11-22--built-the-van-wyck-clearview-and-cross-island-rungs-with-their-real-lie-and-gcp-junctions-n5)
+- 2026-11-22 — [Solved the network ramp grades and closed and signed every local exit on the new roads (N6)](docs/changelog/2026-11.md#2026-11-22--solved-the-network-ramp-grades-and-closed-and-signed-every-local-exit-on-the-new-roads-n6)
+- 2026-11-22 — [Gave each Queens network road its own roadside look and laid one continuous ground under the network (N7)](docs/changelog/2026-11.md#2026-11-22--gave-each-queens-network-road-its-own-roadside-look-and-laid-one-continuous-ground-under-the-network-n7)
+- 2026-11-22 — [Built the Queens network landmarks: gas station, CIP stone arch, Astoria and Jamaica underpasses, LaGuardia, Citi Field, Kew Gardens steel and the Throgs Neck (N8)](docs/changelog/2026-11.md#2026-11-22--built-the-queens-network-landmarks-gas-station-cip-stone-arch-astoria-and-jamaica-underpasses-laguardia-citi-field-kew-gardens-steel-and-the-throgs-neck-n8)
+- 2026-11-22 — [Made the HUD and minimap follow the car onto every Queens network road (N9)](docs/changelog/2026-11.md#2026-11-22--made-the-hud-and-minimap-follow-the-car-onto-every-queens-network-road-n9)
 
 ### 2026-10 (21 entries)
 

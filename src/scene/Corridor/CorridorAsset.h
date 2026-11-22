@@ -181,6 +181,15 @@ struct CorridorCrossing {
     char    name[24];
 };
 
+// N7 roadside look of a network road from `start` to the next row (config/queens_network.toml `look`). kit = the D5
+// kit's exit number (road::dressing::kKits), lamp = road::dressing::Lamp, edge = CorridorEdgeKind.
+enum class CorridorEdgeKind : uint8_t { None = 0, Rail = 1, Wall = 2 };
+struct CorridorLookRow {
+    double  start;
+    uint8_t kit, lamp, edge;
+    uint8_t pad[5];
+};
+
 #pragma pack(pop)
 
 static_assert(swish::util::meta::TriviallyPackable<CorridorHeader>);
@@ -192,6 +201,7 @@ static_assert(sizeof(CorridorDistrict) == 24, "CorridorDistrict must match tools
 static_assert(sizeof(CorridorServiceRoad) == 24, "CorridorServiceRoad must match tools/lie_corridor.py");
 static_assert(sizeof(CorridorPavement) == 16, "CorridorPavement must match tools/lie_corridor.py");
 static_assert(sizeof(CorridorCrossing) == 44, "CorridorCrossing must match tools/lie_corridor.py");
+static_assert(sizeof(CorridorLookRow) == 16, "CorridorLookRow must match tools/lie_corridor.py");
 
 // Optional trailing blocks: u32 tag, u32 count, then `count` records.
 inline constexpr uint32_t kCorridorExitTag     = 0x54495845;  // "EXIT"
@@ -199,6 +209,8 @@ inline constexpr uint32_t kCorridorDistrictTag = 0x54534944;  // "DIST"
 inline constexpr uint32_t kCorridorSrvrTag     = 0x52565253;  // "SRVR"
 inline constexpr uint32_t kCorridorSurfTag     = 0x46525553;  // "SURF"
 inline constexpr uint32_t kCorridorXingTag     = 0x474E4958;  // "XING"
+inline constexpr uint32_t kCorridorGrndTag     = 0x444E5247;  // "GRND": N3 DEM ground per station (WU)
+inline constexpr uint32_t kCorridorLookTag     = 0x4B4F4F4C;  // "LOOK": N7 roadside look rows (network roads)
 
 struct CorridorAsset {
     CorridorHeader                   header{};
@@ -209,6 +221,8 @@ struct CorridorAsset {
     std::vector<CorridorServiceRoad> serviceRoads;  // empty when the block is absent
     std::vector<CorridorPavement>    pavement;      // empty when the block is absent
     std::vector<CorridorCrossing>    crossings;     // empty when the block is absent
+    std::vector<float>               ground;        // N3: one per station when present (network roads with a profile)
+    std::vector<CorridorLookRow>     look;          // N7: empty when the block is absent
 };
 
 // Loads the baked corridor. Throws with an actionable message — a missing or
@@ -278,6 +292,13 @@ struct CorridorAsset {
             a.crossings.resize(block[1]);
             ok = a.crossings.empty() ||
                  std::fread(a.crossings.data(), sizeof(CorridorCrossing), block[1], f) == block[1];
+        } else if (block[0] == kCorridorGrndTag) {
+            a.ground.resize(block[1]);
+            ok = block[1] == a.header.stationCount &&
+                 std::fread(a.ground.data(), sizeof(float), block[1], f) == block[1];
+        } else if (block[0] == kCorridorLookTag) {
+            a.look.resize(block[1]);
+            ok = a.look.empty() || std::fread(a.look.data(), sizeof(CorridorLookRow), block[1], f) == block[1];
         }
         if (!ok) throw std::runtime_error("CorridorAsset: bad trailing block in " + path + hint);
     }

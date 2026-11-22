@@ -14,6 +14,7 @@
 #include "scene/Entity/CarLooks.h"
 #include "scene/Entity/CarPhysics.h"  // WetGripParams — hydroplaning thresholds for the Telemetry panel
 #include "scene/LightingLab/LightingLab.h"
+#include "scene/RoadScene/RoadParams.h"
 #include "scene/TimeOfDay/TimeOfDay.h"
 #include "utils/meta/Tags.h"
 #include "utils/units/Units.h"
@@ -1130,7 +1131,16 @@ void DebugUI::begin_frame(DebugParams& p, const Mat4& view, const Mat4& proj) {
         }
 
         // ── Corridor diamonds (C2b; a settled change rebuilds the corridor) ──
-        if (ImGui::CollapsingHeader("Corridor")) draw_tunable_group(p, "corridor");
+        if (ImGui::CollapsingHeader("Corridor")) {
+            draw_tunable_group(p, "corridor");
+            // N9: one click per network road (km from "Jump: km"); the HUD and minimap follow next frame
+            ImGui::TextUnformatted("Jump to road:");
+            for (int r = 0; r < static_cast<int>(std::size(road::network::kHudRoads)); ++r) {
+                if (r % 3 != 0) ImGui::SameLine();
+                if (ImGui::Button(road::network::kHudRoads[r].name))
+                    p.netJumpRoad = static_cast<float>(r), p.netJump = true;
+            }
+        }
 
         // ── Fog ───────────────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Fog")) {

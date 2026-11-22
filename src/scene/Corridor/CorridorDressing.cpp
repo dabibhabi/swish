@@ -1,6 +1,7 @@
 #include "CorridorDressing.h"
 
 #include "CorridorEdges.h"
+#include "CorridorGround.h"
 #include "CorridorLandmarks.h"
 #include "CorridorSigns.h"
 #include "scene/RoadScene/MeshBuilder.h"
@@ -176,12 +177,48 @@ struct Clearance {
     }
 };
 
-double route_lo(const CorridorAlignment& al) { return al.ends().portal + m(60.0f); }
-double route_hi(const CorridorAlignment& al) { return al.main_end() - m(60.0f); }
+double route_lo(const CorridorAlignment& al) { return al.has_ends() ? al.ends().portal + m(60.0f) : 0.0; }
+double route_hi(const CorridorAlignment& al) { return al.has_ends() ? al.main_end() - m(60.0f) : al.total_length(); }
+
+bool in_spans(const std::vector<std::pair<double, double>>& v, double s) {
+    return std::any_of(v.begin(), v.end(), [&](const auto& k) { return s >= k.first && s <= k.second; });
+}
+
+// N7: a point (s, signed lat) on another road's or a network ramp's pavement, within `pad` of its edge.
+bool blocked(const CorridorAlignment& al, double s, float lat, float pad) {
+    const CorridorGround* g = al.edges().ground;
+    if (!g) return false;
+    const auto sm = al.sample(s);
+    return g->clearance(sm.x - sm.tz * lat, sm.z + sm.tx * lat, al.edges().netRoad) < pad;
+}
+
+// Ground under (s, signed lat): the LIE's level ground; N7 network roads stand on their verge, on the structure's
+// ground band (viaducts, trenches) or on the network ground.
+float base_y(const CorridorAlignment& al, double s, float lat) {
+    const float           dg = al.header().grassY - al.header().roadY;
+    const CorridorGround* g  = al.edges().ground;
+    if (!g || !al.has_terrain()) return al.ground_y(s) + dg;
+    const auto sm   = al.sample(s);
+    const int  side = lat >= 0.0f ? 1 : -1;
+    float      y    = g->height(sm.x - sm.tz * lat, sm.z + sm.tx * lat);
+    if (in_spans(al.verge_holes(), s)) return std::max(y, al.terrain_y(s) + dg);
+    if (std::abs(lat) < al.outer_edge(sm) + al.header().grassExtent && !in_spans(al.side_holes(side), s))
+        y = std::max(y, corridor_verge_y(al, {}, side, s, std::abs(lat)));
+    return y;
+}
+
+// N7: lamp kind at s (a network road's LOOK row, else its kit's).
+dr::Lamp lamp_at(const CorridorAlignment& al, double s) {
+    const CorridorLookRow* r = al.look_at(s);
+    return r ? static_cast<dr::Lamp>(r->lamp) : dress_kit(al, s).lamp;
+}
 
 }  // namespace
 
 const dr::Kit& dress_kit(const CorridorAlignment& al, double s) {
+    if (const CorridorLookRow* r = al.look_at(s))  // N7: a network road names its LIE kit by exit number
+        for (const dr::Kit& x : dr::kKits)
+            if (x.fromExit == r->kit) return x;
     const dr::Kit* k = &dr::kKits[0];
     for (const dr::Kit& x : dr::kKits) {
         const double xs = exit_s(al, x.fromExit);
@@ -205,7 +242,10 @@ void emit_lamps(MeshBuilder& b, std::vector<DrawCall>& draws, std::vector<SpotLi
     };
     const auto off_route = [&](double st) {
         return al.in_turnaround(st) || near_deck(st) ||
-               (al.has_ends() && (st < al.ends().portal + m(80.0f) || st > al.ends().barrierEnd));
+               (al.has_ends() && (st < al.ends().portal + m(80.0f) || st > al.ends().barrierEnd)) ||
+               std::any_of(
+                   al.crossings().begin(), al.crossings().end(),  // N7: not under a network overpass
+                   [&](const CorridorCrossing& x) { return !al.has_ends() && std::abs(x.station - st) < m(20.0f); });
     };
     struct Pole {
         Vec3     base, top;
@@ -220,7 +260,7 @@ void emit_lamps(MeshBuilder& b, std::vector<DrawCall>& draws, std::vector<SpotLi
     // Queens median twin arms on the L6.1 grid (D3 gantry posts already dodge it).
     const double med = m(kCorridorLampSpacingM);
     for (double st = std::ceil(s0 / med) * med; st < s1; st += med) {
-        if (off_route(st) || al.median_extra(st) > 0.0f || dress_kit(al, st).lamp != dr::Lamp::MedianTwin) continue;
+        if (off_route(st) || al.median_extra(st) > 0.0f || lamp_at(al, st) != dr::Lamp::MedianTwin) continue;
         const auto sm = al.sample(st);
         const Vec3 base(static_cast<float>(sm.x - ox), ry + sm.y - al.dip(st), static_cast<float>(sm.z - oz));
         poles.push_back(
@@ -230,12 +270,12 @@ void emit_lamps(MeshBuilder& b, std::vector<DrawCall>& draws, std::vector<SpotLi
     // Outer singles: Queens between the median rows, Nassau / west Suffolk on the right shoulder (staggered per side).
     for (const int side : {+1, -1}) {
         for (const bool queens : {true, false}) {
-            if (!al.has_ends()) break;  // no exit table: the L6.1 median row only
+            if (!al.has_ends() && al.look_rows().empty()) break;  // no exit table: the L6.1 median row only
             const double step = m(queens ? dr::kQueensOuter : dr::kShoulderSpacing);
             const double off  = queens ? m(30.0f) : (side > 0 ? 0.0 : 0.5 * step);
             for (double st = std::ceil((s0 - off) / step) * step + off; st < s1; st += step) {
                 if (st < s0 || off_route(st)) continue;
-                const dr::Lamp kind = dress_kit(al, st).lamp;
+                const dr::Lamp kind = lamp_at(al, st);
                 if (queens != (kind == dr::Lamp::MedianTwin) || kind == dr::Lamp::None) continue;
                 const auto  sm        = al.sample(st);
                 const float lat       = al.outer_edge(sm) + m(dr::kPoleOut);
@@ -251,6 +291,10 @@ void emit_lamps(MeshBuilder& b, std::vector<DrawCall>& draws, std::vector<SpotLi
                 };
                 if (hit || (signs && (near_sign(signs->gantries) || near_sign(signs->gores) ||
                                       near_sign(signs->markers) || near_sign(signs->boards))))
+                    continue;
+                // N7: not over a structure or a verge a ramp crosses, not on other pavement
+                if (in_spans(al.verge_holes(), st) || in_spans(al.side_holes(side), st) ||
+                    blocked(al, st, static_cast<float>(side) * lat, m(1.0f)))
                     continue;
                 const float sg   = static_cast<float>(side);
                 const Vec3  base = at(al, st, sg * lat, corridor_verge_y(al, paths, side, st, lat), ox, oz);
@@ -333,12 +377,11 @@ void emit_lamps(MeshBuilder& b, std::vector<DrawCall>& draws, std::vector<SpotLi
 void emit_dressing(MeshBuilder& b, std::vector<DrawCall>& draws, const CorridorAlignment& al,
                    const std::vector<CorridorPath>& paths, double ts, double te, double ox, double oz) {
     const float dens = al.edges().dress;
-    if (dens <= 0.0f || !al.has_ends()) return;
+    if (dens <= 0.0f || (!al.has_ends() && al.look_rows().empty())) return;  // N7: network roads with LOOK rows
     const double lo = std::max(ts, route_lo(al)), hi = std::min(te, route_hi(al));
     if (hi - lo < m(1.0f)) return;
     // shortcut: kit snaps to 300 m tiles (taken at the middle), like D1 pavement; split tiles for exact seams.
     const dr::Kit& kit = dress_kit(al, 0.5 * (ts + te));
-    const float    dg  = al.header().grassY - al.header().roadY;
 
     for (const int side : {+1, -1}) {
         Clearance cl{al, {}, side};
@@ -380,7 +423,12 @@ void emit_dressing(MeshBuilder& b, std::vector<DrawCall>& draws, const CorridorA
                                                    }) ||
                                        cl.on_cross(s - L, lat - D) || cl.on_cross(s + L, lat - D) ||
                                        cl.on_cross(s, lat) || cl.on_cross(s - L, lat + D) ||
-                                       cl.on_cross(s + L, lat + D);
+                                       cl.on_cross(s + L, lat + D) ||
+                                       blocked(al, s - L, sg * (lat - D), m(dr::kBldgPathClear)) ||
+                                       blocked(al, s + L, sg * (lat - D), m(dr::kBldgPathClear)) ||
+                                       blocked(al, s, sg * lat, m(dr::kBldgPathClear)) ||
+                                       blocked(al, s - L, sg * (lat + D), m(dr::kBldgPathClear)) ||
+                                       blocked(al, s + L, sg * (lat + D), m(dr::kBldgPathClear));
                     if (clash) continue;
                     rects.push_back(r);
                     const auto sm = al.sample(s);
@@ -391,8 +439,8 @@ void emit_dressing(MeshBuilder& b, std::vector<DrawCall>& draws, const CorridorA
                         : (type == dr::Bldg::Warehouse || type == dr::Bldg::Barn)
                             ? 1
                             : kit.floorsMin + static_cast<int>(rnd(slot, row, 41) * static_cast<float>(span + 1));
-                    building(b, type, at(al, s, sg * lat, al.ground_y(s) + dg - m(dr::kSink), ox, oz), ax, cx, floors,
-                             rnd(slot, row, 53 + side));
+                    building(b, type, at(al, s, sg * lat, base_y(al, s, sg * lat) - m(dr::kSink), ox, oz), ax, cx,
+                             floors, rnd(slot, row, 53 + side));
                 }
             }
         }
@@ -410,9 +458,10 @@ void emit_dressing(MeshBuilder& b, std::vector<DrawCall>& draws, const CorridorA
                 const Vec3  ax(sm.tx, 0.0f, sm.tz), cx = Vec3(-sm.tz, 0.0f, sm.tx) * sg;
                 for (int il = 0; in + static_cast<float>(il) * m(dr::kGraveT) < out; ++il) {
                     const float lat = in + static_cast<float>(il) * m(dr::kGraveT);
-                    if (rnd(is, il, 101 + side) >= gd || cl.on_cross(sa, lat)) continue;
+                    if (rnd(is, il, 101 + side) >= gd || cl.on_cross(sa, lat) || blocked(al, sa, sg * lat, m(2.0f)))
+                        continue;
                     const float pick = rnd(is, il, 107 + side), k = 0.75f + 0.5f * rnd(is, il, 109 + side);
-                    const Vec3  g = at(al, sa, sg * lat, al.ground_y(sa) + dg - m(0.1f), ox, oz);
+                    const Vec3  g = at(al, sa, sg * lat, base_y(al, sa, sg * lat) - m(0.1f), ox, oz);
                     if (pick < dr::kObeliskShare) {
                         const float w = 0.5f * m(dr::kObelisk[0]), H = k * m(dr::kObelisk[1]);
                         cmesh::obox(b, g + kUp * m(0.25f), ax * (1.6f * w), kUp * m(0.25f), cx * (1.6f * w));  // plinth
@@ -453,7 +502,7 @@ void emit_dressing(MeshBuilder& b, std::vector<DrawCall>& draws, const CorridorA
                 const float  lat = lat0 + rnd(is, il, 67 + side) * m(dr::kCell);
                 if (lat < in || lat > out || s < lo || s > hi) continue;
                 if (rnd(is, il, 71 + side) >= kit.trees * dens * (0.3f + 1.4f * grove(s, lat, side))) continue;
-                if (cl.on_cross(s, lat) || sightline(s, lat)) continue;
+                if (cl.on_cross(s, lat) || sightline(s, lat) || blocked(al, s, sg * lat, m(dr::kTreeIn))) continue;
                 if (std::any_of(rects.begin(), rects.end(),
                                 [&](const Rect& o) { return s > o.s0 && s < o.s1 && lat > o.l0 && lat < o.l1; }))
                     continue;
@@ -462,7 +511,7 @@ void emit_dressing(MeshBuilder& b, std::vector<DrawCall>& draws, const CorridorA
                 while (sp < 3 && pick >= kit.species[sp]) pick -= kit.species[sp++];
                 const float H = m(dr::kTreeH[sp][0] + (dr::kTreeH[sp][1] - dr::kTreeH[sp][0]) * rnd(is, il, 79 + side));
                 const auto  sm = al.sample(s);
-                tree(b, at(al, s, sg * lat, al.ground_y(s) + dg - m(dr::kSink), ox, oz), sp, H,
+                tree(b, at(al, s, sg * lat, base_y(al, s, sg * lat) - m(dr::kSink), ox, oz), sp, H,
                      rnd(is, il, 83 + side) * util::units::kPi, Vec3(sm.tz, 0.0f, -sm.tx) * sg);
             }
         }
@@ -507,14 +556,14 @@ CorridorSegment skyline_segment(const CorridorAlignment& al) {
     return seg;
 }
 
-bool skyline_model(const Vec3& cam, const Vec3& anchor, Mat4& model) {
+bool skyline_model(const Vec3& cam, const Vec3& anchor, Mat4& model, bool face, float dist) {
     const Vec3  d = Vec3(cam.x - anchor.x, 0.0f, cam.z - anchor.z);
     const float R = glm::length(d);
     if (R > m(dr::kSkyMaxR) || R < 1.0f) return false;
-    const float k = std::min(1.0f, m(dr::kSkyDist) / R);
+    const float k = std::min(1.0f, (dist > 0.0f ? dist : m(dr::kSkyDist)) / R);
     // final = cam + k (anchor + Ry v - cam): translate by (cam - anchor)(1 - k) on top of the instance offset
     model = glm::translate(Mat4(1.0f), (cam - anchor) * (1.0f - k)) * glm::scale(Mat4(1.0f), Vec3(k)) *
-            glm::rotate(Mat4(1.0f), std::atan2(d.x, d.z), kUp);
+            glm::rotate(Mat4(1.0f), face ? std::atan2(d.x, d.z) : 0.0f, kUp);
     return true;
 }
 

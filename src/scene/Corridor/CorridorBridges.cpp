@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <string_view>
 
 namespace swish {
 
@@ -144,8 +145,6 @@ float sr_outer(const CorridorAlignment& al, const std::vector<CorridorPath>& pat
     return 0.0f;
 }
 
-float arch_rise(float span) { return std::min(rb::kArchRise * span, m(rb::kArchRiseMax)); }
-
 // Deck depth from slab top to girder soffit for a girder style.
 float girder_depth() { return m(rb::kSlab + rb::kHaunch + rb::kGirderD); }
 
@@ -208,6 +207,8 @@ std::vector<std::pair<float, float>> spans(const DeckSpec& d) {
 }
 
 }  // namespace
+
+float arch_rise(float span) { return std::min(rb::kArchRise * span, m(rb::kArchRiseMax)); }
 
 void emit_deck(MeshBuilder& b, std::vector<DrawCall>& draws, const DeckSpec& d, const std::function<float(float)>& base,
                const CorridorLook& look) {
@@ -304,10 +305,6 @@ void emit_deck(MeshBuilder& b, std::vector<DrawCall>& draws, const DeckSpec& d, 
         });
 }
 
-namespace {
-
-// Segmental stone arches over the spans between `sup` (t, ascending), spring at `spring`, deck top `top`: ashlar
-// fascia on both edges a = +-A, concrete vault, stone parapets over [p0, p1].
 void emit_arch(MeshBuilder& b, std::vector<DrawCall>& draws, const DeckFrame& F, float A, const std::vector<float>& sup,
                float spring, float top, float p0, float p1, const CorridorLook& look) {
     const float st       = m(rb::kStoneTile);
@@ -348,6 +345,8 @@ void emit_arch(MeshBuilder& b, std::vector<DrawCall>& draws, const DeckFrame& F,
         }
     });
 }
+
+namespace {
 
 // Road on a profile y(t) along t (knots ks), a in [-A, A]: asphalt, curbs and walks (or one walk deck), paint.
 struct RoadStrip {
@@ -494,7 +493,19 @@ std::vector<CorridorBridge> corridor_bridges(const CorridorAlignment& al, const 
     std::vector<CorridorBridge> cand;
     std::vector<float>          width;
     for (const CorridorCrossing& x : al.crossings()) {
-        const CorridorBridge b = make_bridge(al, paths, x, clearFt);
+        if (std::any_of(std::begin(road::network::kOwnedCrossings), std::end(road::network::kOwnedCrossings),
+                        [&](const char* p) { return std::string_view(x.name).starts_with(p); }))
+            continue;  // N3: a network road draws this one (the BQE viaduct over the LIE)
+        const bool       net = std::any_of(std::begin(road::network::kNetUnder), std::end(road::network::kNetUnder),
+                                           [&](const char* p) { return std::string_view(x.name).starts_with(p); });
+        CorridorCrossing xc  = x;  // N4: a girder bridge spanning the network road and its C/D roads
+        if (net) {
+            xc.width = std::max(x.width, 2.0f * m(road::network::kUnderHalf) * std::cos(x.skew));
+            xc.style = static_cast<uint8_t>(BridgeStyle::Concrete);
+        }
+        CorridorBridge b = make_bridge(al, paths, xc, clearFt);
+        b.net            = net;
+        if (net) b.yLow -= m(road::network::kUnderDig);
         // side slopes of the approach fill reach about 2H past the deck edge, outside the corridor
         const double fp = static_cast<double>(b.half) + (b.kind == CrossingKind::LieOver ? 0.0 : m(15.0f));
         if (b.s - fp < lo || b.s + fp > hi) continue;
@@ -531,6 +542,10 @@ std::vector<CorridorBridge> corridor_bridges(const CorridorAlignment& al, const 
     }
     std::sort(out.begin(), out.end(), [](const CorridorBridge& a, const CorridorBridge& c) { return a.s < c.s; });
     return out;
+}
+
+float lie_over_flat(const CorridorAlignment& al, const CorridorBridge& br) {
+    return al.outer_edge(al.sample(br.s)) + m(0.5f + rb::kLieFlat);
 }
 
 std::vector<std::pair<double, double>> bridge_verge_holes(const CorridorAlignment& al, int side) {
@@ -573,7 +588,8 @@ void emit_bridge(MeshBuilder& b, std::vector<DrawCall>& draws, const CorridorAli
             if (br.railUnder) return br.yLow;
             return br.yLow + (g - br.yLow) * smooth((d - dFlat) / m(rb::kLieClimb)) + crest(d, dEnd);
         };
-        const float roadEnd = br.railUnder ? br.reach[0] : dFlat + m(rb::kLieClimb);  // trench walls stop here
+        // trench walls stop here; N4: a network road's walls hold the LIE's verge only, down to its trench floor
+        const float roadEnd = br.railUnder ? br.reach[0] : br.net ? T : dFlat + m(rb::kLieClimb);
         DeckSpec    dk{F,
                        stone ? BridgeStyle::Concrete : br.style,
                        Ad,
@@ -613,7 +629,14 @@ void emit_bridge(MeshBuilder& b, std::vector<DrawCall>& draws, const CorridorAli
                 emit_arch(b, draws, d.F, d.A, {-A, A}, spring, d.top, -A - wt, A + wt, look);
             }
         } else {
-            emit_deck(b, draws, dk, none, look);
+            if (br.net) {  // N4: piers at the network road's median and past its carriageways, on the trench floor
+                const float po = m(road::network::kUnderPier);
+                dk.piers       = {-po, 0.0f, po};
+                dk.medianHalf  = m(0.6f);
+                emit_deck(b, draws, dk, [&](float) { return br.yLow - m(0.5f); }, look);
+            } else {
+                emit_deck(b, draws, dk, none, look);
+            }
             for (const Sr& s : srs) emit_deck(b, draws, sr_frame(s), none, look);
         }
 
@@ -649,7 +672,7 @@ void emit_bridge(MeshBuilder& b, std::vector<DrawCall>& draws, const CorridorAli
                     std::array<Vec3, 8> q;
                     for (int c = 0; c < 8; ++c) {
                         const float a = c & 1 ? a1 : a0;
-                        q[c]          = Fu.P(a, c & 2 ? t1 : t0, c & 4 ? y0 : yu(std::abs(a)) - m(0.6f));
+                        q[c] = Fu.P(a, c & 2 ? t1 : t0, c & 4 ? y0 : (br.net ? br.yLow : yu(std::abs(a))) - m(0.6f));
                     }
                     hexa(b, q, stone ? m(rb::kStoneTile) : 4000.0f);
                 }
@@ -666,7 +689,7 @@ void emit_bridge(MeshBuilder& b, std::vector<DrawCall>& draws, const CorridorAli
         if (br.railUnder) {
             batch(b, draws, kBallast, MAT_DIRT, -1.0f,
                   [&] { box(b, Fu, -dEnd, dEnd, -A + m(0.3f), A - m(0.3f), br.yLow - m(0.3f), br.yLow, 3000.0f); });
-        } else {
+        } else if (!br.net) {  // N4: a network road draws its own
             RoadStrip rs;
             rs.A             = A;
             rs.lanes         = std::min<int>(br.lanes, static_cast<int>(2.0f * A / h.laneWidth));
@@ -696,10 +719,11 @@ void emit_bridge(MeshBuilder& b, std::vector<DrawCall>& draws, const CorridorAli
                     }
                 }
             }
-            for (const float w : {-1.0f, 1.0f})  // aprons either side of the trench, past the verge
+            for (const float w : {-1.0f, 1.0f})  // aprons either side of the trench, past the verge (N4: its own verge)
                 for (const float sg : {-1.0f, 1.0f})
-                    apron(Fu, sg * (T - m(3.0f)), sg * (dEnd + m(10.0f)), w * (A + wt),
-                          w * (A + m(diamond::kApronHalf)));
+                    if (!br.net)
+                        apron(Fu, sg * (T - m(3.0f)), sg * (dEnd + m(10.0f)), w * (A + wt),
+                              w * (A + m(diamond::kApronHalf)));
         });
         return;
     }

@@ -20,6 +20,8 @@ struct CorridorLook {
     Vec4  asphalt, grass, concrete, shoulder, white, yellow;
     float asphaltTile, grassTile, concreteTile;
 };
+// The look from road.bin (CorridorScene.cpp); N2a's network mesh shares it.
+CorridorLook corridor_look();
 
 // Shared C2b / C4 mesh helpers (CorridorDiamonds.cpp).
 namespace cmesh {
@@ -34,6 +36,9 @@ std::vector<std::pair<double, double>> minus(double lo, double hi, std::vector<s
 void obox(MeshBuilder& b, const Vec3& c, const Vec3& hx, const Vec3& hy, const Vec3& hz);  // centre + half extents
 void rod(MeshBuilder& b, const Vec3& p, const Vec3& q, float w);                           // square bar p to q
 void pole(MeshBuilder& b, const Vec3& base, const Vec3& top, float rad);                   // octagonal, no cap
+// N7: a deck soffit between two polylines, normals down, planar x/z UVs, one draw (emit_strip's normals face up).
+void soffit(MeshBuilder& b, const std::vector<Vec3>& L, const std::vector<Vec3>& R, const Vec4& col, MaterialId mat,
+            float tile);
 }  // namespace cmesh
 
 // Graded verge on side +-1 over [ts, te]: gore slope (mainline edge to ramp inner edge), D2 ditch and rounded cut

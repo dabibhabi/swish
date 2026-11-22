@@ -699,6 +699,539 @@ Commons photos `exit-33/`, `exit-62/` (board wording); Lynch, *The Image of the 
 lecture notes on landmarks and paths (why a few distinct, well-placed landmarks orient a driver better than uniform
 detail; not opened this session).
 
+## Queens network bake (N1, 2026-11-21)
+
+Debug-only assets; nothing loads them yet (N2 builds `CorridorNetwork`). Tool:
+[tools/queens_network.py](../tools/queens_network.py), which imports [tools/lie_corridor.py](../tools/lie_corridor.py)
+for every geometry step (resample, headings, curvature floor, compaction, vertical profile, superelevation,
+`write_asset`). Config: [config/queens_network.toml](../config/queens_network.toml). Parser:
+[CorridorNetworkAsset.h](../src/scene/Corridor/CorridorNetworkAsset.h). Tests:
+[tests/test_queens_network.cpp](../tests/test_queens_network.cpp). Knobs, math and measurements:
+[corridor tuning notes](corridor/tuning-notes.md#n1-queens-network-bake).
+
+```mermaid
+graph LR
+  F[fetch_net: Overpass per road] --> C[centreline: midpoint of both carriageways]
+  E[elev_net: USGS 3DEP per road] --> B
+  L[LIE bake in memory, write=False] --> W[LIE warp]
+  C --> J[9 junctions] --> W --> B[bake_net: per-link floor compaction + rotation]
+  B --> R[queens_ID_full.bin x5, v2 stations]
+  B --> N[queens_network_full.bin: ROAD JNCT WALL RAMP RPTS]
+```
+
+- **One alignment per road**, in the LIE's world frame and vertical datum, so N2 can place all six side by side:
+  `queens_{bqe,gcp,vanwyck,clearview,cip}_full.bin` (BQE 9.2 km, GCP 21.4 km, Van Wyck 8.1 km, Clearview 7.1 km,
+  CIP 10.0 km compact, horizon tails included). Each is a normal `CorridorAsset` with an EXIT block from the
+  road's own `motorway_junction` nodes, its junctions as landmarks, and `startStation` = its first wall.
+- **Centreline.** OSM maps each carriageway as its own one-way ways. The tool walks both (minimum-turn at forks,
+  as on the LIE) and takes the midpoint, so the alignment runs down the median and lanes per side = the smaller
+  side. The LIE itself still uses its EB carriageway (unchanged).
+- **Junctions** are the closest approach of two real centrelines near the N0a OSM centre, taken on road a. A
+  crossing lands within 1 m of both roads. The Astoria "Y" is a merge: the BQE's own ways end about 105 m short
+  of the GCP centreline, so that junction is the BQE's end and the GCP side keeps the real offset as its lateral.
+- **Warp.** Junctions go through the LIE warp (real LIE station + lateral, then the compact LIE). The lateral is
+  measured along the corridor's fixed cross axis, not the local normal: the normal version folded 4 km off
+  the LIE. With the fixed axis, $\det J = f > 0$.
+- **Links.** Between junctions each road is compressed the LIE way (heading kept, 500 m curvature floor), with
+  the factor solved per link so the chord matches the placed junctions, then rotated onto them. Seams
+  cross-fade over 800 m real. Worst endpoint miss 0.018 m.
+- **Ends.** Nine work-zone walls (BQE south; GCP west at the RFK approach and east at the Nassau line; Van Wyck
+  north past the LIE and south past Kew Gardens; Clearview and CIP north and south). The BQE north end is the
+  merge, so it has no wall. Past each wall, about 3 km compact of real road continue as the undrivable horizon
+  tail.
+- **Ramps.** 293 `motorway_link` ways, each assigned to its nearest junction (within 700 m). They are warped by the
+  mean local fit of that junction's roads and stored as x, z, y, layer points. Each end is attached to a mainline
+  carriageway within 25 m (LIE: both carriageways, read from the cached LIE extract), else 255. Heights are DEM
+  ground plus layer x 6.5 m. N2 snaps the ramp ends.
+- **LIE assets unchanged:** `lie_corridor.bin` and `lie_corridor_full.bin` keep their SHA-1 (dcb3aa9..., c884a50...).
+
+## Queens network runtime (N2a, 2026-11-21)
+
+Debug build only (release loads nothing new and its driver path compiles to the old arithmetic). `CorridorDriver`
+owns a [`CorridorNetwork`](../src/scene/Corridor/CorridorNetwork.h): the LIE (road 0, borrowed from App) plus the five
+N1 road assets, the junction table and the 293 OSM ramps as free paths. [AppInit.cpp](../src/core/App/AppInit.cpp)
+loads it after the LIE and appends its segments to the same corridor list, so the origin rebase, the visible window
+and per-draw culling apply unchanged.
+
+```mermaid
+graph LR
+  N[queens_network_full.bin] --> L[CorridorNetwork::load]
+  R[queens_ROAD_full.bin x5] --> L
+  LIE[LIE alignment, graded] --> L
+  L --> B[build_ramps: snap, weld, resample, smooth, pin, blend]
+  L --> M[build_network_segments]
+  M --> S1[roads 1..5: build_corridor_segments]
+  M --> S2[one segment per junction: ramp asphalt, paint, parapets, deck, piers]
+  B --> D[CorridorDriver: LIE rule, or CorridorNetwork::step off the LIE]
+```
+
+- **Roads** go through `build_corridor_segments` unchanged (mainline, lines, median barrier, graded verge), 1.2 km
+  segments and 300 m tiles, lanes from each asset. No dressing, lamps, signs or NJ barrier yet (N7).
+- **Free-path ramp** (`NetRamp`): a world-space polyline with height, resampled at 4 m. Ends attached to a road are
+  snapped into its carriageway at its surface; ends within 3 m are welded; over the stretch where a ramp lies on its
+  road it rides the road's plane (height and bank), so merges are exact. Mesh: 26 ft asphalt, yellow left and white
+  right edge lines, parapets clear of the gores, a deck edge and soffit, and piers where the deck is 4 m above the
+  DEM ground.
+- **Driver.** Position is `NetPos` (road id plus `s`, or ramp plus arc length). The car stays on its piece while
+  the piece holds it, and switches only to a piece that holds it within 1 m of its height (roads at a ramp's ends
+  first, then other ramps). Roads are never candidates from a road, so an overpassing road never grabs the car. On
+  the LIE the C3 rule is unchanged; leaving every LIE piece onto a ramp at the same height hands over.
+- **Walls.** A road's drivable range is between its N1 walls; the car is held there (the work-zone kit is N2b).
+- **Teleport.** Corridor panel: "Jump: road", "Jump: km", "Jump to road now".
+
+Screenshots: [BQE](corridor/img/n2a-bqe.png), [BQE at the LIE junction](corridor/img/n2a-bqe-junction.png),
+[GCP at Flushing Meadows](corridor/img/n2a-gcp-flushing.png), [ramp leaving the Van Wyck](corridor/img/n2a-vanwyck-ramps.png).
+Knobs, the handoff rule and measurements: [corridor tuning notes](corridor/tuning-notes.md#n2a-queens-network-runtime).
+
+## Work zones (N2b, 2026-11-22)
+
+Debug build only. Every network wall ([CorridorNetworkAsset.h](../src/scene/Corridor/CorridorNetworkAsset.h) WALL) gets
+a freeway full closure laid out from MUTCD Part 6 and NYSDOT 619
+([workzone.md](queens-network-reference/workzone.md)). Layout: [CorridorWorkZone.cpp](../src/scene/Corridor/CorridorWorkZone.cpp)
+(pure, tested); mesh: [CorridorWorkZoneMesh.cpp](../src/scene/Corridor/CorridorWorkZoneMesh.cpp); one segment per zone
+from [CorridorNetworkMesh.cpp](../src/scene/Corridor/CorridorNetworkMesh.cpp).
+
+```mermaid
+graph LR
+  S1[W20-1 ROAD WORK 1 MILE] --> NY[NYR9-11] --> S2[W20-5 RIGHT n LANES CLOSED 1/2 MILE] --> S3[W4-2R]
+  S3 --> T[arrow board + taper L per lane, 2L tangents] --> B[buffer, drums 40 ft] --> G[median U-turn gap]
+  G --> C[barricades + R11-2, sand barrels, 32 in TCB wall] --> X[horizon tail, no paint]
+```
+
+- **Upstream to downstream** (u = distance before the hold, the asset wall): signs at 1,000 / 2,500 / 5,140 ft before
+  the first taper; one merging taper $L = WS$ per closed lane (right lanes first), $2L$ tangents, one Type C arrow board
+  per closed lane (flashing arrow left, 15 lamps); buffer 425 ft; a closing taper across lane 1 into the 60 m median gap
+  (u 25-85 m); Type III barricades with R11-2 at the centre 3 m past the hold; a 1-2-3 sand-barrel cushion; a full-width
+  portable concrete barrier (NJ profile, segments of at most 20 ft, 6 in tapered ends) 8 m past the hold. Cones close the
+  return carriageway between the gap and the wall; G20-2 END ROAD WORK faces the way back.
+- **Driving.** The gap is a median opening on the alignment (`add_opening`): the box barrier is cut there and
+  `in_turnaround` is true, so `CorridorNetwork::step` re-commits the side and the car can U-turn. The openings replace
+  the data-end pads of network roads (those lay past the walls; Clearview north's covered the approach). The car is held
+  at the wall (`drivable`). Ramps joining a road past its wall are closed (`enter_ramp` skips them). Channelizers are
+  not obstacles (no collision).
+- **Tail.** Paint stops at the barrier faces (`set_paint_range`); the asset data continues as the tail, and where it is
+  shorter than `wz_tail_m` an unpainted road (asphalt, median barrier, grass) is extruded along the end tangent. A few
+  knocked drums, a cone, spare barrier segments and a millings pile lie past the wall.
+- **N6 kit.** `exit_closure(net, ramp, params)` builds an EXIT CLOSED zone 60 m past a ramp's gore (edge drums,
+  barricades with the board, cones); N6 places it on every closed local exit.
+- **Screenshot spots.** `SWISH_SPAWN="road,s_m,dir,laneOff"` (road key or index, metres, travel direction, lanes out
+  from the median edge) places the car at every scene setup; `SWISH_CAMERA=chase|hood|helicopter|...` picks the view.
+  Both debug-only; used by [scripts/arch/snap.sh](../scripts/arch/snap.sh).
+
+Screenshots: [BQE gap](corridor/img/n2b-bqe-gap.png), [BQE overhead](corridor/img/n2b-bqe-overhead.png),
+[W4-2R](corridor/img/n2b-bqe-lane-ends.png), [GCP arrow board](corridor/img/n2b-gcp-arrow-board.png),
+[GCP wall](corridor/img/n2b-gcp-wall.png), [CIP south](corridor/img/n2b-cip-south.png). Knobs and math:
+[corridor tuning notes](corridor/tuning-notes.md#n2b-work-zones).
+
+## BQE and its junctions (N3, 2026-11-22)
+
+Debug build only (release loads no network). The BQE is a real road now: viaduct, LIRR trench, viaduct, the real
+LIE x BQE interchange instead of the exit 17 diamond, the Astoria "Y" legs to the GCP, and its own guide signs. Code:
+[CorridorViaduct.h](../src/scene/Corridor/CorridorViaduct.h) (structures, overpasses, NJ median),
+[CorridorNetwork.cpp](../src/scene/Corridor/CorridorNetwork.cpp) (ramp chains, clearance, fork handoff),
+[CorridorNetworkMesh.cpp](../src/scene/Corridor/CorridorNetworkMesh.cpp) (ramp clipping, gores, signs per road),
+bake in [tools/queens_network.py](../tools/queens_network.py) with `[roads.bqe]` in
+[config/queens_network.toml](../config/queens_network.toml). Knobs and math:
+[corridor tuning notes](corridor/tuning-notes.md#n3-bqe-and-its-junctions).
+
+```mermaid
+graph LR
+  T[toml profile / lane_floor / corridor / legs / crossings] --> B[bake_net]
+  O[OSM: bqe json, bqe_legs json, bqe_xing json, LIE xml links] --> B
+  B --> A[queens_bqe_full.bin: forced profile, SURF concrete, XING, GRND ground]
+  B --> N[queens_network_full.bin: ramp chains by OSM node, lanes]
+  A --> S[road_structures: viaduct h > 3 m, trench d > 1.5 m]
+  S --> V[verge holes + parapets, fascia, soffit, bents, walls, ground]
+  N --> R[build_ramps: travel-side attach, clear_ramps, siblings]
+  R --> M[ramp mesh clipped where it rides its road; white gore line]
+  K[kGuideSigns] --> G[add_guide_signs: kit-atlas boards on trusses, gores]
+```
+
+- **Profile.** roads.md section 1 as `profile` rows (real latitude ranges): viaduct LIE to Queens Blvd (ground +7.5 m,
+  at least the OSM layer), the Woodside trench (ground -6.5 m, under the LIRR Main Line and the IRT Flushing line),
+  viaduct Broadway to Northern Blvd (+7 m). The bake writes the DEM ground per station (`GRND` block) and a concrete
+  `SURF` row on the viaducts; `road_structures` classifies the profile against that ground at runtime, so the same
+  code serves any road given a profile. 3 lanes from the LIE to the Y (`lane_floor`), 1 ft / 2 ft shoulders
+  ("most of the length has none"), NJ median.
+- **Structures.** Viaduct: NJ parapets on the deck edge, a 1.8 m fascia and soffit, three-column bents under a cap
+  every `net_pier_m`, the DEM ground under it; where the deck spans the LIE, green plate girders (the D6 BQE-over-LIE
+  look) and no piers. Trench: retaining walls on an NJ toe up to `net_wall_above_m` over the ground, coping, ground on
+  top. The ground eases from verge level over 40 m at each span end and stays off the LIE's verge and its ramps.
+  23 OSM structures cross over the BQE (the `XING` block): Queens Blvd, the LIRR Main Line and Port Washington
+  Branch, the IRT elevated, Roosevelt Ave, streets and footbridges, drawn as decks on wall piers at max(ground +
+  wall, road + 16 ft) (tracks: ballast, rails, through girders).
+- **Junction (LIE x BQE).** The exit 16 / 17 diamonds are gone (`road::network::kJunctionExits`), the LIE service roads
+  run through, the D4 BQE crossing is skipped (`kOwnedCrossings`), and the LIE's own `motorway_link` ways there join
+  the ramp set (`lie_links`). Ramps are whole OSM chains: links joined end to start with no fork are one ramp; an end
+  belongs to a road only through a shared OSM node (no more fragments, no wrong attach); far pieces join their
+  junction through the chain (`chain_radius_m`). LIE-side ramp points blend the LIE's frame (the OSM EB line is the
+  compact median, so laterals map past the lane centres, the real median squeezed to the compact one) with the
+  BQE's. At runtime a ramp end attaches to the carriageway whose travel matches the ramp's, a ramp crossing a road
+  or ramp is lifted to 16 ft + deck (`clear_ramps`), ramps are one-way (a handoff never picks a ramp running against
+  the car), and at a fork the branch whose centreline is nearer takes the car.
+- **Astoria Y.** The BQE alignment is the west leg (I-278, 2 lanes) into the GCP; the east leg ("Brooklyn-Queens
+  Expressway East", fetched on its own) joins as two 2-lane one-way pieces placed by a nearness-weighted blend of the
+  BQE and GCP frames. 3 lanes taper to 2 + 2 at the split.
+- **Ramp paint.** Where a ramp rides its road only the part past the road's outer edge is drawn, so ramps no longer
+  paint a yellow edge line across a carriageway (the N2b "yellow line on the right"); the left edge line is white
+  through the gore (60 m past where it leaves), yellow after; multi-lane ramps get 10 ft / 30 ft lane dashes.
+- **Signs.** `kGuideSigns` rows: BQE NB 39 / 40 / 41 at 1/2 mile, the Y truss with two boards (278 WEST GCP W / RFK,
+  EXIT 42 GCP E / LaGuardia), "278 EAST Bronx / Grand Central Pkwy 3 MILES" past the LIE; SB "278 WEST Brooklyn / Long
+  Island Expwy 2 MILES", 41 / 40 / 39 W, 35 W Midtown Tunnel; gore signs at each exit. LIE exit 17 joins the D3 exit
+  list (its own panels, collapse rule). Boards are drawn by [tools/sign_corridor.py](../tools/sign_corridor.py) into a
+  new 2048 x 1024 band of `sign_kit.png` (`sign_atlas::kNetBoards`, `kNetGores`); trusses on the BQE stand on the
+  parapet.
+- **Drive.** Tested movements: LIE EB to BQE NB, BQE NB to the GCP (both legs), GCP to BQE SB, BQE SB to LIE WB, LIE
+  WB to BQE SB, BQE to LIE EB and WB; every movement through every junction never holds the car and hands off within
+  1 m. Missing: BQE SB to LIE EB (no OSM chain reaches the LIE EB in this extract).
+
+Draws: network 3,449 (N2b 3,456; ramps merged 293 to 184, structures, signs and overpasses added), corridor total
+12,144; 60 fps (capped) on the Arch RTX 3060 at the junction. Screenshots: [junction from the LIE](corridor/img/n3-junction-lie.png),
+[junction overhead](corridor/img/n3-junction-overhead.png), [flyovers](corridor/img/n3-flyover.png),
+[viaduct](corridor/img/n3-viaduct.png), [viaduct at dusk](corridor/img/n3-viaduct-dusk.png),
+[LIRR dip](corridor/img/n3-lirr-dip.png), [Astoria Y gantry](corridor/img/n3-astoria-y.png),
+[Y split](corridor/img/n3-astoria-split.png). `SWISH_TOD=<0-5>` (debug) sets the time of day for shots.
+
+## GCP and its junctions (N4, 2026-11-22)
+
+Debug build only (release loads no network). The Grand Central Parkway is a parkway now, from the RFK work zone to the
+Nassau-line work zone, joined to the LIE at exit 22 by the real cloverleaf and to the BQE by the N3 Astoria Y. The loop
+LIE, BQE, GCP, LIE closes both ways. Code: [CorridorNetwork.cpp](../src/scene/Corridor/CorridorNetwork.cpp) (the GCP
+under the LIE, ramp clearance), [CorridorBridges.cpp](../src/scene/Corridor/CorridorBridges.cpp) (the LIE's bridge over a
+network road), [CorridorViaduct.cpp](../src/scene/Corridor/CorridorViaduct.cpp) (stone-arch overpasses), bake in
+[tools/queens_network.py](../tools/queens_network.py) with `[roads.gcp]` in
+[config/queens_network.toml](../config/queens_network.toml), signs in [tools/sign_corridor.py](../tools/sign_corridor.py).
+Knobs and math: [corridor tuning notes](corridor/tuning-notes.md#n4-gcp-and-its-junctions).
+
+```mermaid
+graph LR
+  J[fetch_net: queens_jlinks_lie_gcp.json, every motorway_link + one-way service road] --> B[bake_net]
+  B --> W[service-road walk: C/D ends folded into the LIE]
+  B --> U[unsqueeze: real LIE scale within 80-260 m of the crossing]
+  B --> G[queens_gcp_full.bin: lon profile, Briarwood trench, XING with stone arches, 2/8 ft shoulders]
+  D4[AppInit D4: LIE bridge over the GCP, b.net, 42 m half width, piers] --> L[CorridorNetwork::load]
+  G --> L
+  L --> S[GCP sag to the D4 trench floor, C/D ramp points with it]
+  S --> R[build_ramps + clear_ramps: verge lift, one side per crossing]
+```
+
+- **Exit 22 (LIE x GCP cloverleaf).** `lie_gcp` joins `lie_links`, so the LIE's own links there join the ramp set, and
+  `kJunctionExits` drops the exit 22 diamond (the 900 m spacing rule then keeps 19 and 23, not 24). OSM routes the LIE
+  side of the cloverleaf through the Horace Harding Expwy service roads (the C/D); neither the LIE extract nor the GCP
+  extract held them, so `fetch_net` pulls every `motorway_link` and one-way secondary / tertiary way within 1.5 km of
+  the junction (`queens_jlinks_lie_gcp.json`). A link ending on a service road follows it to where it runs beside the
+  LIE and merges into the LIE there; LIE-to-service-road slip ramps are dropped (the service road is folded into the
+  LIE). A link merging into the middle of another splits that one (49504 into 64574). Near the crossing the LIE frame
+  keeps real scale along the LIE (`unsqueeze_m`), so the C/D roads are not squeezed onto the GCP's lanes. 13 movements,
+  7 of the 8 cloverleaf ones (LIE EB to GCP EB has no chain); 21 ramps at the junction (19 before the splits).
+- **Van Wyck (N5).** LIE links nearer `lie_vw` serve only owned junctions; the 14 N1 Van Wyck ramps are unchanged and
+  the Van Wyck/Kew Gardens junction is not built. No ramp dangles from exit 22's side (deferred, not stubbed).
+- **The GCP under the LIE.** The LIE's D4 bridge over the GCP (`kNetUnder = "Grand Central"`) becomes a 42 m half-width
+  concrete girder deck on piers at the GCP median and 22 m either side, its trench floor 1.4 m deeper (`kUnderDig`), its
+  U-walls only inside the LIE corridor, and no D4 under-road or aprons. At load the GCP's stations take the trench
+  floor under the deck and climb back to their own profile over `kLieClimb` + `net_under_blend_m`; the junction's ramp
+  points within the bridge's half width (fading over 40 m) move with it, so the C/D roads pass under the deck too.
+- **Ramp clearance.** A ramp crossing a road now goes wholly over or wholly under it per run of points (the mean gap
+  decides): a per-point choice tore exit 22's C/D road by 10 m. A ramp beside a road (tangents within 20 deg) is not a
+  crossing. A ramp sunk up to 2 m into a junction road's grass verge is lifted onto it (short ease), so ramp asphalt
+  no longer hides under the grass with only its paint showing.
+- **Parkway profile (roads.md section 2).** The GCP's profile rows key on longitude (`profile_axis = "lon"`): the
+  Briarwood / Jamaica Hills trench (-73.811 to -73.7905, 5.5 m) with the N3 retaining walls; elsewhere the OSM layers.
+  3 through lanes RFK to exit 4 (`lane_floor`), 2 ft / 8 ft shoulders, the N3 NJ median (the GCP now has a GRND block).
+  39 OSM structures cross over it (XING), drawn by the N3 overpass code; `crossing_styles` makes the 69th Rd and Jewel
+  Ave bridges 1930s stone arches (springing at 14 ft 6 in, piers at the median and past each edge); `crossing_exclude`
+  drops the Horace Harding decks (the LIE bridge draws them) and a BQE-named way at the Y.
+- **Astoria Y.** The N3 legs stay as built and drivable (BQE NB to GCP EB and WB, GCP WB to BQE SB, GCP EB to BQE SB).
+  There was no temporary N3 end or wall to remove: the BQE's north end is the Y merge, and the RFK work zone stays.
+- **Signs.** Parkway style: green guide boards with the Interstate shields of the roads the GCP meets (EXIT 10 I-495 both
+  ways, EXIT 4 I-278 WEST westbound, 1/2 mile, gore signs) and a new NYSDOT parkway trailblazer (`draw_pkwy`) on the
+  confirmation boards past the Y (EAST: LaGuardia Airport, Eastern Long Island) and past exit 22 (WEST: LaGuardia,
+  RFK Bridge). LIE exit 22 joins the D3 exit list (its "22A-E" and "22 A-B" panels). The kit atlas grows to 2048 x
+  3200 (`sign_atlas::kNetBoards` 11 to 16, `kNetGores` 7 to 9); the earlier cells are pixel-identical.
+- **Loop.** `N4: the LIE - BQE - GCP loop closes both ways` drives LIE EB, BQE NB, the Y, GCP EB, exit 22, LIE WB back
+  to the start, and LIE EB, exit 22, GCP WB, the Y, BQE SB, LIE WB, every step continuing the last (road id and s
+  continuous, no step over 1 m in height, never held), on the LIE graded as in the game (D4 bridges, the GCP's trench).
+- **Still missing.** BQE SB to LIE EB: still no OSM chain after the junction-wide link fetch (only BQE SB to LIE WB). A
+  BQE east-leg piece passes 5.6 m under the GCP's westbound lanes with no GCP structure drawn over it (N7).
+
+Draws: network 3,488 (N3 3,449), corridor total 12,137; 48-60 fps on the Arch RTX 3060 (headless 1920 x 1080 output),
+49-57 at exit 22. Screenshots: [exit 22 overhead](corridor/img/n4-exit22-overhead.png),
+[the LIE bridge over the GCP](corridor/img/n4-exit22-bridge.png), [GCP under the LIE](corridor/img/n4-exit22-underpass.png),
+[Astoria Y](corridor/img/n4-astoria-y.png), [Jewel Ave arches](corridor/img/n4-gcp-arches.png),
+[Briarwood trench](corridor/img/n4-gcp-trench.png), [EXIT 10 sign](corridor/img/n4-gcp-exit10-sign.png),
+[EXIT 4 sign](corridor/img/n4-gcp-exit4-sign.png), [parkway confirmation board](corridor/img/n4-gcp-confirm.png),
+[exit 10 gore and handoff](corridor/img/n4-loop-handoff.png).
+
+## The rungs: Van Wyck, Clearview, Cross Island (N5, 2026-11-22)
+
+Debug build only (release loads no network). The three ladder rungs between the LIE and the GCP are real roads now:
+their LIE junctions from OSM replace the LIE diamonds at exits 26-28 and 31, their GCP junctions (Kew Gardens, the
+Clearview four-level stack, GCP x CIP in Alley Pond Park) are drivable, every rung end is the N2b work zone, and the
+Van Wyck crosses the LIE on its own viaduct while the Clearview and the CIP pass under new LIE girder bridges. Code:
+[CorridorNetwork.cpp](../src/scene/Corridor/CorridorNetwork.cpp), [CorridorViaduct.cpp](../src/scene/Corridor/CorridorViaduct.cpp),
+[CorridorNetworkMesh.cpp](../src/scene/Corridor/CorridorNetworkMesh.cpp), bake in [tools/queens_network.py](../tools/queens_network.py)
+with [config/queens_network.toml](../config/queens_network.toml), signs in [tools/sign_corridor.py](../tools/sign_corridor.py).
+Knobs and math: [corridor tuning notes](corridor/tuning-notes.md#n5-the-rungs-van-wyck-clearview-cross-island).
+
+```mermaid
+graph LR
+  F[fetch_net: jlinks at lie_vw / lie_clearview / lie_cip + net_links at the GCP junctions; rung XING] --> B[bake_net]
+  B --> C[signed secondary connectors become links; Van Wyck C/D folded into the LIE; chains cross exit 22 / VW]
+  B --> A[queens_vanwyck / clearview / cip_full.bin: GRND, XING]
+  D4[D4: LIE bridges over the Clearview and the CIP, b.net; the VW crossing owned] --> L[CorridorNetwork::load]
+  A --> L --> R[build_ramps: pins past half way] --> K[clear_ramps x8: shoulder lift, crossings, headroom, re-weld]
+  K --> S[step: hand off to the road at the end left by]
+```
+
+- **LIE junctions.** `lie_links` adds `lie_vw`, `lie_clearview` and `lie_cip`, so each pulls every `motorway_link`
+  and one-way secondary / tertiary way within 1.5 km and the LIE's own links join the ramp set. The Van Wyck's C/D
+  runs on the Horace Harding service roads like exit 22's (`srv_junctions` + `lie_vw`), and a chain may continue
+  across the two junctions (they share C/D pieces). An unnamed secondary or tertiary way with a `destination` tag
+  that meets a `motorway_link` (directly or through another such way) is a ramp (25419995 "Grand Central Parkway
+  East" at exit 22, the Van Wyck's College Point connectors). LIE EB to GCP EB, listed missing in N4, drives through
+  exit 22's C/D and is now pinned in the exit 22 test (eight of eight movements). The diamonds
+  at 26, 27, 28 and 31 are gone (`kJunctionExits`): 26's and 28's would sit on the Clearview's C/D and loops. LIE
+  exits 27 and 31 join the D3 exit list (their own panels and gores).
+- **Crossing the LIE.** The Van Wyck (layer 3) crosses over the LIE on its own viaduct (`kOwnedCrossings` drops the D4
+  bridge; College Point Blvd keeps its LIE bridge beside it). The Clearview and the CIP pass under N4-style girder
+  bridges (`kNetUnder`); a rung under the trench floor now rises to it (the CIP, 9.8 m under the LIE), so the piers
+  stand on its pavement.
+- **Profiles and structures.** The rungs bake a GRND block (`profile = []`), so their viaducts (the Van Wyck over the
+  LIE and over Kew Gardens) get NJ parapets, fascia, soffit and bents, and the NJ median. A structure now spans any
+  network road below it (green plate girders, no piers in its lanes): the GCP over the Clearview stack and over the
+  CIP, the Van Wyck over the GCP. The Van Wyck's 25 OSM overpasses are drawn; the Clearview and CIP crossings are
+  fetched by bbox (the `around` query returned nothing).
+- **Kew Gardens.** OSM joins the Van Wyck and the GCP only GCP EB to VW SB and VW NB to GCP WB; the other movements go
+  through Union Tpke and Queens Blvd, which the network does not model. The Jackie Robinson / Union Tpke links are
+  drawn up to where they leave the junction.
+- **Ramps.** Pins continue past half a ramp while it is level with its road (a C/D in the GCP's lane at the CIP), a
+  ramp hugging a road's shoulder is lifted onto it, welded ends move with the clearance bumps and meet again
+  (8 rounds), an upper ramp in a stack climbs at most the headroom under the road above it and the lower one drops
+  by the rest, and off a ramp the car is handed only to the road at the end it leaves by.
+- **Signs.** Twelve boards and nine gores (kit atlas 2048 x 4096, earlier cells pixel-identical): Van Wyck EXIT 7, 10
+  and 12 A-B and Clearview EXIT 4 E-W and 1 in Interstate style; CIP EXIT 30 E and 29 E-W both ways and a CROSS ISLAND
+  PKWY SOUTH confirmation board in parkway style; GCP EXIT 13, 21 and 23.
+- **Drive.** `N5: each rung hands the car LIE - rung - GCP and back` drives, per rung, the LIE onto its southbound to
+  the GCP and the GCP onto its northbound back to the LIE (the Van Wyck through its south work zone's median gap).
+
+Still missing: BQE SB to LIE EB (no OSM chain, checked again with every link and one-way service road); ramp grades
+next to pins and welds (fixed in N6).
+
+Draws: network 3,549 (N4 3,488), corridor total 12,029; 49-60 fps on the Arch RTX 3060 (headless 1920 x 1080) at the
+rung junctions. Screenshots: [LIE x Van Wyck](corridor/img/n5-vw-lie-driver.png) and [overhead](corridor/img/n5-vw-lie-overhead.png),
+[Kew Gardens](corridor/img/n5-kew-gardens-driver.png) and [overhead](corridor/img/n5-kew-gardens-overhead.png),
+[the Clearview under the LIE](corridor/img/n5-clearview-lie-driver.png) and [overhead](corridor/img/n5-clearview-lie-overhead.png),
+[the Clearview stack](corridor/img/n5-clearview-stack-driver.png) and [overhead](corridor/img/n5-clearview-stack-overhead.png),
+[the CIP at the LIE](corridor/img/n5-cip-lie-driver.png) and [overhead](corridor/img/n5-cip-lie-overhead.png),
+[the CIP under the GCP](corridor/img/n5-cip-gcp-driver.png) and [overhead](corridor/img/n5-cip-gcp-overhead.png),
+[Clearview EXIT 4 E-W](corridor/img/n5-clearview-exit4-sign.png), [CIP EXIT 30 E](corridor/img/n5-cip-exit30-sign.png).
+
+
+## Ramp grades, closed local exits and guide signs per road (N6, 2026-11-22)
+
+Debug build only (release loads no network). Three things: the N5 ramp grades (54-93 % next to pins and welds) are
+solved to at most 8 % where the compact layout has room; every local exit on the five new roads is signed but closed
+(decision 8: a gore, its exit signs, a short stub and the N2b EXIT CLOSED kit, and the car cannot leave the network
+through it); and every exit, closed or real, gets advance, exit-direction and gore signs in its road's style. Code:
+[CorridorNetwork.cpp](../src/scene/Corridor/CorridorNetwork.cpp), [CorridorSigns.cpp](../src/scene/Corridor/CorridorSigns.cpp),
+[CorridorNetworkMesh.cpp](../src/scene/Corridor/CorridorNetworkMesh.cpp), bake in [tools/queens_network.py](../tools/queens_network.py),
+boards in [tools/sign_corridor.py](../tools/sign_corridor.py). Knobs and math:
+[corridor tuning notes](corridor/tuning-notes.md#n6-ramp-grades-closed-local-exits-guide-signs-per-road).
+
+```mermaid
+graph LR
+  B[bake_net: stubs from motorway_junction nodes, RAMP.stub] --> L[CorridorNetwork::load]
+  L --> C[clear_ramps] --> G[grade_ramps: difference constraints on the weld graph]
+  G --> K[closed = dead ramp off a network road or a live ramp: stop, hold]
+  S[sign_corridor.py: kNetExits, boards, gores, arrow strip] --> N[network_signs: kGuideSigns rows + add_exit_signs]
+  K --> M[mesh: one segment per closed exit + exit_closure kit]
+  N --> M
+```
+
+- **Ramp grades.** `grade_ramps` runs after `clear_ramps`. Each ramp point is a height; the constraints are the grade
+  limit between neighbours, equal heights at a weld, the pinned stretch fixed, clearance over or under a junction road
+  or another ramp (never worse than N5 left it, never more than 16 ft + deck), and the shoulder floor. The band each
+  point may take is found by longest / shortest-path relaxation over the graph; the profile is the N5 one clamped into
+  it, made feasible from below and from above and averaged, rounded with a 12 m box and fitted again. A ramp with no
+  room at 8 % gets the least grade that fits. 233 ramps: 210 at or under 8 %, 22 at 8.2-10.6 %, one LIE x CIP pair at
+  19.9 % (open). The handoff, loop, clearance and shoulder tests of N3-N5 are unchanged and green.
+- **Closed exits.** The bake adds a stub for every exit node on a road's drivable span whose link is no network ramp
+  (34); at runtime every dead ramp (no road reachable past its end) that leaves a network road or forks off a live ramp
+  is closed: 48 off the roads, 15 fork branches. The barricades stand `wz_exit_gore_m` past the gore (a fork branch: 30 m
+  past where it clears its siblings), the car is held 9 m before them, and past that point no hand-off except back to a
+  live ramp. Closed ramps are their own segments (the junction segments keep the rest), with the N2b `exit_closure`
+  kit. The LIE's own exits are untouched.
+- **Signs.** `network_signs(net, road)` = the N3-N5 `kGuideSigns` rows, then `add_exit_signs` for every exit in
+  `sign_atlas::kNetExits` (the sign tool writes one row per exit record on a network road's drivable span): advance
+  boards by the D3 collapse rule with the D3 distance strip under them, an exit-direction sign 60 m before the gore
+  (board + arrow strip; an N3-N5 board with its distance line cropped), the gore sign; a closed exit's boards carry the
+  orange EXIT CLOSED plaque. The BQE, Van Wyck and Clearview use the D3 overhead trusses, the GCP and the CIP roadside
+  boards on two posts (0.6 scale, parkway style); a left exit is signed over the left lane with the arrow mirrored.
+  Two exits sharing one ramp (Van Wyck 12 A / B, GCP 20A and 21) get one set. Kit atlas 2048 x 7104, earlier cells
+  pixel-identical.
+
+Draws: network 4,329 (N5 3,549), corridor 12,809; 60 fps (capped) on the Arch RTX 3060 headless 1920 x 1080 output.
+Screenshots: [BQE exit 39 closed](corridor/img/n6-bqe-exit39-closed.png), [its closure](corridor/img/n6-bqe-exit39-overhead.png),
+[at dusk](corridor/img/n6-bqe-exit39-dusk.png), [GCP exit 20 B on posts](corridor/img/n6-gcp-exit20b-closed.png),
+[GCP closures](corridor/img/n6-gcp-closure-overhead.png), [Van Wyck exit 6](corridor/img/n6-vw-exit6-closed.png),
+[Van Wyck south](corridor/img/n6-vw-overhead.png), [Clearview exit 3](corridor/img/n6-clearview-exit3-closed.png),
+[its closure](corridor/img/n6-clearview-closure-overhead.png), [CIP exit 28 B](corridor/img/n6-cip-exit28b-closed.png),
+[CIP closure](corridor/img/n6-cip-closure-overhead.png), [CIP exit 30 E direction sign](corridor/img/n6-cip-exit30e-direction.png),
+[LIE to Van Wyck flyover, graded](corridor/img/n6-lie-vw-flyover-graded.png) and [from the LIE](corridor/img/n6-lie-vw-flyover-chase.png).
+
+Still open: the LIE x CIP pair at 19.9 %; where a ramp's pinned stretch passes the road edge it sits about 10 cm under
+the grass verge mesh, so a ramp seems to leave the road through a short gap from above (N3-N5 trait, N7); exit
+entrances (on-ramps from local streets) are not closed or signed; the HUD still names LIE exits only (N9).
+
+## Look per road, network ground and soffits (N7, 2026-11-22)
+
+Debug build only (release loads no network; the lighting shader is untouched). Every network road now looks like itself
+from the roads.md table, the network stands on one continuous ground, and the deck undersides are lit. Code:
+[CorridorGround.h](../src/scene/Corridor/CorridorGround.h) (the ground field and its grass tiles),
+`CorridorNetwork::dress` in [CorridorNetwork.cpp](../src/scene/Corridor/CorridorNetwork.cpp) (look rows to kits, lamps,
+W-beam, sound walls, verge cuts), [CorridorDressing.cpp](../src/scene/Corridor/CorridorDressing.cpp) (kits by LOOK row,
+heights on the ground, keep-out), data in [queens_network.toml](../config/queens_network.toml) (`look`), baked into each
+road asset's `LOOK` block by [tools/queens_network.py](../tools/queens_network.py). Knobs and math:
+[corridor tuning notes](corridor/tuning-notes.md#n7-look-per-road-network-ground-soffits-lie-x-cip-grade).
+
+```mermaid
+graph LR
+  T[toml look rows: kit, lamp, edge, pavement per real lat / lon range] --> B[bake_net: LOOK + SURF per road]
+  B --> L[CorridorNetwork::load]
+  L --> D[dress: CorridorGround::build, edges per road]
+  D --> G[ground: DEM blend, held between cut and fill slopes of at-grade pavement]
+  D --> E[edges: kit rows, W-beam / sound walls off structures and ramps, verge cuts at ramps]
+  E --> M[build_corridor_segments: D5 trees, buildings, headstones, lamps; D2 rails and walls]
+  G --> M2[grass tiles: 16 m fine near the network, 96 m coarse to the far plane]
+  G --> LIE[LIE dressing keeps off network ramps]
+```
+
+- **Look rows.** Per road, real latitude (longitude on the GCP) ranges name a LIE D5 kit (Maspeth industry, Calvary
+  headstones, Queens houses and walk-ups, Flushing Meadows lawns, Alley Pond woods, Nassau suburbs), a lamp kind (median
+  twin davits on the BQE, GCP and CIP; roadside singles on the Van Wyck and Clearview), an edge (W-beam through the parks
+  and woods, sound walls at the Nassau line) and a pavement (concrete BQE trench and GCP west of exit 4, from the Street
+  View notes). Tails past the walls use the same rows, so the road to the horizon is dressed (decision 12).
+- **Ground.** One field: the DEM blended between every road and ramp, pinned to each at-grade pavement band and its
+  verge, sloping away at 1V:2H, never over pavement. Cloverleaf infields are continuous graded grass that meets the ramp
+  edges; the LIE's level ground continues into it; there is ground to the far plane. The network roads lose their own
+  far strips (the field replaces them).
+- **Verges at ramps.** Where an attached ramp lies over a road's verge band near its level, that side's verge is cut
+  and the field fills the gore: no ramp asphalt under the grass (the N6 seam).
+- **Keep-out.** Trees stay 12 m off other pavement (network ramps, other roads, the LIE's included), buildings 14 m,
+  lamps and headstones off it; the LIE's own dressing near the junctions now keeps off the network ramps too.
+- **Soffits.** The viaduct and ramp soffits had up-facing normals (`emit_strip` forces them); `cmesh::soffit` faces
+  them down, so the D4 ground bounce lights them. The road under a deck keeps the LIE's sky-only shadow.
+- **LIE x CIP grade.** The pair that passes under the LIE and over the CIP 24 m apart is 10.8 % (was 19.9 %): a ramp to
+  or from a parkway, or over one, needs parkway headroom (12.5 ft + deck), not 16 ft.
+- **Edge lines.** Checked in the shots: every road yellow at the median edge, white at the outer; ramps yellow left,
+  white right and through the gore (N3's clip).
+
+Draws: network 5,630 (N6 4,329), corridor 14,110; 55-60 fps on the Arch RTX 3060 (headless 1920 x 1080).
+Screenshots: [BQE over New Calvary](corridor/img/n7-bqe.png), [GCP in the woods](corridor/img/n7-gcp.png),
+[Van Wyck in the park](corridor/img/n7-vanwyck.png), [Clearview](corridor/img/n7-clearview.png),
+[CIP](corridor/img/n7-cip.png), [exit 22 overhead](corridor/img/n7-exit22-overhead.png) and
+[at the LIE bridge](corridor/img/n7-exit22-bridge.png) (compare [N4](corridor/img/n4-exit22-bridge.png)),
+[soffits over the LIE at the BQE](corridor/img/n7-viaduct-underside.png), [dusk on the BQE](corridor/img/n7-dusk.png),
+[Kew Gardens](corridor/img/n7-kew-gardens-overhead.png), [LIE x BQE and Calvary](corridor/img/n7-bqe-calvary-overhead.png),
+[CIP closure and its dressed tail](corridor/img/n7-cip-wall-tail.png).
+
+Still open: the pavement under a wide deck reads near-black on the LIE's dark asphalt (the sky-only shadow; a deck
+occlusion plus soffit-bounce term needs an owner call on the lighting look); trees are the D5 cards (no new species);
+no water (Flushing Bay, Little Neck Bay are grass); entrances from local streets still not closed.
+
+## Landmarks on the network (N8, 2026-11-22)
+
+Debug build only (release loads no network). The decision 9 landmarks from
+[landmarks.md](queens-network-reference/landmarks.md), each a few procedural meshes in the existing materials (stone,
+brick, concrete, painted steel, glass, emissive lamps). Code: [CorridorNetLandmarks.cpp](../src/scene/Corridor/CorridorNetLandmarks.cpp);
+data: `landmarks` rows in [queens_network.toml](../config/queens_network.toml), baked by
+[tools/queens_network.py](../tools/queens_network.py) into the network file's `LMRK` block. Knobs and math:
+[corridor tuning notes](corridor/tuning-notes.md#n8-landmarks-decision-9).
+
+```mermaid
+graph LR
+  T[toml landmarks: kind, road, real lat / lon] --> B[bake_net: compact s, real lateral per point] --> L[LMRK block]
+  L --> P[landmark_lat: buildings slide clear of roads and ramps]
+  P --> S[network_landmark_segments: one segment each]
+  P --> K[landmark_keepout: footprints, sightline fans, airfield] --> G[CorridorGround keep-out: no trees there]
+  L --> J[landmark_replaces: Jamaica Yard skips emit_overpass]
+  S --> F[far segment: Throgs Neck] --> D[CorridorDriver: scaled about the camera each frame]
+```
+
+- **Gas station** (Cunningham Park, GCP 14.0 km): canopy, pumps, stone kiosk, lit LED price sign and canopy spots, on
+  the left of the eastbound lanes (the real one is in the median, which the compact GCP does not have; both photos are
+  eastbound with it on the left). Generic brand, no logo.
+- **Stone arch** (GCP over the CIP): the D4 stone arches on the GCP's faces where it crosses the CIP, one per
+  carriageway, crown under the GCP's girders, wing walls; its green steel shows through, as in the photo.
+- **Astoria underpass**: the Astoria Blvd elevated station along 31st St, over the OSM 31st St bridge, right at the GCP
+  west work-zone wall (the station rises over the closure).
+- **Jamaica underpass**: the Jamaica Yard plate-girder bridge on granite piers; it replaces the yard-lead crossings it
+  covers (landmarks.md's pick: the Van Wyck's LIRR / AirTrain crossings are south of the network's Van Wyck wall).
+- **LaGuardia**: wall and chain-link past the GCP's north edge, both runways with edge lights, Terminal B, the tower and
+  three parked jets whose tail fins show over the fence.
+- **Citi Field and Arthur Ashe Stadium**: brick and ribbed-concrete bowls with light towers, with a tree-free sightline
+  from the GCP (the D6 Unisphere wedge rule).
+- **Kew Gardens**: light-blue plate girders under the elevated ramps of the GCP x Van Wyck junction.
+- **Throgs Neck Bridge**: towers, deck and cables 5 km past the CIP and Clearview north walls; a far segment drawn at
+  1 km and scaled about the camera like the skyline card, without turning to face it, and enlarged 3 times about its
+  base (`lm_far_scale`: at true size a tower leg is one pixel at 5 km on a 1080p frame).
+
+Draws and frame rate: see the N8 changelog entry. Screenshots (hood camera, Arch headless 1920 x 1080):
+[gas station](corridor/img/n8-gas-station.png), [at dusk](corridor/img/n8-gas-station-dusk.png),
+[CIP stone arch](corridor/img/n8-cip-stone-arch.png), [Astoria](corridor/img/n8-astoria-underpass.png),
+[Jamaica Yard](corridor/img/n8-jamaica-yard-bridge.png), [LaGuardia](corridor/img/n8-laguardia.png),
+[Citi Field](corridor/img/n8-citi-field.png), [USTA / Ashe](corridor/img/n8-usta-ashe.png),
+[Kew Gardens](corridor/img/n8-kew-gardens.png), [Throgs Neck](corridor/img/n8-throgs-neck.png).
+
+Still open: no Flushing Bay water or marina (landmarks.md #9, not in decision 9), no plane on approach, the gas
+station's left-exit link stays the N6 closed stub, the Throgs Neck is enlarged for legibility (owner call on the
+factor), Terminal B is a plain box (no curved roof or viaducts), the jets are hidden behind the perimeter wall from most
+of the GCP.
+
+## HUD and minimap on every road (N9, 2026-11-22)
+
+Debug build only (the HUD is a debug overlay; release loads no network). Decision 10: the strip and the minimap know
+which piece of the network the car is on. Code: [CorridorNetHud.cpp](../src/scene/Corridor/CorridorNetHud.cpp) (pure
+text and lines, unit-tested in [test_net_hud.cpp](../tests/test_net_hud.cpp)), [AppHud.cpp](../src/core/App/AppHud.cpp)
+(feed), [HudOverlay.cpp](../src/debug/HudOverlay.cpp) (draw), per-road names in `road::network::kHudRoads`
+([RoadParams.h](../src/scene/RoadScene/RoadParams.h)). Knobs and sources:
+[corridor tuning notes](corridor/tuning-notes.md#n9-hud-and-minimap-on-every-road).
+
+```mermaid
+graph LR
+  D[CorridorDriver::net_pos: road + s or ramp + u] --> A[AppHud::sync_hud]
+  A -->|road 0, no ramp| L[LIE path, unchanged]
+  A -->|anything else| N[network_hud]
+  N --> F[HudFeed: shield, piece, tab, warn, miles]
+  M[network_map_lines, once] --> F
+  F --> O[HudOverlay: strip + minimap]
+```
+
+- **Strip.** Off the LIE the middle column is the road (Interstate shield tab for I-278 / I-678 / I-295, then the
+  name and the signed direction: `BQE E`, `Grand Central Pkwy E`, `Van Wyck N`). The right column is the nearest exit
+  record ahead on the car's carriageway inside the walls: green `EXIT 10W-E` with its shields and places, or orange
+  `EXIT 39 CLOSED` when the N6 rule closed its ramp (`net_exit_site`, the sign code's lookup). Distances are real miles
+  (the road's real over baked length). Within `hud_road_ends_mi` of a work-zone wall, with no exit before it, the tab
+  is `ROAD ENDS`. On a ramp: `Ramp`, then `TO I-495 E Long Island Expy` (the welded chain followed to the road it
+  lands on, direction from its end tangent) or `EXIT CLOSED`. The district comes from the road asset (Queens).
+- **Direction.** The signed cardinal of the route, not the local heading (MUTCD 2D.13): +s runs the toml's from -> to,
+  so the BQE north to Astoria reads I-278 East, as its guide signs do. The world frame is the LIE's (it runs along -z),
+  so a compass bearing cannot be read off compact geometry.
+- **Minimap.** Every network road (drivable span) and every ramp is drawn dim; the piece the car is on is lit blue
+  on top. Off the LIE the whole-route view frames the network (title QUEENS) instead of the 30-mile LIE, so the GCP
+  near the Nassau line fills the square; on the LIE the view is unchanged. The car arrow is the car's true world x, z.
+- **Jump.** Corridor panel: one button per road (`Jump to road:`), at "Jump: km"; the HUD and map follow next frame.
+  `SWISH_SPAWN=ramp<k>,u` puts the car on junction ramp k (screenshots).
+
+Screenshots (Arch, 1920 x 1080, cockpit): [BQE, exit 39 closed](corridor/img/n9-bqe.png),
+[GCP, exit 10W-E](corridor/img/n9-gcp.png), [Van Wyck N, exit 10](corridor/img/n9-vanwyck.png),
+[Clearview S, exit 4E-W](corridor/img/n9-clearview.png), [Cross Island S, exit 30E](corridor/img/n9-cip.png),
+[ramp to the LIE](corridor/img/n9-ramp.png), [GCP east wall, ROAD ENDS](corridor/img/n9-wall.png),
+[LIE, unchanged](corridor/img/n9-lie.png). 41-56 fps.
+
+Still open: a ramp fork names its first live branch; the minimap lines are built once (a network rebuild is not
+redrawn); the LIE HUD keeps its record-station rule (exit 22's sign can be ahead while the strip already shows 23).
+
 ## See also
 
 - [glen-cove-lie.md](glen-cove-lie.md) — the roadside detail (signage, guardrail, davit lamps,

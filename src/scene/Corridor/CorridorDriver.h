@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CorridorAlignment.h"
+#include "CorridorNetwork.h"
 #include "CorridorScene.h"
 #include "CorridorSurface.h"
 
@@ -58,6 +59,14 @@ public:
 #ifdef SWISH_DEBUG_UI
     // D5: segment index of the skyline card (placed each frame, never by the visible-window test).
     void set_skyline(size_t seg) { m_skyline = seg; }
+    // N2a: the Queens network (App loads it next to the LIE); off the LIE the car follows it (update()).
+    CorridorNetwork& network() { return m_net; }
+    const NetPos&    net_pos() const { return m_np; }
+    // N2b: work-zone lamp draws of segment `seg` (group 2 arrow boards, 3 warning lights); update() flashes them.
+    void add_flashers(size_t seg, const std::vector<SignalLens>& l) {
+        for (const SignalLens& x : l) m_flash.emplace_back(seg, x);
+    }
+    void clear_flashers() { m_flash.clear(); }
 #endif
 
     // Keep the car centre this far inside each piece's paved edge (WU).
@@ -111,12 +120,22 @@ private:
     float      m_prevLat   = 0.0f;
     DrivePiece m_prevPiece = DrivePiece::Mainline;
 
+    float m_prevY = 0.0f;  // surface height under the car last update (N2a handoff: height continuity)
+
 #ifdef SWISH_DEBUG_UI
+    // N2a: on road 0 with no ramp the LIE rule above owns the car; anywhere else CorridorNetwork::step does.
+    CorridorNetwork m_net;
+    NetPos          m_np;
+    void            net_update(CarEntity& car, Vec3& pos, double x, double z, bool debugEdit);
+    void            net_jump(CarEntity& car, int road, double s);
+    void            spawn_from_env(CarEntity& car);  // SWISH_SPAWN (debug)
     // Throttle for the ~1 Hz corridor telemetry line (see update()).
     float m_logTimer = 0.0f;
     // C4: the weather preset's EV floor, held while the car is in the tunnel (-1 = outside)
-    float  m_evMinOutside = -1.0f;
-    size_t m_skyline      = static_cast<size_t>(-1);
+    float                                      m_evMinOutside = -1.0f;
+    size_t                                     m_skyline      = static_cast<size_t>(-1);
+    std::vector<std::pair<size_t, SignalLens>> m_flash;  // N2b
+    double                                     m_flashClock = 0.0;
 #endif
 };
 

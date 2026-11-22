@@ -50,9 +50,9 @@ std::filesystem::path executable_dir() {
     if (_NSGetExecutablePath(buf.data(), &size) != 0) return {};
     exe = buf.c_str();
 #else
-    std::error_code ec;
-    exe = std::filesystem::read_symlink("/proc/self/exe", ec);
-    if (ec) return {};
+    std::error_code linkEc;
+    exe = std::filesystem::read_symlink("/proc/self/exe", linkEc);
+    if (linkEc) return {};
 #endif
     std::error_code ec;
     const auto      canonical = std::filesystem::canonical(exe, ec);
